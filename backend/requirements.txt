@@ -1,0 +1,4 @@
+fastapi[standard]==0.135.1
+SQLAlchemy==2.0.48
+pg8000==1.31.5
+pydantic==2.12.5
