@@ -9,6 +9,7 @@ from .base import Base, utcnow
 
 if typing.TYPE_CHECKING:
     from .media import Media
+    from .trips import TripMember
 
 
 class User(Base):
@@ -30,7 +31,8 @@ class User(Base):
         String(255),
         nullable=False,
     )
-    salt: Mapped[str] = mapped_column(
+
+    password_version: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
@@ -49,12 +51,26 @@ class User(Base):
         server_default=func.now(),
     )
 
+    # Relationships
+    profile: Mapped['UserProfile'] = relationship(
+        'UserProfile',
+        back_populates='user',
+        cascade='all, delete-orphan',
+        uselist=False,
+    )
+    trip_memberships: Mapped[list['TripMember']] = relationship(
+        'TripMember',
+        back_populates='user',
+        cascade='all, delete-orphan',
+    )
+
 
 class UserProfile(Base):
     __tablename__ = 'user_profiles'
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey('users.id', ondelete='CASCADE'),
+        primary_key=True,
     )
     username: Mapped[str] = mapped_column(
         String(255),
@@ -95,6 +111,10 @@ class UserProfile(Base):
     )
 
     # Relationships
+    user: Mapped['User'] = relationship(
+        'User',
+        back_populates='profile',
+    )
     profile_picture: Mapped['Media'] = relationship(
         'Media',
     )

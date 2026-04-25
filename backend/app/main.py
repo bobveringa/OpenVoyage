@@ -1,22 +1,22 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
 
-app = FastAPI()
+from api.main import api_router
+from core.config import settings
 
+app = FastAPI(
+    title='OpenVoyage API',
+    version='0.1.0',
+)
 
-class Item(BaseModel):
-    name: str
-    description: str | None = None
-    price: float
-    tax: float | None = None
-    tags: list[str] = []
+# Set all CORS enabled origins
+if settings.all_cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.all_cors_origins,
+        allow_credentials=True,
+        allow_methods=['*'],
+        allow_headers=['*'],
+    )
 
-
-@app.get('/')
-async def root():
-    return {'message': 'Hello World'}
-
-
-@app.get('/items/{item_id}')
-def read_item(item: Item):
-    return item
+app.include_router(api_router, prefix=settings.API_V1_STR)
