@@ -1,6 +1,7 @@
 import typing
 import uuid
 from datetime import datetime
+from enum import Enum
 
 from sqlalchemy import DateTime, String, func, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -10,6 +11,11 @@ from .base import Base, utcnow
 if typing.TYPE_CHECKING:
     from .media import Media
     from .trips import TripMember
+
+
+class UserRole(Enum):
+    USER = 'USER'
+    ADMIN = 'ADMIN'
 
 
 class User(Base):
@@ -32,11 +38,6 @@ class User(Base):
         nullable=False,
     )
 
-    password_version: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-    )
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False),
         nullable=False,
@@ -49,6 +50,12 @@ class User(Base):
         default=utcnow,
         onupdate=utcnow,
         server_default=func.now(),
+    )
+    role: Mapped[UserRole] = mapped_column(
+        String(255),
+        nullable=False,
+        default=UserRole.USER,
+        server_default=UserRole.USER.value,
     )
 
     # Relationships
@@ -69,8 +76,13 @@ class UserProfile(Base):
     __tablename__ = 'user_profiles'
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey('users.id', ondelete='CASCADE'),
+        ForeignKey(
+            'users.id',
+            ondelete='CASCADE',
+            name='fk_user_profiles_user_id',
+        ),
         primary_key=True,
+        name='fk_user_profiles_user_id',
     )
     username: Mapped[str] = mapped_column(
         String(255),
@@ -84,9 +96,20 @@ class UserProfile(Base):
         String(255),
         nullable=False,
     )
+    slug: Mapped[str] = mapped_column(
+        String(48),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
     profile_picture_media_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey('media.id', ondelete='SET NULL'),
+        ForeignKey(
+            'media.id',
+            ondelete='SET NULL',
+            name='fk_user_profiles_profile_picture_media_id',
+        ),
         nullable=True,
+        index=True,
     )
     biography: Mapped[str] = mapped_column(
         String(2048),

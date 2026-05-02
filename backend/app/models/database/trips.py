@@ -10,6 +10,7 @@ from .base import Base, utcnow
 
 if typing.TYPE_CHECKING:
     from .user import User
+    from .media import Media
 
 
 class TripVisibility(str, enum.Enum):
@@ -53,12 +54,26 @@ class Trip(Base):
         onupdate=utcnow,
         server_default=func.now(),
     )
+    cover_media_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            'media.id',
+            ondelete='set null',
+            name='fk_trips_cover_media_id',
+        ),
+        nullable=True,
+        index=True,
+        unique=True,
+    )
 
     # Relationships
     members: Mapped[list['TripMember']] = relationship(
         'TripMember',
         back_populates='trip',
         cascade='all, delete-orphan',
+    )
+
+    cover_media: Mapped['Media'] = relationship(
+        'Media',
     )
 
 
@@ -72,12 +87,18 @@ class TripMember(Base):
     __tablename__ = 'trip_members'
 
     trip_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey('trips.id'),
+        ForeignKey(
+            'trips.id',
+            name='fk_trip_members_trip_id',
+        ),
         primary_key=True,
         nullable=False,
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey('users.id'),
+        ForeignKey(
+            'users.id',
+            name='fk_trip_members_user_id',
+        ),
         primary_key=True,
         nullable=False,
     )

@@ -1,6 +1,6 @@
+import os
 import secrets
-import warnings
-from typing import Self, Literal, Annotated, Any
+from typing import Self, Annotated, Any
 
 from pydantic import (
     model_validator,
@@ -8,6 +8,7 @@ from pydantic import (
     BeforeValidator,
     PostgresDsn,
     computed_field,
+    ByteSize,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -36,7 +37,22 @@ class Settings(BaseSettings):
     JWT_ISSUER: str = 'openvoyage-backend'
     JWT_AUDIENCE: str = 'openvoyage-api'
     FRONTEND_HOST: str = ''
-    ENVIRONMENT: Literal['local', 'staging', 'production'] = 'local'
+
+    MAX_MEDIA_SIZE: ByteSize = '512MB'
+
+    MEDIA_DIRECTORY: str = ''
+
+    @computed_field
+    @property
+    def media_root(self) -> str:
+        # The  media root is based on the location of the .env file,
+        # which is one level above the backend directory
+        # We set media root as an absolute path
+        absolute_path = os.path.abspath('..')
+        media_root_path = os.path.join(absolute_path, self.MEDIA_DIRECTORY)
+        # normalize it
+        media_root_path = os.path.normpath(media_root_path)
+        return media_root_path
 
     BACKEND_CORS_ORIGINS: Annotated[
         list[AnyUrl] | str, BeforeValidator(parse_cors)
@@ -73,10 +89,7 @@ class Settings(BaseSettings):
                 f'The value of {var_name} is "changethis", '
                 'for security, please change it, at least for deployments.'
             )
-            if self.ENVIRONMENT == 'local':
-                warnings.warn(message, stacklevel=1)
-            else:
-                raise ValueError(message)
+            raise ValueError(message)
 
     @model_validator(mode='after')
     def _enforce_non_default_secrets(self) -> Self:

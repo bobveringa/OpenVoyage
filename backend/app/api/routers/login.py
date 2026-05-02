@@ -9,8 +9,7 @@ from sqlalchemy import select
 from api.deps import SessionDep
 from core import security
 from models.api.token import RefreshTokenRequest, Token, TokenPayload
-from models.api.users import FirstUserCreateRequest, UserResponse
-from models.database.user import User, UserProfile
+from models.database.user import User
 
 router = APIRouter(prefix='/login', tags=['login'])
 
@@ -91,38 +90,3 @@ def refresh_tokens(session: SessionDep, payload: RefreshTokenRequest) -> Token:
 
     tokens = security.create_auth_tokens(subject=user.id, email=user.email)
     return Token(**tokens)
-
-
-@router.post(
-    '/first-user',
-    response_model=UserResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_first_user(
-    session: SessionDep, payload: FirstUserCreateRequest
-) -> UserResponse:
-    existing_user = session.execute(select(User.id).limit(1)).first()
-    if existing_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail='First user already exists',
-        )
-
-    user = User(
-        email=payload.email.lower(),
-        password_hash=security.get_password_hash(payload.password),
-        password_version='argon2id',
-    )
-    profile = UserProfile(
-        user=user,
-        username=payload.username,
-        first_name=payload.first_name,
-        last_name=payload.last_name,
-    )
-
-    session.add(user)
-    session.add(profile)
-    session.commit()
-    session.refresh(user)
-
-    return UserResponse(id=user.id, email=user.email)
