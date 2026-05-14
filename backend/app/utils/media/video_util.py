@@ -60,10 +60,12 @@ def get_video_info(path: str) -> VideoInfo:
 
 
 def _first_stream(ffprobe_data: dict, codec_type: str) -> dict | None:
+    response = None
     for stream in ffprobe_data.get('streams', []):
         if stream.get('codec_type') == codec_type:
-            return stream
-    return None
+            response = stream
+            break
+    return response
 
 
 def _parse_duration(video_stream: dict, path: str) -> float:
@@ -98,7 +100,7 @@ def generate_video_thumbnail(
     dest: str,
     timestamp: float = 1.0,
     max_size: tuple[int, int] = (480, 480),
-) -> tuple[int, int]:
+) -> None:
     """Extract a single frame from *source* and write it as a JPEG to *dest*.
 
     Args:

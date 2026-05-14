@@ -21,7 +21,10 @@ from app.models import database
 target_metadata = database.Base.metadata
 
 
-def get_url():
+def get_url() -> str:
+    configured_url = config.get_main_option('sqlalchemy.url')
+    if configured_url:
+        return configured_url
     return str(settings.SQLALCHEMY_DATABASE_URI)
 
 

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from core import security
 from core.config import settings
-from core.db import engine
+from core.db import get_engine
 from models.api.token import TokenPayload
 from models.database.user import User
 from services.media_service import MediaService
@@ -21,7 +21,7 @@ reusable_oauth2 = OAuth2PasswordBearer(
 
 
 def get_db() -> Generator[Session, None, None]:
-    with Session(engine) as session:
+    with Session(get_engine()) as session:
         yield session
 
 

@@ -1,3 +1,4 @@
 private/
 .idea/
 data/
+.coverage

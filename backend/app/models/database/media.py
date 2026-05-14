@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Optional
 
 from sqlalchemy import String, DateTime, func, ForeignKey, Integer
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, utcnow
 
