@@ -11,6 +11,7 @@ def create_media(
     *,
     storage_path: str,
     content_type: str = 'image/jpeg',
+    thumbnail_content_type: str = 'image/webp',
     media_type: MediaType = MediaType.IMAGE,
     created_by: uuid.UUID | None = None,
     width: int = 1280,
@@ -20,8 +21,10 @@ def create_media(
     media = Media(
         id=uuid.uuid4(),
         storage_path=storage_path,
+        thumbnail_storage_path=f'{storage_path}.thumb.webp',
         content_type=content_type,
         media_type=media_type,
+        thumbnail_content_type=thumbnail_content_type,
         caption='',
         status=MediaStatus.READY,
         storage_backend=MediaStorageBackend.LOCAL,

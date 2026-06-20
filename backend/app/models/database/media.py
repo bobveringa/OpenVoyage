@@ -2,11 +2,16 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Optional
+import typing
 
 from sqlalchemy import String, DateTime, func, ForeignKey, Integer
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, utcnow
+
+if typing.TYPE_CHECKING:
+    from .trips import Trip
+    from .user import User
 
 
 class MediaType(str, Enum):
@@ -35,7 +40,7 @@ class Media(Base):
         String(2048),
         nullable=False,
     )
-    thumbnail_storage_path: Mapped[str] = mapped_column(
+    thumbnail_storage_path: Mapped[Optional[str]] = mapped_column(
         String(2048),
         nullable=True,
     )
@@ -47,7 +52,7 @@ class Media(Base):
         String(255),
         nullable=False,
     )
-    thumbnail_content_type: Mapped[str] = mapped_column(
+    thumbnail_content_type: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,
     )
@@ -85,18 +90,24 @@ class Media(Base):
         nullable=True,
     )
 
-    width: Mapped[int] = mapped_column(
+    width: Mapped[Optional[int]] = mapped_column(
         Integer,
         nullable=True,
         comment='Applicable for images and videos, represents the width in pixels',
     )
-    height: Mapped[int] = mapped_column(
+    height: Mapped[Optional[int]] = mapped_column(
         Integer,
         nullable=True,
         comment='Applicable for images and videos, represents the height in pixels',
     )
-    duration: Mapped[int] = mapped_column(
+    duration: Mapped[Optional[int]] = mapped_column(
         Integer,
         nullable=True,
         comment='Duration in seconds, applicable for videos',
+    )
+
+    # Relationships
+    creator: Mapped[Optional['User']] = relationship('User', back_populates='media')
+    covered_trip: Mapped[Optional['Trip']] = relationship(
+        'Trip', back_populates='cover_media'
     )

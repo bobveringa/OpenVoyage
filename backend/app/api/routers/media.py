@@ -60,7 +60,7 @@ def get_media_content(
     request: Request,
     media_service: MediaServiceDep,
     media_id: uuid.UUID,
-    size: str | None = None,
+    thumbnail: bool = False,
 ):
     media = media_service.find_by_id(media_id)
     if not media:
@@ -68,7 +68,7 @@ def get_media_content(
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
-    if size == 'thumbnail':
+    if thumbnail:
         storage_path = media.thumbnail_storage_path
         media_type = MediaType.IMAGE
         content_type = media.thumbnail_content_type

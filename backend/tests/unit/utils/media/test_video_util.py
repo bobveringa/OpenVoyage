@@ -8,11 +8,16 @@ import pytest
 
 from utils.media import video_util
 from utils.media.image_util import get_image_info
-from utils.media.video_util import _parse_duration, get_video_info, generate_video_thumbnail
+from utils.media.video_util import (
+    _parse_duration,
+    get_video_info,
+    generate_video_thumbnail,
+)
 
 TEST_VIDEO_PATH = os.path.join(
     os.path.dirname(__file__), '..', '..', '..', 'assets', 'kyo_cute_run.mp4'
 )
+
 
 @pytest.mark.unit
 def test_get_video_info_reads_video_stream(monkeypatch) -> None:
@@ -52,6 +57,7 @@ def test_parse_duration_falls_back_to_container_probe(monkeypatch) -> None:
 def test_parse_duration_fails(monkeypatch) -> None:
     def fake_run(_cmd, **_kwargs):
         return SimpleNamespace(returncode=0, stdout='{}', stderr='')
+
     monkeypatch.setattr(video_util.subprocess, 'run', fake_run)
 
     with pytest.raises(ValueError):
@@ -62,20 +68,25 @@ def test_parse_duration_fails(monkeypatch) -> None:
 def test_get_video_info_ffmpeg_fails(monkeypatch) -> None:
     def fake_run(_cmd, **_kwargs):
         return SimpleNamespace(returncode=1, stdout='', stderr='')
+
     monkeypatch.setattr(video_util.subprocess, 'run', fake_run)
 
     with pytest.raises(RuntimeError):
         get_video_info('video.mp4')
 
+
 @pytest.mark.unit
 def test_get_video_info_no_stream(monkeypatch) -> None:
     stdout = '{"streams": [{"codec_type": "video", "width": 1920, "height": 1080, "duration": "42.6"}]}'
+
     def fake_run(_cmd, **_kwargs):
         return SimpleNamespace(returncode=0, stdout=stdout, stderr='')
+
     monkeypatch.setattr(video_util.subprocess, 'run', fake_run)
     monkeypatch.setattr(video_util, '_first_stream', lambda _streams, _type: None)
     with pytest.raises(ValueError):
         get_video_info('video.mp4')
+
 
 @pytest.mark.unit
 def test_get_video_info_from_actual_video() -> None:
@@ -104,6 +115,7 @@ def test_generate_video_thumbnail_for_actual_video() -> None:
 def test_generate_video_thumbnail_ffmpeg_fails(monkeypatch) -> None:
     def fake_run(_cmd, **_kwargs):
         return SimpleNamespace(returncode=1, stdout='', stderr='')
+
     monkeypatch.setattr(video_util.subprocess, 'run', fake_run)
     with pytest.raises(RuntimeError):
         generate_video_thumbnail(

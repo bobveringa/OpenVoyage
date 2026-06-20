@@ -54,7 +54,7 @@ class Trip(Base):
         onupdate=utcnow,
         server_default=func.now(),
     )
-    cover_media_id: Mapped[uuid.UUID] = mapped_column(
+    cover_media_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(
             'media.id',
             ondelete='set null',
@@ -72,8 +72,9 @@ class Trip(Base):
         cascade='all, delete-orphan',
     )
 
-    cover_media: Mapped['Media'] = relationship(
+    cover_media: Mapped['Media | None'] = relationship(
         'Media',
+        back_populates='covered_trip',
     )
 
 

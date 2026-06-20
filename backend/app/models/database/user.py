@@ -70,6 +70,10 @@ class User(Base):
         back_populates='user',
         cascade='all, delete-orphan',
     )
+    media: Mapped[list['Media']] = relationship(
+        'Media',
+        back_populates='creator',
+    )
 
 
 class UserProfile(Base):
