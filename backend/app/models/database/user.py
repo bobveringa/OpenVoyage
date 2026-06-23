@@ -13,7 +13,7 @@ if typing.TYPE_CHECKING:
     from .trips import TripMember
 
 
-class UserRole(Enum):
+class UserRole(str, Enum):
     USER = 'USER'
     ADMIN = 'ADMIN'
 
@@ -86,7 +86,6 @@ class UserProfile(Base):
             name='fk_user_profiles_user_id',
         ),
         primary_key=True,
-        name='fk_user_profiles_user_id',
     )
     username: Mapped[str] = mapped_column(
         String(255),

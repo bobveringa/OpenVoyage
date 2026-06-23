@@ -1,5 +1,5 @@
-import os
 import secrets
+from pathlib import Path
 from typing import Self, Annotated, Any
 
 from pydantic import (
@@ -11,6 +11,8 @@ from pydantic import (
     ByteSize,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def parse_cors(v: Any) -> list[str] | str:
@@ -24,7 +26,7 @@ def parse_cors(v: Any) -> list[str] | str:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         # Use top level .env file (one level above ./backend/)
-        env_file='../.env',
+        env_file=PROJECT_ROOT / '.env',
         env_ignore_empty=True,
         extra='ignore',
     )
@@ -48,11 +50,10 @@ class Settings(BaseSettings):
         # The  media root is based on the location of the .env file,
         # which is one level above the backend directory
         # We set media root as an absolute path
-        absolute_path = os.path.abspath('..')
-        media_root_path = os.path.join(absolute_path, self.MEDIA_DIRECTORY)
-        # normalize it
-        media_root_path = os.path.normpath(media_root_path)
-        return media_root_path
+        media_directory = Path(self.MEDIA_DIRECTORY)
+        if media_directory.is_absolute():
+            return str(media_directory.resolve())
+        return str((PROJECT_ROOT / media_directory).resolve())
 
     BACKEND_CORS_ORIGINS: Annotated[
         list[AnyUrl] | str, BeforeValidator(parse_cors)
@@ -61,9 +62,10 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def all_cors_origins(self) -> list[str]:
-        return [str(origin).rstrip('/') for origin in self.BACKEND_CORS_ORIGINS] + [
-            self.FRONTEND_HOST
-        ]
+        origins = [
+            str(origin).rstrip('/') for origin in self.BACKEND_CORS_ORIGINS
+        ] + [self.FRONTEND_HOST]
+        return [origin for origin in origins if origin]
 
     POSTGRES_SERVER: str = ''
     POSTGRES_PORT: int = 5432

@@ -34,8 +34,8 @@ def test_media_response_from_model_image_excludes_duration() -> None:
 
     assert response.id == media_id
     assert response.media_type == 'IMAGE'
-    assert response.urls.content == f'/{media_id}'
-    assert response.urls.thumbnail == f'/{media_id}?thumbnail=true'
+    assert response.urls.content == f'/api/v1/media/{media_id}/content'
+    assert response.urls.thumbnail == f'/api/v1/media/{media_id}/content?thumbnail=true'
     assert response.metadata.caption == 'Sunset'
     assert response.technical_info.width == 1920
     assert response.technical_info.height == 1080
@@ -69,4 +69,4 @@ def test_media_response_from_model_video_includes_duration() -> None:
     assert response.media_type == 'VIDEO'
     assert response.metadata.caption == 'Waves'
     assert response.technical_info.duration == 60
-    assert response.urls.thumbnail == f'/{media_id}?thumbnail=true'
+    assert response.urls.thumbnail == f'/api/v1/media/{media_id}/content?thumbnail=true'

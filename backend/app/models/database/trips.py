@@ -62,7 +62,6 @@ class Trip(Base):
         ),
         nullable=True,
         index=True,
-        unique=True,
     )
 
     # Relationships

@@ -34,10 +34,13 @@ def test_create_trip_success(client, db_session, api_prefix) -> None:
     assert payload['id']
     assert payload['name'] == 'Kyoto Week'
     assert payload['cover_media']['id'] == str(media.id)
-    assert payload['cover_media']['urls']['content'] == f'http://testserver/{media.id}'
+    assert (
+        payload['cover_media']['urls']['content']
+        == f'http://testserver/api/v1/media/{media.id}/content'
+    )
     assert (
         payload['cover_media']['urls']['thumbnail']
-        == f'http://testserver/{media.id}?thumbnail=true'
+        == f'http://testserver/api/v1/media/{media.id}/content?thumbnail=true'
     )
 
 

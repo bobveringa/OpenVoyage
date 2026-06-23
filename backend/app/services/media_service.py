@@ -1,9 +1,9 @@
 import os
-import shutil
 import uuid
 
 import puremagic
 from core.config import settings
+from core.db import get_engine
 from fastapi import BackgroundTasks, UploadFile
 from models.database.media import Media, MediaStatus, MediaStorageBackend, MediaType
 from models.database.user import User
@@ -56,6 +56,19 @@ def extension_for(content_type: str) -> str:
     return MIME_TYPE_EXTENSIONS.get(content_type, '')
 
 
+def copy_upload_file(file: UploadFile, path: str, max_size: int) -> int:
+    bytes_written = 0
+    with open(path, 'wb') as f:
+        while chunk := file.file.read(1024 * 1024):
+            bytes_written += len(chunk)
+            if bytes_written > max_size:
+                raise MediaTooLargeError(
+                    f'File size exceeds the maximum allowed size of {max_size} bytes'
+                )
+            f.write(chunk)
+    return bytes_written
+
+
 def _extract_media_info(
     path: str,
     media_type: MediaType,
@@ -96,9 +109,7 @@ class MediaService:
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
         try:
-            with open(path, 'wb') as f:
-                shutil.copyfileobj(file.file, f)
-
+            copy_upload_file(file, path, int(settings.MAX_MEDIA_SIZE))
             width, height, duration = _extract_media_info(path, media_type)
 
             media = Media(
@@ -121,37 +132,51 @@ class MediaService:
                 os.remove(path)
             raise
 
-        self.background_tasks.add_task(self._create_thumbnail, media, path)
+        self.background_tasks.add_task(create_thumbnail, media.id, path)
         return media
 
     def find_by_id(self, media_id: uuid.UUID) -> Media | None:
         return self.db.get(Media, media_id)
 
-    def _create_thumbnail(self, media: Media, media_path: str) -> None:
+
+def create_thumbnail(media_id: uuid.UUID, media_path: str) -> None:
+    with Session(get_engine()) as db:
+        media = db.get(Media, media_id)
+        if media is None:
+            return
+
         thumb_extension = extension_for(THUMBNAIL_CONTENT_TYPE)
         thumb_path = get_media_storage_path(media.id) + '.thumb' + thumb_extension
         os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
 
-        if media.media_type == MediaType.IMAGE:
-            generate_image_thumbnail(
-                file_path=media_path,
-                destination=thumb_path,
-                content_type=THUMBNAIL_CONTENT_TYPE,
-            )
-        elif media.media_type == MediaType.VIDEO:
-            timestamp = min(1.0, media.duration) if media.duration else 0.0
-            generate_video_thumbnail(
-                file_path=media_path,
-                dest=thumb_path,
-                timestamp=timestamp,
-            )
-        else:
-            raise UnsupportedMediaTypeError(
-                f'Cannot thumbnail media type: {media.media_type!r}'
-            )
+        try:
+            if media.media_type == MediaType.IMAGE:
+                generate_image_thumbnail(
+                    file_path=media_path,
+                    destination=thumb_path,
+                    content_type=THUMBNAIL_CONTENT_TYPE,
+                )
+            elif media.media_type == MediaType.VIDEO:
+                timestamp = min(1.0, media.duration) if media.duration else 0.0
+                generate_video_thumbnail(
+                    file_path=media_path,
+                    dest=thumb_path,
+                    timestamp=timestamp,
+                )
+            else:
+                raise UnsupportedMediaTypeError(
+                    f'Cannot thumbnail media type: {media.media_type!r}'
+                )
+        except Exception:
+            if os.path.exists(thumb_path):
+                os.remove(thumb_path)
+            media.status = MediaStatus.FAILED
+            db.add(media)
+            db.commit()
+            raise
 
         media.status = MediaStatus.READY
         media.thumbnail_storage_path = thumb_path
         media.thumbnail_content_type = THUMBNAIL_CONTENT_TYPE
-        self.db.add(media)
-        self.db.commit()
+        db.add(media)
+        db.commit()

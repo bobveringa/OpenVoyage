@@ -11,6 +11,7 @@ from models.database.user import User
 from services.media_service import (
     MediaService,
     MediaTooLargeError,
+    copy_upload_file,
     detect_content_type,
 )
 
@@ -55,6 +56,14 @@ def test_upload_media_rejects_large_file(
 
 
 @pytest.mark.unit
+def test_copy_upload_file_rejects_stream_over_limit(tmp_path) -> None:
+    upload = UploadFile(filename='huge.jpg', file=BytesIO(b'abcdef'))
+
+    with pytest.raises(MediaTooLargeError):
+        copy_upload_file(upload, str(tmp_path / 'huge.jpg'), max_size=3)
+
+
+@pytest.mark.unit
 def test_upload_media_success_schedules_thumbnail(
     fake_db, fake_background_tasks, monkeypatch, tmp_path
 ) -> None:
@@ -91,4 +100,7 @@ def test_upload_media_success_schedules_thumbnail(
     assert media.height == 480
     fake_db.add.assert_called()
     fake_db.commit.assert_called_once()
-    fake_background_tasks.add_task.assert_called_once()
+    task, media_arg, path_arg = fake_background_tasks.add_task.call_args.args
+    assert task is media_service_module.create_thumbnail
+    assert media_arg == media_id
+    assert path_arg.endswith('.jpg')

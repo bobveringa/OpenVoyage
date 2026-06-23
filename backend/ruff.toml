@@ -1,4 +1,5 @@
 line-length = 88
+target-version = "py314"
 
 exclude = [
     "app/alembic",

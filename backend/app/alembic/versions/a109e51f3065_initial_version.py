@@ -61,9 +61,9 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['cover_media_id'], ['media.id'], name='fk_trips_cover_media_id', ondelete='set null'),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_trips_cover_media_id'), 'trips', ['cover_media_id'], unique=True)
+    op.create_index(op.f('ix_trips_cover_media_id'), 'trips', ['cover_media_id'], unique=False)
     op.create_table('user_profiles',
-    sa.Column('fk_user_profiles_user_id', sa.Uuid(), nullable=False),
+    sa.Column('user_id', sa.Uuid(), nullable=False),
     sa.Column('username', sa.String(length=255), nullable=False),
     sa.Column('first_name', sa.String(length=255), nullable=False),
     sa.Column('last_name', sa.String(length=255), nullable=False),
@@ -72,9 +72,9 @@ def upgrade() -> None:
     sa.Column('biography', sa.String(length=2048), server_default='', nullable=False),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['fk_user_profiles_user_id'], ['users.id'], name='fk_user_profiles_user_id', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name='fk_user_profiles_user_id', ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['profile_picture_media_id'], ['media.id'], name='fk_user_profiles_profile_picture_media_id', ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('fk_user_profiles_user_id')
+    sa.PrimaryKeyConstraint('user_id')
     )
     op.create_index(op.f('ix_user_profiles_profile_picture_media_id'), 'user_profiles', ['profile_picture_media_id'], unique=False)
     op.create_index(op.f('ix_user_profiles_slug'), 'user_profiles', ['slug'], unique=True)

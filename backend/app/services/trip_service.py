@@ -59,6 +59,9 @@ class TripService:
         return trip
 
     def get_trip(self, trip_id: uuid.UUID) -> Trip:
+        return self.get_public_trip(trip_id=trip_id)
+
+    def get_public_trip(self, trip_id: uuid.UUID) -> Trip:
         statement = (
             select(Trip).options(joinedload(Trip.cover_media)).where(Trip.id == trip_id)
         )
