@@ -74,7 +74,9 @@ def test_get_media_thumbnail_not_ready_returns_conflict(
 
 
 @pytest.mark.integration
-def test_get_video_content_supports_range(client, db_session, api_prefix, tmp_path) -> None:
+def test_get_video_content_supports_range(
+    client, db_session, api_prefix, tmp_path
+) -> None:
     video_path = tmp_path / 'clip.mp4'
     video_path.write_bytes(b'0123456789')
     media = create_media(

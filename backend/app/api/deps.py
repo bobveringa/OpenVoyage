@@ -1,8 +1,9 @@
 from collections.abc import Generator
+from dataclasses import dataclass
 from typing import Annotated, cast
 import uuid
 
-from fastapi import Depends, HTTPException, status, BackgroundTasks
+from fastapi import BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import InvalidTokenError
 from pydantic import ValidationError
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from core import security
 from core.config import settings
 from core.db import get_engine
+from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from models.api.token import TokenPayload
 from models.database.user import User
 from services.media_service import MediaService
@@ -19,6 +21,10 @@ from services.trip_service import TripService
 reusable_oauth2 = OAuth2PasswordBearer(
     tokenUrl=f'{settings.API_V1_STR}/login/access-token'
 )
+optional_oauth2 = OAuth2PasswordBearer(
+    tokenUrl=f'{settings.API_V1_STR}/login/access-token',
+    auto_error=False,
+)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -26,42 +32,70 @@ def get_db() -> Generator[Session, None, None]:
         yield session
 
 
+@dataclass(frozen=True)
+class PaginationParams:
+    page: int
+    page_size: int
+
+    @property
+    def offset(self) -> int:
+        return (self.page - 1) * self.page_size
+
+
+def get_pagination_params(
+    page: Annotated[int, Query(ge=1)] = DEFAULT_PAGE,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+) -> PaginationParams:
+    return PaginationParams(page=page, page_size=page_size)
+
+
 SessionDep = Annotated[Session, Depends(get_db)]
+PaginationDep = Annotated[PaginationParams, Depends(get_pagination_params)]
 TokenDep = Annotated[str, Depends(reusable_oauth2)]
+OptionalTokenDep = Annotated[str | None, Depends(optional_oauth2)]
+
+
+def _credentials_exception() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail='Could not validate credentials',
+        headers={'WWW-Authenticate': 'Bearer'},
+    )
+
+
+def _get_user_from_token(session: Session, token: str) -> User:
+    try:
+        payload = security.decode_token(token, expected_type=security.TOKEN_TYPE_ACCESS)
+        token_data = TokenPayload(**payload)
+    except InvalidTokenError, ValidationError:
+        raise _credentials_exception()
+
+    try:
+        user_id = uuid.UUID(token_data.sub)
+    except ValueError:
+        raise _credentials_exception()
+
+    user = session.get(User, user_id)
+    if not user:
+        raise _credentials_exception()
+
+    return cast(User, user)
 
 
 def get_current_user(
     session: SessionDep,
     token: TokenDep,
 ) -> User:
-    try:
-        payload = security.decode_token(token, expected_type=security.TOKEN_TYPE_ACCESS)
-        token_data = TokenPayload(**payload)
-    except InvalidTokenError, ValidationError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Could not validate credentials',
-            headers={'WWW-Authenticate': 'Bearer'},
-        )
+    return _get_user_from_token(session=session, token=token)
 
-    try:
-        user_id = uuid.UUID(token_data.sub)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Could not validate credentials',
-            headers={'WWW-Authenticate': 'Bearer'},
-        )
 
-    user = session.get(User, user_id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Could not validate credentials',
-            headers={'WWW-Authenticate': 'Bearer'},
-        )
-
-    return cast(User, user)
+def get_optional_current_user(
+    session: SessionDep,
+    token: OptionalTokenDep,
+) -> User | None:
+    if token is None:
+        return None
+    return _get_user_from_token(session=session, token=token)
 
 
 def get_current_admin_user(
@@ -93,6 +127,7 @@ def get_trip_service(session: SessionDep):
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 CurrentAdmin = Annotated[User, Depends(get_current_admin_user)]
 MediaServiceDep = Annotated[MediaService, Depends(get_media_service)]
 TripServiceDep = Annotated[TripService, Depends(get_trip_service)]

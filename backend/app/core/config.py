@@ -62,9 +62,9 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def all_cors_origins(self) -> list[str]:
-        origins = [
-            str(origin).rstrip('/') for origin in self.BACKEND_CORS_ORIGINS
-        ] + [self.FRONTEND_HOST]
+        origins = [str(origin).rstrip('/') for origin in self.BACKEND_CORS_ORIGINS] + [
+            self.FRONTEND_HOST
+        ]
         return [origin for origin in origins if origin]
 
     POSTGRES_SERVER: str = ''

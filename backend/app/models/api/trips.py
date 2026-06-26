@@ -1,3 +1,4 @@
+import enum
 import uuid
 from typing import TYPE_CHECKING, Self
 
@@ -6,6 +7,12 @@ from models.database.trips import Trip, TripVisibility
 
 if TYPE_CHECKING:
     from .media import MediaResponse
+
+
+class TripSortField(str, enum.Enum):
+    CREATED_AT = 'created_at'
+    UPDATED_AT = 'updated_at'
+    NAME = 'name'
 
 
 class TripCreateRequest(BaseModel):

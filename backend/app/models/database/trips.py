@@ -42,13 +42,13 @@ class Trip(Base):
         server_default=TripVisibility.PRIVATE.value,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
         default=utcnow,
         server_default=func.now(),
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=False),
+        DateTime(timezone=True),
         nullable=False,
         default=utcnow,
         onupdate=utcnow,
@@ -62,6 +62,7 @@ class Trip(Base):
         ),
         nullable=True,
         index=True,
+        unique=True,
     )
 
     # Relationships
@@ -89,6 +90,7 @@ class TripMember(Base):
     trip_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey(
             'trips.id',
+            ondelete='CASCADE',
             name='fk_trip_members_trip_id',
         ),
         primary_key=True,
@@ -97,6 +99,7 @@ class TripMember(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey(
             'users.id',
+            ondelete='CASCADE',
             name='fk_trip_members_user_id',
         ),
         primary_key=True,
