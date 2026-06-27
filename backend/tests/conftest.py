@@ -39,9 +39,9 @@ _TEMPLATE_DB = 'test_template'
 
 @pytest.fixture(scope='session')
 def pg_container() -> Generator[PostgresContainer, None, None]:
-    """Start a PostgreSQL 17 container that lives for the entire session."""
+    """Start a PostGIS PostgreSQL container that lives for the entire session."""
     with PostgresContainer(
-        image='postgres:17',
+        image='postgis/postgis:18-3.6',
         username='test',
         password='test',
         dbname='postgres',

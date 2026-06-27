@@ -1,13 +1,11 @@
 import enum
 import uuid
-from typing import TYPE_CHECKING, Self
+from typing import Self
 
 from pydantic import BaseModel, Field
+from models.api.media import MediaResponse
 from models.api.users import UserSummaryResponse
 from models.database.trips import Trip, TripMember, TripRole, TripVisibility
-
-if TYPE_CHECKING:
-    from .media import MediaResponse
 
 
 class TripSortField(str, enum.Enum):
@@ -63,8 +61,6 @@ class TripResponse(BaseModel):
 
     @classmethod
     def from_model(cls, trip: Trip, media_base_url: str) -> Self:
-        from .media import MediaResponse
-
         return cls(
             id=trip.id,
             name=trip.name,

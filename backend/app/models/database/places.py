@@ -1,3 +1,4 @@
+import enum
 import uuid
 from datetime import datetime
 
@@ -5,7 +6,6 @@ from sqlalchemy import (
     DateTime,
     Float,
     Index,
-    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -16,6 +16,19 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base, utcnow
 
 
+class PlaceFeatureClass(str, enum.Enum):
+    ADMINISTRATIVE_BOUNDARY = 'A'
+    HYDROGRAPHIC = 'H'
+    AREA = 'L'
+    POPULATED_PLACE = 'P'
+    ROAD_RAILROAD = 'R'
+    SPOT = 'S'
+    HYPSOGRAPHIC = 'T'
+    UNDERSEA = 'U'
+    VEGETATION = 'V'
+
+
+
 class Place(Base):
     __tablename__ = 'places'
     __table_args__ = (
@@ -24,7 +37,6 @@ class Place(Base):
             'external_id',
             name='uq_places_external_source_external_id',
         ),
-        Index('ix_places_search_name', 'search_name'),
         Index('ix_places_country_code_region', 'country_code', 'region'),
     )
 
@@ -41,10 +53,6 @@ class Place(Base):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-    )
-    search_name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
@@ -68,19 +76,9 @@ class Place(Base):
         Text,
         nullable=False,
     )
-    feature_class: Mapped[str] = mapped_column(
+    feature_class: Mapped[PlaceFeatureClass] = mapped_column(
         String(1),
         nullable=False,
-    )
-    feature_code: Mapped[str] = mapped_column(
-        String(16),
-        nullable=False,
-    )
-    population: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=0,
-        server_default='0',
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
