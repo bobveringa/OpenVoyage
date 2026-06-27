@@ -7,12 +7,24 @@ from starlette.requests import Request
 
 from api.deps import CurrentUser, OptionalCurrentUser, PaginationDep, TripServiceDep
 from models.api.pagination import PaginatedResponse, SortDirection
-from models.api.trips import TripCreateRequest, TripResponse, TripSortField
+from models.api.trips import (
+    TripCreateRequest,
+    TripMemberCreateRequest,
+    TripMemberResponse,
+    TripMemberUpdateRequest,
+    TripResponse,
+    TripSortField,
+)
 from services.trip_service import (
     CoverMediaAlreadyUsedError,
     CoverMediaOwnershipError,
+    LastTripOwnerError,
     MediaNotFoundError,
+    TripMemberAlreadyExistsError,
+    TripMemberNotFoundError,
     TripNotFoundError,
+    TripPermissionError,
+    UserNotFoundError,
 )
 
 router = APIRouter(prefix='/trips', tags=['trips'])
@@ -72,6 +84,106 @@ def list_trips(
         page=pagination.page,
         page_size=pagination.page_size,
     )
+
+
+@router.get(
+    '/{trip_id}/members',
+    response_model=list[TripMemberResponse],
+)
+def list_trip_members(
+    trip_id: uuid.UUID,
+    trip_service: TripServiceDep,
+    user: CurrentUser,
+) -> list[TripMemberResponse]:
+    try:
+        members = trip_service.list_trip_members(
+            trip_id=trip_id,
+            current_user_id=user.id,
+        )
+    except TripNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+    return [TripMemberResponse.from_model(member) for member in members]
+
+
+@router.post(
+    '/{trip_id}/members',
+    status_code=status.HTTP_201_CREATED,
+    response_model=TripMemberResponse,
+)
+def add_trip_member(
+    trip_id: uuid.UUID,
+    payload: TripMemberCreateRequest,
+    trip_service: TripServiceDep,
+    user: CurrentUser,
+) -> TripMemberResponse:
+    try:
+        member = trip_service.add_trip_member(
+            trip_id=trip_id,
+            current_user_id=user.id,
+            target_user_id=payload.user_id,
+            role=payload.role,
+        )
+    except (TripNotFoundError, UserNotFoundError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except TripPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except TripMemberAlreadyExistsError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+    return TripMemberResponse.from_model(member)
+
+
+@router.patch(
+    '/{trip_id}/members/{user_id}',
+    response_model=TripMemberResponse,
+)
+def update_trip_member(
+    trip_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: TripMemberUpdateRequest,
+    trip_service: TripServiceDep,
+    user: CurrentUser,
+) -> TripMemberResponse:
+    try:
+        member = trip_service.update_trip_member(
+            trip_id=trip_id,
+            current_user_id=user.id,
+            target_user_id=user_id,
+            role=payload.role,
+        )
+    except (TripNotFoundError, TripMemberNotFoundError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except TripPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except LastTripOwnerError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+    return TripMemberResponse.from_model(member)
+
+
+@router.delete(
+    '/{trip_id}/members/{user_id}',
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_trip_member(
+    trip_id: uuid.UUID,
+    user_id: uuid.UUID,
+    trip_service: TripServiceDep,
+    user: CurrentUser,
+) -> None:
+    try:
+        trip_service.remove_trip_member(
+            trip_id=trip_id,
+            current_user_id=user.id,
+            target_user_id=user_id,
+        )
+    except (TripNotFoundError, TripMemberNotFoundError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except TripPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except LastTripOwnerError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
 @router.get(

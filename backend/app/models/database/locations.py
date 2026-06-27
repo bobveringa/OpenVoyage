@@ -34,7 +34,7 @@ class Location(Base):
         Float(53),
         nullable=False,
     )
-    country_code: Mapped[str] = mapped_column( 
+    country_code: Mapped[str] = mapped_column(
         String(2),
         nullable=False,
     )

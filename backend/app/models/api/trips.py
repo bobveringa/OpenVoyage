@@ -3,7 +3,8 @@ import uuid
 from typing import TYPE_CHECKING, Self
 
 from pydantic import BaseModel, Field
-from models.database.trips import Trip, TripVisibility
+from models.api.users import UserSummaryResponse
+from models.database.trips import Trip, TripMember, TripRole, TripVisibility
 
 if TYPE_CHECKING:
     from .media import MediaResponse
@@ -20,6 +21,31 @@ class TripCreateRequest(BaseModel):
     description: str = ''
     media_id: uuid.UUID
     visibility: TripVisibility = TripVisibility.PRIVATE
+
+
+class TripMemberCreateRequest(BaseModel):
+    user_id: uuid.UUID
+    role: TripRole = TripRole.MEMBER
+
+
+class TripMemberUpdateRequest(BaseModel):
+    role: TripRole
+
+
+class TripMemberResponse(BaseModel):
+    trip_id: uuid.UUID
+    user_id: uuid.UUID
+    role: TripRole
+    user: UserSummaryResponse
+
+    @classmethod
+    def from_model(cls, membership: TripMember) -> Self:
+        return cls(
+            trip_id=membership.trip_id,
+            user_id=membership.user_id,
+            role=membership.role,
+            user=UserSummaryResponse.from_model(membership.user),
+        )
 
 
 class TripResponse(BaseModel):
