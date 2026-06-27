@@ -7,7 +7,12 @@ from unittest.mock import Mock
 import pytest
 
 from models.database.places import PlaceFeatureClass
-from services.place_service import GeoNamesDataset, GeoNamesNameMetadata, PlaceService
+from services.place_service import (
+    GeoNamesDataset,
+    GeoNamesNameMetadata,
+    PlaceService,
+    _load_name_metadata,
+)
 
 
 def _write_geonames_zip(path: Path, rows: list[list[str]]) -> None:
@@ -87,7 +92,6 @@ def test_import_geonames_zip_processes_valid_rows(tmp_path) -> None:
     assert values[0]['full_name'] == 'Amsterdam, 07, NL'
     assert values[0]['feature_class'] == PlaceFeatureClass.POPULATED_PLACE
     assert values[0]['feature_class'].value == 'P'
-    assert values[0]['feature_class'].description == 'Populated Place Features'
 
 
 @pytest.mark.unit
@@ -97,12 +101,12 @@ def test_import_geonames_zip_uses_name_metadata_for_full_name(tmp_path) -> None:
         zip_path,
         [
             [
-                '2751738',
-                'Liempde',
-                'Liempde',
+                '2756253',
+                'Eindhoven',
+                'Eindhoven',
                 '',
-                '51.56917',
-                '5.37222',
+                '51.44083',
+                '5.47778',
                 'P',
                 'PPL',
                 'NL',
@@ -111,7 +115,7 @@ def test_import_geonames_zip_uses_name_metadata_for_full_name(tmp_path) -> None:
                 '',
                 '',
                 '',
-                '4820',
+                '209620',
                 '',
                 '',
                 'Europe/Amsterdam',
@@ -137,7 +141,7 @@ def test_import_geonames_zip_uses_name_metadata_for_full_name(tmp_path) -> None:
     upsert.assert_called_once()
     values = upsert.call_args.args[0]
     assert values[0]['region'] == 'North Brabant'
-    assert values[0]['full_name'] == 'Liempde, North Brabant, The Netherlands'
+    assert values[0]['full_name'] == 'Eindhoven, North Brabant, The Netherlands'
     assert values[0]['feature_class'] == PlaceFeatureClass.POPULATED_PLACE
 
 
@@ -196,8 +200,6 @@ def test_load_name_metadata_reads_geonames_support_files(tmp_path) -> None:
         'NL\tNLD\t528\tNL\tThe Netherlands\tAmsterdam\n',
         encoding='utf-8',
     )
-    service = PlaceService(db=Mock())
-
     name_metadata = _load_name_metadata(
         admin1_codes_path=admin1_codes_path,
         country_info_path=country_info_path,

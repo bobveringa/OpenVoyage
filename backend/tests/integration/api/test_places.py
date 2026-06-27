@@ -75,8 +75,7 @@ def test_geocode_places_returns_matching_places(client, db_session, api_prefix) 
             'longitude': 4.88969,
             'country_code': 'NL',
             'region': 'North Holland',
-            'feature_class': 'P',
-            'feature_class_description': 'Populated Place Features',
+            'feature_class': 'POPULATED_PLACE',
         }
     ]
 

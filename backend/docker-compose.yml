@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgis/postgis:18-3.6
+    image: postgres:18
     container_name: travelblog-db
     environment:
       POSTGRES_USER: travelblog_user
