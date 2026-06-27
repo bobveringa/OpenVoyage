@@ -287,6 +287,162 @@ def test_list_trips_supports_pagination_and_sorting(
 
 
 @pytest.mark.integration
+def test_trip_owner_can_update_trip(client, db_session, api_prefix) -> None:
+    owner = create_user(db_session, password='TripsPass123!')
+    trip_id = _create_trip(client, db_session, api_prefix, owner)
+    new_cover_media = create_media(
+        db_session,
+        storage_path='media/new-cover.jpg',
+        created_by=owner.id,
+    )
+
+    response = client.patch(
+        f'{api_prefix}/trips/{trip_id}',
+        headers=_auth_headers(owner),
+        json={
+            'name': 'Updated Trip',
+            'description': 'Updated description',
+            'visibility': TripVisibility.PUBLIC.value,
+            'media_id': str(new_cover_media.id),
+        },
+    )
+    public_response = client.get(f'{api_prefix}/trips/{trip_id}')
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['id'] == trip_id
+    assert payload['name'] == 'Updated Trip'
+    assert payload['description'] == 'Updated description'
+    assert payload['cover_media']['id'] == str(new_cover_media.id)
+    assert public_response.status_code == 200
+
+
+@pytest.mark.integration
+def test_trip_update_requires_owner(client, db_session, api_prefix) -> None:
+    owner = create_user(db_session, password='TripsPass123!')
+    member = create_user(db_session, password='TripsPass123!')
+    non_member = create_user(db_session, password='TripsPass123!')
+    trip_id = _create_trip(client, db_session, api_prefix, owner)
+    owner_headers = _auth_headers(owner)
+
+    add_member_response = client.post(
+        f'{api_prefix}/trips/{trip_id}/members',
+        headers=owner_headers,
+        json={
+            'user_id': str(member.id),
+            'role': TripRole.MEMBER.value,
+        },
+    )
+    member_response = client.patch(
+        f'{api_prefix}/trips/{trip_id}',
+        headers=_auth_headers(member),
+        json={'name': 'Member Update'},
+    )
+    non_member_response = client.patch(
+        f'{api_prefix}/trips/{trip_id}',
+        headers=_auth_headers(non_member),
+        json={'name': 'Non Member Update'},
+    )
+
+    assert add_member_response.status_code == 201
+    assert member_response.status_code == 403
+    assert non_member_response.status_code == 404
+
+
+@pytest.mark.integration
+def test_trip_update_validates_cover_media(client, db_session, api_prefix) -> None:
+    owner = create_user(db_session, password='TripsPass123!')
+    another_owner = create_user(db_session, password='TripsPass123!')
+    trip_id = _create_trip(client, db_session, api_prefix, owner)
+    other_trip_id = _create_trip(client, db_session, api_prefix, owner)
+    other_user_media = create_media(
+        db_session,
+        storage_path='media/other-user-cover.jpg',
+        created_by=another_owner.id,
+    )
+    owner_media_used_by_another_trip = create_media(
+        db_session,
+        storage_path='media/already-used-cover.jpg',
+        created_by=owner.id,
+    )
+    owner_headers = _auth_headers(owner)
+
+    missing_response = client.patch(
+        f'{api_prefix}/trips/{trip_id}',
+        headers=owner_headers,
+        json={'media_id': str(uuid.uuid4())},
+    )
+    ownership_response = client.patch(
+        f'{api_prefix}/trips/{trip_id}',
+        headers=owner_headers,
+        json={'media_id': str(other_user_media.id)},
+    )
+    other_owner_update_response = client.patch(
+        f'{api_prefix}/trips/{other_trip_id}',
+        headers=owner_headers,
+        json={'media_id': str(owner_media_used_by_another_trip.id)},
+    )
+    already_used_response = client.patch(
+        f'{api_prefix}/trips/{trip_id}',
+        headers=owner_headers,
+        json={'media_id': str(owner_media_used_by_another_trip.id)},
+    )
+
+    assert missing_response.status_code == 404
+    assert ownership_response.status_code == 403
+    assert other_owner_update_response.status_code == 200
+    assert already_used_response.status_code == 409
+
+
+@pytest.mark.integration
+def test_trip_owner_can_delete_trip(client, db_session, api_prefix) -> None:
+    owner = create_user(db_session, password='TripsPass123!')
+    trip_id = _create_trip(client, db_session, api_prefix, owner)
+
+    delete_response = client.delete(
+        f'{api_prefix}/trips/{trip_id}',
+        headers=_auth_headers(owner),
+    )
+    get_response = client.get(
+        f'{api_prefix}/trips/{trip_id}',
+        headers=_auth_headers(owner),
+    )
+
+    assert delete_response.status_code == 204
+    assert get_response.status_code == 404
+
+
+@pytest.mark.integration
+def test_trip_delete_requires_owner(client, db_session, api_prefix) -> None:
+    owner = create_user(db_session, password='TripsPass123!')
+    member = create_user(db_session, password='TripsPass123!')
+    non_member = create_user(db_session, password='TripsPass123!')
+    trip_id = _create_trip(client, db_session, api_prefix, owner)
+    owner_headers = _auth_headers(owner)
+
+    add_member_response = client.post(
+        f'{api_prefix}/trips/{trip_id}/members',
+        headers=owner_headers,
+        json={
+            'user_id': str(member.id),
+            'role': TripRole.MEMBER.value,
+        },
+    )
+    member_response = client.delete(
+        f'{api_prefix}/trips/{trip_id}',
+        headers=_auth_headers(member),
+    )
+    non_member_response = client.delete(
+        f'{api_prefix}/trips/{trip_id}',
+        headers=_auth_headers(non_member),
+    )
+
+    assert add_member_response.status_code == 201
+    assert member_response.status_code == 403
+    assert non_member_response.status_code == 404
+
+
+@pytest.mark.integration
 def test_trip_owner_can_manage_members(client, db_session, api_prefix) -> None:
     owner = create_user(
         db_session,

@@ -25,9 +25,7 @@ def search_users(
     )
 
     return PaginatedResponse[UserSummaryResponse](
-        items=[
-            UserSummaryResponse.from_model(result) for result in results
-        ],
+        items=[UserSummaryResponse.from_model(result) for result in results],
         total=total,
         page=pagination.page,
         page_size=pagination.page_size,

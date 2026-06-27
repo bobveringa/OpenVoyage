@@ -23,6 +23,13 @@ class TripCreateRequest(BaseModel):
     visibility: TripVisibility = TripVisibility.PRIVATE
 
 
+class TripUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    media_id: uuid.UUID | None = None
+    visibility: TripVisibility | None = None
+
+
 class TripMemberCreateRequest(BaseModel):
     user_id: uuid.UUID
     role: TripRole = TripRole.MEMBER

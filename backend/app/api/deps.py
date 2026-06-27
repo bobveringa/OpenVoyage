@@ -16,6 +16,7 @@ from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from models.api.token import TokenPayload
 from models.database.user import User
 from services.media_service import MediaService
+from services.place_service import PlaceService
 from services.trip_service import TripService
 from services.user_service import UserService
 
@@ -127,6 +128,10 @@ def get_trip_service(session: SessionDep):
     return TripService(db=session)
 
 
+def get_place_service(session: SessionDep):
+    return PlaceService(db=session)
+
+
 def get_user_service(session: SessionDep):
     return UserService(db=session)
 
@@ -135,5 +140,6 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 CurrentAdmin = Annotated[User, Depends(get_current_admin_user)]
 MediaServiceDep = Annotated[MediaService, Depends(get_media_service)]
+PlaceServiceDep = Annotated[PlaceService, Depends(get_place_service)]
 TripServiceDep = Annotated[TripService, Depends(get_trip_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]

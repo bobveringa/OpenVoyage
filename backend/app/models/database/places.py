@@ -1,19 +1,50 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Float, String, Text
+from sqlalchemy import (
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base
+from .base import Base, utcnow
 
 
 class Place(Base):
     __tablename__ = 'places'
+    __table_args__ = (
+        UniqueConstraint(
+            'external_source',
+            'external_id',
+            name='uq_places_external_source_external_id',
+        ),
+        Index('ix_places_search_name', 'search_name'),
+        Index('ix_places_country_code_region', 'country_code', 'region'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
         default=uuid.uuid4,
     )
+    external_source: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    external_id: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
     name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    search_name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
@@ -36,4 +67,31 @@ class Place(Base):
     full_name: Mapped[str] = mapped_column(
         Text,
         nullable=False,
+    )
+    feature_class: Mapped[str] = mapped_column(
+        String(1),
+        nullable=False,
+    )
+    feature_code: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+    )
+    population: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default='0',
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=func.now(),
     )

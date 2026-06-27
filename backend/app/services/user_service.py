@@ -7,7 +7,18 @@ from models.database.user import User, UserProfile
 
 
 class UserService:
+    """Provides user lookup behavior for authenticated API workflows.
+
+    Args:
+        db: SQLAlchemy session used for user/profile queries.
+    """
+
     def __init__(self, db: Session) -> None:
+        """Initialize the service.
+
+        Args:
+            db: SQLAlchemy session used for database reads.
+        """
         self.db = db
 
     def search_users(
@@ -18,6 +29,17 @@ class UserService:
         limit: int,
         exclude_user_id: uuid.UUID | None = None,
     ) -> tuple[list[User], int]:
+        """Search users by email/profile fields and return a page plus total.
+
+        Args:
+            query: Case-insensitive text matched against email and profile fields.
+            offset: Number of matching rows to skip.
+            limit: Maximum number of users to return.
+            exclude_user_id: Optional user id to exclude from the results.
+
+        Returns:
+            A tuple containing the current page of users and total match count.
+        """
         search_term = f'%{query}%'
         filters = [
             or_(

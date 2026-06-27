@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     MAX_MEDIA_SIZE: ByteSize = '512MB'
 
     MEDIA_DIRECTORY: str = ''
+    GEONAMES_DOWNLOAD_BASE_URL: str = 'https://download.geonames.org/export/dump'
 
     @computed_field
     @property

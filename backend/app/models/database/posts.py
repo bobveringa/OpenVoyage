@@ -1,4 +1,3 @@
-import enum
 import uuid
 from datetime import datetime
 
@@ -7,7 +6,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    String,
     Text,
     UniqueConstraint,
     func,
@@ -65,11 +63,6 @@ class Post(Base):
     )
 
 
-class PostMediaVisibility(str, enum.Enum):
-    PUBLIC = 'PUBLIC'
-    PRIVATE = 'PRIVATE'
-
-
 class PostMedia(Base):
     __tablename__ = 'post_media'
     __table_args__ = (
@@ -109,10 +102,4 @@ class PostMedia(Base):
         nullable=False,
         default=0,
         server_default='0',
-    )
-    visibility: Mapped[PostMediaVisibility] = mapped_column(
-        String(32),
-        nullable=False,
-        default=PostMediaVisibility.PUBLIC,
-        server_default=PostMediaVisibility.PUBLIC.value,
     )

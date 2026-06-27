@@ -14,6 +14,7 @@ from models.api.trips import (
     TripMemberUpdateRequest,
     TripResponse,
     TripSortField,
+    TripUpdateRequest,
 )
 from services.trip_service import (
     CoverMediaAlreadyUsedError,
@@ -104,6 +105,51 @@ def list_trip_members(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
     return [TripMemberResponse.from_model(member) for member in members]
+
+
+@router.patch(
+    '/{trip_id}',
+    response_model=TripResponse,
+)
+def update_trip(
+    request: Request,
+    trip_id: uuid.UUID,
+    payload: TripUpdateRequest,
+    trip_service: TripServiceDep,
+    user: CurrentUser,
+) -> TripResponse:
+    try:
+        trip = trip_service.update_trip(
+            trip_id=trip_id,
+            payload=payload,
+            current_user_id=user.id,
+        )
+    except (TripNotFoundError, MediaNotFoundError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except (TripPermissionError, CoverMediaOwnershipError) as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except CoverMediaAlreadyUsedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+    media_base_url = str(request.base_url).rstrip('/')
+    return TripResponse.from_model(trip, media_base_url=media_base_url)
+
+
+@router.delete(
+    '/{trip_id}',
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_trip(
+    trip_id: uuid.UUID,
+    trip_service: TripServiceDep,
+    user: CurrentUser,
+) -> None:
+    try:
+        trip_service.delete_trip(trip_id=trip_id, current_user_id=user.id)
+    except TripNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except TripPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 
 
 @router.post(
