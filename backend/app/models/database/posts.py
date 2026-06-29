@@ -1,4 +1,5 @@
 import uuid
+import typing
 from datetime import datetime
 
 from sqlalchemy import (
@@ -10,13 +11,24 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, utcnow
+
+if typing.TYPE_CHECKING:
+    from .locations import Location
+    from .media import Media
+    from .trips import Trip
+    from .user import User
 
 
 class Post(Base):
     __tablename__ = 'posts'
+    __table_args__ = (
+        Index('ix_posts_trip_id_published_at', 'trip_id', 'published_at'),
+        Index('ix_posts_author_user_id', 'author_user_id'),
+        Index('ix_posts_location_id', 'location_id'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
@@ -38,6 +50,11 @@ class Post(Base):
         nullable=False,
     )
     location_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            'locations.id',
+            name='fk_posts_location_id',
+            ondelete='CASCADE',
+        ),
         nullable=False,
     )
     body: Mapped[str] = mapped_column(
@@ -61,6 +78,10 @@ class Post(Base):
         onupdate=utcnow,
         server_default=func.now(),
     )
+
+    trip: Mapped['Trip'] = relationship('Trip')
+    author: Mapped['User'] = relationship('User')
+    location: Mapped['Location'] = relationship('Location')
 
 
 class PostMedia(Base):
@@ -103,3 +124,6 @@ class PostMedia(Base):
         default=0,
         server_default='0',
     )
+
+    post: Mapped['Post'] = relationship('Post')
+    media: Mapped['Media'] = relationship('Media')

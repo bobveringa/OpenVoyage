@@ -1,21 +1,31 @@
 import uuid
+import typing
 from datetime import date, datetime
 
 from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Text,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, utcnow
+
+if typing.TYPE_CHECKING:
+    from .locations import Location
+    from .trips import Trip
 
 
 class PlannedStep(Base):
     __tablename__ = 'planned_steps'
+    __table_args__ = (
+        Index('ix_planned_steps_trip_id_step_number', 'trip_id', 'step_number'),
+        Index('ix_planned_steps_location_id', 'location_id'),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
@@ -34,6 +44,11 @@ class PlannedStep(Base):
         nullable=False,
     )
     location_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            'locations.id',
+            ondelete='CASCADE',
+            name='fk_planned_steps_location_id',
+        ),
         nullable=False,
     )
     arrival_date: Mapped[date] = mapped_column(
@@ -63,3 +78,6 @@ class PlannedStep(Base):
         onupdate=utcnow,
         server_default=func.now(),
     )
+
+    trip: Mapped['Trip'] = relationship('Trip')
+    location: Mapped['Location'] = relationship('Location')
