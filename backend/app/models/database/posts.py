@@ -26,6 +26,7 @@ class Post(Base):
     __tablename__ = 'posts'
     __table_args__ = (
         Index('ix_posts_trip_id_published_at', 'trip_id', 'published_at'),
+        Index('ix_posts_trip_id_occurred_at', 'trip_id', 'occurred_at'),
         Index('ix_posts_author_user_id', 'author_user_id'),
         Index('ix_posts_location_id', 'location_id'),
     )
@@ -61,6 +62,12 @@ class Post(Base):
         Text,
         nullable=False,
     )
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        server_default=func.now(),
+    )
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
@@ -82,6 +89,12 @@ class Post(Base):
     trip: Mapped['Trip'] = relationship('Trip')
     author: Mapped['User'] = relationship('User')
     location: Mapped['Location'] = relationship('Location')
+    media_links: Mapped[list['PostMedia']] = relationship(
+        'PostMedia',
+        back_populates='post',
+        cascade='all, delete-orphan',
+        order_by='PostMedia.sort_order',
+    )
 
 
 class PostMedia(Base):
@@ -125,5 +138,5 @@ class PostMedia(Base):
         server_default='0',
     )
 
-    post: Mapped['Post'] = relationship('Post')
+    post: Mapped['Post'] = relationship('Post', back_populates='media_links')
     media: Mapped['Media'] = relationship('Media')
