@@ -5,22 +5,17 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from models.api.pagination import SortDirection
 from models.api.posts import (
-    PostCoordinatesLocationInput,
     PostCreateRequest,
-    PostLocationInput,
-    PostPlaceLocationInput,
     PostSortField,
     PostStatusFilter,
     PostUpdateRequest,
 )
 from models.database.base import utcnow
-from models.database.locations import Location
 from models.database.media import Media
-from models.database.places import Place
 from models.database.posts import Post, PostMedia
 from models.database.trips import Trip, TripMember, TripRole, TripVisibility
 from models.database.user import User
-from services.place_service import PlaceService
+from services.location_service import LocationService
 from services.trip_authorization import TripPermission, role_has_permission
 
 
@@ -30,10 +25,6 @@ class PostNotFoundError(Exception):
 
 class TripNotFoundError(Exception):
     """Raised when a trip cannot be found or read by the user."""
-
-
-class LocationNotFoundError(Exception):
-    """Raised when a location cannot be found for the trip."""
 
 
 class MediaNotFoundError(Exception):
@@ -55,8 +46,13 @@ class PostPermissionError(Exception):
 class PostService:
     """Coordinates post lifecycle, media ordering, and post authorization."""
 
-    def __init__(self, db: Session) -> None:
+    def __init__(
+        self,
+        db: Session,
+        location_service: LocationService | None = None,
+    ) -> None:
         self.db = db
+        self.location_service = location_service or LocationService(db=db)
 
     def create_post(
         self,
@@ -69,9 +65,9 @@ class PostService:
             user_id=current_user_id,
             permission=TripPermission.CREATE_POST,
         )
-        location = self._create_location(
+        location = self.location_service.create_location_for_trip(
             trip_id=trip_id,
-            current_user_id=current_user_id,
+            created_by=current_user_id,
             location_input=payload.location,
         )
         media_by_id = self._validate_media_ids(
@@ -188,9 +184,9 @@ class PostService:
         if payload.body is not None:
             post.body = payload.body
         if payload.location is not None:
-            location = self._create_location(
+            location = self.location_service.create_location_for_trip(
                 trip_id=trip_id,
-                current_user_id=current_user_id,
+                created_by=current_user_id,
                 location_input=payload.location,
             )
             post.location_id = location.id
@@ -288,57 +284,6 @@ class PostService:
             return post
 
         raise PostPermissionError('The user does not have enough privileges')
-
-    def _create_location(
-        self,
-        trip_id: uuid.UUID,
-        current_user_id: uuid.UUID,
-        location_input: PostLocationInput,
-    ) -> Location:
-        place, latitude, longitude = self._resolve_location_input(location_input)
-        location = Location(
-            trip_id=trip_id,
-            name=place.name,
-            latitude=latitude,
-            longitude=longitude,
-            country_code=place.country_code,
-            region=place.region,
-            full_name=place.full_name,
-            created_by=current_user_id,
-        )
-        self.db.add(location)
-        self.db.flush()
-        return location
-
-    def _resolve_location_input(
-        self,
-        location_input: PostLocationInput,
-    ) -> tuple[Place, float, float]:
-        if isinstance(location_input, PostPlaceLocationInput):
-            place = self.db.get(Place, location_input.place_id)
-            if place is None:
-                raise LocationNotFoundError(
-                    f'Place not found: {location_input.place_id}'
-                )
-            return place, place.latitude, place.longitude
-
-        if isinstance(location_input, PostCoordinatesLocationInput):
-            results = PlaceService(db=self.db).reverse_geocode(
-                latitude=location_input.latitude,
-                longitude=location_input.longitude,
-                limit=1,
-            )
-            if not results:
-                raise LocationNotFoundError(
-                    'No place match found for the provided coordinates'
-                )
-            return (
-                results[0].place,
-                location_input.latitude,
-                location_input.longitude,
-            )
-
-        raise LocationNotFoundError('Unsupported location input')
 
     def _validate_media_ids(
         self,

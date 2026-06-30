@@ -220,6 +220,39 @@ def test_create_post_with_coordinates_preserves_coordinates_and_uses_place_metad
 
 
 @pytest.mark.integration
+def test_create_post_with_coordinates_uses_unknown_location_when_no_place_matches(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    user = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(db_session, owner_id=user.id)
+
+    response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers=_auth_headers(user),
+        json={
+            'body': 'Middle of nowhere',
+            'location': {
+                'latitude': 0.1,
+                'longitude': 0.2,
+            },
+            'occurred_at': OCCURRED_AT,
+            'media_ids': [],
+        },
+    )
+
+    assert response.status_code == 201
+    location = response.json()['location']
+    assert location['name'] == 'Unknown location'
+    assert location['latitude'] == 0.1
+    assert location['longitude'] == 0.2
+    assert location['country_code'] == 'ZZ'
+    assert location['region'] == 'Unknown'
+    assert location['full_name'] == 'Unknown location'
+
+
+@pytest.mark.integration
 def test_update_post_replaces_and_reorders_media_ids(
     client,
     db_session,

@@ -14,9 +14,9 @@ from models.api.posts import (
     PostStatusFilter,
     PostUpdateRequest,
 )
+from services.location_service import LocationNotFoundError
 from services.post_service import (
     DuplicatePostMediaError,
-    LocationNotFoundError,
     MediaNotFoundError,
     PostMediaOwnershipError,
     PostNotFoundError,
