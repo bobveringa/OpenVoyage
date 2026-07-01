@@ -135,13 +135,19 @@ def get_place_service(session: SessionDep):
 
 
 def get_location_service(session: SessionDep):
-    return LocationService(db=session)
+    return LocationService(
+        db=session,
+        place_service=PlaceService(db=session),
+    )
 
 
-def get_post_service(session: SessionDep):
+def get_post_service(
+    session: SessionDep,
+    location_service: Annotated[LocationService, Depends(get_location_service)],
+):
     return PostService(
         db=session,
-        location_service=LocationService(db=session),
+        location_service=location_service,
     )
 
 

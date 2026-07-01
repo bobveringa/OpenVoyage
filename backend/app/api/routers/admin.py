@@ -45,7 +45,6 @@ def create_first_user(
         username=payload.username,
         first_name=payload.first_name,
         last_name=payload.last_name,
-        slug=str(user_id),
     )
 
     session.add(user)

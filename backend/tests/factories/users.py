@@ -16,7 +16,6 @@ def create_user(
     username: str | None = None,
     first_name: str | None = None,
     last_name: str | None = None,
-    slug: str | None = None,
 ) -> User:
     user_id = uuid.uuid4()
     user = User(
@@ -26,14 +25,13 @@ def create_user(
         role=role.value,
     )
     db_session.add(user)
-    if any([username, first_name, last_name, slug]):
+    if any([username, first_name, last_name]):
         db_session.add(
             UserProfile(
                 user_id=user_id,
                 username=username or f'user-{user_id.hex[:8]}',
                 first_name=first_name or 'Test',
                 last_name=last_name or 'User',
-                slug=slug or f'user-{user_id.hex[:8]}',
                 profile_picture_media_id=None,
                 biography='',
             )

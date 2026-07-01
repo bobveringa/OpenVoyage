@@ -3,7 +3,14 @@ from __future__ import annotations
 import pytest
 
 from core import security
+from factories.media import create_media
 from factories.users import create_user
+from models.database.media import MediaType
+
+
+def _auth_headers(user) -> dict[str, str]:
+    tokens = security.create_auth_tokens(subject=user.id, email=user.email)
+    return {'Authorization': f'Bearer {tokens["access_token"]}'}
 
 
 @pytest.mark.integration
@@ -138,3 +145,123 @@ def test_search_users_supports_pagination(client, db_session, api_prefix) -> Non
     assert payload['page'] == 2
     assert payload['page_size'] == 1
     assert [user['email'] for user in payload['items']] == ['albert@example.com']
+
+
+@pytest.mark.integration
+def test_update_current_user_profile_and_avatar(client, db_session, api_prefix) -> None:
+    user = create_user(
+        db_session,
+        email='profile@example.com',
+        password='UsersPass123!',
+    )
+    avatar = create_media(
+        db_session,
+        storage_path='media/profile-avatar.jpg',
+        created_by=user.id,
+    )
+
+    response = client.patch(
+        f'{api_prefix}/users/me',
+        headers=_auth_headers(user),
+        json={
+            'username': 'travel-bob',
+            'first_name': 'Bob',
+            'last_name': 'Voyager',
+            'biography': 'Writing notes from the road.',
+            'profile_picture_media_id': str(avatar.id),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['id'] == str(user.id)
+    assert payload['email'] == user.email
+    assert payload['profile']['username'] == 'travel-bob'
+    assert payload['profile']['first_name'] == 'Bob'
+    assert payload['profile']['last_name'] == 'Voyager'
+    assert payload['profile']['biography'] == 'Writing notes from the road.'
+    assert payload['profile']['profile_picture_media_id'] == str(avatar.id)
+    assert payload['profile']['profile_picture']['id'] == str(avatar.id)
+
+
+@pytest.mark.integration
+def test_update_current_user_can_remove_avatar(client, db_session, api_prefix) -> None:
+    user = create_user(
+        db_session,
+        password='UsersPass123!',
+        username='avatar-user',
+        first_name='Avatar',
+        last_name='User',
+    )
+    avatar = create_media(
+        db_session,
+        storage_path='media/remove-avatar.jpg',
+        created_by=user.id,
+    )
+    user.profile.profile_picture_media_id = avatar.id
+    db_session.commit()
+
+    response = client.patch(
+        f'{api_prefix}/users/me',
+        headers=_auth_headers(user),
+        json={'profile_picture_media_id': None},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['profile']['profile_picture_media_id'] is None
+    assert payload['profile']['profile_picture'] is None
+
+
+@pytest.mark.integration
+def test_update_current_user_profile_requires_auth(client, api_prefix) -> None:
+    response = client.patch(
+        f'{api_prefix}/users/me',
+        json={'username': 'anonymous'},
+    )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.integration
+def test_update_current_user_profile_validates_avatar_media(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    user = create_user(db_session, password='UsersPass123!')
+    another_user = create_user(db_session, password='UsersPass123!')
+    other_user_media = create_media(
+        db_session,
+        storage_path='media/other-avatar.jpg',
+        created_by=another_user.id,
+    )
+    video_media = create_media(
+        db_session,
+        storage_path='media/avatar-video.mp4',
+        created_by=user.id,
+        media_type=MediaType.VIDEO,
+        content_type='video/mp4',
+        duration=2,
+    )
+    headers = _auth_headers(user)
+
+    missing_response = client.patch(
+        f'{api_prefix}/users/me',
+        headers=headers,
+        json={'profile_picture_media_id': '00000000-0000-0000-0000-000000000000'},
+    )
+    ownership_response = client.patch(
+        f'{api_prefix}/users/me',
+        headers=headers,
+        json={'profile_picture_media_id': str(other_user_media.id)},
+    )
+    video_response = client.patch(
+        f'{api_prefix}/users/me',
+        headers=headers,
+        json={'profile_picture_media_id': str(video_media.id)},
+    )
+
+    assert missing_response.status_code == 404
+    assert ownership_response.status_code == 403
+    assert video_response.status_code == 400

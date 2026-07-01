@@ -1,10 +1,21 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
+from starlette import status
+from starlette.requests import Request
 
 from api.deps import CurrentUser, PaginationDep, UserServiceDep
 from models.api.pagination import PaginatedResponse
-from models.api.users import UserResponse, UserSummaryResponse
+from models.api.users import (
+    UserProfileUpdateRequest,
+    UserResponse,
+    UserSummaryResponse,
+)
+from services.user_service import (
+    ProfilePictureMediaTypeError,
+    ProfilePictureNotFoundError,
+    ProfilePictureOwnershipError,
+)
 
 router = APIRouter(prefix='/users', tags=['users'])
 
@@ -32,9 +43,27 @@ def search_users(
     )
 
 
-@router.get('/me')
-def read_user(user: CurrentUser) -> UserResponse:
-    return UserResponse(
-        id=user.id,
-        email=user.email,
-    )
+@router.get('/me', response_model=UserResponse)
+def read_user(request: Request, user: CurrentUser) -> UserResponse:
+    media_base_url = str(request.base_url).rstrip('/')
+    return UserResponse.from_model(user, media_base_url=media_base_url)
+
+
+@router.patch('/me', response_model=UserResponse)
+def update_user_profile(
+    request: Request,
+    payload: UserProfileUpdateRequest,
+    user: CurrentUser,
+    user_service: UserServiceDep,
+) -> UserResponse:
+    try:
+        updated_user = user_service.update_profile(user=user, payload=payload)
+    except ProfilePictureNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ProfilePictureOwnershipError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ProfilePictureMediaTypeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    media_base_url = str(request.base_url).rstrip('/')
+    return UserResponse.from_model(updated_user, media_base_url=media_base_url)

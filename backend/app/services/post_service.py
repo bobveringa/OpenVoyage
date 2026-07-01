@@ -49,10 +49,10 @@ class PostService:
     def __init__(
         self,
         db: Session,
-        location_service: LocationService | None = None,
+        location_service: LocationService,
     ) -> None:
         self.db = db
-        self.location_service = location_service or LocationService(db=db)
+        self.location_service = location_service
 
     def create_post(
         self,

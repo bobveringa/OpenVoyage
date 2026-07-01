@@ -409,3 +409,175 @@ def test_create_post_validates_media_ids(
 
     assert duplicate_response.status_code == 400
     assert ownership_response.status_code == 403
+
+
+@pytest.mark.integration
+def test_create_post_returns_not_found_for_missing_media(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    user = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(db_session, owner_id=user.id)
+    place = create_place(db_session)
+
+    response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers=_auth_headers(user),
+        json={
+            'body': 'Missing media',
+            'location': _place_location(place),
+            'occurred_at': OCCURRED_AT,
+            'media_ids': [str(uuid.uuid4())],
+        },
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.integration
+def test_private_trip_posts_return_not_found_without_membership(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    owner = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(
+        db_session,
+        owner_id=owner.id,
+        visibility=TripVisibility.PRIVATE,
+    )
+    place = create_place(db_session)
+    create_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers=_auth_headers(owner),
+        json={
+            'body': 'Private post',
+            'location': _place_location(place),
+            'occurred_at': OCCURRED_AT,
+            'publish': True,
+        },
+    )
+
+    list_response = client.get(f'{api_prefix}/trips/{trip.id}/posts')
+    get_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/posts/{create_response.json()["id"]}'
+    )
+
+    assert create_response.status_code == 201
+    assert list_response.status_code == 404
+    assert get_response.status_code == 404
+
+
+@pytest.mark.integration
+def test_update_post_translates_media_validation_errors(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    user = create_user(db_session, password='PostsPass123!')
+    another_user = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(db_session, owner_id=user.id)
+    place = create_place(db_session)
+    owned_media = create_media(
+        db_session,
+        storage_path='media/update-owned.jpg',
+        created_by=user.id,
+    )
+    other_user_media = create_media(
+        db_session,
+        storage_path='media/update-other-user.jpg',
+        created_by=another_user.id,
+    )
+    headers = _auth_headers(user)
+    create_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers=headers,
+        json={
+            'body': 'Before media validation',
+            'location': _place_location(place),
+            'occurred_at': OCCURRED_AT,
+        },
+    )
+    post_id = create_response.json()['id']
+
+    duplicate_response = client.patch(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
+        headers=headers,
+        json={'media_ids': [str(owned_media.id), str(owned_media.id)]},
+    )
+    ownership_response = client.patch(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
+        headers=headers,
+        json={'media_ids': [str(other_user_media.id)]},
+    )
+    missing_response = client.patch(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
+        headers=headers,
+        json={'media_ids': [str(uuid.uuid4())]},
+    )
+
+    assert create_response.status_code == 201
+    assert duplicate_response.status_code == 400
+    assert ownership_response.status_code == 403
+    assert missing_response.status_code == 404
+
+
+@pytest.mark.integration
+def test_publish_unpublish_and_delete_post_endpoints(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    owner = create_user(db_session, password='PostsPass123!')
+    author = create_user(db_session, password='PostsPass123!')
+    other_member = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
+    add_trip_member(db_session, trip_id=trip.id, user_id=author.id)
+    add_trip_member(db_session, trip_id=trip.id, user_id=other_member.id)
+    place = create_place(db_session)
+    create_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers=_auth_headers(author),
+        json={
+            'body': 'Publish me',
+            'location': _place_location(place),
+            'occurred_at': OCCURRED_AT,
+        },
+    )
+    post_id = create_response.json()['id']
+
+    forbidden_publish_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}/publish',
+        headers=_auth_headers(other_member),
+    )
+    publish_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}/publish',
+        headers=_auth_headers(owner),
+    )
+    unpublish_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}/unpublish',
+        headers=_auth_headers(author),
+    )
+    forbidden_delete_response = client.delete(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
+        headers=_auth_headers(other_member),
+    )
+    delete_response = client.delete(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
+        headers=_auth_headers(owner),
+    )
+    missing_publish_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}/publish',
+        headers=_auth_headers(owner),
+    )
+
+    assert create_response.status_code == 201
+    assert forbidden_publish_response.status_code == 403
+    assert publish_response.status_code == 200
+    assert publish_response.json()['published_at'] is not None
+    assert unpublish_response.status_code == 200
+    assert unpublish_response.json()['published_at'] is None
+    assert forbidden_delete_response.status_code == 403
+    assert delete_response.status_code == 204
+    assert missing_publish_response.status_code == 404

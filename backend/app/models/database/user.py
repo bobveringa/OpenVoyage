@@ -99,13 +99,7 @@ class UserProfile(Base):
         String(255),
         nullable=False,
     )
-    slug: Mapped[str] = mapped_column(
-        String(48),
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-    profile_picture_media_id: Mapped[uuid.UUID] = mapped_column(
+    profile_picture_media_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(
             'media.id',
             ondelete='SET NULL',
