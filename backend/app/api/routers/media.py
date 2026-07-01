@@ -4,7 +4,7 @@ import uuid
 from starlette import status
 from starlette.responses import StreamingResponse
 
-from api.deps import CurrentUser, MediaServiceDep
+from api.deps import CurrentUser, MediaServiceDep, OptionalCurrentUser
 from fastapi import APIRouter, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse
 from models.api.media import MediaUploadResponse
@@ -83,11 +83,17 @@ def parse_range_header(range_header: str, file_size: int) -> tuple[int, int]:
 def get_media_content(
     request: Request,
     media_service: MediaServiceDep,
+    user: OptionalCurrentUser,
     media_id: uuid.UUID,
     thumbnail: bool = False,
 ):
     media = media_service.find_by_id(media_id)
     if not media:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    if not media_service.can_read_media(media, user.id if user else None):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
         )
@@ -127,7 +133,7 @@ def get_media_content(
                 start, end = parse_range_header(range_header, file_size)
                 length = end - start + 1
 
-            except ValueError, IndexError:
+            except (ValueError, IndexError):
                 raise HTTPException(
                     status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
                     detail='Invalid or unsatisfiable Range header.',

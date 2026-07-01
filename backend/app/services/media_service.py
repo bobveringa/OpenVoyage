@@ -6,7 +6,11 @@ from core.config import settings
 from core.db import get_engine
 from fastapi import BackgroundTasks, UploadFile
 from models.database.media import Media, MediaStatus, MediaStorageBackend, MediaType
-from models.database.user import User
+from models.database.posts import Post, PostMedia
+from models.database.trips import Trip, TripMember, TripRole, TripVisibility
+from models.database.user import User, UserProfile
+from services.trip_authorization import TripPermission, role_has_permission
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 from utils.media.image_util import generate_image_thumbnail, get_image_info
 from utils.media.video_util import generate_video_thumbnail, get_video_info
@@ -37,6 +41,13 @@ MIME_TYPE_EXTENSIONS: dict[str, str] = {
 }
 
 THUMBNAIL_CONTENT_TYPE = 'image/webp'
+TRIP_READ_ROLES = [
+    role for role in TripRole if role_has_permission(role, TripPermission.GET_TRIP)
+]
+POST_READ_ROLES = [
+    role for role in TripRole if role_has_permission(role, TripPermission.GET_POST)
+]
+POST_DRAFT_READ_ROLES = [TripRole.OWNER, TripRole.MEMBER]
 
 
 def get_media_storage_path(media_id: uuid.UUID) -> str:
@@ -222,6 +233,104 @@ class MediaService:
             Media row when found, otherwise ``None``.
         """
         return self.db.get(Media, media_id)
+
+    def can_read_media(
+        self,
+        media: Media,
+        current_user_id: uuid.UUID | None,
+    ) -> bool:
+        """Return whether the current user may read a media file.
+
+        Profile pictures are public. Trip cover media and published post media
+        follow their trip visibility; private trip media is readable by members.
+        Upload owners can read their own media before it is attached anywhere.
+        """
+        if current_user_id is not None and media.created_by == current_user_id:
+            return True
+
+        if self._is_profile_picture(media.id):
+            return True
+
+        if self._is_readable_trip_cover(media.id, current_user_id):
+            return True
+
+        return self._is_readable_post_media(media.id, current_user_id)
+
+    def _is_profile_picture(self, media_id: uuid.UUID) -> bool:
+        statement = (
+            select(UserProfile.user_id)
+            .where(UserProfile.profile_picture_media_id == media_id)
+            .limit(1)
+        )
+        return self.db.execute(statement).first() is not None
+
+    def _is_readable_trip_cover(
+        self,
+        media_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+    ) -> bool:
+        statement = select(Trip.id).where(Trip.cover_media_id == media_id)
+
+        if current_user_id is None:
+            statement = statement.where(Trip.visibility == TripVisibility.PUBLIC)
+        else:
+            statement = statement.outerjoin(
+                TripMember,
+                and_(
+                    TripMember.trip_id == Trip.id,
+                    TripMember.user_id == current_user_id,
+                    TripMember.role.in_(TRIP_READ_ROLES),
+                ),
+            ).where(
+                or_(
+                    Trip.visibility == TripVisibility.PUBLIC,
+                    TripMember.user_id.is_not(None),
+                )
+            )
+
+        return self.db.execute(statement.limit(1)).first() is not None
+
+    def _is_readable_post_media(
+        self,
+        media_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+    ) -> bool:
+        statement = (
+            select(Post.id)
+            .join(PostMedia, PostMedia.post_id == Post.id)
+            .join(Trip, Trip.id == Post.trip_id)
+            .where(PostMedia.media_id == media_id)
+        )
+
+        public_published = and_(
+            Trip.visibility == TripVisibility.PUBLIC,
+            Post.published_at.is_not(None),
+        )
+
+        if current_user_id is None:
+            statement = statement.where(public_published)
+        else:
+            statement = statement.outerjoin(
+                TripMember,
+                and_(
+                    TripMember.trip_id == Trip.id,
+                    TripMember.user_id == current_user_id,
+                    TripMember.role.in_(POST_READ_ROLES),
+                ),
+            ).where(
+                or_(
+                    public_published,
+                    and_(
+                        TripMember.user_id.is_not(None),
+                        or_(
+                            Post.published_at.is_not(None),
+                            TripMember.role.in_(POST_DRAFT_READ_ROLES),
+                        ),
+                    ),
+                )
+            )
+
+        return self.db.execute(statement.limit(1)).first() is not None
 
 
 def create_thumbnail(media_id: uuid.UUID, media_path: str) -> None:

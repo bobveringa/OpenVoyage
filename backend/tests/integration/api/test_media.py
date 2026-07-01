@@ -5,9 +5,14 @@ from pathlib import Path
 import pytest
 
 from core import security
+from factories.locations import create_location
 from factories.media import create_media
+from factories.trips import create_trip
 from factories.users import create_user
+from models.database.base import utcnow
 from models.database.media import MediaStatus, MediaType
+from models.database.posts import Post, PostMedia
+from models.database.trips import TripVisibility
 
 
 @pytest.mark.integration
@@ -58,17 +63,23 @@ def test_get_media_content_not_found(client, api_prefix) -> None:
 def test_get_media_thumbnail_not_ready_returns_conflict(
     client, db_session, api_prefix
 ) -> None:
+    user = create_user(db_session, password='MediaPass123!')
+    tokens = security.create_auth_tokens(subject=user.id, email=user.email)
     media = create_media(
         db_session,
         storage_path='media/cover.jpg',
         thumbnail_content_type=None,
+        created_by=user.id,
     )
     media.status = MediaStatus.UPLOADED
     media.thumbnail_storage_path = None
     db_session.add(media)
     db_session.commit()
 
-    response = client.get(f'{api_prefix}/media/{media.id}/content?thumbnail=true')
+    response = client.get(
+        f'{api_prefix}/media/{media.id}/content?thumbnail=true',
+        headers={'Authorization': f'Bearer {tokens["access_token"]}'},
+    )
 
     assert response.status_code == 409
 
@@ -77,6 +88,8 @@ def test_get_media_thumbnail_not_ready_returns_conflict(
 def test_get_video_content_supports_range(
     client, db_session, api_prefix, tmp_path
 ) -> None:
+    user = create_user(db_session, password='MediaPass123!')
+    tokens = security.create_auth_tokens(subject=user.id, email=user.email)
     video_path = tmp_path / 'clip.mp4'
     video_path.write_bytes(b'0123456789')
     media = create_media(
@@ -85,13 +98,164 @@ def test_get_video_content_supports_range(
         content_type='video/mp4',
         media_type=MediaType.VIDEO,
         duration=10,
+        created_by=user.id,
     )
 
     response = client.get(
         f'{api_prefix}/media/{media.id}/content',
-        headers={'Range': 'bytes=2-5'},
+        headers={
+            'Authorization': f'Bearer {tokens["access_token"]}',
+            'Range': 'bytes=2-5',
+        },
     )
 
     assert response.status_code == 206
     assert response.content == b'2345'
     assert response.headers['content-range'] == 'bytes 2-5/10'
+
+
+@pytest.mark.integration
+def test_get_unattached_media_requires_owner(
+    client, db_session, api_prefix, tmp_path
+) -> None:
+    user = create_user(db_session, password='MediaPass123!')
+    tokens = security.create_auth_tokens(subject=user.id, email=user.email)
+    image_path = tmp_path / 'private.jpg'
+    image_path.write_bytes(b'private image')
+    media = create_media(db_session, storage_path=str(image_path), created_by=user.id)
+
+    anonymous_response = client.get(f'{api_prefix}/media/{media.id}/content')
+    owner_response = client.get(
+        f'{api_prefix}/media/{media.id}/content',
+        headers={'Authorization': f'Bearer {tokens["access_token"]}'},
+    )
+
+    assert anonymous_response.status_code == 404
+    assert owner_response.status_code == 200
+    assert owner_response.content == b'private image'
+
+
+@pytest.mark.integration
+def test_get_profile_picture_media_is_public(
+    client, db_session, api_prefix, tmp_path
+) -> None:
+    user = create_user(db_session, username='traveler')
+    image_path = tmp_path / 'avatar.jpg'
+    image_path.write_bytes(b'avatar image')
+    media = create_media(db_session, storage_path=str(image_path), created_by=user.id)
+    user.profile.profile_picture_media_id = media.id
+    db_session.add(user.profile)
+    db_session.commit()
+
+    response = client.get(f'{api_prefix}/media/{media.id}/content')
+
+    assert response.status_code == 200
+    assert response.content == b'avatar image'
+
+
+@pytest.mark.integration
+def test_get_public_trip_cover_media_is_public(
+    client, db_session, api_prefix, tmp_path
+) -> None:
+    owner = create_user(db_session)
+    image_path = tmp_path / 'cover.jpg'
+    image_path.write_bytes(b'public cover')
+    media = create_media(db_session, storage_path=str(image_path), created_by=owner.id)
+    trip = create_trip(
+        db_session,
+        owner_id=owner.id,
+        visibility=TripVisibility.PUBLIC,
+    )
+    trip.cover_media_id = media.id
+    db_session.add(trip)
+    db_session.commit()
+
+    response = client.get(f'{api_prefix}/media/{media.id}/content')
+
+    assert response.status_code == 200
+    assert response.content == b'public cover'
+
+
+@pytest.mark.integration
+def test_get_private_trip_cover_media_requires_member(
+    client, db_session, api_prefix, tmp_path
+) -> None:
+    owner = create_user(db_session, password='MediaPass123!')
+    tokens = security.create_auth_tokens(subject=owner.id, email=owner.email)
+    image_path = tmp_path / 'cover.jpg'
+    image_path.write_bytes(b'private cover')
+    media = create_media(db_session, storage_path=str(image_path), created_by=owner.id)
+    trip = create_trip(
+        db_session,
+        owner_id=owner.id,
+        visibility=TripVisibility.PRIVATE,
+    )
+    trip.cover_media_id = media.id
+    db_session.add(trip)
+    db_session.commit()
+
+    anonymous_response = client.get(f'{api_prefix}/media/{media.id}/content')
+    member_response = client.get(
+        f'{api_prefix}/media/{media.id}/content',
+        headers={'Authorization': f'Bearer {tokens["access_token"]}'},
+    )
+
+    assert anonymous_response.status_code == 404
+    assert member_response.status_code == 200
+    assert member_response.content == b'private cover'
+
+
+@pytest.mark.integration
+def test_get_public_trip_post_media_requires_published_post(
+    client, db_session, api_prefix, tmp_path
+) -> None:
+    owner = create_user(db_session)
+    trip = create_trip(
+        db_session,
+        owner_id=owner.id,
+        visibility=TripVisibility.PUBLIC,
+    )
+    location = create_location(db_session, trip_id=trip.id, created_by=owner.id)
+    image_path = tmp_path / 'post.jpg'
+    image_path.write_bytes(b'published post image')
+    media = create_media(db_session, storage_path=str(image_path), created_by=owner.id)
+    draft_path = tmp_path / 'draft.jpg'
+    draft_path.write_bytes(b'draft post image')
+    draft_media = create_media(
+        db_session,
+        storage_path=str(draft_path),
+        created_by=owner.id,
+    )
+
+    published_post = Post(
+        trip_id=trip.id,
+        author_user_id=owner.id,
+        location_id=location.id,
+        body='Published post',
+        occurred_at=utcnow(),
+        published_at=utcnow(),
+    )
+    draft_post = Post(
+        trip_id=trip.id,
+        author_user_id=owner.id,
+        location_id=location.id,
+        body='Draft post',
+        occurred_at=utcnow(),
+        published_at=None,
+    )
+    db_session.add_all([published_post, draft_post])
+    db_session.flush()
+    db_session.add_all(
+        [
+            PostMedia(post_id=published_post.id, media_id=media.id, sort_order=0),
+            PostMedia(post_id=draft_post.id, media_id=draft_media.id, sort_order=0),
+        ]
+    )
+    db_session.commit()
+
+    published_response = client.get(f'{api_prefix}/media/{media.id}/content')
+    draft_response = client.get(f'{api_prefix}/media/{draft_media.id}/content')
+
+    assert published_response.status_code == 200
+    assert published_response.content == b'published post image'
+    assert draft_response.status_code == 404
