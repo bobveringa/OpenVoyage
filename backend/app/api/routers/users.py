@@ -1,6 +1,7 @@
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 from starlette import status
 from starlette.requests import Request
 
@@ -15,6 +16,8 @@ from services.user_service import (
     ProfilePictureMediaTypeError,
     ProfilePictureNotFoundError,
     ProfilePictureOwnershipError,
+    UsernameAlreadyExistsError,
+    UserNotFoundError,
 )
 
 router = APIRouter(prefix='/users', tags=['users'])
@@ -64,6 +67,38 @@ def update_user_profile(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except ProfilePictureMediaTypeError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except UsernameAlreadyExistsError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
     return UserResponse.from_model(updated_user, media_base_url=media_base_url)
+
+
+@router.get('/by-username/{username}', response_model=UserResponse)
+def get_user_by_username(
+    request: Request,
+    user_service: UserServiceDep,
+    username: Annotated[str, Path(min_length=1, max_length=255)],
+) -> UserResponse:
+    try:
+        user = user_service.get_user_by_username(username)
+    except UserNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+    media_base_url = str(request.base_url).rstrip('/')
+    return UserResponse.from_model(user, media_base_url=media_base_url)
+
+
+@router.get('/{user_id}', response_model=UserResponse)
+def get_user_by_id(
+    request: Request,
+    user_service: UserServiceDep,
+    user_id: uuid.UUID,
+) -> UserResponse:
+    try:
+        user = user_service.get_user_by_id(user_id)
+    except UserNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+    media_base_url = str(request.base_url).rstrip('/')
+    return UserResponse.from_model(user, media_base_url=media_base_url)

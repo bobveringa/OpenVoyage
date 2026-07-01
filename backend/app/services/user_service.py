@@ -1,6 +1,7 @@
 import uuid
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, contains_eager, joinedload
 
 from models.api.users import UserProfileUpdateRequest
@@ -18,6 +19,14 @@ class ProfilePictureOwnershipError(Exception):
 
 class ProfilePictureMediaTypeError(Exception):
     """Raised when a profile picture media row is not an image."""
+
+
+class UserNotFoundError(Exception):
+    """Raised when a user cannot be found."""
+
+
+class UsernameAlreadyExistsError(Exception):
+    """Raised when a profile username is already used by another user."""
 
 
 class UserService:
@@ -88,6 +97,51 @@ class UserService:
 
         return users, total
 
+    def get_user_by_id(self, user_id: uuid.UUID) -> User:
+        """Return a user by UUID.
+
+        Args:
+            user_id: User id.
+
+        Returns:
+            The matching user with profile and avatar loaded.
+
+        Raises:
+            UserNotFoundError: No user exists for the supplied id.
+        """
+        user = self._get_user_for_response(user_id)
+        if user is None:
+            raise UserNotFoundError(f'User not found: {user_id}')
+        return user
+
+    def get_user_by_username(self, username: str) -> User:
+        """Return a user by exact username.
+
+        Args:
+            username: Profile username.
+
+        Returns:
+            The matching user with profile and avatar loaded.
+
+        Raises:
+            UserNotFoundError: No user exists for the supplied username.
+        """
+        statement = (
+            select(User)
+            .join(UserProfile)
+            .options(
+                contains_eager(User.profile).joinedload(
+                    UserProfile.profile_picture
+                )
+            )
+            .where(UserProfile.username == username)
+        )
+        user = self.db.execute(statement).scalar_one_or_none()
+
+        if user is None:
+            raise UserNotFoundError(f'User not found: {username}')
+        return user
+
     def update_profile(
         self,
         *,
@@ -107,6 +161,7 @@ class UserService:
             ProfilePictureNotFoundError: The requested media row does not exist.
             ProfilePictureOwnershipError: The requested media is not owned by user.
             ProfilePictureMediaTypeError: The requested media is not an image.
+            UsernameAlreadyExistsError: The requested username is already used.
         """
         profile = user.profile
         if profile is None:
@@ -134,8 +189,21 @@ class UserService:
                 current_user_id=user.id,
             )
 
-        self.db.commit()
-        return self._get_user_for_response(user.id)
+        attempted_username = profile.username
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            if _is_unique_violation(exc, 'ix_user_profiles_username'):
+                raise UsernameAlreadyExistsError(
+                    f'Username already exists: {attempted_username}'
+                ) from exc
+            raise
+
+        updated_user = self._get_user_for_response(user.id)
+        if updated_user is None:
+            raise UserNotFoundError(f'User not found: {user.id}')
+        return updated_user
 
     def _validate_profile_picture(
         self,
@@ -164,13 +232,21 @@ class UserService:
 
         return media.id
 
-    def _get_user_for_response(self, user_id: uuid.UUID) -> User:
+    def _get_user_for_response(self, user_id: uuid.UUID) -> User | None:
         return self.db.execute(
             select(User)
             .options(joinedload(User.profile).joinedload(UserProfile.profile_picture))
             .where(User.id == user_id)
-        ).scalar_one()
+        ).scalar_one_or_none()
 
 
 def _default_username(user: User) -> str:
     return user.email.split('@', maxsplit=1)[0] or f'user-{user.id.hex[:8]}'
+
+
+def _is_unique_violation(exc: IntegrityError, constraint_name: str) -> bool:
+    original = exc.orig
+    diagnostics = getattr(original, 'diag', None)
+    if getattr(diagnostics, 'constraint_name', None) == constraint_name:
+        return True
+    return constraint_name in str(original)

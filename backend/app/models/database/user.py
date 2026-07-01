@@ -89,6 +89,8 @@ class UserProfile(Base):
     )
     username: Mapped[str] = mapped_column(
         String(255),
+        unique=True,
+        index=True,
         nullable=False,
     )
     first_name: Mapped[str] = mapped_column(

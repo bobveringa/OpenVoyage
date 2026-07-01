@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from models.api.media import MediaResponse
 
 if TYPE_CHECKING:
-    from models.database.user import User
+    from models.database.user import User, UserProfile
 
 
 class UserProfileUpdateRequest(BaseModel):
@@ -25,10 +25,31 @@ class UserProfileResponse(BaseModel):
     profile_picture_media_id: uuid.UUID | None
     profile_picture: MediaResponse | None
 
+    @classmethod
+    def from_model(
+        cls,
+        profile: 'UserProfile',
+        media_base_url: str = '',
+    ) -> Self:
+        return cls(
+            username=profile.username,
+            first_name=profile.first_name,
+            last_name=profile.last_name,
+            biography=profile.biography,
+            profile_picture_media_id=profile.profile_picture_media_id,
+            profile_picture=(
+                MediaResponse.from_model(
+                    profile.profile_picture,
+                    media_base_url=media_base_url,
+                )
+                if profile.profile_picture
+                else None
+            ),
+        )
+
 
 class UserResponse(BaseModel):
     id: uuid.UUID
-    email: str
     profile: UserProfileResponse | None
 
     @classmethod
@@ -36,32 +57,17 @@ class UserResponse(BaseModel):
         profile = user.profile
         return cls(
             id=user.id,
-            email=user.email,
-            profile=(
-                UserProfileResponse(
-                    username=profile.username,
-                    first_name=profile.first_name,
-                    last_name=profile.last_name,
-                    biography=profile.biography,
-                    profile_picture_media_id=profile.profile_picture_media_id,
-                    profile_picture=(
-                        MediaResponse.from_model(
-                            profile.profile_picture,
-                            media_base_url=media_base_url,
-                        )
-                        if profile.profile_picture
-                        else None
-                    ),
-                )
-                if profile
-                else None
-            ),
+            profile=UserProfileResponse.from_model(
+                profile,
+                media_base_url=media_base_url,
+            )
+            if profile
+            else None,
         )
 
 
 class UserSummaryResponse(BaseModel):
     id: uuid.UUID
-    email: str
     username: str | None
     first_name: str | None
     last_name: str | None
@@ -71,7 +77,6 @@ class UserSummaryResponse(BaseModel):
         profile = user.profile
         return cls(
             id=user.id,
-            email=user.email,
             username=profile.username if profile else None,
             first_name=profile.first_name if profile else None,
             last_name=profile.last_name if profile else None,

@@ -492,7 +492,7 @@ def test_trip_owner_can_manage_members(client, db_session, api_prefix) -> None:
     added_member = add_response.json()
     assert added_member['user_id'] == str(member.id)
     assert added_member['role'] == TripRole.VIEWER.value
-    assert added_member['user']['email'] == member.email
+    assert 'email' not in added_member['user']
     assert added_member['user']['first_name'] == 'Trip'
 
     assert list_response.status_code == 200

@@ -80,10 +80,11 @@ def test_search_users_matches_email_and_profile_fields(
         str(first_name_match.id),
         str(username_match.id),
     }
-    assert {user['email'] for user in payload['items']} == {
-        'bob@example.com',
-        'alice@example.com',
-        'charlie@example.com',
+    assert all('email' not in user for user in payload['items'])
+    assert {user['username'] for user in payload['items']} == {
+        'unrelated',
+        'alice',
+        'bobcat',
     }
 
 
@@ -127,8 +128,11 @@ def test_search_users_supports_pagination(client, db_session, api_prefix) -> Non
         email='current@example.com',
         password='UsersPass123!',
     )
+    paged_user = None
     for email in ['alba@example.com', 'albert@example.com', 'alex@example.com']:
-        create_user(db_session, email=email)
+        created_user = create_user(db_session, email=email)
+        if email == 'albert@example.com':
+            paged_user = created_user
     tokens = security.create_auth_tokens(
         subject=current_user.id,
         email=current_user.email,
@@ -144,7 +148,71 @@ def test_search_users_supports_pagination(client, db_session, api_prefix) -> Non
     assert payload['total'] == 3
     assert payload['page'] == 2
     assert payload['page_size'] == 1
-    assert [user['email'] for user in payload['items']] == ['albert@example.com']
+    assert [user['id'] for user in payload['items']] == [str(paged_user.id)]
+    assert all('email' not in user for user in payload['items'])
+
+
+@pytest.mark.integration
+def test_get_user_by_uuid_without_auth(client, db_session, api_prefix) -> None:
+    user = create_user(
+        db_session,
+        email='public-user@example.com',
+        username='public-user',
+        first_name='Public',
+        last_name='Traveler',
+    )
+    avatar = create_media(
+        db_session,
+        storage_path='media/public-avatar.jpg',
+        created_by=user.id,
+    )
+    user.profile.profile_picture_media_id = avatar.id
+    db_session.commit()
+
+    response = client.get(f'{api_prefix}/users/{user.id}')
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['id'] == str(user.id)
+    assert 'email' not in payload
+    assert payload['profile']['username'] == 'public-user'
+    assert payload['profile']['first_name'] == 'Public'
+    assert payload['profile']['last_name'] == 'Traveler'
+    assert payload['profile']['profile_picture']['id'] == str(avatar.id)
+
+
+@pytest.mark.integration
+def test_get_user_by_username_without_auth(client, db_session, api_prefix) -> None:
+    user = create_user(
+        db_session,
+        email='username-user@example.com',
+        username='travel-bob',
+        first_name='Bob',
+        last_name='Voyager',
+    )
+
+    response = client.get(f'{api_prefix}/users/by-username/travel-bob')
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['id'] == str(user.id)
+    assert payload['profile']['username'] == 'travel-bob'
+
+
+@pytest.mark.integration
+def test_get_user_by_username_returns_404_when_missing(client, api_prefix) -> None:
+    response = client.get(f'{api_prefix}/users/by-username/missing-user')
+
+    assert response.status_code == 404
+
+
+@pytest.mark.integration
+def test_get_user_by_uuid_returns_404_when_missing(client, api_prefix) -> None:
+    response = client.get(
+        f'{api_prefix}/users/00000000-0000-0000-0000-000000000000'
+    )
+
+    assert response.status_code == 404
 
 
 @pytest.mark.integration
@@ -175,7 +243,7 @@ def test_update_current_user_profile_and_avatar(client, db_session, api_prefix) 
     assert response.status_code == 200
     payload = response.json()
     assert payload['id'] == str(user.id)
-    assert payload['email'] == user.email
+    assert 'email' not in payload
     assert payload['profile']['username'] == 'travel-bob'
     assert payload['profile']['first_name'] == 'Bob'
     assert payload['profile']['last_name'] == 'Voyager'
@@ -211,6 +279,31 @@ def test_update_current_user_can_remove_avatar(client, db_session, api_prefix) -
     payload = response.json()
     assert payload['profile']['profile_picture_media_id'] is None
     assert payload['profile']['profile_picture'] is None
+
+
+@pytest.mark.integration
+def test_update_current_user_rejects_duplicate_username(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    user = create_user(
+        db_session,
+        password='UsersPass123!',
+        username='current-user',
+    )
+    create_user(
+        db_session,
+        username='existing-user',
+    )
+
+    response = client.patch(
+        f'{api_prefix}/users/me',
+        headers=_auth_headers(user),
+        json={'username': 'existing-user'},
+    )
+
+    assert response.status_code == 409
 
 
 @pytest.mark.integration
