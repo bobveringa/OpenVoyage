@@ -186,17 +186,17 @@ def test_get_user_by_username_without_auth(client, db_session, api_prefix) -> No
     user = create_user(
         db_session,
         email='username-user@example.com',
-        username='travel-bob',
+        username='Travel-Bob',
         first_name='Bob',
         last_name='Voyager',
     )
 
-    response = client.get(f'{api_prefix}/users/by-username/travel-bob')
+    response = client.get(f'{api_prefix}/users/by-username/travelbob')
 
     assert response.status_code == 200
     payload = response.json()
     assert payload['id'] == str(user.id)
-    assert payload['profile']['username'] == 'travel-bob'
+    assert payload['profile']['username'] == 'Travel-Bob'
 
 
 @pytest.mark.integration
@@ -208,11 +208,76 @@ def test_get_user_by_username_returns_404_when_missing(client, api_prefix) -> No
 
 @pytest.mark.integration
 def test_get_user_by_uuid_returns_404_when_missing(client, api_prefix) -> None:
-    response = client.get(
-        f'{api_prefix}/users/00000000-0000-0000-0000-000000000000'
-    )
+    response = client.get(f'{api_prefix}/users/00000000-0000-0000-0000-000000000000')
 
     assert response.status_code == 404
+
+
+@pytest.mark.integration
+def test_check_username_availability_uses_canonical_username(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    existing_user = create_user(
+        db_session,
+        password='UsersPass123!',
+        username='Bob.Veringa',
+    )
+    other_user = create_user(
+        db_session,
+        password='UsersPass123!',
+        username='another-user',
+    )
+
+    taken_response = client.get(
+        f'{api_prefix}/users/username-availability',
+        params={'username': 'bobveringa'},
+    )
+    own_response = client.get(
+        f'{api_prefix}/users/username-availability',
+        headers=_auth_headers(existing_user),
+        params={'username': 'BOB_VERINGA'},
+    )
+    other_response = client.get(
+        f'{api_prefix}/users/username-availability',
+        headers=_auth_headers(other_user),
+        params={'username': 'Bob-Veringa'},
+    )
+
+    assert taken_response.status_code == 200
+    assert taken_response.json() == {
+        'username': 'bobveringa',
+        'available': False,
+    }
+    assert own_response.status_code == 200
+    assert own_response.json() == {
+        'username': 'BOB_VERINGA',
+        'available': True,
+    }
+    assert other_response.status_code == 200
+    assert other_response.json() == {
+        'username': 'Bob-Veringa',
+        'available': False,
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    'username',
+    [' bob', 'bob ', 'bo b', '.bob', 'bob.', 'bo..b', 'bo@b', 'b.o'],
+)
+def test_check_username_availability_rejects_invalid_username(
+    client,
+    api_prefix,
+    username,
+) -> None:
+    response = client.get(
+        f'{api_prefix}/users/username-availability',
+        params={'username': username},
+    )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.integration
@@ -232,7 +297,7 @@ def test_update_current_user_profile_and_avatar(client, db_session, api_prefix) 
         f'{api_prefix}/users/me',
         headers=_auth_headers(user),
         json={
-            'username': 'travel-bob',
+            'username': 'Travel-Bob',
             'first_name': 'Bob',
             'last_name': 'Voyager',
             'biography': 'Writing notes from the road.',
@@ -244,7 +309,7 @@ def test_update_current_user_profile_and_avatar(client, db_session, api_prefix) 
     payload = response.json()
     assert payload['id'] == str(user.id)
     assert 'email' not in payload
-    assert payload['profile']['username'] == 'travel-bob'
+    assert payload['profile']['username'] == 'Travel-Bob'
     assert payload['profile']['first_name'] == 'Bob'
     assert payload['profile']['last_name'] == 'Voyager'
     assert payload['profile']['biography'] == 'Writing notes from the road.'
@@ -294,16 +359,38 @@ def test_update_current_user_rejects_duplicate_username(
     )
     create_user(
         db_session,
-        username='existing-user',
+        username='Existing.User',
     )
 
     response = client.patch(
         f'{api_prefix}/users/me',
         headers=_auth_headers(user),
-        json={'username': 'existing-user'},
+        json={'username': 'existinguser'},
     )
 
     assert response.status_code == 409
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    'username',
+    [' bob', 'bob ', 'bo b', '-bob', 'bob_', 'bo__b', 'bo@b', 'b.o'],
+)
+def test_update_current_user_rejects_invalid_username(
+    client,
+    db_session,
+    api_prefix,
+    username,
+) -> None:
+    user = create_user(db_session, password='UsersPass123!')
+
+    response = client.patch(
+        f'{api_prefix}/users/me',
+        headers=_auth_headers(user),
+        json={'username': username},
+    )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.integration

@@ -5,12 +5,16 @@ from fastapi import APIRouter, HTTPException, Path, Query
 from starlette import status
 from starlette.requests import Request
 
-from api.deps import CurrentUser, PaginationDep, UserServiceDep
+from api.deps import CurrentUser, OptionalCurrentUser, PaginationDep, UserServiceDep
 from models.api.pagination import PaginatedResponse
 from models.api.users import (
+    USERNAME_MAX_LENGTH,
+    USERNAME_MIN_LENGTH,
     UserProfileUpdateRequest,
     UserResponse,
     UserSummaryResponse,
+    UsernameAvailabilityResponse,
+    validate_username,
 )
 from services.user_service import (
     ProfilePictureMediaTypeError,
@@ -72,6 +76,35 @@ def update_user_profile(
 
     media_base_url = str(request.base_url).rstrip('/')
     return UserResponse.from_model(updated_user, media_base_url=media_base_url)
+
+
+@router.get(
+    '/username-availability',
+    response_model=UsernameAvailabilityResponse,
+)
+def check_username_availability(
+    user_service: UserServiceDep,
+    user: OptionalCurrentUser,
+    username: Annotated[
+        str,
+        Query(min_length=USERNAME_MIN_LENGTH, max_length=USERNAME_MAX_LENGTH),
+    ],
+) -> UsernameAvailabilityResponse:
+    try:
+        validate_username(username)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return UsernameAvailabilityResponse(
+        username=username,
+        available=user_service.is_username_available(
+            username=username,
+            exclude_user_id=user.id if user else None,
+        ),
+    )
 
 
 @router.get('/by-username/{username}', response_model=UserResponse)

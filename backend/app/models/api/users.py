@@ -1,7 +1,8 @@
+import re
 import uuid
 from typing import TYPE_CHECKING, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from models.api.media import MediaResponse
 
@@ -9,12 +10,65 @@ if TYPE_CHECKING:
     from models.database.user import User, UserProfile
 
 
+USERNAME_MIN_LENGTH = 3
+USERNAME_MAX_LENGTH = 32
+USERNAME_SEPARATORS = '-._'
+
+_USERNAME_ALLOWED_RE = re.compile(r'^[A-Za-z0-9._-]+$')
+_USERNAME_CONSECUTIVE_SEPARATOR_RE = re.compile(r'[-._]{2,}')
+_USERNAME_CANONICAL_REMOVE_RE = re.compile(r'[-._]')
+
+
+def canonicalize_username(username: str) -> str:
+    return _USERNAME_CANONICAL_REMOVE_RE.sub('', username).casefold()
+
+
+def validate_username(username: str) -> str:
+    if username != username.strip():
+        raise ValueError('Username cannot contain leading or trailing whitespace')
+    if not USERNAME_MIN_LENGTH <= len(username) <= USERNAME_MAX_LENGTH:
+        raise ValueError(
+            f'Username must be between {USERNAME_MIN_LENGTH} and '
+            f'{USERNAME_MAX_LENGTH} characters'
+        )
+    if not _USERNAME_ALLOWED_RE.fullmatch(username):
+        raise ValueError(
+            'Username can only contain letters, numbers, hyphens, '
+            'underscores, and periods'
+        )
+    if username[0] in USERNAME_SEPARATORS or username[-1] in USERNAME_SEPARATORS:
+        raise ValueError('Username cannot start or end with a separator')
+    if _USERNAME_CONSECUTIVE_SEPARATOR_RE.search(username):
+        raise ValueError('Username cannot contain consecutive separators')
+    if len(canonicalize_username(username)) < USERNAME_MIN_LENGTH:
+        raise ValueError(
+            f'Username must contain at least {USERNAME_MIN_LENGTH} letters or numbers'
+        )
+    return username
+
+
 class UserProfileUpdateRequest(BaseModel):
-    username: str | None = Field(default=None, min_length=1, max_length=255)
+    username: str | None = Field(
+        default=None,
+        min_length=USERNAME_MIN_LENGTH,
+        max_length=USERNAME_MAX_LENGTH,
+    )
     first_name: str | None = Field(default=None, min_length=1, max_length=255)
     last_name: str | None = Field(default=None, min_length=1, max_length=255)
     biography: str | None = Field(default=None, max_length=2048)
     profile_picture_media_id: uuid.UUID | None = None
+
+    @field_validator('username')
+    @classmethod
+    def validate_username_field(cls, username: str | None) -> str | None:
+        if username is None:
+            return None
+        return validate_username(username)
+
+
+class UsernameAvailabilityResponse(BaseModel):
+    username: str
+    available: bool
 
 
 class UserProfileResponse(BaseModel):

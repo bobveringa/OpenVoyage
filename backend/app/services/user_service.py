@@ -4,9 +4,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, contains_eager, joinedload
 
-from models.api.users import UserProfileUpdateRequest
+from models.api.users import UserProfileUpdateRequest, canonicalize_username
 from models.database.media import Media, MediaType
-from models.database.user import User, UserProfile
+from models.database.user import User, UserProfile, canonical_username_expression
 
 
 class ProfilePictureNotFoundError(Exception):
@@ -115,10 +115,10 @@ class UserService:
         return user
 
     def get_user_by_username(self, username: str) -> User:
-        """Return a user by exact username.
+        """Return a user by canonical username.
 
         Args:
-            username: Profile username.
+            username: Profile username. Matching ignores case and separators.
 
         Returns:
             The matching user with profile and avatar loaded.
@@ -130,17 +130,43 @@ class UserService:
             select(User)
             .join(UserProfile)
             .options(
-                contains_eager(User.profile).joinedload(
-                    UserProfile.profile_picture
-                )
+                contains_eager(User.profile).joinedload(UserProfile.profile_picture)
             )
-            .where(UserProfile.username == username)
+            .where(
+                canonical_username_expression(UserProfile.username)
+                == canonicalize_username(username)
+            )
         )
         user = self.db.execute(statement).scalar_one_or_none()
 
         if user is None:
             raise UserNotFoundError(f'User not found: {username}')
         return user
+
+    def is_username_available(
+        self,
+        *,
+        username: str,
+        exclude_user_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Return whether a canonical username is available.
+
+        Args:
+            username: Candidate profile username.
+            exclude_user_id: Optional user id to ignore, usually the current user.
+
+        Returns:
+            True when no other profile has the same canonical username.
+        """
+        filters = [
+            canonical_username_expression(UserProfile.username)
+            == canonicalize_username(username)
+        ]
+        if exclude_user_id is not None:
+            filters.append(UserProfile.user_id != exclude_user_id)
+
+        statement = select(UserProfile.user_id).where(*filters).limit(1)
+        return self.db.execute(statement).first() is None
 
     def update_profile(
         self,
@@ -190,6 +216,15 @@ class UserService:
             )
 
         attempted_username = profile.username
+        with self.db.no_autoflush:
+            if not self.is_username_available(
+                username=attempted_username,
+                exclude_user_id=user.id,
+            ):
+                raise UsernameAlreadyExistsError(
+                    f'Username already exists: {attempted_username}'
+                )
+
         try:
             self.db.commit()
         except IntegrityError as exc:

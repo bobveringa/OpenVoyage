@@ -65,3 +65,22 @@ def test_create_first_user_rejects_when_any_user_exists(
 
     assert response.status_code == 403
     assert response.json()['detail'] == 'First user already exists'
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('username', [' first-admin', 'first admin', 'first@admin'])
+def test_create_first_user_rejects_invalid_username(
+    client, api_prefix, username
+) -> None:
+    response = client.post(
+        f'{api_prefix}/admin/first-user',
+        json={
+            'email': 'first-admin@example.com',
+            'password': 'FirstAdminPass123!',
+            'username': username,
+            'first_name': 'First',
+            'last_name': 'Admin',
+        },
+    )
+
+    assert response.status_code == 422

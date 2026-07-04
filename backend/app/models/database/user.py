@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import DateTime, String, func, ForeignKey
+from sqlalchemy import DateTime, ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, utcnow
@@ -11,6 +11,13 @@ from .base import Base, utcnow
 if typing.TYPE_CHECKING:
     from .media import Media
     from .trips import TripMember
+
+
+USER_PROFILE_USERNAME_INDEX_NAME = 'ix_user_profiles_username'
+
+
+def canonical_username_expression(username_column):
+    return func.lower(func.regexp_replace(username_column, '[-._]', '', 'g'))
 
 
 class UserRole(str, Enum):
@@ -89,8 +96,6 @@ class UserProfile(Base):
     )
     username: Mapped[str] = mapped_column(
         String(255),
-        unique=True,
-        index=True,
         nullable=False,
     )
     first_name: Mapped[str] = mapped_column(
@@ -140,3 +145,10 @@ class UserProfile(Base):
     profile_picture: Mapped['Media'] = relationship(
         'Media',
     )
+
+
+user_profile_username_index = Index(
+    USER_PROFILE_USERNAME_INDEX_NAME,
+    canonical_username_expression(UserProfile.username),
+    unique=True,
+)
