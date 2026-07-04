@@ -1,8 +1,9 @@
 import enum
 import uuid
+from datetime import date
 from typing import Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from models.api.media import MediaResponse
 from models.api.users import UserSummaryResponse
 from models.database.trips import Trip, TripMember, TripRole, TripVisibility
@@ -19,6 +20,18 @@ class TripCreateRequest(BaseModel):
     description: str = ''
     media_id: uuid.UUID
     visibility: TripVisibility = TripVisibility.PRIVATE
+    start_date: date | None = None
+    end_date: date | None = None
+
+    @model_validator(mode='after')
+    def validate_dates(self) -> Self:
+        if (
+            self.start_date is not None
+            and self.end_date is not None
+            and self.end_date < self.start_date
+        ):
+            raise ValueError('end_date must be on or after start_date')
+        return self
 
 
 class TripUpdateRequest(BaseModel):
@@ -26,6 +39,18 @@ class TripUpdateRequest(BaseModel):
     description: str | None = None
     media_id: uuid.UUID | None = None
     visibility: TripVisibility | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+
+    @model_validator(mode='after')
+    def validate_dates(self) -> Self:
+        if (
+            self.start_date is not None
+            and self.end_date is not None
+            and self.end_date < self.start_date
+        ):
+            raise ValueError('end_date must be on or after start_date')
+        return self
 
 
 class TripMemberCreateRequest(BaseModel):
@@ -57,6 +82,9 @@ class TripResponse(BaseModel):
     trip_id: uuid.UUID = Field(alias='id')
     name: str
     description: str
+    visibility: TripVisibility
+    start_date: date | None
+    end_date: date | None
     cover_media: MediaResponse | None
 
     @classmethod
@@ -65,6 +93,9 @@ class TripResponse(BaseModel):
             id=trip.id,
             name=trip.name,
             description=trip.description,
+            visibility=trip.visibility,
+            start_date=trip.start_date,
+            end_date=trip.end_date,
             cover_media=(
                 MediaResponse.from_model(
                     trip.cover_media, media_base_url=media_base_url

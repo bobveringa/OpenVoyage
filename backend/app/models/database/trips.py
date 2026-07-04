@@ -1,9 +1,9 @@
 import enum
 import uuid
 import typing
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, String, Text, func, ForeignKey
+from sqlalchemy import Date, DateTime, String, Text, func, ForeignKey
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 
 from .base import Base, utcnow
@@ -34,6 +34,14 @@ class Trip(Base):
         nullable=False,
         default='',
         server_default='',
+    )
+    start_date: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+    end_date: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
     )
     visibility: Mapped[TripVisibility] = mapped_column(
         String(32),

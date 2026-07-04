@@ -44,6 +44,7 @@ class PlannedTravel(Base):
             'trip_id',
             'from_planned_step_id',
             'to_planned_step_id',
+            unique=True,
         ),
     )
 

@@ -31,6 +31,10 @@ class TripPermissionError(Exception):
     """Raised when a trip member does not have enough privileges."""
 
 
+class TripDateRangeError(Exception):
+    """Raised when trip dates are internally inconsistent."""
+
+
 class TripMemberNotFoundError(Exception):
     """Raised when a trip membership cannot be found."""
 
@@ -90,6 +94,8 @@ class TripService:
             name=payload.name,
             description=payload.description,
             visibility=payload.visibility,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
             cover_media_id=payload.media_id,
         )
         self.db.add(trip)
@@ -142,6 +148,16 @@ class TripService:
             trip.description = payload.description
         if payload.visibility is not None:
             trip.visibility = payload.visibility
+        if 'start_date' in payload.model_fields_set:
+            trip.start_date = payload.start_date
+        if 'end_date' in payload.model_fields_set:
+            trip.end_date = payload.end_date
+        if (
+            trip.start_date is not None
+            and trip.end_date is not None
+            and trip.end_date < trip.start_date
+        ):
+            raise TripDateRangeError('end_date must be on or after start_date')
         if payload.media_id is not None and payload.media_id != trip.cover_media_id:
             self._validate_cover_media(
                 media_id=payload.media_id,

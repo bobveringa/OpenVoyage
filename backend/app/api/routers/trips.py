@@ -21,6 +21,7 @@ from services.trip_service import (
     CoverMediaOwnershipError,
     LastTripOwnerError,
     MediaNotFoundError,
+    TripDateRangeError,
     TripMemberAlreadyExistsError,
     TripMemberNotFoundError,
     TripNotFoundError,
@@ -130,6 +131,11 @@ def update_trip(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except CoverMediaAlreadyUsedError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except TripDateRangeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
 
     media_base_url = str(request.base_url).rstrip('/')
     return TripResponse.from_model(trip, media_base_url=media_base_url)

@@ -14,6 +14,8 @@ class TripPermission(str, enum.Enum):
     DELETE_TRIP = 'trip:deleteTrip'
     LIST_MEMBERS = 'trip:listMembers'
     MANAGE_MEMBERS = 'trip:manageMembers'
+    LIST_ITINERARY = 'itinerary:listItinerary'
+    MANAGE_ITINERARY = 'itinerary:manageItinerary'
     GET_POST = 'post:getPost'
     LIST_POSTS = 'post:listPosts'
     CREATE_POST = 'post:createPost'
@@ -29,6 +31,8 @@ ROLE_PERMISSIONS: dict[TripRole, set[TripPermission]] = {
         TripPermission.DELETE_TRIP,
         TripPermission.LIST_MEMBERS,
         TripPermission.MANAGE_MEMBERS,
+        TripPermission.LIST_ITINERARY,
+        TripPermission.MANAGE_ITINERARY,
         TripPermission.GET_POST,
         TripPermission.LIST_POSTS,
         TripPermission.CREATE_POST,
@@ -39,6 +43,8 @@ ROLE_PERMISSIONS: dict[TripRole, set[TripPermission]] = {
     TripRole.MEMBER: {
         TripPermission.GET_TRIP,
         TripPermission.LIST_MEMBERS,
+        TripPermission.LIST_ITINERARY,
+        TripPermission.MANAGE_ITINERARY,
         TripPermission.GET_POST,
         TripPermission.LIST_POSTS,
         TripPermission.CREATE_POST,
@@ -49,6 +55,7 @@ ROLE_PERMISSIONS: dict[TripRole, set[TripPermission]] = {
     TripRole.VIEWER: {
         TripPermission.GET_TRIP,
         TripPermission.LIST_MEMBERS,
+        TripPermission.LIST_ITINERARY,
         TripPermission.GET_POST,
         TripPermission.LIST_POSTS,
     },

@@ -3,11 +3,11 @@ import typing
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     Date,
     DateTime,
     ForeignKey,
     Index,
-    Integer,
     Text,
     func,
 )
@@ -23,7 +23,7 @@ if typing.TYPE_CHECKING:
 class PlannedStep(Base):
     __tablename__ = 'planned_steps'
     __table_args__ = (
-        Index('ix_planned_steps_trip_id_step_number', 'trip_id', 'step_number'),
+        Index('ix_planned_steps_trip_id_position', 'trip_id', 'position', unique=True),
         Index('ix_planned_steps_location_id', 'location_id'),
     )
 
@@ -39,8 +39,8 @@ class PlannedStep(Base):
         ),
         nullable=False,
     )
-    step_number: Mapped[int] = mapped_column(
-        Integer,
+    position: Mapped[int] = mapped_column(
+        BigInteger,
         nullable=False,
     )
     location_id: Mapped[uuid.UUID] = mapped_column(

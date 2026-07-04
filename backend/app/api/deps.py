@@ -15,6 +15,7 @@ from core.db import get_engine
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from models.api.token import TokenPayload
 from models.database.user import User
+from services.itinerary_service import ItineraryService
 from services.location_service import LocationService
 from services.media_service import MediaService
 from services.place_service import PlaceService
@@ -141,6 +142,16 @@ def get_location_service(session: SessionDep):
     )
 
 
+def get_itinerary_service(
+    session: SessionDep,
+    location_service: Annotated[LocationService, Depends(get_location_service)],
+):
+    return ItineraryService(
+        db=session,
+        location_service=location_service,
+    )
+
+
 def get_post_service(
     session: SessionDep,
     location_service: Annotated[LocationService, Depends(get_location_service)],
@@ -160,6 +171,7 @@ OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 CurrentAdmin = Annotated[User, Depends(get_current_admin_user)]
 MediaServiceDep = Annotated[MediaService, Depends(get_media_service)]
 LocationServiceDep = Annotated[LocationService, Depends(get_location_service)]
+ItineraryServiceDep = Annotated[ItineraryService, Depends(get_itinerary_service)]
 PlaceServiceDep = Annotated[PlaceService, Depends(get_place_service)]
 PostServiceDep = Annotated[PostService, Depends(get_post_service)]
 TripServiceDep = Annotated[TripService, Depends(get_trip_service)]
