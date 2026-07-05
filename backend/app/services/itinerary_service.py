@@ -11,7 +11,7 @@ from models.api.itinerary import (
     PlannedTravelUpdateRequest,
 )
 from models.database.planned_steps import PlannedStep
-from models.database.planned_travel import PlannedTravel
+from models.database.planned_travel import PlannedTravel, PlannedTravelMode
 from models.database.trips import Trip, TripMember, TripVisibility
 from services.location_service import LocationService
 from services.trip_authorization import TripPermission, role_has_permission
@@ -121,7 +121,7 @@ class ItineraryService:
             trip_id=trip_id,
             position=position,
         )
-        self._delete_non_adjacent_planned_travel(trip_id=trip_id)
+        self._reconcile_planned_travel_adjacency(trip_id=trip_id)
         return self._get_step_or_raise(trip_id=trip_id, step_id=planned_step.id)
 
     def get_planned_step(
@@ -198,7 +198,7 @@ class ItineraryService:
             position=position,
             current_step_id=step_id,
         )
-        self._delete_non_adjacent_planned_travel(trip_id=trip_id)
+        self._reconcile_planned_travel_adjacency(trip_id=trip_id)
         return self._get_step_or_raise(trip_id=trip_id, step_id=step_id)
 
     def delete_planned_step(
@@ -556,24 +556,71 @@ class ItineraryService:
         )
         return list(self.db.execute(statement).scalars().all())
 
-    def _delete_non_adjacent_planned_travel(self, trip_id: uuid.UUID) -> None:
+    def _reconcile_planned_travel_adjacency(self, trip_id: uuid.UUID) -> None:
         ordered_step_ids = self._list_ordered_step_ids_for_trip(trip_id=trip_id)
+        step_index_by_id = {
+            step_id: index for index, step_id in enumerate(ordered_step_ids)
+        }
         next_step_by_step = {
             step_id: ordered_step_ids[index + 1]
             for index, step_id in enumerate(ordered_step_ids[:-1])
         }
 
-        planned_travel = self.db.execute(
-            select(PlannedTravel).where(PlannedTravel.trip_id == trip_id)
-        ).scalars()
-        deleted_any = False
-        for travel in planned_travel:
-            expected_to_step_id = next_step_by_step.get(travel.from_planned_step_id)
-            if expected_to_step_id != travel.to_planned_step_id:
-                self.db.delete(travel)
-                deleted_any = True
+        planned_travel = list(
+            self.db.execute(
+                select(PlannedTravel).where(PlannedTravel.trip_id == trip_id)
+            ).scalars()
+        )
+        existing_pairs = {
+            (travel.from_planned_step_id, travel.to_planned_step_id)
+            for travel in planned_travel
+        }
+        changed = False
 
-        if deleted_any:
+        for travel in planned_travel:
+            from_step_index = step_index_by_id.get(travel.from_planned_step_id)
+            to_step_index = step_index_by_id.get(travel.to_planned_step_id)
+            if from_step_index is None or to_step_index is None:
+                self.db.delete(travel)
+                existing_pairs.discard(
+                    (travel.from_planned_step_id, travel.to_planned_step_id)
+                )
+                changed = True
+                continue
+
+            expected_to_step_id = next_step_by_step.get(travel.from_planned_step_id)
+            if expected_to_step_id == travel.to_planned_step_id:
+                continue
+
+            self.db.delete(travel)
+            existing_pairs.discard(
+                (travel.from_planned_step_id, travel.to_planned_step_id)
+            )
+            changed = True
+
+            if to_step_index <= from_step_index:
+                continue
+
+            replacement_step_ids = ordered_step_ids[from_step_index : to_step_index + 1]
+            for from_step_id, to_step_id in zip(
+                replacement_step_ids,
+                replacement_step_ids[1:],
+            ):
+                pair = (from_step_id, to_step_id)
+                if pair in existing_pairs:
+                    continue
+                self.db.add(
+                    PlannedTravel(
+                        trip_id=trip_id,
+                        from_planned_step_id=from_step_id,
+                        to_planned_step_id=to_step_id,
+                        travel_mode=PlannedTravelMode.OTHER,
+                        notes='',
+                    )
+                )
+                existing_pairs.add(pair)
+
+        if changed:
             self.db.commit()
 
     def _raise_if_duplicate_travel(
