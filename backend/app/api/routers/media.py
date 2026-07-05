@@ -133,7 +133,7 @@ def get_media_content(
                 start, end = parse_range_header(range_header, file_size)
                 length = end - start + 1
 
-            except (ValueError, IndexError):
+            except ValueError, IndexError:
                 raise HTTPException(
                     status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
                     detail='Invalid or unsatisfiable Range header.',

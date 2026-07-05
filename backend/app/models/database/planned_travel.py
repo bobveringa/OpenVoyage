@@ -7,6 +7,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     String,
     Text,
@@ -39,6 +40,18 @@ class PlannedTravel(Base):
             'from_planned_step_id <> to_planned_step_id',
             name='ck_planned_travel_distinct_steps',
         ),
+        ForeignKeyConstraint(
+            ['trip_id', 'from_planned_step_id'],
+            ['planned_steps.trip_id', 'planned_steps.id'],
+            ondelete='CASCADE',
+            name='fk_planned_travel_trip_from_planned_step_id',
+        ),
+        ForeignKeyConstraint(
+            ['trip_id', 'to_planned_step_id'],
+            ['planned_steps.trip_id', 'planned_steps.id'],
+            ondelete='CASCADE',
+            name='fk_planned_travel_trip_to_planned_step_id',
+        ),
         Index(
             'ix_planned_travel_trip_from_to',
             'trip_id',
@@ -61,19 +74,9 @@ class PlannedTravel(Base):
         nullable=False,
     )
     from_planned_step_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey(
-            'planned_steps.id',
-            ondelete='CASCADE',
-            name='fk_planned_travel_from_planned_step_id',
-        ),
         nullable=False,
     )
     to_planned_step_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey(
-            'planned_steps.id',
-            ondelete='CASCADE',
-            name='fk_planned_travel_to_planned_step_id',
-        ),
         nullable=False,
     )
     travel_mode: Mapped[PlannedTravelMode] = mapped_column(
@@ -103,9 +106,19 @@ class PlannedTravel(Base):
     trip: Mapped['Trip'] = relationship('Trip')
     from_planned_step: Mapped['PlannedStep'] = relationship(
         'PlannedStep',
-        foreign_keys=[from_planned_step_id],
+        primaryjoin=(
+            'and_(PlannedTravel.trip_id == PlannedStep.trip_id, '
+            'PlannedTravel.from_planned_step_id == PlannedStep.id)'
+        ),
+        foreign_keys=[trip_id, from_planned_step_id],
+        viewonly=True,
     )
     to_planned_step: Mapped['PlannedStep'] = relationship(
         'PlannedStep',
-        foreign_keys=[to_planned_step_id],
+        primaryjoin=(
+            'and_(PlannedTravel.trip_id == PlannedStep.trip_id, '
+            'PlannedTravel.to_planned_step_id == PlannedStep.id)'
+        ),
+        foreign_keys=[trip_id, to_planned_step_id],
+        viewonly=True,
     )

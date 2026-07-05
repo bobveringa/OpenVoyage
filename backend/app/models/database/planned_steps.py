@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -23,6 +24,7 @@ if typing.TYPE_CHECKING:
 class PlannedStep(Base):
     __tablename__ = 'planned_steps'
     __table_args__ = (
+        UniqueConstraint('trip_id', 'id', name='uq_planned_steps_trip_id_id'),
         Index('ix_planned_steps_trip_id_position', 'trip_id', 'position', unique=True),
         Index('ix_planned_steps_location_id', 'location_id'),
     )

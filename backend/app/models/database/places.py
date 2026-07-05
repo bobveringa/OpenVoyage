@@ -28,7 +28,6 @@ class PlaceFeatureClass(str, enum.Enum):
     VEGETATION = 'V'
 
 
-
 class Place(Base):
     __tablename__ = 'places'
     __table_args__ = (

@@ -121,6 +121,7 @@ class ItineraryService:
             trip_id=trip_id,
             position=position,
         )
+        self._delete_non_adjacent_planned_travel(trip_id=trip_id)
         return self._get_step_or_raise(trip_id=trip_id, step_id=planned_step.id)
 
     def get_planned_step(
@@ -182,7 +183,9 @@ class ItineraryService:
         )
         planned_step = self._get_step_or_raise(trip_id=trip_id, step_id=step_id)
         if after_planned_step_id == step_id:
-            raise PlannedStepPlacementError('A planned step cannot be moved after itself')
+            raise PlannedStepPlacementError(
+                'A planned step cannot be moved after itself'
+            )
 
         position = self._position_after(
             trip_id=trip_id,
@@ -195,6 +198,7 @@ class ItineraryService:
             position=position,
             current_step_id=step_id,
         )
+        self._delete_non_adjacent_planned_travel(trip_id=trip_id)
         return self._get_step_or_raise(trip_id=trip_id, step_id=step_id)
 
     def delete_planned_step(
@@ -287,7 +291,9 @@ class ItineraryService:
             travel_id=travel_id,
         )
 
-        from_step_id = payload.from_planned_step_id or planned_travel.from_planned_step_id
+        from_step_id = (
+            payload.from_planned_step_id or planned_travel.from_planned_step_id
+        )
         to_step_id = payload.to_planned_step_id or planned_travel.to_planned_step_id
         self._validate_travel_steps(
             trip_id=trip_id,
@@ -527,16 +533,48 @@ class ItineraryService:
             raise PlannedTravelStepError(
                 'from_planned_step_id and to_planned_step_id must differ'
             )
-        step_count = self.db.execute(
-            select(PlannedStep.id).where(
-                PlannedStep.trip_id == trip_id,
-                PlannedStep.id.in_([from_planned_step_id, to_planned_step_id]),
-            )
-        ).all()
-        if len(step_count) != 2:
+
+        ordered_step_ids = self._list_ordered_step_ids_for_trip(trip_id=trip_id)
+        try:
+            from_step_index = ordered_step_ids.index(from_planned_step_id)
+            to_step_index = ordered_step_ids.index(to_planned_step_id)
+        except ValueError as exc:
             raise PlannedTravelStepError(
                 'Both planned travel steps must belong to the trip'
+            ) from exc
+
+        if to_step_index != from_step_index + 1:
+            raise PlannedTravelStepError(
+                'Planned travel must connect adjacent steps in trip order'
             )
+
+    def _list_ordered_step_ids_for_trip(self, trip_id: uuid.UUID) -> list[uuid.UUID]:
+        statement = (
+            select(PlannedStep.id)
+            .where(PlannedStep.trip_id == trip_id)
+            .order_by(PlannedStep.position.asc(), PlannedStep.id.asc())
+        )
+        return list(self.db.execute(statement).scalars().all())
+
+    def _delete_non_adjacent_planned_travel(self, trip_id: uuid.UUID) -> None:
+        ordered_step_ids = self._list_ordered_step_ids_for_trip(trip_id=trip_id)
+        next_step_by_step = {
+            step_id: ordered_step_ids[index + 1]
+            for index, step_id in enumerate(ordered_step_ids[:-1])
+        }
+
+        planned_travel = self.db.execute(
+            select(PlannedTravel).where(PlannedTravel.trip_id == trip_id)
+        ).scalars()
+        deleted_any = False
+        for travel in planned_travel:
+            expected_to_step_id = next_step_by_step.get(travel.from_planned_step_id)
+            if expected_to_step_id != travel.to_planned_step_id:
+                self.db.delete(travel)
+                deleted_any = True
+
+        if deleted_any:
+            self.db.commit()
 
     def _raise_if_duplicate_travel(
         self,

@@ -50,9 +50,7 @@ def get_itinerary(
 
     return ItineraryResponse(
         steps=[PlannedStepResponse.from_model(step) for step in planned_steps],
-        travel=[
-            PlannedTravelResponse.from_model(travel) for travel in planned_travel
-        ],
+        travel=[PlannedTravelResponse.from_model(travel) for travel in planned_travel],
     )
 
 
@@ -101,7 +99,7 @@ def create_planned_step(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except (PlannedStepDateRangeError, PlannedStepPlacementError) as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         )
     except PlannedStepPositionConflictError as exc:
@@ -158,7 +156,7 @@ def update_planned_step(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except PlannedStepDateRangeError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         )
 
@@ -189,7 +187,7 @@ def move_planned_step(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except PlannedStepPlacementError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         )
     except PlannedStepPositionConflictError as exc:
@@ -265,7 +263,7 @@ def create_planned_travel(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except PlannedTravelStepError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         )
     except PlannedTravelAlreadyExistsError as exc:
@@ -322,7 +320,7 @@ def update_planned_travel(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except PlannedTravelStepError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         )
     except PlannedTravelAlreadyExistsError as exc:
@@ -351,4 +349,3 @@ def delete_planned_travel(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except TripPermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
- 

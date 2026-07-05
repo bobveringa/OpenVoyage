@@ -74,12 +74,9 @@ def _distance_km_expression(latitude: float, longitude: float):
     earth_radius_km = 6371.0088
     latitude_delta = func.radians((Place.latitude - latitude) / 2)
     longitude_delta = func.radians((Place.longitude - longitude) / 2)
-    haversine = (
-        func.pow(func.sin(latitude_delta), 2)
-        + func.cos(func.radians(latitude))
-        * func.cos(func.radians(Place.latitude))
-        * func.pow(func.sin(longitude_delta), 2)
-    )
+    haversine = func.pow(func.sin(latitude_delta), 2) + func.cos(
+        func.radians(latitude)
+    ) * func.cos(func.radians(Place.latitude)) * func.pow(func.sin(longitude_delta), 2)
     return earth_radius_km * 2 * func.asin(func.sqrt(haversine))
 
 
@@ -155,7 +152,7 @@ def _iter_geonames_rows(path: Path) -> Iterable[list[str]]:
 
 
 def _load_name_metadata(
-        admin1_codes_path: Path,
+    admin1_codes_path: Path,
     country_info_path: Path,
 ) -> GeoNamesNameMetadata:
     """Load display names used to expand GeoNames country and region codes."""
@@ -192,14 +189,14 @@ def _download_geonames_zip(dataset: GeoNamesDataset) -> Path:
 
 
 def _feature_class_from_geonames_code(
-        feature_class_code: str,
+    feature_class_code: str,
 ) -> PlaceFeatureClass | None:
     """Translate a GeoNames feature class code to a readable enum."""
     return GEONAMES_FEATURE_CLASSES.get(feature_class_code.strip().upper())
 
 
 def _build_region_name(
-        region: str,
+    region: str,
     country_code: str,
     name_metadata: GeoNamesNameMetadata | None,
 ) -> str:
@@ -214,7 +211,7 @@ def _build_region_name(
 
 
 def _build_full_name(
-        name: str,
+    name: str,
     region: str,
     country_code: str,
     name_metadata: GeoNamesNameMetadata | None,
@@ -280,7 +277,9 @@ class PlaceService:
         statement = (
             select(Place)
             .where(*filters)
-            .order_by(rank, Place.name.asc(), Place.region.asc(), Place.country_code.asc())
+            .order_by(
+                rank, Place.name.asc(), Place.region.asc(), Place.country_code.asc()
+            )
             .limit(limit)
         )
         return list(self.db.scalars(statement).all())
