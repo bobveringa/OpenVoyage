@@ -3,7 +3,7 @@ import uuid
 import typing
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, String, Text, func, ForeignKey
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import mapped_column, Mapped, relationship
 
 from .base import Base, utcnow
@@ -48,6 +48,12 @@ class Trip(Base):
         nullable=False,
         default=TripVisibility.PRIVATE,
         server_default=TripVisibility.PRIVATE.value,
+    )
+    itinerary_revision: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default='0',
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

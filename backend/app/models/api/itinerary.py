@@ -2,126 +2,173 @@ import uuid
 from datetime import date, datetime
 from typing import Self
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from models.api.locations import LocationInput, LocationResponse
-from models.database.planned_steps import PlannedStep
-from models.database.planned_travel import PlannedTravel, PlannedTravelMode
+from models.api.users import UserSummaryResponse
+from models.database.itinerary import ItineraryStop, ItineraryTravelLeg, TravelMode
 
 
-class PlannedStepCreateRequest(BaseModel):
-    location: LocationInput
-    arrival_date: date
-    departure_date: date
+class ItineraryPlacement(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    planned_start_date: date
+    after_stop_id: uuid.UUID | None
+
+
+class ItineraryTravelReplaceRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    travel_mode: TravelMode
     notes: str = ''
-    after_planned_step_id: uuid.UUID | None = None
-
-    @model_validator(mode='after')
-    def validate_dates(self) -> Self:
-        if self.departure_date < self.arrival_date:
-            raise ValueError('departure_date must be on or after arrival_date')
-        return self
+    operator: str | None = Field(default=None, max_length=255)
+    reference: str | None = Field(default=None, max_length=255)
 
 
-class PlannedStepUpdateRequest(BaseModel):
+class ItineraryStopCreateRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    location: LocationInput
+    title: str = Field(min_length=1, max_length=255)
+    notes: str = ''
+    planned_nights: int = Field(ge=0)
+    placement: ItineraryPlacement
+    incoming_travel: ItineraryTravelReplaceRequest | None = None
+    outgoing_travel: ItineraryTravelReplaceRequest | None = None
+
+
+class ItineraryStopUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
     location: LocationInput | None = None
-    arrival_date: date | None = None
-    departure_date: date | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
     notes: str | None = None
+    planned_nights: int | None = Field(default=None, ge=0)
+    placement: ItineraryPlacement | None = None
+    incoming_travel: ItineraryTravelReplaceRequest | None = None
+    outgoing_travel: ItineraryTravelReplaceRequest | None = None
 
     @model_validator(mode='after')
-    def validate_dates(self) -> Self:
-        if (
-            self.arrival_date is not None
-            and self.departure_date is not None
-            and self.departure_date < self.arrival_date
+    def reject_null_nonnullable_fields(self) -> Self:
+        for field_name in (
+            'location',
+            'title',
+            'notes',
+            'planned_nights',
+            'placement',
         ):
-            raise ValueError('departure_date must be on or after arrival_date')
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(f'{field_name} may not be null')
         return self
 
 
-class PlannedStepMoveRequest(BaseModel):
-    after_planned_step_id: uuid.UUID | None = None
-
-
-class PlannedStepResponse(BaseModel):
+class ItineraryTravelLegResponse(BaseModel):
     id: uuid.UUID
     trip_id: uuid.UUID
-    location: LocationResponse
-    arrival_date: date
-    departure_date: date
+    from_stop_id: uuid.UUID
+    to_stop_id: uuid.UUID
+    travel_mode: TravelMode
     notes: str
+    operator: str | None
+    reference: str | None
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_model(cls, planned_step: PlannedStep) -> Self:
+    def from_model(cls, leg: ItineraryTravelLeg) -> Self:
         return cls(
-            id=planned_step.id,
-            trip_id=planned_step.trip_id,
-            location=LocationResponse.from_model(planned_step.location),
-            arrival_date=planned_step.arrival_date,
-            departure_date=planned_step.departure_date,
-            notes=planned_step.notes,
-            created_at=planned_step.created_at,
-            updated_at=planned_step.updated_at,
+            id=leg.id,
+            trip_id=leg.trip_id,
+            from_stop_id=leg.from_stop_id,
+            to_stop_id=leg.to_stop_id,
+            travel_mode=TravelMode(leg.travel_mode),
+            notes=leg.notes,
+            operator=leg.operator,
+            reference=leg.reference,
+            created_at=leg.created_at,
+            updated_at=leg.updated_at,
         )
 
 
-class PlannedTravelCreateRequest(BaseModel):
-    from_planned_step_id: uuid.UUID
-    to_planned_step_id: uuid.UUID
-    travel_mode: PlannedTravelMode
-    notes: str = ''
-
-    @model_validator(mode='after')
-    def validate_distinct_steps(self) -> Self:
-        if self.from_planned_step_id == self.to_planned_step_id:
-            raise ValueError('from_planned_step_id and to_planned_step_id must differ')
-        return self
-
-
-class PlannedTravelUpdateRequest(BaseModel):
-    from_planned_step_id: uuid.UUID | None = None
-    to_planned_step_id: uuid.UUID | None = None
-    travel_mode: PlannedTravelMode | None = None
-    notes: str | None = None
-
-    @model_validator(mode='after')
-    def validate_distinct_steps(self) -> Self:
-        if (
-            self.from_planned_step_id is not None
-            and self.to_planned_step_id is not None
-            and self.from_planned_step_id == self.to_planned_step_id
-        ):
-            raise ValueError('from_planned_step_id and to_planned_step_id must differ')
-        return self
-
-
-class PlannedTravelResponse(BaseModel):
+class ItineraryStopResponse(BaseModel):
     id: uuid.UUID
     trip_id: uuid.UUID
-    from_planned_step_id: uuid.UUID
-    to_planned_step_id: uuid.UUID
-    travel_mode: PlannedTravelMode
+    same_day_position: int
+    location: LocationResponse
+    title: str
     notes: str
+    planned_start_date: date
+    planned_nights: int
+    created_by: UserSummaryResponse
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_model(cls, planned_travel: PlannedTravel) -> Self:
+    def from_model(cls, stop: ItineraryStop) -> Self:
         return cls(
-            id=planned_travel.id,
-            trip_id=planned_travel.trip_id,
-            from_planned_step_id=planned_travel.from_planned_step_id,
-            to_planned_step_id=planned_travel.to_planned_step_id,
-            travel_mode=planned_travel.travel_mode,
-            notes=planned_travel.notes,
-            created_at=planned_travel.created_at,
-            updated_at=planned_travel.updated_at,
+            id=stop.id,
+            trip_id=stop.trip_id,
+            same_day_position=stop.same_day_position,
+            location=LocationResponse.from_model(stop.location),
+            title=stop.title,
+            notes=stop.notes,
+            planned_start_date=stop.planned_start_date,
+            planned_nights=stop.planned_nights,
+            created_by=UserSummaryResponse.from_model(stop.creator),
+            created_at=stop.created_at,
+            updated_at=stop.updated_at,
         )
 
 
 class ItineraryResponse(BaseModel):
-    steps: list[PlannedStepResponse]
-    travel: list[PlannedTravelResponse]
+    trip_id: uuid.UUID
+    itinerary_revision: int
+    stops: list[ItineraryStopResponse]
+    legs: list[ItineraryTravelLegResponse]
+
+    @classmethod
+    def from_parts(
+        cls,
+        *,
+        trip_id: uuid.UUID,
+        itinerary_revision: int,
+        stops: list[ItineraryStop],
+        legs: list[ItineraryTravelLeg],
+    ) -> Self:
+        return cls(
+            trip_id=trip_id,
+            itinerary_revision=itinerary_revision,
+            stops=[ItineraryStopResponse.from_model(stop) for stop in stops],
+            legs=[ItineraryTravelLegResponse.from_model(leg) for leg in legs],
+        )
+
+
+class ItineraryStopDetailResponse(BaseModel):
+    stop: ItineraryStopResponse
+    incoming_leg: ItineraryTravelLegResponse | None
+    outgoing_leg: ItineraryTravelLegResponse | None
+
+    @classmethod
+    def from_parts(
+        cls,
+        *,
+        stop: ItineraryStop,
+        incoming_leg: ItineraryTravelLeg | None,
+        outgoing_leg: ItineraryTravelLeg | None,
+    ) -> Self:
+        return cls(
+            stop=ItineraryStopResponse.from_model(stop),
+            incoming_leg=(
+                ItineraryTravelLegResponse.from_model(incoming_leg)
+                if incoming_leg
+                else None
+            ),
+            outgoing_leg=(
+                ItineraryTravelLegResponse.from_model(outgoing_leg)
+                if outgoing_leg
+                else None
+            ),
+        )

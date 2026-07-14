@@ -15,9 +15,9 @@ from core.db import get_engine
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from models.api.token import TokenPayload
 from models.database.user import User
-from services.itinerary_service import ItineraryService
 from services.location_service import LocationService
 from services.media_service import MediaService
+from services.itinerary_service import ItineraryService
 from services.place_service import PlaceService
 from services.post_service import PostService
 from services.trip_service import TripService
@@ -142,21 +142,21 @@ def get_location_service(session: SessionDep):
     )
 
 
-def get_itinerary_service(
-    session: SessionDep,
-    location_service: Annotated[LocationService, Depends(get_location_service)],
-):
-    return ItineraryService(
-        db=session,
-        location_service=location_service,
-    )
-
-
 def get_post_service(
     session: SessionDep,
     location_service: Annotated[LocationService, Depends(get_location_service)],
 ):
     return PostService(
+        db=session,
+        location_service=location_service,
+    )
+
+
+def get_itinerary_service(
+    session: SessionDep,
+    location_service: Annotated[LocationService, Depends(get_location_service)],
+):
+    return ItineraryService(
         db=session,
         location_service=location_service,
     )

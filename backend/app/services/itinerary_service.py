@@ -1,55 +1,78 @@
+from __future__ import annotations
+
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from models.api.itinerary import (
-    PlannedStepCreateRequest,
-    PlannedStepUpdateRequest,
-    PlannedTravelCreateRequest,
-    PlannedTravelUpdateRequest,
+    ItineraryPlacement,
+    ItineraryStopCreateRequest,
+    ItineraryStopUpdateRequest,
+    ItineraryTravelReplaceRequest,
 )
-from models.database.planned_steps import PlannedStep
-from models.database.planned_travel import PlannedTravel, PlannedTravelMode
+from models.database.itinerary import ItineraryStop, ItineraryTravelLeg, TravelMode
 from models.database.trips import Trip, TripMember, TripVisibility
+from models.database.user import User
 from services.location_service import LocationService
 from services.trip_authorization import TripPermission, role_has_permission
-from services.trip_service import TripNotFoundError, TripPermissionError
 
-POSITION_STEP = 1000
-
-
-class PlannedStepNotFoundError(Exception):
-    """Raised when a planned step cannot be found in the requested trip."""
+StopPair = tuple[uuid.UUID, uuid.UUID]
 
 
-class PlannedStepDateRangeError(Exception):
-    """Raised when planned step dates are internally inconsistent."""
+class TripNotFoundError(Exception):
+    """Raised when a trip cannot be found or read by the user."""
 
 
-class PlannedStepPlacementError(Exception):
-    """Raised when a planned step cannot be placed at the requested position."""
+class ItineraryPermissionError(Exception):
+    """Raised when a trip member lacks itinerary privileges."""
 
 
-class PlannedStepPositionConflictError(Exception):
-    """Raised when concurrent ordering changes produce a duplicate position."""
+class ItineraryRevisionMismatchError(Exception):
+    """Raised when If-Match does not match the stored itinerary revision."""
 
 
-class PlannedTravelNotFoundError(Exception):
-    """Raised when a planned travel record cannot be found in the requested trip."""
+class ItineraryStopNotFoundError(Exception):
+    """Raised when an itinerary stop is missing or hidden."""
 
 
-class PlannedTravelStepError(Exception):
-    """Raised when planned travel references invalid or cross-trip steps."""
+class ItineraryTravelLegNotFoundError(Exception):
+    """Raised when an itinerary travel leg is missing or hidden."""
 
 
-class PlannedTravelAlreadyExistsError(Exception):
-    """Raised when the same step-to-step travel record already exists."""
+class ItineraryPlacementError(Exception):
+    """Raised when a stop placement request is invalid."""
+
+
+class ItineraryTravelValidationError(Exception):
+    """Raised when travel replacement payloads do not match resulting legs."""
+
+
+@dataclass(frozen=True)
+class ItinerarySnapshot:
+    trip_id: uuid.UUID
+    itinerary_revision: int
+    stops: list[ItineraryStop]
+    legs: list[ItineraryTravelLeg]
+
+
+@dataclass(frozen=True)
+class ItineraryStopDetail:
+    stop: ItineraryStop
+    incoming_leg: ItineraryTravelLeg | None
+    outgoing_leg: ItineraryTravelLeg | None
+    itinerary_revision: int
+
+
+@dataclass(frozen=True)
+class ItineraryTravelLegDetail:
+    leg: ItineraryTravelLeg
+    itinerary_revision: int
 
 
 class ItineraryService:
-    """Coordinates trip itinerary stops, manual ordering, and travel links."""
+    """Coordinates planned itinerary stops, travel legs, and revision checks."""
 
     def __init__(
         self,
@@ -63,661 +86,621 @@ class ItineraryService:
         self,
         trip_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
-    ) -> tuple[list[PlannedStep], list[PlannedTravel]]:
-        self._require_read_itinerary_permission(
+    ) -> ItinerarySnapshot:
+        trip = self._get_readable_trip_or_raise(
             trip_id=trip_id,
-            user_id=current_user_id,
+            current_user_id=current_user_id,
         )
-        return (
-            self._list_steps_for_trip(trip_id=trip_id),
-            self._list_travel_for_trip(trip_id=trip_id),
-        )
+        return self._load_itinerary_snapshot(trip=trip)
 
-    def list_planned_steps(
+    def create_stop(
         self,
         trip_id: uuid.UUID,
-        current_user_id: uuid.UUID | None,
-    ) -> list[PlannedStep]:
-        self._require_read_itinerary_permission(
-            trip_id=trip_id,
-            user_id=current_user_id,
-        )
-        return self._list_steps_for_trip(trip_id=trip_id)
-
-    def create_planned_step(
-        self,
-        trip_id: uuid.UUID,
-        payload: PlannedStepCreateRequest,
+        payload: ItineraryStopCreateRequest,
         current_user_id: uuid.UUID,
-    ) -> PlannedStep:
-        self._require_manage_itinerary_permission(
+        expected_revision: int,
+    ) -> ItinerarySnapshot:
+        trip, membership = self._require_manage_trip_locked(
             trip_id=trip_id,
             user_id=current_user_id,
+            expected_revision=expected_revision,
         )
-        self._validate_step_dates(
-            arrival_date=payload.arrival_date,
-            departure_date=payload.departure_date,
-        )
-
-        position = self._position_after(
-            trip_id=trip_id,
-            after_planned_step_id=payload.after_planned_step_id,
-        )
+        old_stops = self._load_ordered_stops(trip_id=trip_id)
         location = self.location_service.create_location_for_trip(
             trip_id=trip_id,
             created_by=current_user_id,
             location_input=payload.location,
         )
-        planned_step = PlannedStep(
+        stop = ItineraryStop(
             trip_id=trip_id,
-            position=position,
             location_id=location.id,
-            arrival_date=payload.arrival_date,
-            departure_date=payload.departure_date,
+            planned_start_date=payload.placement.planned_start_date,
+            same_day_position=0,
+            title=payload.title,
             notes=payload.notes,
+            planned_nights=payload.planned_nights,
+            created_by=membership.user_id,
         )
-        self.db.add(planned_step)
-        self._commit_planned_step_position_change(
-            trip_id=trip_id,
-            position=position,
-        )
-        self._reconcile_planned_travel_adjacency(trip_id=trip_id)
-        return self._get_step_or_raise(trip_id=trip_id, step_id=planned_step.id)
+        self.db.add(stop)
+        self.db.flush()
 
-    def get_planned_step(
+        new_order = self._ordered_with_inserted_stop(
+            stops=old_stops + [stop],
+            moving_stop=stop,
+            placement=payload.placement,
+        )
+        incoming_pair, outgoing_pair = self._neighbor_pairs_for_stop(
+            ordered_stops=new_order,
+            stop_id=stop.id,
+        )
+        self._validate_travel_payload_sides(
+            incoming_pair=incoming_pair,
+            outgoing_pair=outgoing_pair,
+            incoming_travel=payload.incoming_travel,
+            outgoing_travel=payload.outgoing_travel,
+        )
+
+        self._apply_order(new_order)
+        legs_by_pair = self._rebalance_legs(
+            trip_id=trip_id,
+            new_pairs=self._adjacent_pairs(new_order),
+        )
+        self._apply_side_replacements(
+            legs_by_pair=legs_by_pair,
+            incoming_pair=incoming_pair,
+            outgoing_pair=outgoing_pair,
+            incoming_travel=payload.incoming_travel,
+            outgoing_travel=payload.outgoing_travel,
+        )
+        self._increment_revision(trip)
+        self.db.commit()
+        return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
+
+    def get_stop_detail(
         self,
         trip_id: uuid.UUID,
-        step_id: uuid.UUID,
+        stop_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
-    ) -> PlannedStep:
-        self._require_read_itinerary_permission(
+    ) -> ItineraryStopDetail:
+        trip = self._get_readable_trip_or_raise(
             trip_id=trip_id,
-            user_id=current_user_id,
+            current_user_id=current_user_id,
         )
-        return self._get_step_or_raise(trip_id=trip_id, step_id=step_id)
+        stops = self._load_ordered_stops(trip_id=trip_id)
+        stop = next((item for item in stops if item.id == stop_id), None)
+        if stop is None:
+            raise ItineraryStopNotFoundError(f'Itinerary stop not found: {stop_id}')
 
-    def update_planned_step(
+        incoming_pair, outgoing_pair = self._neighbor_pairs_for_stop(
+            ordered_stops=stops,
+            stop_id=stop_id,
+        )
+        legs_by_pair = self._load_legs_by_pair(trip_id=trip_id)
+        return ItineraryStopDetail(
+            stop=stop,
+            incoming_leg=legs_by_pair.get(incoming_pair) if incoming_pair else None,
+            outgoing_leg=legs_by_pair.get(outgoing_pair) if outgoing_pair else None,
+            itinerary_revision=trip.itinerary_revision,
+        )
+
+    def update_stop(
         self,
         trip_id: uuid.UUID,
-        step_id: uuid.UUID,
-        payload: PlannedStepUpdateRequest,
+        stop_id: uuid.UUID,
+        payload: ItineraryStopUpdateRequest,
         current_user_id: uuid.UUID,
-    ) -> PlannedStep:
-        self._require_manage_itinerary_permission(
+        expected_revision: int,
+    ) -> ItinerarySnapshot:
+        trip, _membership = self._require_manage_trip_locked(
             trip_id=trip_id,
             user_id=current_user_id,
+            expected_revision=expected_revision,
         )
-        planned_step = self._get_step_or_raise(trip_id=trip_id, step_id=step_id)
+        old_stops = self._load_ordered_stops(trip_id=trip_id)
+        stop = next((item for item in old_stops if item.id == stop_id), None)
+        if stop is None:
+            raise ItineraryStopNotFoundError(f'Itinerary stop not found: {stop_id}')
 
-        if payload.location is not None:
+        has_location_replacement = 'location' in payload.model_fields_set
+        has_placement = 'placement' in payload.model_fields_set
+        has_travel_replacement = (
+            payload.incoming_travel is not None or payload.outgoing_travel is not None
+        )
+
+        if has_placement and payload.placement.after_stop_id == stop_id:
+            raise ItineraryPlacementError(
+                'after_stop_id cannot reference the same stop'
+            )
+
+        original_date = stop.planned_start_date
+        original_order_ids = [item.id for item in old_stops]
+        new_order = old_stops
+        placement_changed = False
+        if has_placement:
+            new_order = self._ordered_with_inserted_stop(
+                stops=old_stops,
+                moving_stop=stop,
+                placement=payload.placement,
+            )
+            placement_changed = (
+                payload.placement.planned_start_date != original_date
+                or [item.id for item in new_order] != original_order_ids
+            )
+
+        if has_travel_replacement and not (
+            placement_changed or has_location_replacement
+        ):
+            raise ItineraryTravelValidationError(
+                'Travel replacements require a location replacement or changed placement'
+            )
+
+        incoming_pair, outgoing_pair = self._neighbor_pairs_for_stop(
+            ordered_stops=new_order,
+            stop_id=stop_id,
+        )
+        if placement_changed or has_location_replacement:
+            self._validate_travel_payload_sides(
+                incoming_pair=incoming_pair,
+                outgoing_pair=outgoing_pair,
+                incoming_travel=payload.incoming_travel,
+                outgoing_travel=payload.outgoing_travel,
+            )
+
+        metadata_changed = self._apply_stop_metadata_updates(stop=stop, payload=payload)
+        if has_location_replacement:
             location = self.location_service.create_location_for_trip(
                 trip_id=trip_id,
                 created_by=current_user_id,
                 location_input=payload.location,
             )
-            planned_step.location_id = location.id
-        if payload.arrival_date is not None:
-            planned_step.arrival_date = payload.arrival_date
-        if payload.departure_date is not None:
-            planned_step.departure_date = payload.departure_date
-        if payload.notes is not None:
-            planned_step.notes = payload.notes
+            stop.location_id = location.id
 
-        self._validate_step_dates(
-            arrival_date=planned_step.arrival_date,
-            departure_date=planned_step.departure_date,
-        )
-        self.db.commit()
-        return self._get_step_or_raise(trip_id=trip_id, step_id=step_id)
+        changed = metadata_changed or placement_changed or has_location_replacement
+        if not changed:
+            return self._load_itinerary_snapshot(trip=trip)
 
-    def move_planned_step(
-        self,
-        trip_id: uuid.UUID,
-        step_id: uuid.UUID,
-        after_planned_step_id: uuid.UUID | None,
-        current_user_id: uuid.UUID,
-    ) -> PlannedStep:
-        self._require_manage_itinerary_permission(
-            trip_id=trip_id,
-            user_id=current_user_id,
-        )
-        planned_step = self._get_step_or_raise(trip_id=trip_id, step_id=step_id)
-        if after_planned_step_id == step_id:
-            raise PlannedStepPlacementError(
-                'A planned step cannot be moved after itself'
-            )
-
-        position = self._position_after(
-            trip_id=trip_id,
-            after_planned_step_id=after_planned_step_id,
-            moving_step_id=step_id,
-        )
-        planned_step.position = position
-        self._commit_planned_step_position_change(
-            trip_id=trip_id,
-            position=position,
-            current_step_id=step_id,
-        )
-        self._reconcile_planned_travel_adjacency(trip_id=trip_id)
-        return self._get_step_or_raise(trip_id=trip_id, step_id=step_id)
-
-    def delete_planned_step(
-        self,
-        trip_id: uuid.UUID,
-        step_id: uuid.UUID,
-        current_user_id: uuid.UUID,
-    ) -> None:
-        self._require_manage_itinerary_permission(
-            trip_id=trip_id,
-            user_id=current_user_id,
-        )
-        planned_step = self._get_step_or_raise(trip_id=trip_id, step_id=step_id)
-        self.db.delete(planned_step)
-        self.db.commit()
-
-    def list_planned_travel(
-        self,
-        trip_id: uuid.UUID,
-        current_user_id: uuid.UUID | None,
-    ) -> list[PlannedTravel]:
-        self._require_read_itinerary_permission(
-            trip_id=trip_id,
-            user_id=current_user_id,
-        )
-        return self._list_travel_for_trip(trip_id=trip_id)
-
-    def create_planned_travel(
-        self,
-        trip_id: uuid.UUID,
-        payload: PlannedTravelCreateRequest,
-        current_user_id: uuid.UUID,
-    ) -> PlannedTravel:
-        self._require_manage_itinerary_permission(
-            trip_id=trip_id,
-            user_id=current_user_id,
-        )
-        self._validate_travel_steps(
-            trip_id=trip_id,
-            from_planned_step_id=payload.from_planned_step_id,
-            to_planned_step_id=payload.to_planned_step_id,
-        )
-        self._raise_if_duplicate_travel(
-            trip_id=trip_id,
-            from_planned_step_id=payload.from_planned_step_id,
-            to_planned_step_id=payload.to_planned_step_id,
-        )
-
-        planned_travel = PlannedTravel(
-            trip_id=trip_id,
-            from_planned_step_id=payload.from_planned_step_id,
-            to_planned_step_id=payload.to_planned_step_id,
-            travel_mode=payload.travel_mode,
-            notes=payload.notes,
-        )
-        self.db.add(planned_travel)
-        self._commit_planned_travel_change(
-            trip_id=trip_id,
-            from_planned_step_id=payload.from_planned_step_id,
-            to_planned_step_id=payload.to_planned_step_id,
-        )
-        self.db.refresh(planned_travel)
-        return planned_travel
-
-    def get_planned_travel(
-        self,
-        trip_id: uuid.UUID,
-        travel_id: uuid.UUID,
-        current_user_id: uuid.UUID | None,
-    ) -> PlannedTravel:
-        self._require_read_itinerary_permission(
-            trip_id=trip_id,
-            user_id=current_user_id,
-        )
-        return self._get_travel_or_raise(trip_id=trip_id, travel_id=travel_id)
-
-    def update_planned_travel(
-        self,
-        trip_id: uuid.UUID,
-        travel_id: uuid.UUID,
-        payload: PlannedTravelUpdateRequest,
-        current_user_id: uuid.UUID,
-    ) -> PlannedTravel:
-        self._require_manage_itinerary_permission(
-            trip_id=trip_id,
-            user_id=current_user_id,
-        )
-        planned_travel = self._get_travel_or_raise(
-            trip_id=trip_id,
-            travel_id=travel_id,
-        )
-
-        from_step_id = (
-            payload.from_planned_step_id or planned_travel.from_planned_step_id
-        )
-        to_step_id = payload.to_planned_step_id or planned_travel.to_planned_step_id
-        self._validate_travel_steps(
-            trip_id=trip_id,
-            from_planned_step_id=from_step_id,
-            to_planned_step_id=to_step_id,
-        )
-        if (
-            from_step_id != planned_travel.from_planned_step_id
-            or to_step_id != planned_travel.to_planned_step_id
-        ):
-            self._raise_if_duplicate_travel(
+        legs_by_pair = self._load_legs_by_pair(trip_id=trip_id)
+        if placement_changed:
+            self._apply_order(new_order)
+            legs_by_pair = self._rebalance_legs(
                 trip_id=trip_id,
-                from_planned_step_id=from_step_id,
-                to_planned_step_id=to_step_id,
-                current_travel_id=travel_id,
+                new_pairs=self._adjacent_pairs(new_order),
             )
-            planned_travel.from_planned_step_id = from_step_id
-            planned_travel.to_planned_step_id = to_step_id
-        if payload.travel_mode is not None:
-            planned_travel.travel_mode = payload.travel_mode
-        if payload.notes is not None:
-            planned_travel.notes = payload.notes
 
-        self._commit_planned_travel_change(
-            trip_id=trip_id,
-            from_planned_step_id=from_step_id,
-            to_planned_step_id=to_step_id,
-            current_travel_id=travel_id,
-        )
-        self.db.refresh(planned_travel)
-        return planned_travel
+        if has_location_replacement:
+            self._reset_side_legs(
+                legs_by_pair=legs_by_pair,
+                incoming_pair=incoming_pair,
+                outgoing_pair=outgoing_pair,
+            )
+        if placement_changed or has_location_replacement:
+            self._apply_side_replacements(
+                legs_by_pair=legs_by_pair,
+                incoming_pair=incoming_pair,
+                outgoing_pair=outgoing_pair,
+                incoming_travel=payload.incoming_travel,
+                outgoing_travel=payload.outgoing_travel,
+            )
 
-    def delete_planned_travel(
+        self._increment_revision(trip)
+        self.db.commit()
+        return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
+
+    def delete_stop(
         self,
         trip_id: uuid.UUID,
-        travel_id: uuid.UUID,
+        stop_id: uuid.UUID,
         current_user_id: uuid.UUID,
-    ) -> None:
-        self._require_manage_itinerary_permission(
+        expected_revision: int,
+    ) -> ItinerarySnapshot:
+        trip, _membership = self._require_manage_trip_locked(
             trip_id=trip_id,
             user_id=current_user_id,
+            expected_revision=expected_revision,
         )
-        planned_travel = self._get_travel_or_raise(
-            trip_id=trip_id,
-            travel_id=travel_id,
-        )
-        self.db.delete(planned_travel)
-        self.db.commit()
+        old_stops = self._load_ordered_stops(trip_id=trip_id)
+        stop = next((item for item in old_stops if item.id == stop_id), None)
+        if stop is None:
+            raise ItineraryStopNotFoundError(f'Itinerary stop not found: {stop_id}')
 
-    def _require_read_itinerary_permission(
+        new_order = [item for item in old_stops if item.id != stop_id]
+        self._apply_order(new_order)
+        self._rebalance_legs(
+            trip_id=trip_id,
+            new_pairs=self._adjacent_pairs(new_order),
+        )
+        self.db.delete(stop)
+        self._increment_revision(trip)
+        self.db.commit()
+        return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
+
+    def get_travel_leg(
         self,
         trip_id: uuid.UUID,
-        user_id: uuid.UUID | None,
-    ) -> None:
+        leg_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+    ) -> ItineraryTravelLegDetail:
+        trip = self._get_readable_trip_or_raise(
+            trip_id=trip_id,
+            current_user_id=current_user_id,
+        )
+        leg = self._get_leg_or_raise(trip_id=trip_id, leg_id=leg_id)
+        return ItineraryTravelLegDetail(
+            leg=leg,
+            itinerary_revision=trip.itinerary_revision,
+        )
+
+    def replace_travel_leg(
+        self,
+        trip_id: uuid.UUID,
+        leg_id: uuid.UUID,
+        payload: ItineraryTravelReplaceRequest,
+        current_user_id: uuid.UUID,
+        expected_revision: int,
+    ) -> ItineraryTravelLegDetail:
+        trip, _membership = self._require_manage_trip_locked(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            expected_revision=expected_revision,
+        )
+        leg = self._get_leg_or_raise(trip_id=trip_id, leg_id=leg_id)
+        current_pairs = set(self._adjacent_pairs(self._load_ordered_stops(trip_id)))
+        if (leg.from_stop_id, leg.to_stop_id) not in current_pairs:
+            raise ItineraryTravelLegNotFoundError(
+                f'Itinerary travel leg not found: {leg_id}'
+            )
+
+        if self._travel_payload_matches_leg(payload=payload, leg=leg):
+            return ItineraryTravelLegDetail(
+                leg=leg,
+                itinerary_revision=trip.itinerary_revision,
+            )
+
+        self._replace_travel(leg=leg, payload=payload)
+        self._increment_revision(trip)
+        self.db.commit()
+        return ItineraryTravelLegDetail(
+            leg=self._get_leg_or_raise(trip_id=trip_id, leg_id=leg_id),
+            itinerary_revision=trip.itinerary_revision,
+        )
+
+    def _get_readable_trip_or_raise(
+        self,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+    ) -> Trip:
         trip = self.db.get(Trip, trip_id)
         if trip is None:
             raise TripNotFoundError(f'Trip not found: {trip_id}')
+
+        membership = (
+            self._get_membership(trip_id=trip_id, user_id=current_user_id)
+            if current_user_id is not None
+            else None
+        )
         if trip.visibility == TripVisibility.PUBLIC:
-            return
-        if user_id is None:
+            return trip
+        if membership is None:
             raise TripNotFoundError(f'Trip not found: {trip_id}')
-        self._require_trip_permission(
-            trip_id=trip_id,
-            user_id=user_id,
-            permission=TripPermission.LIST_ITINERARY,
-        )
+        if not role_has_permission(membership.role, TripPermission.GET_ITINERARY):
+            raise ItineraryPermissionError('The user does not have enough privileges')
+        return trip
 
-    def _require_manage_itinerary_permission(
+    def _require_manage_trip_locked(
         self,
         trip_id: uuid.UUID,
         user_id: uuid.UUID,
-    ) -> None:
-        self._require_trip_permission(
-            trip_id=trip_id,
-            user_id=user_id,
-            permission=TripPermission.MANAGE_ITINERARY,
-        )
+        expected_revision: int,
+    ) -> tuple[Trip, TripMember]:
+        trip = self.db.execute(
+            select(Trip).where(Trip.id == trip_id).with_for_update()
+        ).scalar_one_or_none()
+        if trip is None:
+            raise TripNotFoundError(f'Trip not found: {trip_id}')
 
-    def _require_trip_permission(
+        membership = self._get_membership(trip_id=trip_id, user_id=user_id)
+        if membership is None:
+            raise TripNotFoundError(f'Trip not found: {trip_id}')
+        if not role_has_permission(membership.role, TripPermission.MANAGE_ITINERARY):
+            raise ItineraryPermissionError('The user does not have enough privileges')
+        if trip.itinerary_revision != expected_revision:
+            raise ItineraryRevisionMismatchError('Itinerary revision does not match')
+        return trip, membership
+
+    def _get_membership(
         self,
         trip_id: uuid.UUID,
         user_id: uuid.UUID,
-        permission: TripPermission,
-    ) -> None:
-        membership = self.db.execute(
+    ) -> TripMember | None:
+        return self.db.execute(
             select(TripMember).where(
                 TripMember.trip_id == trip_id,
                 TripMember.user_id == user_id,
             )
         ).scalar_one_or_none()
-        if membership is None:
+
+    def _load_itinerary_snapshot_by_id(self, trip_id: uuid.UUID) -> ItinerarySnapshot:
+        trip = self.db.get(Trip, trip_id)
+        if trip is None:
             raise TripNotFoundError(f'Trip not found: {trip_id}')
-        if not role_has_permission(membership.role, permission):
-            raise TripPermissionError('The user does not have enough privileges')
+        return self._load_itinerary_snapshot(trip=trip)
 
-    def _list_steps_for_trip(self, trip_id: uuid.UUID) -> list[PlannedStep]:
-        statement = (
-            select(PlannedStep)
-            .options(joinedload(PlannedStep.location))
-            .where(PlannedStep.trip_id == trip_id)
-            .order_by(PlannedStep.position.asc(), PlannedStep.id.asc())
-        )
-        return list(self.db.execute(statement).scalars().all())
-
-    def _list_travel_for_trip(self, trip_id: uuid.UUID) -> list[PlannedTravel]:
-        statement = (
-            select(PlannedTravel)
-            .join(
-                PlannedStep,
-                PlannedStep.id == PlannedTravel.from_planned_step_id,
-            )
-            .where(PlannedTravel.trip_id == trip_id)
-            .order_by(PlannedStep.position.asc(), PlannedTravel.id.asc())
-        )
-        return list(self.db.execute(statement).scalars().all())
-
-    def _get_step_or_raise(
-        self,
-        trip_id: uuid.UUID,
-        step_id: uuid.UUID,
-    ) -> PlannedStep:
-        planned_step = self.db.execute(
-            select(PlannedStep)
-            .options(joinedload(PlannedStep.location))
-            .where(
-                PlannedStep.id == step_id,
-                PlannedStep.trip_id == trip_id,
-            )
-        ).scalar_one_or_none()
-        if planned_step is None:
-            raise PlannedStepNotFoundError(f'Planned step not found: {step_id}')
-        return planned_step
-
-    def _get_travel_or_raise(
-        self,
-        trip_id: uuid.UUID,
-        travel_id: uuid.UUID,
-    ) -> PlannedTravel:
-        planned_travel = self.db.execute(
-            select(PlannedTravel).where(
-                PlannedTravel.id == travel_id,
-                PlannedTravel.trip_id == trip_id,
-            )
-        ).scalar_one_or_none()
-        if planned_travel is None:
-            raise PlannedTravelNotFoundError(f'Planned travel not found: {travel_id}')
-        return planned_travel
-
-    def _position_after(
-        self,
-        trip_id: uuid.UUID,
-        after_planned_step_id: uuid.UUID | None,
-        moving_step_id: uuid.UUID | None = None,
-    ) -> int:
-        steps = [
-            step
-            for step in self._list_steps_for_trip(trip_id=trip_id)
-            if step.id != moving_step_id
+    def _load_itinerary_snapshot(self, trip: Trip) -> ItinerarySnapshot:
+        stops = self._load_ordered_stops(trip_id=trip.id)
+        legs_by_pair = self._load_legs_by_pair(trip_id=trip.id)
+        ordered_legs = [
+            legs_by_pair[pair]
+            for pair in self._adjacent_pairs(stops)
+            if pair in legs_by_pair
         ]
-        if not steps:
-            return POSITION_STEP
-
-        if after_planned_step_id is None:
-            first_position = steps[0].position
-            if first_position > 1:
-                return first_position // 2
-            self._rebalance_positions(trip_id=trip_id, exclude_step_id=moving_step_id)
-            return self._position_after(
-                trip_id=trip_id,
-                after_planned_step_id=None,
-                moving_step_id=moving_step_id,
-            )
-
-        after_index = next(
-            (
-                index
-                for index, step in enumerate(steps)
-                if step.id == after_planned_step_id
-            ),
-            None,
-        )
-        if after_index is None:
-            raise PlannedStepPlacementError(
-                f'Placement step not found: {after_planned_step_id}'
-            )
-
-        after_position = steps[after_index].position
-        if after_index == len(steps) - 1:
-            return after_position + POSITION_STEP
-
-        before_position = steps[after_index + 1].position
-        if before_position - after_position > 1:
-            return after_position + ((before_position - after_position) // 2)
-
-        self._rebalance_positions(trip_id=trip_id, exclude_step_id=moving_step_id)
-        return self._position_after(
-            trip_id=trip_id,
-            after_planned_step_id=after_planned_step_id,
-            moving_step_id=moving_step_id,
+        return ItinerarySnapshot(
+            trip_id=trip.id,
+            itinerary_revision=trip.itinerary_revision,
+            stops=stops,
+            legs=ordered_legs,
         )
 
-    def _rebalance_positions(
-        self,
-        trip_id: uuid.UUID,
-        exclude_step_id: uuid.UUID | None = None,
-    ) -> None:
-        steps = [
-            step
-            for step in self._list_steps_for_trip(trip_id=trip_id)
-            if step.id != exclude_step_id
-        ]
-        for index, step in enumerate(steps, start=1):
-            step.position = -index * POSITION_STEP
-        self._flush_planned_step_position_change()
-
-        for index, step in enumerate(steps, start=1):
-            step.position = index * POSITION_STEP
-        self._flush_planned_step_position_change()
-
-    def _validate_step_dates(
-        self,
-        arrival_date,
-        departure_date,
-    ) -> None:
-        if departure_date < arrival_date:
-            raise PlannedStepDateRangeError(
-                'departure_date must be on or after arrival_date'
-            )
-
-    def _validate_travel_steps(
-        self,
-        trip_id: uuid.UUID,
-        from_planned_step_id: uuid.UUID,
-        to_planned_step_id: uuid.UUID,
-    ) -> None:
-        if from_planned_step_id == to_planned_step_id:
-            raise PlannedTravelStepError(
-                'from_planned_step_id and to_planned_step_id must differ'
-            )
-
-        ordered_step_ids = self._list_ordered_step_ids_for_trip(trip_id=trip_id)
-        try:
-            from_step_index = ordered_step_ids.index(from_planned_step_id)
-            to_step_index = ordered_step_ids.index(to_planned_step_id)
-        except ValueError as exc:
-            raise PlannedTravelStepError(
-                'Both planned travel steps must belong to the trip'
-            ) from exc
-
-        if to_step_index != from_step_index + 1:
-            raise PlannedTravelStepError(
-                'Planned travel must connect adjacent steps in trip order'
-            )
-
-    def _list_ordered_step_ids_for_trip(self, trip_id: uuid.UUID) -> list[uuid.UUID]:
-        statement = (
-            select(PlannedStep.id)
-            .where(PlannedStep.trip_id == trip_id)
-            .order_by(PlannedStep.position.asc(), PlannedStep.id.asc())
-        )
-        return list(self.db.execute(statement).scalars().all())
-
-    def _reconcile_planned_travel_adjacency(self, trip_id: uuid.UUID) -> None:
-        ordered_step_ids = self._list_ordered_step_ids_for_trip(trip_id=trip_id)
-        step_index_by_id = {
-            step_id: index for index, step_id in enumerate(ordered_step_ids)
-        }
-        next_step_by_step = {
-            step_id: ordered_step_ids[index + 1]
-            for index, step_id in enumerate(ordered_step_ids[:-1])
-        }
-
-        planned_travel = list(
+    def _load_ordered_stops(self, trip_id: uuid.UUID) -> list[ItineraryStop]:
+        return list(
             self.db.execute(
-                select(PlannedTravel).where(PlannedTravel.trip_id == trip_id)
-            ).scalars()
+                select(ItineraryStop)
+                .options(
+                    joinedload(ItineraryStop.location),
+                    joinedload(ItineraryStop.creator).joinedload(User.profile),
+                )
+                .where(ItineraryStop.trip_id == trip_id)
+                .order_by(
+                    ItineraryStop.planned_start_date.asc(),
+                    ItineraryStop.same_day_position.asc(),
+                    ItineraryStop.id.asc(),
+                )
+            )
+            .scalars()
+            .all()
         )
-        existing_pairs = {
-            (travel.from_planned_step_id, travel.to_planned_step_id)
-            for travel in planned_travel
-        }
+
+    def _load_legs_by_pair(
+        self,
+        trip_id: uuid.UUID,
+    ) -> dict[StopPair, ItineraryTravelLeg]:
+        legs = list(
+            self.db.execute(
+                select(ItineraryTravelLeg).where(ItineraryTravelLeg.trip_id == trip_id)
+            )
+            .scalars()
+            .all()
+        )
+        return {(leg.from_stop_id, leg.to_stop_id): leg for leg in legs}
+
+    def _get_leg_or_raise(
+        self,
+        trip_id: uuid.UUID,
+        leg_id: uuid.UUID,
+    ) -> ItineraryTravelLeg:
+        leg = self.db.execute(
+            select(ItineraryTravelLeg).where(
+                ItineraryTravelLeg.trip_id == trip_id,
+                ItineraryTravelLeg.id == leg_id,
+            )
+        ).scalar_one_or_none()
+        if leg is None:
+            raise ItineraryTravelLegNotFoundError(
+                f'Itinerary travel leg not found: {leg_id}'
+            )
+        return leg
+
+    def _ordered_with_inserted_stop(
+        self,
+        *,
+        stops: list[ItineraryStop],
+        moving_stop: ItineraryStop,
+        placement: ItineraryPlacement,
+    ) -> list[ItineraryStop]:
+        source = [stop for stop in stops if stop.id != moving_stop.id]
+        anchor = None
+        if placement.after_stop_id is not None:
+            anchor = next(
+                (stop for stop in source if stop.id == placement.after_stop_id),
+                None,
+            )
+            if anchor is None:
+                raise ItineraryStopNotFoundError(
+                    f'Itinerary stop not found: {placement.after_stop_id}'
+                )
+            if anchor.planned_start_date != placement.planned_start_date:
+                raise ItineraryPlacementError(
+                    'after_stop_id must be on the same planned_start_date'
+                )
+
+        before_date = [
+            stop
+            for stop in source
+            if stop.planned_start_date < placement.planned_start_date
+        ]
+        same_date = [
+            stop
+            for stop in source
+            if stop.planned_start_date == placement.planned_start_date
+        ]
+        after_date = [
+            stop
+            for stop in source
+            if stop.planned_start_date > placement.planned_start_date
+        ]
+
+        insert_index = 0
+        if anchor is not None:
+            insert_index = same_date.index(anchor) + 1
+        moving_stop.planned_start_date = placement.planned_start_date
+        same_date.insert(insert_index, moving_stop)
+        return before_date + same_date + after_date
+
+    def _apply_order(self, ordered_stops: list[ItineraryStop]) -> None:
+        current_date = None
+        same_day_position = 0
+        for stop in ordered_stops:
+            if stop.planned_start_date != current_date:
+                current_date = stop.planned_start_date
+                same_day_position = 0
+            stop.same_day_position = same_day_position
+            same_day_position += 1
+        self.db.flush()
+
+    def _rebalance_legs(
+        self,
+        *,
+        trip_id: uuid.UUID,
+        new_pairs: list[StopPair],
+    ) -> dict[StopPair, ItineraryTravelLeg]:
+        new_pair_set = set(new_pairs)
+        existing_legs = self._load_legs_by_pair(trip_id=trip_id)
+        kept: dict[StopPair, ItineraryTravelLeg] = {}
+
+        for pair, leg in existing_legs.items():
+            if pair in new_pair_set:
+                kept[pair] = leg
+            else:
+                self.db.delete(leg)
+        self.db.flush()
+
+        for pair in new_pairs:
+            if pair not in kept:
+                leg = ItineraryTravelLeg(
+                    trip_id=trip_id,
+                    from_stop_id=pair[0],
+                    to_stop_id=pair[1],
+                    travel_mode=TravelMode.UNKNOWN,
+                    notes='',
+                    operator=None,
+                    reference=None,
+                )
+                self.db.add(leg)
+                kept[pair] = leg
+        self.db.flush()
+        return {pair: kept[pair] for pair in new_pairs}
+
+    def _apply_stop_metadata_updates(
+        self,
+        *,
+        stop: ItineraryStop,
+        payload: ItineraryStopUpdateRequest,
+    ) -> bool:
         changed = False
-
-        for travel in planned_travel:
-            from_step_index = step_index_by_id.get(travel.from_planned_step_id)
-            to_step_index = step_index_by_id.get(travel.to_planned_step_id)
-            if from_step_index is None or to_step_index is None:
-                self.db.delete(travel)
-                existing_pairs.discard(
-                    (travel.from_planned_step_id, travel.to_planned_step_id)
-                )
-                changed = True
-                continue
-
-            expected_to_step_id = next_step_by_step.get(travel.from_planned_step_id)
-            if expected_to_step_id == travel.to_planned_step_id:
-                continue
-
-            self.db.delete(travel)
-            existing_pairs.discard(
-                (travel.from_planned_step_id, travel.to_planned_step_id)
-            )
+        if 'title' in payload.model_fields_set and payload.title != stop.title:
+            stop.title = payload.title
             changed = True
+        if 'notes' in payload.model_fields_set and payload.notes != stop.notes:
+            stop.notes = payload.notes
+            changed = True
+        if (
+            'planned_nights' in payload.model_fields_set
+            and payload.planned_nights != stop.planned_nights
+        ):
+            stop.planned_nights = payload.planned_nights
+            changed = True
+        return changed
 
-            if to_step_index <= from_step_index:
-                continue
-
-            replacement_step_ids = ordered_step_ids[from_step_index : to_step_index + 1]
-            for from_step_id, to_step_id in zip(
-                replacement_step_ids,
-                replacement_step_ids[1:],
-            ):
-                pair = (from_step_id, to_step_id)
-                if pair in existing_pairs:
-                    continue
-                self.db.add(
-                    PlannedTravel(
-                        trip_id=trip_id,
-                        from_planned_step_id=from_step_id,
-                        to_planned_step_id=to_step_id,
-                        travel_mode=PlannedTravelMode.OTHER,
-                        notes='',
-                    )
-                )
-                existing_pairs.add(pair)
-
-        if changed:
-            self.db.commit()
-
-    def _raise_if_duplicate_travel(
+    def _neighbor_pairs_for_stop(
         self,
-        trip_id: uuid.UUID,
-        from_planned_step_id: uuid.UUID,
-        to_planned_step_id: uuid.UUID,
-        current_travel_id: uuid.UUID | None = None,
+        *,
+        ordered_stops: list[ItineraryStop],
+        stop_id: uuid.UUID,
+    ) -> tuple[StopPair | None, StopPair | None]:
+        for index, stop in enumerate(ordered_stops):
+            if stop.id != stop_id:
+                continue
+            incoming_pair = (
+                (ordered_stops[index - 1].id, stop.id) if index > 0 else None
+            )
+            outgoing_pair = (
+                (stop.id, ordered_stops[index + 1].id)
+                if index < len(ordered_stops) - 1
+                else None
+            )
+            return incoming_pair, outgoing_pair
+        raise ItineraryStopNotFoundError(f'Itinerary stop not found: {stop_id}')
+
+    def _validate_travel_payload_sides(
+        self,
+        *,
+        incoming_pair: StopPair | None,
+        outgoing_pair: StopPair | None,
+        incoming_travel: ItineraryTravelReplaceRequest | None,
+        outgoing_travel: ItineraryTravelReplaceRequest | None,
     ) -> None:
-        statement = select(PlannedTravel.id).where(
-            PlannedTravel.trip_id == trip_id,
-            PlannedTravel.from_planned_step_id == from_planned_step_id,
-            PlannedTravel.to_planned_step_id == to_planned_step_id,
-        )
-        existing_id = self.db.execute(statement).scalar_one_or_none()
-        if existing_id is not None and existing_id != current_travel_id:
-            raise PlannedTravelAlreadyExistsError(
-                'Planned travel already exists between these steps'
+        if incoming_travel is not None and incoming_pair is None:
+            raise ItineraryTravelValidationError(
+                'incoming_travel requires a resulting incoming leg'
+            )
+        if outgoing_travel is not None and outgoing_pair is None:
+            raise ItineraryTravelValidationError(
+                'outgoing_travel requires a resulting outgoing leg'
             )
 
-    def _commit_planned_step_position_change(
+    def _apply_side_replacements(
         self,
-        trip_id: uuid.UUID,
-        position: int,
-        current_step_id: uuid.UUID | None = None,
+        *,
+        legs_by_pair: dict[StopPair, ItineraryTravelLeg],
+        incoming_pair: StopPair | None,
+        outgoing_pair: StopPair | None,
+        incoming_travel: ItineraryTravelReplaceRequest | None,
+        outgoing_travel: ItineraryTravelReplaceRequest | None,
     ) -> None:
-        try:
-            self.db.commit()
-        except IntegrityError as exc:
-            self.db.rollback()
-            if self._planned_step_position_exists(
-                trip_id=trip_id,
-                position=position,
-                current_step_id=current_step_id,
-            ):
-                raise PlannedStepPositionConflictError(
-                    'Planned step order changed concurrently; retry the operation'
-                ) from exc
-            raise
+        if incoming_pair is not None and incoming_travel is not None:
+            self._replace_travel(
+                leg=legs_by_pair[incoming_pair], payload=incoming_travel
+            )
+        if outgoing_pair is not None and outgoing_travel is not None:
+            self._replace_travel(
+                leg=legs_by_pair[outgoing_pair], payload=outgoing_travel
+            )
 
-    def _flush_planned_step_position_change(self) -> None:
-        try:
-            self.db.flush()
-        except IntegrityError as exc:
-            self.db.rollback()
-            raise PlannedStepPositionConflictError(
-                'Planned step order changed concurrently; retry the operation'
-            ) from exc
-
-    def _commit_planned_travel_change(
+    def _reset_side_legs(
         self,
-        trip_id: uuid.UUID,
-        from_planned_step_id: uuid.UUID,
-        to_planned_step_id: uuid.UUID,
-        current_travel_id: uuid.UUID | None = None,
+        *,
+        legs_by_pair: dict[StopPair, ItineraryTravelLeg],
+        incoming_pair: StopPair | None,
+        outgoing_pair: StopPair | None,
     ) -> None:
-        try:
-            self.db.commit()
-        except IntegrityError as exc:
-            self.db.rollback()
-            if self._planned_travel_exists(
-                trip_id=trip_id,
-                from_planned_step_id=from_planned_step_id,
-                to_planned_step_id=to_planned_step_id,
-                current_travel_id=current_travel_id,
-            ):
-                raise PlannedTravelAlreadyExistsError(
-                    'Planned travel already exists between these steps'
-                ) from exc
-            raise
+        for pair in (incoming_pair, outgoing_pair):
+            if pair is not None:
+                self._reset_travel(legs_by_pair[pair])
 
-    def _planned_step_position_exists(
-        self,
-        trip_id: uuid.UUID,
-        position: int,
-        current_step_id: uuid.UUID | None = None,
-    ) -> bool:
-        statement = select(PlannedStep.id).where(
-            PlannedStep.trip_id == trip_id,
-            PlannedStep.position == position,
-        )
-        if current_step_id is not None:
-            statement = statement.where(PlannedStep.id != current_step_id)
-        return self.db.execute(statement).scalar_one_or_none() is not None
+    def _reset_travel(self, leg: ItineraryTravelLeg) -> None:
+        leg.travel_mode = TravelMode.UNKNOWN
+        leg.notes = ''
+        leg.operator = None
+        leg.reference = None
 
-    def _planned_travel_exists(
+    def _replace_travel(
         self,
-        trip_id: uuid.UUID,
-        from_planned_step_id: uuid.UUID,
-        to_planned_step_id: uuid.UUID,
-        current_travel_id: uuid.UUID | None = None,
+        *,
+        leg: ItineraryTravelLeg,
+        payload: ItineraryTravelReplaceRequest,
+    ) -> None:
+        leg.travel_mode = payload.travel_mode
+        leg.notes = payload.notes
+        leg.operator = payload.operator
+        leg.reference = payload.reference
+
+    def _travel_payload_matches_leg(
+        self,
+        *,
+        payload: ItineraryTravelReplaceRequest,
+        leg: ItineraryTravelLeg,
     ) -> bool:
-        statement = select(PlannedTravel.id).where(
-            PlannedTravel.trip_id == trip_id,
-            PlannedTravel.from_planned_step_id == from_planned_step_id,
-            PlannedTravel.to_planned_step_id == to_planned_step_id,
+        return (
+            TravelMode(leg.travel_mode) == payload.travel_mode
+            and leg.notes == payload.notes
+            and leg.operator == payload.operator
+            and leg.reference == payload.reference
         )
-        if current_travel_id is not None:
-            statement = statement.where(PlannedTravel.id != current_travel_id)
-        return self.db.execute(statement).scalar_one_or_none() is not None
+
+    def _increment_revision(self, trip: Trip) -> None:
+        trip.itinerary_revision += 1
+
+    def _adjacent_pairs(self, stops: list[ItineraryStop]) -> list[StopPair]:
+        return [
+            (previous.id, current.id)
+            for previous, current in zip(stops, stops[1:], strict=False)
+        ]

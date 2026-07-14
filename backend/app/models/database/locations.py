@@ -2,7 +2,16 @@ import uuid
 import typing
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, String, Text, func
+from sqlalchemy import (
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, utcnow
@@ -15,6 +24,7 @@ if typing.TYPE_CHECKING:
 class Location(Base):
     __tablename__ = 'locations'
     __table_args__ = (
+        UniqueConstraint('trip_id', 'id', name='uq_locations_trip_id_id'),
         Index('ix_locations_trip_id', 'trip_id'),
         Index('ix_locations_created_by', 'created_by'),
     )

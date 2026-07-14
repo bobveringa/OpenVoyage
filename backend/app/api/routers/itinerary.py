@@ -1,351 +1,278 @@
+import re
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from starlette import status
 
 from api.deps import CurrentUser, ItineraryServiceDep, OptionalCurrentUser
 from models.api.itinerary import (
     ItineraryResponse,
-    PlannedStepCreateRequest,
-    PlannedStepMoveRequest,
-    PlannedStepResponse,
-    PlannedStepUpdateRequest,
-    PlannedTravelCreateRequest,
-    PlannedTravelResponse,
-    PlannedTravelUpdateRequest,
+    ItineraryStopCreateRequest,
+    ItineraryStopDetailResponse,
+    ItineraryStopUpdateRequest,
+    ItineraryTravelLegResponse,
+    ItineraryTravelReplaceRequest,
 )
 from services.itinerary_service import (
-    PlannedStepDateRangeError,
-    PlannedStepNotFoundError,
-    PlannedStepPlacementError,
-    PlannedStepPositionConflictError,
-    PlannedTravelAlreadyExistsError,
-    PlannedTravelNotFoundError,
-    PlannedTravelStepError,
+    ItineraryPermissionError,
+    ItineraryPlacementError,
+    ItineraryRevisionMismatchError,
+    ItineraryStopNotFoundError,
+    ItineraryTravelLegNotFoundError,
+    ItineraryTravelValidationError,
+    TripNotFoundError,
 )
 from services.location_service import LocationNotFoundError
-from services.trip_service import TripNotFoundError, TripPermissionError
 
-router = APIRouter(prefix='/trips/{trip_id}', tags=['itinerary'])
+router = APIRouter(prefix='/trips/{trip_id}/itinerary', tags=['itinerary'])
+
+_IF_MATCH_RE = re.compile(r'^"([0-9]+)"$')
+
+
+def _etag(revision: int) -> str:
+    return f'"{revision}"'
+
+
+def _parse_if_match(if_match: str | None) -> int:
+    if if_match is None:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail='If-Match header is required',
+        )
+    match = _IF_MATCH_RE.fullmatch(if_match)
+    if match is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail='If-Match must be a quoted integer revision',
+        )
+    return int(match.group(1))
+
+
+def _raise_http_error(exc: Exception) -> None:
+    if isinstance(
+        exc,
+        (
+            TripNotFoundError,
+            ItineraryStopNotFoundError,
+            ItineraryTravelLegNotFoundError,
+            LocationNotFoundError,
+        ),
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, ItineraryPermissionError):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    if isinstance(exc, ItineraryRevisionMismatchError):
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail=str(exc),
+        )
+    if isinstance(exc, (ItineraryPlacementError, ItineraryTravelValidationError)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        )
+    raise exc
 
 
 @router.get(
-    '/itinerary',
+    '',
     response_model=ItineraryResponse,
 )
 def get_itinerary(
     trip_id: uuid.UUID,
+    response: Response,
     itinerary_service: ItineraryServiceDep,
     user: OptionalCurrentUser,
 ) -> ItineraryResponse:
     try:
-        planned_steps, planned_travel = itinerary_service.get_itinerary(
+        snapshot = itinerary_service.get_itinerary(
             trip_id=trip_id,
             current_user_id=user.id if user else None,
         )
-    except TripNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except Exception as exc:
+        _raise_http_error(exc)
 
-    return ItineraryResponse(
-        steps=[PlannedStepResponse.from_model(step) for step in planned_steps],
-        travel=[PlannedTravelResponse.from_model(travel) for travel in planned_travel],
+    response.headers['ETag'] = _etag(snapshot.itinerary_revision)
+    return ItineraryResponse.from_parts(
+        trip_id=snapshot.trip_id,
+        itinerary_revision=snapshot.itinerary_revision,
+        stops=snapshot.stops,
+        legs=snapshot.legs,
+    )
+
+
+@router.post(
+    '/stops',
+    status_code=status.HTTP_201_CREATED,
+    response_model=ItineraryResponse,
+)
+def create_stop(
+    trip_id: uuid.UUID,
+    payload: ItineraryStopCreateRequest,
+    response: Response,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+) -> ItineraryResponse:
+    try:
+        snapshot = itinerary_service.create_stop(
+            trip_id=trip_id,
+            payload=payload,
+            current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+
+    response.headers['ETag'] = _etag(snapshot.itinerary_revision)
+    return ItineraryResponse.from_parts(
+        trip_id=snapshot.trip_id,
+        itinerary_revision=snapshot.itinerary_revision,
+        stops=snapshot.stops,
+        legs=snapshot.legs,
     )
 
 
 @router.get(
-    '/planned-steps',
-    response_model=list[PlannedStepResponse],
+    '/stops/{stop_id}',
+    response_model=ItineraryStopDetailResponse,
 )
-def list_planned_steps(
+def get_stop(
     trip_id: uuid.UUID,
+    stop_id: uuid.UUID,
+    response: Response,
     itinerary_service: ItineraryServiceDep,
     user: OptionalCurrentUser,
-) -> list[PlannedStepResponse]:
+) -> ItineraryStopDetailResponse:
     try:
-        planned_steps = itinerary_service.list_planned_steps(
+        detail = itinerary_service.get_stop_detail(
             trip_id=trip_id,
+            stop_id=stop_id,
             current_user_id=user.id if user else None,
         )
-    except TripNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except Exception as exc:
+        _raise_http_error(exc)
 
-    return [PlannedStepResponse.from_model(step) for step in planned_steps]
-
-
-@router.post(
-    '/planned-steps',
-    status_code=status.HTTP_201_CREATED,
-    response_model=PlannedStepResponse,
-)
-def create_planned_step(
-    trip_id: uuid.UUID,
-    payload: PlannedStepCreateRequest,
-    itinerary_service: ItineraryServiceDep,
-    user: CurrentUser,
-) -> PlannedStepResponse:
-    try:
-        planned_step = itinerary_service.create_planned_step(
-            trip_id=trip_id,
-            payload=payload,
-            current_user_id=user.id,
-        )
-    except (TripNotFoundError, LocationNotFoundError) as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-    except (PlannedStepDateRangeError, PlannedStepPlacementError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        )
-    except PlannedStepPositionConflictError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
-
-    return PlannedStepResponse.from_model(planned_step)
-
-
-@router.get(
-    '/planned-steps/{step_id}',
-    response_model=PlannedStepResponse,
-)
-def get_planned_step(
-    trip_id: uuid.UUID,
-    step_id: uuid.UUID,
-    itinerary_service: ItineraryServiceDep,
-    user: OptionalCurrentUser,
-) -> PlannedStepResponse:
-    try:
-        planned_step = itinerary_service.get_planned_step(
-            trip_id=trip_id,
-            step_id=step_id,
-            current_user_id=user.id if user else None,
-        )
-    except (TripNotFoundError, PlannedStepNotFoundError) as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-
-    return PlannedStepResponse.from_model(planned_step)
+    response.headers['ETag'] = _etag(detail.itinerary_revision)
+    return ItineraryStopDetailResponse.from_parts(
+        stop=detail.stop,
+        incoming_leg=detail.incoming_leg,
+        outgoing_leg=detail.outgoing_leg,
+    )
 
 
 @router.patch(
-    '/planned-steps/{step_id}',
-    response_model=PlannedStepResponse,
+    '/stops/{stop_id}',
+    response_model=ItineraryResponse,
 )
-def update_planned_step(
+def update_stop(
     trip_id: uuid.UUID,
-    step_id: uuid.UUID,
-    payload: PlannedStepUpdateRequest,
+    stop_id: uuid.UUID,
+    payload: ItineraryStopUpdateRequest,
+    response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
-) -> PlannedStepResponse:
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+) -> ItineraryResponse:
     try:
-        planned_step = itinerary_service.update_planned_step(
+        snapshot = itinerary_service.update_stop(
             trip_id=trip_id,
-            step_id=step_id,
+            stop_id=stop_id,
             payload=payload,
             current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
         )
-    except (TripNotFoundError, PlannedStepNotFoundError, LocationNotFoundError) as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-    except PlannedStepDateRangeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        )
+    except Exception as exc:
+        _raise_http_error(exc)
 
-    return PlannedStepResponse.from_model(planned_step)
-
-
-@router.post(
-    '/planned-steps/{step_id}/move',
-    response_model=PlannedStepResponse,
-)
-def move_planned_step(
-    trip_id: uuid.UUID,
-    step_id: uuid.UUID,
-    payload: PlannedStepMoveRequest,
-    itinerary_service: ItineraryServiceDep,
-    user: CurrentUser,
-) -> PlannedStepResponse:
-    try:
-        planned_step = itinerary_service.move_planned_step(
-            trip_id=trip_id,
-            step_id=step_id,
-            after_planned_step_id=payload.after_planned_step_id,
-            current_user_id=user.id,
-        )
-    except (TripNotFoundError, PlannedStepNotFoundError) as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-    except PlannedStepPlacementError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        )
-    except PlannedStepPositionConflictError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
-
-    return PlannedStepResponse.from_model(planned_step)
+    response.headers['ETag'] = _etag(snapshot.itinerary_revision)
+    return ItineraryResponse.from_parts(
+        trip_id=snapshot.trip_id,
+        itinerary_revision=snapshot.itinerary_revision,
+        stops=snapshot.stops,
+        legs=snapshot.legs,
+    )
 
 
 @router.delete(
-    '/planned-steps/{step_id}',
-    status_code=status.HTTP_204_NO_CONTENT,
+    '/stops/{stop_id}',
+    response_model=ItineraryResponse,
 )
-def delete_planned_step(
+def delete_stop(
     trip_id: uuid.UUID,
-    step_id: uuid.UUID,
+    stop_id: uuid.UUID,
+    response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
-) -> None:
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+) -> ItineraryResponse:
     try:
-        itinerary_service.delete_planned_step(
+        snapshot = itinerary_service.delete_stop(
             trip_id=trip_id,
-            step_id=step_id,
+            stop_id=stop_id,
             current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
         )
-    except (TripNotFoundError, PlannedStepNotFoundError) as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except Exception as exc:
+        _raise_http_error(exc)
+
+    response.headers['ETag'] = _etag(snapshot.itinerary_revision)
+    return ItineraryResponse.from_parts(
+        trip_id=snapshot.trip_id,
+        itinerary_revision=snapshot.itinerary_revision,
+        stops=snapshot.stops,
+        legs=snapshot.legs,
+    )
 
 
 @router.get(
-    '/planned-travel',
-    response_model=list[PlannedTravelResponse],
+    '/legs/{leg_id}',
+    response_model=ItineraryTravelLegResponse,
 )
-def list_planned_travel(
+def get_leg(
     trip_id: uuid.UUID,
+    leg_id: uuid.UUID,
+    response: Response,
     itinerary_service: ItineraryServiceDep,
     user: OptionalCurrentUser,
-) -> list[PlannedTravelResponse]:
+) -> ItineraryTravelLegResponse:
     try:
-        planned_travel = itinerary_service.list_planned_travel(
+        detail = itinerary_service.get_travel_leg(
             trip_id=trip_id,
+            leg_id=leg_id,
             current_user_id=user.id if user else None,
         )
-    except TripNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except Exception as exc:
+        _raise_http_error(exc)
 
-    return [PlannedTravelResponse.from_model(travel) for travel in planned_travel]
+    response.headers['ETag'] = _etag(detail.itinerary_revision)
+    return ItineraryTravelLegResponse.from_model(detail.leg)
 
 
-@router.post(
-    '/planned-travel',
-    status_code=status.HTTP_201_CREATED,
-    response_model=PlannedTravelResponse,
+@router.put(
+    '/legs/{leg_id}',
+    response_model=ItineraryTravelLegResponse,
 )
-def create_planned_travel(
+def replace_leg(
     trip_id: uuid.UUID,
-    payload: PlannedTravelCreateRequest,
+    leg_id: uuid.UUID,
+    payload: ItineraryTravelReplaceRequest,
+    response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
-) -> PlannedTravelResponse:
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+) -> ItineraryTravelLegResponse:
     try:
-        planned_travel = itinerary_service.create_planned_travel(
+        detail = itinerary_service.replace_travel_leg(
             trip_id=trip_id,
+            leg_id=leg_id,
             payload=payload,
             current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
         )
-    except TripNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-    except PlannedTravelStepError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        )
-    except PlannedTravelAlreadyExistsError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except Exception as exc:
+        _raise_http_error(exc)
 
-    return PlannedTravelResponse.from_model(planned_travel)
-
-
-@router.get(
-    '/planned-travel/{travel_id}',
-    response_model=PlannedTravelResponse,
-)
-def get_planned_travel(
-    trip_id: uuid.UUID,
-    travel_id: uuid.UUID,
-    itinerary_service: ItineraryServiceDep,
-    user: OptionalCurrentUser,
-) -> PlannedTravelResponse:
-    try:
-        planned_travel = itinerary_service.get_planned_travel(
-            trip_id=trip_id,
-            travel_id=travel_id,
-            current_user_id=user.id if user else None,
-        )
-    except (TripNotFoundError, PlannedTravelNotFoundError) as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-
-    return PlannedTravelResponse.from_model(planned_travel)
-
-
-@router.patch(
-    '/planned-travel/{travel_id}',
-    response_model=PlannedTravelResponse,
-)
-def update_planned_travel(
-    trip_id: uuid.UUID,
-    travel_id: uuid.UUID,
-    payload: PlannedTravelUpdateRequest,
-    itinerary_service: ItineraryServiceDep,
-    user: CurrentUser,
-) -> PlannedTravelResponse:
-    try:
-        planned_travel = itinerary_service.update_planned_travel(
-            trip_id=trip_id,
-            travel_id=travel_id,
-            payload=payload,
-            current_user_id=user.id,
-        )
-    except (TripNotFoundError, PlannedTravelNotFoundError) as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-    except PlannedTravelStepError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        )
-    except PlannedTravelAlreadyExistsError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
-
-    return PlannedTravelResponse.from_model(planned_travel)
-
-
-@router.delete(
-    '/planned-travel/{travel_id}',
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def delete_planned_travel(
-    trip_id: uuid.UUID,
-    travel_id: uuid.UUID,
-    itinerary_service: ItineraryServiceDep,
-    user: CurrentUser,
-) -> None:
-    try:
-        itinerary_service.delete_planned_travel(
-            trip_id=trip_id,
-            travel_id=travel_id,
-            current_user_id=user.id,
-        )
-    except (TripNotFoundError, PlannedTravelNotFoundError) as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    except TripPermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    response.headers['ETag'] = _etag(detail.itinerary_revision)
+    return ItineraryTravelLegResponse.from_model(detail.leg)

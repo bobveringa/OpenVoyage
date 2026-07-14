@@ -13,10 +13,10 @@ def test_owner_has_all_current_trip_permissions() -> None:
 
 
 @pytest.mark.unit
-def test_member_can_read_and_list_members_only() -> None:
+def test_member_can_read_list_members_and_manage_itinerary() -> None:
     assert role_has_permission(TripRole.MEMBER, TripPermission.GET_TRIP)
     assert role_has_permission(TripRole.MEMBER, TripPermission.LIST_MEMBERS)
-    assert role_has_permission(TripRole.MEMBER, TripPermission.LIST_ITINERARY)
+    assert role_has_permission(TripRole.MEMBER, TripPermission.GET_ITINERARY)
     assert role_has_permission(TripRole.MEMBER, TripPermission.MANAGE_ITINERARY)
     assert not role_has_permission(TripRole.MEMBER, TripPermission.UPDATE_TRIP)
     assert not role_has_permission(TripRole.MEMBER, TripPermission.DELETE_TRIP)
@@ -24,10 +24,10 @@ def test_member_can_read_and_list_members_only() -> None:
 
 
 @pytest.mark.unit
-def test_viewer_can_read_and_list_members_only() -> None:
+def test_viewer_can_read_trip_members_and_itinerary_only() -> None:
     assert role_has_permission(TripRole.VIEWER, TripPermission.GET_TRIP)
     assert role_has_permission(TripRole.VIEWER, TripPermission.LIST_MEMBERS)
-    assert role_has_permission(TripRole.VIEWER, TripPermission.LIST_ITINERARY)
+    assert role_has_permission(TripRole.VIEWER, TripPermission.GET_ITINERARY)
     assert not role_has_permission(TripRole.VIEWER, TripPermission.UPDATE_TRIP)
     assert not role_has_permission(TripRole.VIEWER, TripPermission.DELETE_TRIP)
     assert not role_has_permission(TripRole.VIEWER, TripPermission.MANAGE_MEMBERS)

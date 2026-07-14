@@ -5,481 +5,322 @@ import uuid
 import pytest
 
 from core import security
-from factories.media import create_media
 from factories.places import create_place
-from factories.trips import add_trip_member
+from factories.trips import add_trip_member, create_trip
 from factories.users import create_user
 from models.database.trips import TripRole, TripVisibility
 
 
-def _auth_headers(user) -> dict[str, str]:
+def _auth_headers(user, *, etag: str | None = None) -> dict[str, str]:
     tokens = security.create_auth_tokens(subject=user.id, email=user.email)
-    return {'Authorization': f'Bearer {tokens["access_token"]}'}
+    headers = {'Authorization': f'Bearer {tokens["access_token"]}'}
+    if etag is not None:
+        headers['If-Match'] = etag
+    return headers
 
 
-def _create_trip(
-    client,
-    db_session,
-    api_prefix,
-    user,
-    name: str = 'Trip',
-    visibility: TripVisibility = TripVisibility.PRIVATE,
-) -> str:
-    media = create_media(
-        db_session,
-        storage_path=f'media/{uuid.uuid4()}-cover.jpg',
-        created_by=user.id,
-    )
-    response = client.post(
-        f'{api_prefix}/trips',
-        headers=_auth_headers(user),
-        json={
-            'name': name,
-            'description': '',
-            'media_id': str(media.id),
-            'visibility': visibility.value,
-            'start_date': '2026-08-01',
-            'end_date': '2026-08-21',
-        },
-    )
-    assert response.status_code == 201
-    return response.json()['id']
+def _place_location(place) -> dict[str, str]:
+    return {'place_id': str(place.id)}
 
 
-def _create_step(
-    client,
-    db_session,
-    api_prefix,
-    user,
-    trip_id: str,
+def _stop_payload(
+    place,
     *,
-    place_name: str,
-    arrival_date: str,
-    departure_date: str,
-    after_planned_step_id: str | None = None,
+    title: str,
+    planned_start_date: str = '2026-08-14',
+    after_stop_id: str | None = None,
+    incoming_travel: dict | None = None,
+    outgoing_travel: dict | None = None,
 ) -> dict:
-    place = create_place(
-        db_session,
-        name=place_name,
-        full_name=f'{place_name}, Japan',
-    )
-    payload = {
-        'location': {'place_id': str(place.id)},
-        'arrival_date': arrival_date,
-        'departure_date': departure_date,
-        'notes': place_name,
+    return {
+        'location': _place_location(place),
+        'title': title,
+        'notes': '',
+        'planned_nights': 0,
+        'placement': {
+            'planned_start_date': planned_start_date,
+            'after_stop_id': after_stop_id,
+        },
+        'incoming_travel': incoming_travel,
+        'outgoing_travel': outgoing_travel,
     }
-    if after_planned_step_id is not None:
-        payload['after_planned_step_id'] = after_planned_step_id
-
-    response = client.post(
-        f'{api_prefix}/trips/{trip_id}/planned-steps',
-        headers=_auth_headers(user),
-        json=payload,
-    )
-    assert response.status_code == 201
-    return response.json()
 
 
 @pytest.mark.integration
-def test_get_itinerary_returns_steps_and_travel_in_manual_order(
+def test_itinerary_create_insert_and_delete_rebalances_legs(
     client,
     db_session,
     api_prefix,
 ) -> None:
-    user = create_user(db_session, password='TripsPass123!')
-    trip_id = _create_trip(client, db_session, api_prefix, user)
-    first = _create_step(
-        client,
+    owner = create_user(
         db_session,
-        api_prefix,
-        user,
-        trip_id,
-        place_name='First',
-        arrival_date='2026-08-10',
-        departure_date='2026-08-11',
+        password='ItineraryPass123!',
+        username='owner',
+        first_name='Trip',
+        last_name='Owner',
     )
-    third = _create_step(
-        client,
+    trip = create_trip(
         db_session,
-        api_prefix,
-        user,
-        trip_id,
-        place_name='Third',
-        arrival_date='2026-08-01',
-        departure_date='2026-08-02',
-        after_planned_step_id=first['id'],
+        owner_id=owner.id,
+        visibility=TripVisibility.PUBLIC,
     )
-    second = _create_step(
-        client,
-        db_session,
-        api_prefix,
-        user,
-        trip_id,
-        place_name='Second',
-        arrival_date='2026-08-05',
-        departure_date='2026-08-06',
-        after_planned_step_id=first['id'],
-    )
+    eindhoven = create_place(db_session, name='Eindhoven', country_code='NL')
+    utrecht = create_place(db_session, name='Utrecht', country_code='NL')
+    amsterdam = create_place(db_session, name='Amsterdam', country_code='NL')
 
-    second_travel_response = client.post(
-        f'{api_prefix}/trips/{trip_id}/planned-travel',
-        headers=_auth_headers(user),
-        json={
-            'from_planned_step_id': second['id'],
-            'to_planned_step_id': third['id'],
-            'travel_mode': 'BUS',
-            'notes': '',
-        },
-    )
-    first_travel_response = client.post(
-        f'{api_prefix}/trips/{trip_id}/planned-travel',
-        headers=_auth_headers(user),
-        json={
-            'from_planned_step_id': first['id'],
-            'to_planned_step_id': second['id'],
-            'travel_mode': 'TRAIN',
-            'notes': '',
-        },
-    )
+    empty_response = client.get(f'{api_prefix}/trips/{trip.id}/itinerary')
+    assert empty_response.status_code == 200
+    assert empty_response.headers['etag'] == '"0"'
+    assert empty_response.json() == {
+        'trip_id': str(trip.id),
+        'itinerary_revision': 0,
+        'stops': [],
+        'legs': [],
+    }
 
-    response = client.get(
-        f'{api_prefix}/trips/{trip_id}/itinerary',
-        headers=_auth_headers(user),
+    first_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops',
+        headers=_auth_headers(owner, etag='"0"'),
+        json=_stop_payload(eindhoven, title='Start in Eindhoven'),
     )
+    assert first_response.status_code == 201
+    first_payload = first_response.json()
+    first_stop_id = first_payload['stops'][0]['id']
+    assert first_response.headers['etag'] == '"1"'
+    assert first_payload['itinerary_revision'] == 1
+    assert first_payload['legs'] == []
+    assert first_payload['stops'][0]['location']['name'] == 'Eindhoven'
 
-    assert second_travel_response.status_code == 201
-    assert first_travel_response.status_code == 201
-    assert response.status_code == 200
-    payload = response.json()
-    assert [step['id'] for step in payload['steps']] == [
-        first['id'],
-        second['id'],
-        third['id'],
+    second_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops',
+        headers=_auth_headers(owner, etag='"1"'),
+        json=_stop_payload(
+            amsterdam,
+            title='Amsterdam',
+            after_stop_id=first_stop_id,
+            incoming_travel={
+                'travel_mode': 'TRAIN',
+                'notes': 'Intercity',
+                'operator': 'NS',
+                'reference': 'IC 3529',
+            },
+        ),
+    )
+    assert second_response.status_code == 201
+    second_payload = second_response.json()
+    second_stop_id = second_payload['stops'][1]['id']
+    assert second_response.headers['etag'] == '"2"'
+    assert [stop['title'] for stop in second_payload['stops']] == [
+        'Start in Eindhoven',
+        'Amsterdam',
     ]
-    assert [travel['id'] for travel in payload['travel']] == [
-        first_travel_response.json()['id'],
-        second_travel_response.json()['id'],
+    assert [
+        (leg['from_stop_id'], leg['to_stop_id']) for leg in second_payload['legs']
+    ] == [(first_stop_id, second_stop_id)]
+    assert second_payload['legs'][0]['travel_mode'] == 'TRAIN'
+    old_leg_id = second_payload['legs'][0]['id']
+
+    middle_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops',
+        headers=_auth_headers(owner, etag='"2"'),
+        json=_stop_payload(
+            utrecht,
+            title='Utrecht',
+            after_stop_id=first_stop_id,
+            incoming_travel={'travel_mode': 'WALK', 'notes': 'Station walk'},
+            outgoing_travel={'travel_mode': 'BUS', 'notes': 'Regional bus'},
+        ),
+    )
+    assert middle_response.status_code == 201
+    middle_payload = middle_response.json()
+    middle_stop_id = middle_payload['stops'][1]['id']
+    assert middle_response.headers['etag'] == '"3"'
+    assert [stop['title'] for stop in middle_payload['stops']] == [
+        'Start in Eindhoven',
+        'Utrecht',
+        'Amsterdam',
     ]
-    assert all('step_number' not in step for step in payload['steps'])
-    assert all('position' not in step for step in payload['steps'])
-
-
-@pytest.mark.integration
-def test_planned_steps_use_manual_order_not_dates(
-    client,
-    db_session,
-    api_prefix,
-) -> None:
-    user = create_user(db_session, password='TripsPass123!')
-    trip_id = _create_trip(client, db_session, api_prefix, user)
-
-    tokyo = _create_step(
-        client,
-        db_session,
-        api_prefix,
-        user,
-        trip_id,
-        place_name='Tokyo',
-        arrival_date='2026-08-10',
-        departure_date='2026-08-12',
-    )
-    osaka = _create_step(
-        client,
-        db_session,
-        api_prefix,
-        user,
-        trip_id,
-        place_name='Osaka',
-        arrival_date='2026-08-01',
-        departure_date='2026-08-03',
-        after_planned_step_id=tokyo['id'],
-    )
-    _create_step(
-        client,
-        db_session,
-        api_prefix,
-        user,
-        trip_id,
-        place_name='Kyoto',
-        arrival_date='2026-08-05',
-        departure_date='2026-08-08',
-        after_planned_step_id=tokyo['id'],
-    )
-
-    response = client.get(
-        f'{api_prefix}/trips/{trip_id}/planned-steps',
-        headers=_auth_headers(user),
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert [step['location']['name'] for step in payload] == [
-        'Tokyo',
-        'Kyoto',
-        'Osaka',
+    assert [stop['same_day_position'] for stop in middle_payload['stops']] == [
+        0,
+        1,
+        2,
     ]
-    assert all('step_number' not in step for step in payload)
-    assert all('position' not in step for step in payload)
-    assert payload[-1]['id'] == osaka['id']
-
-
-@pytest.mark.integration
-def test_move_planned_step_to_start(client, db_session, api_prefix) -> None:
-    user = create_user(db_session, password='TripsPass123!')
-    trip_id = _create_trip(client, db_session, api_prefix, user)
-    first = _create_step(
-        client,
-        db_session,
-        api_prefix,
-        user,
-        trip_id,
-        place_name='First',
-        arrival_date='2026-08-01',
-        departure_date='2026-08-02',
-    )
-    second = _create_step(
-        client,
-        db_session,
-        api_prefix,
-        user,
-        trip_id,
-        place_name='Second',
-        arrival_date='2026-08-03',
-        departure_date='2026-08-04',
-        after_planned_step_id=first['id'],
-    )
-
-    move_response = client.post(
-        f'{api_prefix}/trips/{trip_id}/planned-steps/{second["id"]}/move',
-        headers=_auth_headers(user),
-        json={'after_planned_step_id': None},
-    )
-    list_response = client.get(
-        f'{api_prefix}/trips/{trip_id}/planned-steps',
-        headers=_auth_headers(user),
-    )
-
-    assert move_response.status_code == 200
-    assert list_response.status_code == 200
-    assert [step['id'] for step in list_response.json()] == [second['id'], first['id']]
-
-
-@pytest.mark.integration
-def test_planned_travel_rejects_cross_trip_steps(
-    client,
-    db_session,
-    api_prefix,
-) -> None:
-    user = create_user(db_session, password='TripsPass123!')
-    first_trip_id = _create_trip(client, db_session, api_prefix, user, name='First')
-    second_trip_id = _create_trip(client, db_session, api_prefix, user, name='Second')
-    first_step = _create_step(
-        client,
-        db_session,
-        api_prefix,
-        user,
-        first_trip_id,
-        place_name='Amsterdam',
-        arrival_date='2026-08-01',
-        departure_date='2026-08-02',
-    )
-    second_step = _create_step(
-        client,
-        db_session,
-        api_prefix,
-        user,
-        second_trip_id,
-        place_name='Rotterdam',
-        arrival_date='2026-08-03',
-        departure_date='2026-08-04',
-    )
-
-    response = client.post(
-        f'{api_prefix}/trips/{first_trip_id}/planned-travel',
-        headers=_auth_headers(user),
-        json={
-            'from_planned_step_id': first_step['id'],
-            'to_planned_step_id': second_step['id'],
-            'travel_mode': 'TRAIN',
-            'notes': 'Invalid cross-trip connection',
-        },
-    )
-
-    assert response.status_code == 422
-
-
-@pytest.mark.integration
-def test_planned_travel_is_ordered_by_from_step(
-    client,
-    db_session,
-    api_prefix,
-) -> None:
-    user = create_user(db_session, password='TripsPass123!')
-    trip_id = _create_trip(client, db_session, api_prefix, user)
-    first = _create_step(
-        client,
-        db_session,
-        api_prefix,
-        user,
-        trip_id,
-        place_name='First',
-        arrival_date='2026-08-01',
-        departure_date='2026-08-02',
-    )
-    second = _create_step(
-        client,
-        db_session,
-        api_prefix,
-        user,
-        trip_id,
-        place_name='Second',
-        arrival_date='2026-08-03',
-        departure_date='2026-08-04',
-        after_planned_step_id=first['id'],
-    )
-    third = _create_step(
-        client,
-        db_session,
-        api_prefix,
-        user,
-        trip_id,
-        place_name='Third',
-        arrival_date='2026-08-05',
-        departure_date='2026-08-06',
-        after_planned_step_id=second['id'],
-    )
-
-    second_travel_response = client.post(
-        f'{api_prefix}/trips/{trip_id}/planned-travel',
-        headers=_auth_headers(user),
-        json={
-            'from_planned_step_id': second['id'],
-            'to_planned_step_id': third['id'],
-            'travel_mode': 'BUS',
-            'notes': '',
-        },
-    )
-    first_travel_response = client.post(
-        f'{api_prefix}/trips/{trip_id}/planned-travel',
-        headers=_auth_headers(user),
-        json={
-            'from_planned_step_id': first['id'],
-            'to_planned_step_id': second['id'],
-            'travel_mode': 'TRAIN',
-            'notes': '',
-        },
-    )
-    list_response = client.get(
-        f'{api_prefix}/trips/{trip_id}/planned-travel',
-        headers=_auth_headers(user),
-    )
-
-    assert second_travel_response.status_code == 201
-    assert first_travel_response.status_code == 201
-    assert list_response.status_code == 200
-    assert [travel['id'] for travel in list_response.json()] == [
-        first_travel_response.json()['id'],
-        second_travel_response.json()['id'],
+    assert {leg['id'] for leg in middle_payload['legs']} != {old_leg_id}
+    assert [
+        (leg['from_stop_id'], leg['to_stop_id'], leg['travel_mode'])
+        for leg in middle_payload['legs']
+    ] == [
+        (first_stop_id, middle_stop_id, 'WALK'),
+        (middle_stop_id, second_stop_id, 'BUS'),
     ]
 
+    delete_response = client.delete(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops/{middle_stop_id}',
+        headers=_auth_headers(owner, etag='"3"'),
+    )
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert delete_response.headers['etag'] == '"4"'
+    assert [stop['title'] for stop in delete_payload['stops']] == [
+        'Start in Eindhoven',
+        'Amsterdam',
+    ]
+    assert [stop['same_day_position'] for stop in delete_payload['stops']] == [0, 1]
+    assert [
+        (leg['from_stop_id'], leg['to_stop_id'], leg['travel_mode'])
+        for leg in delete_payload['legs']
+    ] == [(first_stop_id, second_stop_id, 'UNKNOWN')]
+
 
 @pytest.mark.integration
-def test_viewer_can_read_but_not_manage_itinerary(
+def test_itinerary_mutations_require_current_quoted_revision(
     client,
     db_session,
     api_prefix,
 ) -> None:
-    owner = create_user(db_session, password='TripsPass123!')
-    viewer = create_user(db_session, password='TripsPass123!')
-    trip_id = _create_trip(client, db_session, api_prefix, owner)
+    owner = create_user(db_session, password='ItineraryPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
+    place = create_place(db_session)
+    endpoint = f'{api_prefix}/trips/{trip.id}/itinerary/stops'
+
+    missing_response = client.post(
+        endpoint,
+        headers=_auth_headers(owner),
+        json=_stop_payload(place, title='Kyoto'),
+    )
+    invalid_response = client.post(
+        endpoint,
+        headers=_auth_headers(owner, etag='0'),
+        json=_stop_payload(place, title='Kyoto'),
+    )
+    create_response = client.post(
+        endpoint,
+        headers=_auth_headers(owner, etag='"0"'),
+        json=_stop_payload(place, title='Kyoto'),
+    )
+    stale_response = client.post(
+        endpoint,
+        headers=_auth_headers(owner, etag='"0"'),
+        json=_stop_payload(place, title='Second Kyoto'),
+    )
+
+    assert missing_response.status_code == 428
+    assert invalid_response.status_code == 422
+    assert create_response.status_code == 201
+    assert create_response.headers['etag'] == '"1"'
+    assert stale_response.status_code == 412
+
+    get_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/itinerary',
+        headers=_auth_headers(owner),
+    )
+    assert get_response.status_code == 200
+    assert get_response.headers['etag'] == '"1"'
+    assert [stop['title'] for stop in get_response.json()['stops']] == ['Kyoto']
+
+
+@pytest.mark.integration
+def test_itinerary_permissions_follow_trip_roles(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    owner = create_user(db_session, password='ItineraryPass123!')
+    viewer = create_user(db_session, password='ItineraryPass123!')
+    non_member = create_user(db_session, password='ItineraryPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
     add_trip_member(
         db_session,
-        trip_id=uuid.UUID(trip_id),
+        trip_id=trip.id,
         user_id=viewer.id,
         role=TripRole.VIEWER,
     )
+    place = create_place(db_session)
+    endpoint = f'{api_prefix}/trips/{trip.id}/itinerary/stops'
 
-    list_response = client.get(
-        f'{api_prefix}/trips/{trip_id}/planned-steps',
+    viewer_response = client.post(
+        endpoint,
+        headers=_auth_headers(viewer, etag='"0"'),
+        json=_stop_payload(place, title='Viewer stop'),
+    )
+    non_member_response = client.post(
+        endpoint,
+        headers=_auth_headers(non_member, etag='"0"'),
+        json=_stop_payload(place, title='Non-member stop'),
+    )
+    read_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/itinerary',
         headers=_auth_headers(viewer),
     )
-    place = create_place(db_session, name='Viewer Place')
-    create_response = client.post(
-        f'{api_prefix}/trips/{trip_id}/planned-steps',
-        headers=_auth_headers(viewer),
+
+    assert viewer_response.status_code == 403
+    assert non_member_response.status_code == 404
+    assert read_response.status_code == 200
+
+
+@pytest.mark.integration
+def test_location_replacement_resets_adjacent_travel_and_put_is_noop(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    owner = create_user(db_session, password='ItineraryPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
+    first_place = create_place(db_session, name='Eindhoven', country_code='NL')
+    second_place = create_place(db_session, name='Utrecht', country_code='NL')
+    replacement_place = create_place(db_session, name='Rotterdam', country_code='NL')
+
+    first_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops',
+        headers=_auth_headers(owner, etag='"0"'),
+        json=_stop_payload(first_place, title='Eindhoven'),
+    )
+    first_stop_id = first_response.json()['stops'][0]['id']
+    second_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops',
+        headers=_auth_headers(owner, etag='"1"'),
+        json=_stop_payload(
+            second_place,
+            title='Utrecht',
+            after_stop_id=first_stop_id,
+            incoming_travel={
+                'travel_mode': 'TRAIN',
+                'notes': 'Tickets booked',
+                'operator': 'NS',
+            },
+        ),
+    )
+    leg = second_response.json()['legs'][0]
+    second_stop_id = second_response.json()['stops'][1]['id']
+
+    noop_leg_response = client.put(
+        f'{api_prefix}/trips/{trip.id}/itinerary/legs/{leg["id"]}',
+        headers=_auth_headers(owner, etag='"2"'),
         json={
-            'location': {'place_id': str(place.id)},
-            'arrival_date': '2026-08-01',
-            'departure_date': '2026-08-02',
-            'notes': '',
+            'travel_mode': 'TRAIN',
+            'notes': 'Tickets booked',
+            'operator': 'NS',
+            'reference': None,
         },
     )
+    assert noop_leg_response.status_code == 200
+    assert noop_leg_response.headers['etag'] == '"2"'
 
-    assert list_response.status_code == 200
-    assert create_response.status_code == 403
+    patch_response = client.patch(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops/{second_stop_id}',
+        headers=_auth_headers(owner, etag='"2"'),
+        json={'location': _place_location(replacement_place)},
+    )
+    assert patch_response.status_code == 200
+    assert patch_response.headers['etag'] == '"3"'
+    payload = patch_response.json()
+    assert payload['stops'][1]['location']['name'] == 'Rotterdam'
+    assert payload['legs'][0]['travel_mode'] == 'UNKNOWN'
+    assert payload['legs'][0]['notes'] == ''
+    assert payload['legs'][0]['operator'] is None
 
 
 @pytest.mark.integration
-def test_public_itinerary_can_be_read_without_auth(
-    client,
-    db_session,
-    api_prefix,
-) -> None:
-    owner = create_user(db_session, password='TripsPass123!')
-    trip_id = _create_trip(
-        client,
-        db_session,
-        api_prefix,
-        owner,
-        visibility=TripVisibility.PUBLIC,
-    )
-    planned_step = _create_step(
-        client,
-        db_session,
-        api_prefix,
-        owner,
-        trip_id,
-        place_name='Public Stop',
-        arrival_date='2026-08-01',
-        departure_date='2026-08-02',
-    )
-
-    response = client.get(f'{api_prefix}/trips/{trip_id}/itinerary')
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert [step['id'] for step in payload['steps']] == [planned_step['id']]
-    assert payload['travel'] == []
-
-
-@pytest.mark.integration
-def test_private_itinerary_returns_404_without_auth(
-    client,
-    db_session,
-    api_prefix,
-) -> None:
-    owner = create_user(db_session, password='TripsPass123!')
-    trip_id = _create_trip(client, db_session, api_prefix, owner)
-
-    response = client.get(f'{api_prefix}/trips/{trip_id}/itinerary')
-
-    assert response.status_code == 404
-
-
-@pytest.mark.integration
-def test_private_itinerary_returns_404_for_non_member(
-    client,
-    db_session,
-    api_prefix,
-) -> None:
-    owner = create_user(db_session, password='TripsPass123!')
-    non_member = create_user(db_session, password='TripsPass123!')
-    trip_id = _create_trip(client, db_session, api_prefix, owner)
-
-    response = client.get(
-        f'{api_prefix}/trips/{trip_id}/itinerary',
-        headers=_auth_headers(non_member),
-    )
-
+def test_itinerary_returns_not_found_for_missing_ids(client, api_prefix) -> None:
+    response = client.get(f'{api_prefix}/trips/{uuid.uuid4()}/itinerary')
     assert response.status_code == 404
