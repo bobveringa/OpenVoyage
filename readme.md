@@ -26,6 +26,28 @@ The project is organized into the following directories:
 Each directory contains its own README with setup instructions and development 
 guidelines.
 
+## Frontend
+The frontend is a Vite React app written in TypeScript with Tailwind CSS and a
+shadcn/ui-style shared component structure.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Generate the frontend API schema and TypeScript definitions from the FastAPI
+OpenAPI spec:
+
+```bash
+npm run api:generate
+```
+
+The generated files live in `frontend/src/api/`. The typed client is exported
+from `frontend/src/api/client.ts`, shared UI components live under
+`frontend/src/components/`, and all theme color tokens live in
+`frontend/src/styles/theme.css`.
+
 ## 🤖 Use of AI
 This project was developed with the assistance of AI tools, which helped with
 code generation, debugging, and documentation. However, all code was reviewed 
