@@ -6,6 +6,7 @@ from core import security
 from factories.media import create_media
 from factories.users import create_user
 from models.database.media import MediaType
+from models.database.user import UserRole
 
 
 def _auth_headers(user) -> dict[str, str]:
@@ -211,6 +212,31 @@ def test_get_user_by_uuid_returns_404_when_missing(client, api_prefix) -> None:
     response = client.get(f'{api_prefix}/users/00000000-0000-0000-0000-000000000000')
 
     assert response.status_code == 404
+
+
+@pytest.mark.integration
+def test_get_current_user_returns_role(client, db_session, api_prefix) -> None:
+    user = create_user(
+        db_session,
+        email='admin-user@example.com',
+        password='UsersPass123!',
+        role=UserRole.ADMIN,
+        username='admin-user',
+        first_name='Admin',
+        last_name='User',
+    )
+
+    response = client.get(
+        f'{api_prefix}/users/me',
+        headers=_auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['id'] == str(user.id)
+    assert payload['role'] == UserRole.ADMIN.value
+    assert payload['profile']['username'] == 'admin-user'
+    assert 'email' not in payload
 
 
 @pytest.mark.integration

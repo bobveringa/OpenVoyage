@@ -548,6 +548,16 @@ export interface components {
             /** File */
             file: string;
         };
+        /** CurrentUserResponse */
+        CurrentUserResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            profile: components["schemas"]["UserProfileResponse"] | null;
+            role: components["schemas"]["UserRole"];
+        };
         /** FirstUserCreateRequest */
         FirstUserCreateRequest: {
             /**
@@ -1253,6 +1263,11 @@ export interface components {
             id: string;
             profile: components["schemas"]["UserProfileResponse"] | null;
         };
+        /**
+         * UserRole
+         * @enum {string}
+         */
+        UserRole: "USER" | "ADMIN";
         /** UserSummaryResponse */
         UserSummaryResponse: {
             /** First Name */
@@ -2664,7 +2679,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserResponse"];
+                    "application/json": components["schemas"]["CurrentUserResponse"];
                 };
             };
         };
@@ -2688,7 +2703,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserResponse"];
+                    "application/json": components["schemas"]["CurrentUserResponse"];
                 };
             };
             /** @description Validation Error */

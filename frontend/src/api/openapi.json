@@ -74,6 +74,35 @@
         "title": "Body_upload_media_api_v1_media_post",
         "type": "object"
       },
+      "CurrentUserResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserProfileResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          }
+        },
+        "required": [
+          "id",
+          "profile",
+          "role"
+        ],
+        "title": "CurrentUserResponse",
+        "type": "object"
+      },
       "FirstUserCreateRequest": {
         "properties": {
           "email": {
@@ -1958,6 +1987,14 @@
         ],
         "title": "UserResponse",
         "type": "object"
+      },
+      "UserRole": {
+        "enum": [
+          "USER",
+          "ADMIN"
+        ],
+        "title": "UserRole",
+        "type": "string"
       },
       "UserSummaryResponse": {
         "properties": {
@@ -4606,7 +4643,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserResponse"
+                  "$ref": "#/components/schemas/CurrentUserResponse"
                 }
               }
             },
@@ -4640,7 +4677,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserResponse"
+                  "$ref": "#/components/schemas/CurrentUserResponse"
                 }
               }
             },

@@ -8,6 +8,7 @@ from starlette.requests import Request
 from api.deps import CurrentUser, OptionalCurrentUser, PaginationDep, UserServiceDep
 from models.api.pagination import PaginatedResponse
 from models.api.users import (
+    CurrentUserResponse,
     USERNAME_MAX_LENGTH,
     USERNAME_MIN_LENGTH,
     UserProfileUpdateRequest,
@@ -50,19 +51,19 @@ def search_users(
     )
 
 
-@router.get('/me', response_model=UserResponse)
-def read_user(request: Request, user: CurrentUser) -> UserResponse:
+@router.get('/me', response_model=CurrentUserResponse)
+def read_user(request: Request, user: CurrentUser) -> CurrentUserResponse:
     media_base_url = str(request.base_url).rstrip('/')
-    return UserResponse.from_model(user, media_base_url=media_base_url)
+    return CurrentUserResponse.from_model(user, media_base_url=media_base_url)
 
 
-@router.patch('/me', response_model=UserResponse)
+@router.patch('/me', response_model=CurrentUserResponse)
 def update_user_profile(
     request: Request,
     payload: UserProfileUpdateRequest,
     user: CurrentUser,
     user_service: UserServiceDep,
-) -> UserResponse:
+) -> CurrentUserResponse:
     try:
         updated_user = user_service.update_profile(user=user, payload=payload)
     except ProfilePictureNotFoundError as exc:
@@ -75,7 +76,7 @@ def update_user_profile(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return UserResponse.from_model(updated_user, media_base_url=media_base_url)
+    return CurrentUserResponse.from_model(updated_user, media_base_url=media_base_url)
 
 
 @router.get(

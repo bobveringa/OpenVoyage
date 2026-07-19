@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Self
 from pydantic import BaseModel, Field, field_validator
 
 from models.api.media import MediaResponse
+from models.database.user import UserRole
 
 if TYPE_CHECKING:
     from models.database.user import User, UserProfile
@@ -117,6 +118,18 @@ class UserResponse(BaseModel):
             )
             if profile
             else None,
+        )
+
+
+class CurrentUserResponse(UserResponse):
+    role: UserRole
+
+    @classmethod
+    def from_model(cls, user: 'User', media_base_url: str = '') -> Self:
+        user_response = UserResponse.from_model(user, media_base_url=media_base_url)
+        return cls(
+            **user_response.model_dump(),
+            role=user.role,
         )
 
 
