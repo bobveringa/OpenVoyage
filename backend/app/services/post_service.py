@@ -13,9 +13,10 @@ from models.api.posts import (
 from models.database.base import utcnow
 from models.database.media import Media
 from models.database.posts import Post, PostMedia
-from models.database.trips import Trip, TripMember, TripRole, TripVisibility
+from models.database.trips import TripMember, TripRole
 from models.database.user import User
 from services.location_service import LocationService
+from services.trip_access import TripReadAccess, get_trip_read_access, get_membership
 from services.trip_authorization import TripPermission, role_has_permission
 
 
@@ -103,6 +104,7 @@ class PostService:
         self,
         trip_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
         *,
         offset: int,
         limit: int,
@@ -110,19 +112,20 @@ class PostService:
         sort_order: SortDirection,
         status_filter: PostStatusFilter,
     ) -> tuple[list[Post], int]:
-        membership = self._get_readable_trip_membership(
+        access = self._get_readable_trip_access(
             trip_id=trip_id,
             current_user_id=current_user_id,
+            share_token=share_token,
         )
         conditions = [Post.trip_id == trip_id]
         if status_filter == PostStatusFilter.PUBLISHED:
             conditions.append(Post.published_at.is_not(None))
         elif status_filter == PostStatusFilter.DRAFT:
-            if not self._can_read_drafts(membership):
+            if not self._can_read_drafts(access):
                 return [], 0
             conditions.append(Post.published_at.is_(None))
         elif status_filter == PostStatusFilter.ALL and not self._can_read_drafts(
-            membership
+            access
         ):
             conditions.append(Post.published_at.is_not(None))
 
@@ -157,13 +160,15 @@ class PostService:
         trip_id: uuid.UUID,
         post_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
     ) -> Post:
-        membership = self._get_readable_trip_membership(
+        access = self._get_readable_trip_access(
             trip_id=trip_id,
             current_user_id=current_user_id,
+            share_token=share_token,
         )
         post = self._get_post_for_response(post_id=post_id, trip_id=trip_id)
-        if post.published_at is None and not self._can_read_drafts(membership):
+        if post.published_at is None and not self._can_read_drafts(access):
             raise PostNotFoundError(f'Post not found: {post_id}')
         return post
 
@@ -311,45 +316,31 @@ class PostService:
                 )
         return media_by_id
 
-    def _get_readable_trip_membership(
+    def _get_readable_trip_access(
         self,
         trip_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
-    ) -> TripMember | None:
-        trip = self.db.get(Trip, trip_id)
-        if trip is None:
-            raise TripNotFoundError(f'Trip not found: {trip_id}')
-
-        membership = (
-            self._get_membership(trip_id=trip_id, user_id=current_user_id)
-            if current_user_id is not None
-            else None
+        share_token: str | None = None,
+    ) -> TripReadAccess:
+        access = get_trip_read_access(
+            self.db,
+            trip_id=trip_id,
+            current_user_id=current_user_id,
+            share_token=share_token,
         )
-        if trip.visibility == TripVisibility.PUBLIC:
-            return membership
-        if membership is None:
+        if access is None:
             raise TripNotFoundError(f'Trip not found: {trip_id}')
-        if not role_has_permission(membership.role, TripPermission.GET_POST):
-            raise PostPermissionError('The user does not have enough privileges')
-        return membership
+        return access
 
-    def _can_read_drafts(self, membership: TripMember | None) -> bool:
-        return membership is not None and membership.role in {
-            TripRole.OWNER,
-            TripRole.MEMBER,
-        }
+    def _can_read_drafts(self, access: TripReadAccess) -> bool:
+        return access.can_read_drafts
 
     def _get_membership(
         self,
         trip_id: uuid.UUID,
         user_id: uuid.UUID,
     ) -> TripMember | None:
-        return self.db.execute(
-            select(TripMember).where(
-                TripMember.trip_id == trip_id,
-                TripMember.user_id == user_id,
-            )
-        ).scalar_one_or_none()
+        return get_membership(self.db, trip_id=trip_id, user_id=user_id)
 
     def _require_trip_permission(
         self,
@@ -359,6 +350,15 @@ class PostService:
     ) -> TripMember:
         membership = self._get_membership(trip_id=trip_id, user_id=user_id)
         if membership is None:
+            if (
+                get_trip_read_access(
+                    self.db,
+                    trip_id=trip_id,
+                    current_user_id=user_id,
+                )
+                is not None
+            ):
+                raise PostPermissionError('The user does not have enough privileges')
             raise TripNotFoundError(f'Trip not found: {trip_id}')
         if not role_has_permission(membership.role, permission):
             raise PostPermissionError('The user does not have enough privileges')

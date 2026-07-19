@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from factories.media import create_media
 from factories.places import create_place
-from factories.trips import add_trip_member, create_trip
+from factories.trips import add_trip_member, add_trip_viewer, create_trip
 from factories.users import create_user
 from models.api.locations import LocationPlaceInput
 from models.api.pagination import SortDirection
@@ -20,7 +20,7 @@ from models.api.posts import (
     PostUpdateRequest,
 )
 from models.database.posts import Post
-from models.database.trips import TripRole, TripVisibility
+from models.database.trips import TripVisibility
 from services.location_service import LocationService
 from services.place_service import PlaceService
 from services.post_service import (
@@ -93,11 +93,11 @@ def test_list_posts_applies_draft_visibility_by_membership(
         owner_id=owner.id,
         visibility=TripVisibility.PUBLIC,
     )
-    add_trip_member(
+    add_trip_viewer(
         db_session,
         trip_id=trip.id,
         user_id=viewer.id,
-        role=TripRole.VIEWER,
+        created_by=owner.id,
     )
     place = create_place(db_session)
     service = _post_service(db_session)
@@ -155,11 +155,11 @@ def test_private_trip_posts_require_trip_membership(db_session: Session) -> None
         owner_id=owner.id,
         visibility=TripVisibility.PRIVATE,
     )
-    add_trip_member(
+    add_trip_viewer(
         db_session,
         trip_id=trip.id,
         user_id=viewer.id,
-        role=TripRole.VIEWER,
+        created_by=owner.id,
     )
     place = create_place(db_session)
     service = _post_service(db_session)
@@ -209,11 +209,11 @@ def test_get_post_hides_drafts_from_users_without_draft_access(
         owner_id=owner.id,
         visibility=TripVisibility.PUBLIC,
     )
-    add_trip_member(
+    add_trip_viewer(
         db_session,
         trip_id=trip.id,
         user_id=viewer.id,
-        role=TripRole.VIEWER,
+        created_by=owner.id,
     )
     place = create_place(db_session)
     service = _post_service(db_session)
@@ -450,11 +450,11 @@ def test_create_post_requires_member_with_create_permission(
     viewer = create_user(db_session)
     stranger = create_user(db_session)
     trip = create_trip(db_session, owner_id=owner.id)
-    add_trip_member(
+    add_trip_viewer(
         db_session,
         trip_id=trip.id,
         user_id=viewer.id,
-        role=TripRole.VIEWER,
+        created_by=owner.id,
     )
     place = create_place(db_session)
     service = _post_service(db_session)

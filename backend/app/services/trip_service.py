@@ -1,14 +1,40 @@
 import uuid
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import exists, func, or_, select
+from sqlalchemy.orm import Session, aliased, joinedload
 
 from models.api.pagination import SortDirection
-from models.api.trips import TripCreateRequest, TripSortField, TripUpdateRequest
+from models.api.trips import (
+    TripCreateRequest,
+    TripShareLinkCreateRequest,
+    TripShareLinkUpdateRequest,
+    TripSortField,
+    TripUpdateRequest,
+)
 from models.database.media import Media
-from models.database.trips import Trip, TripMember, TripRole, TripVisibility
+from models.database.trips import (
+    Trip,
+    TripMember,
+    TripRole,
+    TripShareLink,
+    TripViewer,
+    TripVisibility,
+)
 from models.database.user import User
+from models.database.base import utcnow
+from services.trip_access import (
+    generate_share_token,
+    get_membership,
+    get_trip_read_access,
+    hash_share_token,
+)
 from services.trip_authorization import TripPermission, role_has_permission
+
+
+LISTED_TRIP_ROLES = (TripRole.OWNER, TripRole.MEMBER)
+READABLE_TRIP_ROLES = tuple(
+    role for role in TripRole if role_has_permission(role, TripPermission.GET_TRIP)
+)
 
 
 class TripNotFoundError(Exception):
@@ -41,6 +67,18 @@ class TripMemberNotFoundError(Exception):
 
 class TripMemberAlreadyExistsError(Exception):
     """Raised when a trip membership already exists."""
+
+
+class TripViewerNotFoundError(Exception):
+    """Raised when a trip viewer grant cannot be found."""
+
+
+class TripViewerAlreadyExistsError(Exception):
+    """Raised when a trip viewer grant already exists."""
+
+
+class TripShareLinkNotFoundError(Exception):
+    """Raised when a trip share link cannot be found."""
 
 
 class LastTripOwnerError(Exception):
@@ -149,6 +187,8 @@ class TripService:
         if payload.visibility is not None:
             trip.visibility = payload.visibility
         if 'start_date' in payload.model_fields_set:
+            if payload.start_date is None:
+                raise TripDateRangeError('start_date cannot be null')
             trip.start_date = payload.start_date
         if 'end_date' in payload.model_fields_set:
             trip.end_date = payload.end_date
@@ -191,12 +231,18 @@ class TripService:
         self.db.delete(trip)
         self.db.commit()
 
-    def get_trip(self, trip_id: uuid.UUID, current_user_id: uuid.UUID | None) -> Trip:
+    def get_trip(
+        self,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
+    ) -> Trip:
         """Return a trip when public or readable by the current member.
 
         Args:
             trip_id: Id of the trip to retrieve.
             current_user_id: Authenticated user id, or ``None`` for anonymous reads.
+            share_token: Optional share-link token supplied for viewer access.
 
         Returns:
             The readable trip.
@@ -208,21 +254,24 @@ class TripService:
         return self._get_readable_trip_or_raise(
             trip_id=trip_id,
             current_user_id=current_user_id,
+            share_token=share_token,
         )
 
     def list_trips_for_user(
         self,
-        current_user_id: uuid.UUID,
+        listed_user_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
         *,
         offset: int,
         limit: int,
         sort_by: TripSortField,
         sort_order: SortDirection,
     ) -> tuple[list[Trip], int]:
-        """Return a paginated page of trips where the user is a member.
+        """Return a user's listed trips filtered by requester read access.
 
         Args:
-            current_user_id: Id of the user whose memberships define the list.
+            listed_user_id: Id of the user whose owner/member trips are listed.
+            current_user_id: Id of the requester, or ``None`` for anonymous reads.
             offset: Number of matching rows to skip.
             limit: Maximum number of trips to return.
             sort_by: Trip column used for primary sorting.
@@ -231,6 +280,9 @@ class TripService:
         Returns:
             A tuple containing the current page of trips and total match count.
         """
+        listed_membership = aliased(TripMember)
+        requester_membership = aliased(TripMember)
+        requester_viewer = aliased(TripViewer)
         sort_columns = {
             TripSortField.CREATED_AT: Trip.created_at,
             TripSortField.UPDATED_AT: Trip.updated_at,
@@ -241,17 +293,38 @@ class TripService:
             sort_column.asc() if sort_order == SortDirection.ASC else sort_column.desc()
         )
 
+        access_filter = Trip.visibility == TripVisibility.PUBLIC
+        if current_user_id is not None:
+            access_filter = or_(
+                access_filter,
+                Trip.visibility == TripVisibility.PLATFORM_PUBLIC,
+                exists().where(
+                    requester_membership.trip_id == Trip.id,
+                    requester_membership.user_id == current_user_id,
+                    requester_membership.role.in_(READABLE_TRIP_ROLES),
+                ),
+                exists().where(
+                    requester_viewer.trip_id == Trip.id,
+                    requester_viewer.user_id == current_user_id,
+                ),
+            )
+
+        filters = (
+            listed_membership.user_id == listed_user_id,
+            listed_membership.role.in_(LISTED_TRIP_ROLES),
+            access_filter,
+        )
         total_statement = (
             select(func.count())
             .select_from(Trip)
-            .join(TripMember)
-            .where(TripMember.user_id == current_user_id)
+            .join(listed_membership, listed_membership.trip_id == Trip.id)
+            .where(*filters)
         )
         statement = (
             select(Trip)
-            .join(TripMember)
+            .join(listed_membership, listed_membership.trip_id == Trip.id)
             .options(joinedload(Trip.cover_media))
-            .where(TripMember.user_id == current_user_id)
+            .where(*filters)
             .order_by(sort_expression, Trip.id.asc())
             .offset(offset)
             .limit(limit)
@@ -263,13 +336,15 @@ class TripService:
     def list_trip_members(
         self,
         trip_id: uuid.UUID,
-        current_user_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
     ) -> list[TripMember]:
         """Return trip members when the current user can list them.
 
         Args:
             trip_id: Id of the trip whose members should be listed.
             current_user_id: Id of the authenticated user requesting the list.
+            share_token: Optional share-link token supplied for viewer access.
 
         Returns:
             All trip memberships with user/profile data loaded.
@@ -278,10 +353,10 @@ class TripService:
             TripNotFoundError: The trip is missing or hidden from the user.
             TripPermissionError: The user lacks member-list permission.
         """
-        self._require_trip_permission(
+        self._require_trip_read_access(
             trip_id=trip_id,
-            user_id=current_user_id,
-            permission=TripPermission.LIST_MEMBERS,
+            current_user_id=current_user_id,
+            share_token=share_token,
         )
 
         statement = (
@@ -423,6 +498,181 @@ class TripService:
         self.db.delete(membership)
         self.db.commit()
 
+    def list_trip_viewers(
+        self,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+    ) -> list[TripViewer]:
+        """Return direct viewers for an owner-managed trip."""
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.LIST_VIEWERS,
+        )
+
+        statement = (
+            select(TripViewer)
+            .join(TripViewer.user)
+            .options(joinedload(TripViewer.user).joinedload(User.profile))
+            .where(TripViewer.trip_id == trip_id)
+            .order_by(User.email.asc(), TripViewer.user_id.asc())
+        )
+        return list(self.db.execute(statement).scalars().all())
+
+    def add_trip_viewer(
+        self,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+        target_user_id: uuid.UUID,
+    ) -> TripViewer:
+        """Grant direct viewer access to a user."""
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.MANAGE_VIEWERS,
+        )
+
+        target_user = self.db.get(User, target_user_id)
+        if target_user is None:
+            raise UserNotFoundError(f'User not found: {target_user_id}')
+
+        if self._get_membership(trip_id=trip_id, user_id=target_user_id) is not None:
+            raise TripViewerAlreadyExistsError(
+                f'User is already a trip participant: {target_user_id}'
+            )
+        if self._get_trip_viewer(trip_id=trip_id, user_id=target_user_id) is not None:
+            raise TripViewerAlreadyExistsError(
+                f'User is already a trip viewer: {target_user_id}'
+            )
+
+        viewer = TripViewer(
+            trip_id=trip_id,
+            user_id=target_user_id,
+            created_by=current_user_id,
+        )
+        self.db.add(viewer)
+        self.db.commit()
+        self.db.refresh(viewer)
+        return viewer
+
+    def remove_trip_viewer(
+        self,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+        target_user_id: uuid.UUID,
+    ) -> None:
+        """Remove a direct viewer grant from a trip."""
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.MANAGE_VIEWERS,
+        )
+        viewer = self._get_trip_viewer_or_raise(
+            trip_id=trip_id,
+            user_id=target_user_id,
+        )
+
+        self.db.delete(viewer)
+        self.db.commit()
+
+    def list_share_links(
+        self,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+    ) -> list[TripShareLink]:
+        """Return share links for an owner-managed trip."""
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.LIST_SHARE_LINKS,
+        )
+
+        statement = (
+            select(TripShareLink)
+            .where(TripShareLink.trip_id == trip_id)
+            .order_by(TripShareLink.created_at.desc(), TripShareLink.id.asc())
+        )
+        return list(self.db.execute(statement).scalars().all())
+
+    def create_share_link(
+        self,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+        payload: TripShareLinkCreateRequest,
+    ) -> tuple[TripShareLink, str]:
+        """Create a share link and return its one-time raw token."""
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.MANAGE_SHARE_LINKS,
+        )
+
+        token = generate_share_token()
+        share_link = TripShareLink(
+            trip_id=trip_id,
+            token_hash=hash_share_token(token),
+            created_by=current_user_id,
+            label=payload.label,
+            expires_at=payload.expires_at,
+        )
+        self.db.add(share_link)
+        self.db.commit()
+        self.db.refresh(share_link)
+        return share_link, token
+
+    def update_share_link(
+        self,
+        trip_id: uuid.UUID,
+        share_link_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+        payload: TripShareLinkUpdateRequest,
+    ) -> TripShareLink:
+        """Update share-link metadata or revocation state."""
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.MANAGE_SHARE_LINKS,
+        )
+        share_link = self._get_share_link_or_raise(
+            trip_id=trip_id,
+            share_link_id=share_link_id,
+        )
+
+        if 'label' in payload.model_fields_set:
+            share_link.label = payload.label
+        if 'expires_at' in payload.model_fields_set:
+            share_link.expires_at = payload.expires_at
+        if 'revoked' in payload.model_fields_set:
+            if payload.revoked:
+                if share_link.revoked_at is None:
+                    share_link.revoked_at = utcnow()
+            else:
+                share_link.revoked_at = None
+
+        self.db.commit()
+        self.db.refresh(share_link)
+        return share_link
+
+    def revoke_share_link(
+        self,
+        trip_id: uuid.UUID,
+        share_link_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+    ) -> None:
+        """Revoke a share link without deleting historical metadata."""
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.MANAGE_SHARE_LINKS,
+        )
+        share_link = self._get_share_link_or_raise(
+            trip_id=trip_id,
+            share_link_id=share_link_id,
+        )
+        if share_link.revoked_at is None:
+            share_link.revoked_at = utcnow()
+            self.db.commit()
+
     def _get_membership(
         self,
         trip_id: uuid.UUID,
@@ -437,12 +687,47 @@ class TripService:
         Returns:
             The membership row, or ``None`` when the user is not a member.
         """
+        return get_membership(self.db, trip_id=trip_id, user_id=user_id)
+
+    def _get_trip_viewer(
+        self,
+        trip_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> TripViewer | None:
+        """Return the direct viewer row for a user in a trip, if present."""
         return self.db.execute(
-            select(TripMember).where(
-                TripMember.trip_id == trip_id,
-                TripMember.user_id == user_id,
+            select(TripViewer).where(
+                TripViewer.trip_id == trip_id,
+                TripViewer.user_id == user_id,
             )
         ).scalar_one_or_none()
+
+    def _get_trip_viewer_or_raise(
+        self,
+        trip_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> TripViewer:
+        """Return a direct viewer grant, or raise if it does not exist."""
+        viewer = self._get_trip_viewer(trip_id=trip_id, user_id=user_id)
+        if viewer is None:
+            raise TripViewerNotFoundError(f'Trip viewer not found: {user_id}')
+        return viewer
+
+    def _get_share_link_or_raise(
+        self,
+        trip_id: uuid.UUID,
+        share_link_id: uuid.UUID,
+    ) -> TripShareLink:
+        """Return a share link for a trip, or raise if it does not exist."""
+        share_link = self.db.execute(
+            select(TripShareLink).where(
+                TripShareLink.trip_id == trip_id,
+                TripShareLink.id == share_link_id,
+            )
+        ).scalar_one_or_none()
+        if share_link is None:
+            raise TripShareLinkNotFoundError(f'Share link not found: {share_link_id}')
+        return share_link
 
     def _get_trip_or_raise(self, trip_id: uuid.UUID) -> Trip:
         """Return a trip by id, or raise when it does not exist.
@@ -502,12 +787,14 @@ class TripService:
         self,
         trip_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
     ) -> Trip:
         """Return a trip when visibility and membership allow read access.
 
         Args:
             trip_id: Id of the trip to read.
             current_user_id: Authenticated user id, or ``None`` for anonymous reads.
+            share_token: Optional share-link token supplied for viewer access.
 
         Returns:
             The trip when it is public or readable by the user's role.
@@ -516,19 +803,29 @@ class TripService:
             TripNotFoundError: The trip is missing or not readable by the user.
             TripPermissionError: The member role does not grant read permission.
         """
-        trip = self._get_trip_or_raise(trip_id=trip_id)
-        if trip.visibility == TripVisibility.PUBLIC:
-            return trip
-        if current_user_id is None:
-            raise TripNotFoundError(f'Trip not found: {trip_id}')
-
-        membership = self._require_trip_member(
+        access = self._require_trip_read_access(
             trip_id=trip_id,
-            user_id=current_user_id,
+            current_user_id=current_user_id,
+            share_token=share_token,
         )
-        if not role_has_permission(membership.role, TripPermission.GET_TRIP):
-            raise TripPermissionError('The user does not have enough privileges')
-        return trip
+        return access.trip
+
+    def _require_trip_read_access(
+        self,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
+    ):
+        """Return read access for a trip, or raise when the trip is hidden."""
+        access = get_trip_read_access(
+            self.db,
+            trip_id=trip_id,
+            current_user_id=current_user_id,
+            share_token=share_token,
+        )
+        if access is None:
+            raise TripNotFoundError(f'Trip not found: {trip_id}')
+        return access
 
     def _get_trip_member_or_raise(
         self,
@@ -574,6 +871,15 @@ class TripService:
             user_id=user_id,
         )
         if membership is None:
+            if (
+                get_trip_read_access(
+                    self.db,
+                    trip_id=trip_id,
+                    current_user_id=user_id,
+                )
+                is not None
+            ):
+                raise TripPermissionError('The user does not have enough privileges')
             raise TripNotFoundError(f'Trip not found: {trip_id}')
         return membership
 

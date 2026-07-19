@@ -13,9 +13,10 @@ from models.api.itinerary import (
     ItineraryTravelReplaceRequest,
 )
 from models.database.itinerary import ItineraryStop, ItineraryTravelLeg, TravelMode
-from models.database.trips import Trip, TripMember, TripVisibility
+from models.database.trips import Trip, TripMember
 from models.database.user import User
 from services.location_service import LocationService
+from services.trip_access import get_membership, get_trip_read_access
 from services.trip_authorization import TripPermission, role_has_permission
 
 StopPair = tuple[uuid.UUID, uuid.UUID]
@@ -86,10 +87,12 @@ class ItineraryService:
         self,
         trip_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
     ) -> ItinerarySnapshot:
         trip = self._get_readable_trip_or_raise(
             trip_id=trip_id,
             current_user_id=current_user_id,
+            share_token=share_token,
         )
         return self._load_itinerary_snapshot(trip=trip)
 
@@ -161,10 +164,12 @@ class ItineraryService:
         trip_id: uuid.UUID,
         stop_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
     ) -> ItineraryStopDetail:
         trip = self._get_readable_trip_or_raise(
             trip_id=trip_id,
             current_user_id=current_user_id,
+            share_token=share_token,
         )
         stops = self._load_ordered_stops(trip_id=trip_id)
         stop = next((item for item in stops if item.id == stop_id), None)
@@ -319,10 +324,12 @@ class ItineraryService:
         trip_id: uuid.UUID,
         leg_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
     ) -> ItineraryTravelLegDetail:
         trip = self._get_readable_trip_or_raise(
             trip_id=trip_id,
             current_user_id=current_user_id,
+            share_token=share_token,
         )
         leg = self._get_leg_or_raise(trip_id=trip_id, leg_id=leg_id)
         return ItineraryTravelLegDetail(
@@ -368,23 +375,17 @@ class ItineraryService:
         self,
         trip_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
     ) -> Trip:
-        trip = self.db.get(Trip, trip_id)
-        if trip is None:
-            raise TripNotFoundError(f'Trip not found: {trip_id}')
-
-        membership = (
-            self._get_membership(trip_id=trip_id, user_id=current_user_id)
-            if current_user_id is not None
-            else None
+        access = get_trip_read_access(
+            self.db,
+            trip_id=trip_id,
+            current_user_id=current_user_id,
+            share_token=share_token,
         )
-        if trip.visibility == TripVisibility.PUBLIC:
-            return trip
-        if membership is None:
+        if access is None:
             raise TripNotFoundError(f'Trip not found: {trip_id}')
-        if not role_has_permission(membership.role, TripPermission.GET_ITINERARY):
-            raise ItineraryPermissionError('The user does not have enough privileges')
-        return trip
+        return access.trip
 
     def _require_manage_trip_locked(
         self,
@@ -400,6 +401,17 @@ class ItineraryService:
 
         membership = self._get_membership(trip_id=trip_id, user_id=user_id)
         if membership is None:
+            if (
+                get_trip_read_access(
+                    self.db,
+                    trip_id=trip_id,
+                    current_user_id=user_id,
+                )
+                is not None
+            ):
+                raise ItineraryPermissionError(
+                    'The user does not have enough privileges'
+                )
             raise TripNotFoundError(f'Trip not found: {trip_id}')
         if not role_has_permission(membership.role, TripPermission.MANAGE_ITINERARY):
             raise ItineraryPermissionError('The user does not have enough privileges')
@@ -412,12 +424,7 @@ class ItineraryService:
         trip_id: uuid.UUID,
         user_id: uuid.UUID,
     ) -> TripMember | None:
-        return self.db.execute(
-            select(TripMember).where(
-                TripMember.trip_id == trip_id,
-                TripMember.user_id == user_id,
-            )
-        ).scalar_one_or_none()
+        return get_membership(self.db, trip_id=trip_id, user_id=user_id)
 
     def _load_itinerary_snapshot_by_id(self, trip_id: uuid.UUID) -> ItinerarySnapshot:
         trip = self.db.get(Trip, trip_id)

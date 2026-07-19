@@ -15,6 +15,7 @@ if typing.TYPE_CHECKING:
 
 class TripVisibility(str, enum.Enum):
     PUBLIC = 'PUBLIC'
+    PLATFORM_PUBLIC = 'PLATFORM_PUBLIC'
     PRIVATE = 'PRIVATE'
 
 
@@ -35,9 +36,9 @@ class Trip(Base):
         default='',
         server_default='',
     )
-    start_date: Mapped[date | None] = mapped_column(
+    start_date: Mapped[date] = mapped_column(
         Date,
-        nullable=True,
+        nullable=False,
     )
     end_date: Mapped[date | None] = mapped_column(
         Date,
@@ -85,6 +86,16 @@ class Trip(Base):
         back_populates='trip',
         cascade='all, delete-orphan',
     )
+    viewers: Mapped[list['TripViewer']] = relationship(
+        'TripViewer',
+        back_populates='trip',
+        cascade='all, delete-orphan',
+    )
+    share_links: Mapped[list['TripShareLink']] = relationship(
+        'TripShareLink',
+        back_populates='trip',
+        cascade='all, delete-orphan',
+    )
 
     cover_media: Mapped['Media | None'] = relationship(
         'Media',
@@ -95,7 +106,6 @@ class Trip(Base):
 class TripRole(str, enum.Enum):
     OWNER = 'OWNER'
     MEMBER = 'MEMBER'
-    VIEWER = 'VIEWER'
 
 
 class TripMember(Base):
@@ -132,4 +142,115 @@ class TripMember(Base):
     user: Mapped['User'] = relationship(
         'User',
         back_populates='trip_memberships',
+    )
+
+
+class TripViewer(Base):
+    __tablename__ = 'trip_viewers'
+
+    trip_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            'trips.id',
+            ondelete='CASCADE',
+            name='fk_trip_viewers_trip_id',
+        ),
+        primary_key=True,
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            'users.id',
+            ondelete='CASCADE',
+            name='fk_trip_viewers_user_id',
+        ),
+        primary_key=True,
+        nullable=False,
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            'users.id',
+            name='fk_trip_viewers_created_by',
+        ),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        server_default=func.now(),
+    )
+
+    trip: Mapped['Trip'] = relationship(
+        'Trip',
+        back_populates='viewers',
+    )
+    user: Mapped['User'] = relationship(
+        'User',
+        foreign_keys=[user_id],
+    )
+    creator: Mapped['User'] = relationship(
+        'User',
+        foreign_keys=[created_by],
+    )
+
+
+class TripShareLink(Base):
+    __tablename__ = 'trip_share_links'
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    trip_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            'trips.id',
+            ondelete='CASCADE',
+            name='fk_trip_share_links_trip_id',
+        ),
+        nullable=False,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            'users.id',
+            name='fk_trip_share_links_created_by',
+        ),
+        nullable=False,
+    )
+    label: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        server_default=func.now(),
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    trip: Mapped['Trip'] = relationship(
+        'Trip',
+        back_populates='share_links',
+    )
+    creator: Mapped['User'] = relationship(
+        'User',
+        foreign_keys=[created_by],
     )

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Annotated, cast
 import uuid
 
-from fastapi import BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import BackgroundTasks, Depends, Header, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import InvalidTokenError
 from pydantic import ValidationError
@@ -22,6 +22,7 @@ from services.place_service import PlaceService
 from services.post_service import PostService
 from services.trip_service import TripService
 from services.user_service import UserService
+from services.trip_access import SHARE_TOKEN_HEADER
 
 reusable_oauth2 = OAuth2PasswordBearer(
     tokenUrl=f'{settings.API_V1_STR}/login/access-token'
@@ -58,6 +59,7 @@ SessionDep = Annotated[Session, Depends(get_db)]
 PaginationDep = Annotated[PaginationParams, Depends(get_pagination_params)]
 TokenDep = Annotated[str, Depends(reusable_oauth2)]
 OptionalTokenDep = Annotated[str | None, Depends(optional_oauth2)]
+ShareToken = Annotated[str | None, Header(alias=SHARE_TOKEN_HEADER)]
 
 
 def _credentials_exception() -> HTTPException:
@@ -72,7 +74,7 @@ def _get_user_from_token(session: Session, token: str) -> User:
     try:
         payload = security.decode_token(token, expected_type=security.TOKEN_TYPE_ACCESS)
         token_data = TokenPayload(**payload)
-    except InvalidTokenError, ValidationError:
+    except (InvalidTokenError, ValidationError):
         raise _credentials_exception()
 
     try:

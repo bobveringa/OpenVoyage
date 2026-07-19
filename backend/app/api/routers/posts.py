@@ -5,7 +5,13 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette import status
 from starlette.requests import Request
 
-from api.deps import CurrentUser, OptionalCurrentUser, PaginationDep, PostServiceDep
+from api.deps import (
+    CurrentUser,
+    OptionalCurrentUser,
+    PaginationDep,
+    PostServiceDep,
+    ShareToken,
+)
 from models.api.pagination import PaginatedResponse, SortDirection
 from models.api.posts import (
     PostCreateRequest,
@@ -66,6 +72,7 @@ def list_posts(
     post_service: PostServiceDep,
     user: OptionalCurrentUser,
     pagination: PaginationDep,
+    share_token: ShareToken = None,
     sort_by: Annotated[PostSortField, Query()] = PostSortField.OCCURRED_AT,
     sort_order: Annotated[SortDirection, Query()] = SortDirection.DESC,
     status_filter: Annotated[
@@ -77,6 +84,7 @@ def list_posts(
         posts, total = post_service.list_posts(
             trip_id=trip_id,
             current_user_id=user.id if user else None,
+            share_token=share_token,
             offset=pagination.offset,
             limit=pagination.page_size,
             sort_by=sort_by,
@@ -110,12 +118,14 @@ def get_post(
     post_id: uuid.UUID,
     post_service: PostServiceDep,
     user: OptionalCurrentUser,
+    share_token: ShareToken = None,
 ) -> PostResponse:
     try:
         post = post_service.get_post(
             trip_id=trip_id,
             post_id=post_id,
             current_user_id=user.id if user else None,
+            share_token=share_token,
         )
     except (TripNotFoundError, PostNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

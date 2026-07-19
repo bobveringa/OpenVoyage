@@ -68,7 +68,7 @@ def refresh_tokens(session: SessionDep, payload: RefreshTokenRequest) -> Token:
             expected_type=security.TOKEN_TYPE_REFRESH,
         )
         token_data = TokenPayload(**decoded)
-    except InvalidTokenError, ValidationError:
+    except (InvalidTokenError, ValidationError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail='Invalid refresh token',

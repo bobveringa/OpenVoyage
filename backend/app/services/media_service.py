@@ -7,10 +7,10 @@ from core.db import get_engine
 from fastapi import BackgroundTasks, UploadFile
 from models.database.media import Media, MediaStatus, MediaStorageBackend, MediaType
 from models.database.posts import Post, PostMedia
-from models.database.trips import Trip, TripMember, TripRole, TripVisibility
+from models.database.trips import Trip
 from models.database.user import User, UserProfile
-from services.trip_authorization import TripPermission, role_has_permission
-from sqlalchemy import and_, or_, select
+from services.trip_access import get_trip_read_access
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from utils.media.image_util import generate_image_thumbnail, get_image_info
 from utils.media.video_util import generate_video_thumbnail, get_video_info
@@ -41,15 +41,6 @@ MIME_TYPE_EXTENSIONS: dict[str, str] = {
 }
 
 THUMBNAIL_CONTENT_TYPE = 'image/webp'
-TRIP_READ_ROLES = [
-    role for role in TripRole if role_has_permission(role, TripPermission.GET_TRIP)
-]
-POST_READ_ROLES = [
-    role for role in TripRole if role_has_permission(role, TripPermission.GET_POST)
-]
-POST_DRAFT_READ_ROLES = [TripRole.OWNER, TripRole.MEMBER]
-
-
 def get_media_storage_path(media_id: uuid.UUID) -> str:
     """Return the local filesystem path prefix for a media object.
 
@@ -238,6 +229,7 @@ class MediaService:
         self,
         media: Media,
         current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
     ) -> bool:
         """Return whether the current user may read a media file.
 
@@ -251,10 +243,10 @@ class MediaService:
         if self._is_profile_picture(media.id):
             return True
 
-        if self._is_readable_trip_cover(media.id, current_user_id):
+        if self._is_readable_trip_cover(media.id, current_user_id, share_token):
             return True
 
-        return self._is_readable_post_media(media.id, current_user_id)
+        return self._is_readable_post_media(media.id, current_user_id, share_token)
 
     def _is_profile_picture(self, media_id: uuid.UUID) -> bool:
         statement = (
@@ -268,69 +260,50 @@ class MediaService:
         self,
         media_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
+        share_token: str | None,
     ) -> bool:
-        statement = select(Trip.id).where(Trip.cover_media_id == media_id)
+        trip_ids = self.db.execute(
+            select(Trip.id).where(Trip.cover_media_id == media_id)
+        ).scalars()
 
-        if current_user_id is None:
-            statement = statement.where(Trip.visibility == TripVisibility.PUBLIC)
-        else:
-            statement = statement.outerjoin(
-                TripMember,
-                and_(
-                    TripMember.trip_id == Trip.id,
-                    TripMember.user_id == current_user_id,
-                    TripMember.role.in_(TRIP_READ_ROLES),
-                ),
-            ).where(
-                or_(
-                    Trip.visibility == TripVisibility.PUBLIC,
-                    TripMember.user_id.is_not(None),
-                )
+        for trip_id in trip_ids:
+            access = get_trip_read_access(
+                self.db,
+                trip_id=trip_id,
+                current_user_id=current_user_id,
+                share_token=share_token,
             )
+            if access is not None:
+                return True
 
-        return self.db.execute(statement.limit(1)).first() is not None
+        return False
 
     def _is_readable_post_media(
         self,
         media_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
+        share_token: str | None,
     ) -> bool:
-        statement = (
+        post_rows = self.db.execute(
             select(Post.id)
+            .add_columns(Post.trip_id, Post.published_at)
             .join(PostMedia, PostMedia.post_id == Post.id)
-            .join(Trip, Trip.id == Post.trip_id)
             .where(PostMedia.media_id == media_id)
-        )
+        ).all()
 
-        public_published = and_(
-            Trip.visibility == TripVisibility.PUBLIC,
-            Post.published_at.is_not(None),
-        )
-
-        if current_user_id is None:
-            statement = statement.where(public_published)
-        else:
-            statement = statement.outerjoin(
-                TripMember,
-                and_(
-                    TripMember.trip_id == Trip.id,
-                    TripMember.user_id == current_user_id,
-                    TripMember.role.in_(POST_READ_ROLES),
-                ),
-            ).where(
-                or_(
-                    public_published,
-                    and_(
-                        TripMember.user_id.is_not(None),
-                        or_(
-                            Post.published_at.is_not(None),
-                            TripMember.role.in_(POST_DRAFT_READ_ROLES),
-                        ),
-                    ),
-                )
+        for _post_id, trip_id, published_at in post_rows:
+            access = get_trip_read_access(
+                self.db,
+                trip_id=trip_id,
+                current_user_id=current_user_id,
+                share_token=share_token,
             )
+            if access is None:
+                continue
+            if published_at is not None or access.can_read_drafts:
+                return True
 
-        return self.db.execute(statement.limit(1)).first() is not None
+        return False
 
 
 def create_thumbnail(media_id: uuid.UUID, media_path: str) -> None:

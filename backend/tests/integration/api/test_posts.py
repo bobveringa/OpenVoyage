@@ -470,6 +470,70 @@ def test_private_trip_posts_return_not_found_without_membership(
 
 
 @pytest.mark.integration
+def test_share_link_reads_private_published_posts_but_not_drafts(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    owner = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(
+        db_session,
+        owner_id=owner.id,
+        visibility=TripVisibility.PRIVATE,
+    )
+    place = create_place(db_session)
+    owner_headers = _auth_headers(owner)
+    draft_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers=owner_headers,
+        json={
+            'body': 'Hidden draft',
+            'location': _place_location(place),
+            'occurred_at': OCCURRED_AT,
+        },
+    )
+    published_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers=owner_headers,
+        json={
+            'body': 'Shared published post',
+            'location': _place_location(place),
+            'occurred_at': OCCURRED_AT,
+            'publish': True,
+        },
+    )
+    link_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/share-links',
+        headers=owner_headers,
+        json={'label': 'Readers'},
+    )
+    share_headers = {'X-Trip-Share-Token': link_response.json()['token']}
+
+    list_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/posts?status=all',
+        headers=share_headers,
+    )
+    get_published_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/posts/{published_response.json()["id"]}',
+        headers=share_headers,
+    )
+    get_draft_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/posts/{draft_response.json()["id"]}',
+        headers=share_headers,
+    )
+
+    assert draft_response.status_code == 201
+    assert published_response.status_code == 201
+    assert link_response.status_code == 201
+    assert list_response.status_code == 200
+    assert [item['body'] for item in list_response.json()['items']] == [
+        'Shared published post'
+    ]
+    assert get_published_response.status_code == 200
+    assert get_draft_response.status_code == 404
+
+
+@pytest.mark.integration
 def test_update_post_translates_media_validation_errors(
     client,
     db_session,

@@ -1298,16 +1298,9 @@
             "type": "string"
           },
           "start_date": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start Date"
+            "format": "date",
+            "title": "Start Date",
+            "type": "string"
           },
           "visibility": {
             "$ref": "#/components/schemas/TripVisibility",
@@ -1316,7 +1309,8 @@
         },
         "required": [
           "name",
-          "media_id"
+          "media_id",
+          "start_date"
         ],
         "title": "TripCreateRequest",
         "type": "object"
@@ -1417,16 +1411,9 @@
             "type": "string"
           },
           "start_date": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start Date"
+            "format": "date",
+            "title": "Start Date",
+            "type": "string"
           },
           "visibility": {
             "$ref": "#/components/schemas/TripVisibility"
@@ -1447,11 +1434,240 @@
       "TripRole": {
         "enum": [
           "OWNER",
-          "MEMBER",
-          "VIEWER"
+          "MEMBER"
         ],
         "title": "TripRole",
         "type": "string"
+      },
+      "TripShareLinkCreateRequest": {
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "title": "TripShareLinkCreateRequest",
+        "type": "object"
+      },
+      "TripShareLinkCreateResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          },
+          "trip_id": {
+            "format": "uuid",
+            "title": "Trip Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "trip_id",
+          "label",
+          "expires_at",
+          "revoked_at",
+          "created_at",
+          "last_used_at",
+          "token"
+        ],
+        "title": "TripShareLinkCreateResponse",
+        "type": "object"
+      },
+      "TripShareLinkResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "trip_id": {
+            "format": "uuid",
+            "title": "Trip Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "trip_id",
+          "label",
+          "expires_at",
+          "revoked_at",
+          "created_at",
+          "last_used_at"
+        ],
+        "title": "TripShareLinkResponse",
+        "type": "object"
+      },
+      "TripShareLinkUpdateRequest": {
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "revoked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked"
+          }
+        },
+        "title": "TripShareLinkUpdateRequest",
+        "type": "object"
       },
       "TripSortField": {
         "enum": [
@@ -1538,9 +1754,60 @@
         "title": "TripUpdateRequest",
         "type": "object"
       },
+      "TripViewerCreateRequest": {
+        "properties": {
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "TripViewerCreateRequest",
+        "type": "object"
+      },
+      "TripViewerResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "title": "Created By",
+            "type": "string"
+          },
+          "trip_id": {
+            "format": "uuid",
+            "title": "Trip Id",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserSummaryResponse"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trip_id",
+          "user_id",
+          "created_by",
+          "created_at",
+          "user"
+        ],
+        "title": "TripViewerResponse",
+        "type": "object"
+      },
       "TripVisibility": {
         "enum": [
           "PUBLIC",
+          "PLATFORM_PUBLIC",
           "PRIVATE"
         ],
         "title": "TripVisibility",
@@ -2074,6 +2341,22 @@
               "title": "Thumbnail",
               "type": "boolean"
             }
+          },
+          {
+            "in": "query",
+            "name": "share_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Share Token"
+            }
           }
         ],
         "responses": {
@@ -2279,6 +2562,23 @@
         "parameters": [
           {
             "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
             "name": "sort_by",
             "required": false,
             "schema": {
@@ -2446,6 +2746,22 @@
               "title": "Trip Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
           }
         ],
         "responses": {
@@ -2550,6 +2866,22 @@
               "title": "Trip Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
           }
         ],
         "responses": {
@@ -2607,6 +2939,22 @@
               "format": "uuid",
               "title": "Leg Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
             }
           }
         ],
@@ -2894,6 +3242,22 @@
               "title": "Stop Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
           }
         ],
         "responses": {
@@ -3023,6 +3387,22 @@
               "format": "uuid",
               "title": "Trip Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
             }
           }
         ],
@@ -3296,6 +3676,22 @@
               "title": "Page Size",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
           }
         ],
         "responses": {
@@ -3458,6 +3854,22 @@
               "format": "uuid",
               "title": "Post Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
             }
           }
         ],
@@ -3673,6 +4085,390 @@
         "summary": "Unpublish Post",
         "tags": [
           "posts"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/share-links": {
+      "get": {
+        "operationId": "list_share_links_api_v1_trips__trip_id__share_links_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TripShareLinkResponse"
+                  },
+                  "title": "Response List Share Links Api V1 Trips  Trip Id  Share Links Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Share Links",
+        "tags": [
+          "trips"
+        ]
+      },
+      "post": {
+        "operationId": "create_share_link_api_v1_trips__trip_id__share_links_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TripShareLinkCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripShareLinkCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Share Link",
+        "tags": [
+          "trips"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/share-links/{share_link_id}": {
+      "delete": {
+        "operationId": "revoke_share_link_api_v1_trips__trip_id__share_links__share_link_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "share_link_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Share Link Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Revoke Share Link",
+        "tags": [
+          "trips"
+        ]
+      },
+      "patch": {
+        "operationId": "update_share_link_api_v1_trips__trip_id__share_links__share_link_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "share_link_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Share Link Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TripShareLinkUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripShareLinkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Share Link",
+        "tags": [
+          "trips"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/viewers": {
+      "get": {
+        "operationId": "list_trip_viewers_api_v1_trips__trip_id__viewers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TripViewerResponse"
+                  },
+                  "title": "Response List Trip Viewers Api V1 Trips  Trip Id  Viewers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Trip Viewers",
+        "tags": [
+          "trips"
+        ]
+      },
+      "post": {
+        "operationId": "add_trip_viewer_api_v1_trips__trip_id__viewers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TripViewerCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripViewerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Add Trip Viewer",
+        "tags": [
+          "trips"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/viewers/{user_id}": {
+      "delete": {
+        "operationId": "remove_trip_viewer_api_v1_trips__trip_id__viewers__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Remove Trip Viewer",
+        "tags": [
+          "trips"
         ]
       }
     },

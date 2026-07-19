@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException, Response
 from starlette import status
 
-from api.deps import CurrentUser, ItineraryServiceDep, OptionalCurrentUser
+from api.deps import CurrentUser, ItineraryServiceDep, OptionalCurrentUser, ShareToken
 from models.api.itinerary import (
     ItineraryResponse,
     ItineraryStopCreateRequest,
@@ -84,11 +84,13 @@ def get_itinerary(
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: OptionalCurrentUser,
+    share_token: ShareToken = None,
 ) -> ItineraryResponse:
     try:
         snapshot = itinerary_service.get_itinerary(
             trip_id=trip_id,
             current_user_id=user.id if user else None,
+            share_token=share_token,
         )
     except Exception as exc:
         _raise_http_error(exc)
@@ -144,12 +146,14 @@ def get_stop(
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: OptionalCurrentUser,
+    share_token: ShareToken = None,
 ) -> ItineraryStopDetailResponse:
     try:
         detail = itinerary_service.get_stop_detail(
             trip_id=trip_id,
             stop_id=stop_id,
             current_user_id=user.id if user else None,
+            share_token=share_token,
         )
     except Exception as exc:
         _raise_http_error(exc)
@@ -236,12 +240,14 @@ def get_leg(
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: OptionalCurrentUser,
+    share_token: ShareToken = None,
 ) -> ItineraryTravelLegResponse:
     try:
         detail = itinerary_service.get_travel_leg(
             trip_id=trip_id,
             leg_id=leg_id,
             current_user_id=user.id if user else None,
+            share_token=share_token,
         )
     except Exception as exc:
         _raise_http_error(exc)

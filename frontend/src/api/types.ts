@@ -358,6 +358,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/share-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Share Links */
+        get: operations["list_share_links_api_v1_trips__trip_id__share_links_get"];
+        put?: never;
+        /** Create Share Link */
+        post: operations["create_share_link_api_v1_trips__trip_id__share_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/share-links/{share_link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Share Link */
+        delete: operations["revoke_share_link_api_v1_trips__trip_id__share_links__share_link_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Share Link */
+        patch: operations["update_share_link_api_v1_trips__trip_id__share_links__share_link_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/viewers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Trip Viewers */
+        get: operations["list_trip_viewers_api_v1_trips__trip_id__viewers_get"];
+        put?: never;
+        /** Add Trip Viewer */
+        post: operations["add_trip_viewer_api_v1_trips__trip_id__viewers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/viewers/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Trip Viewer */
+        delete: operations["remove_trip_viewer_api_v1_trips__trip_id__viewers__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users": {
         parameters: {
             query?: never;
@@ -957,8 +1028,11 @@ export interface components {
             media_id: string;
             /** Name */
             name: string;
-            /** Start Date */
-            start_date?: string | null;
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
             /** @default PRIVATE */
             visibility: components["schemas"]["TripVisibility"];
         };
@@ -1005,15 +1079,88 @@ export interface components {
             id: string;
             /** Name */
             name: string;
-            /** Start Date */
-            start_date: string | null;
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
             visibility: components["schemas"]["TripVisibility"];
         };
         /**
          * TripRole
          * @enum {string}
          */
-        TripRole: "OWNER" | "MEMBER" | "VIEWER";
+        TripRole: "OWNER" | "MEMBER";
+        /** TripShareLinkCreateRequest */
+        TripShareLinkCreateRequest: {
+            /** Expires At */
+            expires_at?: string | null;
+            /** Label */
+            label?: string | null;
+        };
+        /** TripShareLinkCreateResponse */
+        TripShareLinkCreateResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string | null;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Token */
+            token: string;
+            /**
+             * Trip Id
+             * Format: uuid
+             */
+            trip_id: string;
+        };
+        /** TripShareLinkResponse */
+        TripShareLinkResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string | null;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Trip Id
+             * Format: uuid
+             */
+            trip_id: string;
+        };
+        /** TripShareLinkUpdateRequest */
+        TripShareLinkUpdateRequest: {
+            /** Expires At */
+            expires_at?: string | null;
+            /** Label */
+            label?: string | null;
+            /** Revoked */
+            revoked?: boolean | null;
+        };
         /**
          * TripSortField
          * @enum {string}
@@ -1033,11 +1180,43 @@ export interface components {
             start_date?: string | null;
             visibility?: components["schemas"]["TripVisibility"] | null;
         };
+        /** TripViewerCreateRequest */
+        TripViewerCreateRequest: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /** TripViewerResponse */
+        TripViewerResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Trip Id
+             * Format: uuid
+             */
+            trip_id: string;
+            user: components["schemas"]["UserSummaryResponse"];
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
         /**
          * TripVisibility
          * @enum {string}
          */
-        TripVisibility: "PUBLIC" | "PRIVATE";
+        TripVisibility: "PUBLIC" | "PLATFORM_PUBLIC" | "PRIVATE";
         /** UserProfileResponse */
         UserProfileResponse: {
             /** Biography */
@@ -1295,6 +1474,7 @@ export interface operations {
         parameters: {
             query?: {
                 thumbnail?: boolean;
+                share_token?: string | null;
             };
             header?: never;
             path: {
@@ -1394,6 +1574,7 @@ export interface operations {
     list_trips_api_v1_trips_get: {
         parameters: {
             query?: {
+                user_id?: string | null;
                 sort_by?: components["schemas"]["TripSortField"];
                 sort_order?: components["schemas"]["SortDirection"];
                 page?: number;
@@ -1461,7 +1642,9 @@ export interface operations {
     get_trip_api_v1_trips__trip_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
             path: {
                 trip_id: string;
             };
@@ -1556,7 +1739,9 @@ export interface operations {
     get_itinerary_api_v1_trips__trip_id__itinerary_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
             path: {
                 trip_id: string;
             };
@@ -1587,7 +1772,9 @@ export interface operations {
     get_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
             path: {
                 trip_id: string;
                 leg_id: string;
@@ -1694,7 +1881,9 @@ export interface operations {
     get_stop_api_v1_trips__trip_id__itinerary_stops__stop_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
             path: {
                 trip_id: string;
                 stop_id: string;
@@ -1798,7 +1987,9 @@ export interface operations {
     list_trip_members_api_v1_trips__trip_id__members_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
             path: {
                 trip_id: string;
             };
@@ -1936,7 +2127,9 @@ export interface operations {
                 page?: number;
                 page_size?: number;
             };
-            header?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
             path: {
                 trip_id: string;
             };
@@ -2002,7 +2195,9 @@ export interface operations {
     get_post_api_v1_trips__trip_id__posts__post_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
             path: {
                 trip_id: string;
                 post_id: string;
@@ -2149,6 +2344,234 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PostResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_share_links_api_v1_trips__trip_id__share_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TripShareLinkResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_share_link_api_v1_trips__trip_id__share_links_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TripShareLinkCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TripShareLinkCreateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_share_link_api_v1_trips__trip_id__share_links__share_link_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                share_link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_share_link_api_v1_trips__trip_id__share_links__share_link_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                share_link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TripShareLinkUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TripShareLinkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_trip_viewers_api_v1_trips__trip_id__viewers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TripViewerResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_trip_viewer_api_v1_trips__trip_id__viewers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TripViewerCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TripViewerResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_trip_viewer_api_v1_trips__trip_id__viewers__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -86,6 +86,7 @@ def get_media_content(
     user: OptionalCurrentUser,
     media_id: uuid.UUID,
     thumbnail: bool = False,
+    share_token: str | None = None,
 ):
     media = media_service.find_by_id(media_id)
     if not media:
@@ -93,7 +94,11 @@ def get_media_content(
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
-    if not media_service.can_read_media(media, user.id if user else None):
+    if not media_service.can_read_media(
+        media,
+        user.id if user else None,
+        share_token=share_token,
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
         )
@@ -133,7 +138,7 @@ def get_media_content(
                 start, end = parse_range_header(range_header, file_size)
                 length = end - start + 1
 
-            except ValueError, IndexError:
+            except (ValueError, IndexError):
                 raise HTTPException(
                     status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
                     detail='Invalid or unsatisfiable Range header.',

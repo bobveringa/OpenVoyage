@@ -15,6 +15,11 @@ from models.database.posts import Post, PostMedia
 from models.database.trips import TripVisibility
 
 
+def _auth_headers(user) -> dict[str, str]:
+    tokens = security.create_auth_tokens(subject=user.id, email=user.email)
+    return {'Authorization': f'Bearer {tokens["access_token"]}'}
+
+
 @pytest.mark.integration
 def test_upload_media_success(
     client, db_session, api_prefix, monkeypatch, tmp_path: Path
@@ -206,6 +211,38 @@ def test_get_private_trip_cover_media_requires_member(
 
 
 @pytest.mark.integration
+def test_get_private_trip_cover_media_accepts_share_token(
+    client, db_session, api_prefix, tmp_path
+) -> None:
+    owner = create_user(db_session, password='MediaPass123!')
+    image_path = tmp_path / 'share-cover.jpg'
+    image_path.write_bytes(b'shared cover')
+    media = create_media(db_session, storage_path=str(image_path), created_by=owner.id)
+    trip = create_trip(
+        db_session,
+        owner_id=owner.id,
+        visibility=TripVisibility.PRIVATE,
+    )
+    trip.cover_media_id = media.id
+    db_session.add(trip)
+    db_session.commit()
+    link_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/share-links',
+        headers=_auth_headers(owner),
+        json={'label': 'Cover'},
+    )
+    token = link_response.json()['token']
+
+    response = client.get(
+        f'{api_prefix}/media/{media.id}/content?share_token={token}'
+    )
+
+    assert link_response.status_code == 201
+    assert response.status_code == 200
+    assert response.content == b'shared cover'
+
+
+@pytest.mark.integration
 def test_get_public_trip_post_media_requires_published_post(
     client, db_session, api_prefix, tmp_path
 ) -> None:
@@ -258,4 +295,74 @@ def test_get_public_trip_post_media_requires_published_post(
 
     assert published_response.status_code == 200
     assert published_response.content == b'published post image'
+    assert draft_response.status_code == 404
+
+
+@pytest.mark.integration
+def test_get_private_trip_post_media_accepts_share_token_for_published_only(
+    client, db_session, api_prefix, tmp_path
+) -> None:
+    owner = create_user(db_session, password='MediaPass123!')
+    trip = create_trip(
+        db_session,
+        owner_id=owner.id,
+        visibility=TripVisibility.PRIVATE,
+    )
+    location = create_location(db_session, trip_id=trip.id, created_by=owner.id)
+    published_path = tmp_path / 'share-post.jpg'
+    published_path.write_bytes(b'shared published post image')
+    media = create_media(
+        db_session,
+        storage_path=str(published_path),
+        created_by=owner.id,
+    )
+    draft_path = tmp_path / 'share-draft.jpg'
+    draft_path.write_bytes(b'shared draft post image')
+    draft_media = create_media(
+        db_session,
+        storage_path=str(draft_path),
+        created_by=owner.id,
+    )
+    published_post = Post(
+        trip_id=trip.id,
+        author_user_id=owner.id,
+        location_id=location.id,
+        body='Published post',
+        occurred_at=utcnow(),
+        published_at=utcnow(),
+    )
+    draft_post = Post(
+        trip_id=trip.id,
+        author_user_id=owner.id,
+        location_id=location.id,
+        body='Draft post',
+        occurred_at=utcnow(),
+        published_at=None,
+    )
+    db_session.add_all([published_post, draft_post])
+    db_session.flush()
+    db_session.add_all(
+        [
+            PostMedia(post_id=published_post.id, media_id=media.id, sort_order=0),
+            PostMedia(post_id=draft_post.id, media_id=draft_media.id, sort_order=0),
+        ]
+    )
+    db_session.commit()
+    link_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/share-links',
+        headers=_auth_headers(owner),
+        json={'label': 'Media'},
+    )
+    token = link_response.json()['token']
+
+    published_response = client.get(
+        f'{api_prefix}/media/{media.id}/content?share_token={token}'
+    )
+    draft_response = client.get(
+        f'{api_prefix}/media/{draft_media.id}/content?share_token={token}'
+    )
+
+    assert link_response.status_code == 201
+    assert published_response.status_code == 200
+    assert published_response.content == b'shared published post image'
     assert draft_response.status_code == 404

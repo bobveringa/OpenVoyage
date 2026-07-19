@@ -1,12 +1,19 @@
 import enum
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Self
 
 from pydantic import BaseModel, Field, model_validator
 from models.api.media import MediaResponse
 from models.api.users import UserSummaryResponse
-from models.database.trips import Trip, TripMember, TripRole, TripVisibility
+from models.database.trips import (
+    Trip,
+    TripMember,
+    TripRole,
+    TripShareLink,
+    TripViewer,
+    TripVisibility,
+)
 
 
 class TripSortField(str, enum.Enum):
@@ -20,7 +27,7 @@ class TripCreateRequest(BaseModel):
     description: str = ''
     media_id: uuid.UUID
     visibility: TripVisibility = TripVisibility.PRIVATE
-    start_date: date | None = None
+    start_date: date
     end_date: date | None = None
 
     @model_validator(mode='after')
@@ -44,6 +51,8 @@ class TripUpdateRequest(BaseModel):
 
     @model_validator(mode='after')
     def validate_dates(self) -> Self:
+        if 'start_date' in self.model_fields_set and self.start_date is None:
+            raise ValueError('start_date cannot be null')
         if (
             self.start_date is not None
             and self.end_date is not None
@@ -78,12 +87,82 @@ class TripMemberResponse(BaseModel):
         )
 
 
+class TripViewerCreateRequest(BaseModel):
+    user_id: uuid.UUID
+
+
+class TripViewerResponse(BaseModel):
+    trip_id: uuid.UUID
+    user_id: uuid.UUID
+    created_by: uuid.UUID
+    created_at: datetime
+    user: UserSummaryResponse
+
+    @classmethod
+    def from_model(cls, viewer: TripViewer) -> Self:
+        return cls(
+            trip_id=viewer.trip_id,
+            user_id=viewer.user_id,
+            created_by=viewer.created_by,
+            created_at=viewer.created_at,
+            user=UserSummaryResponse.from_model(viewer.user),
+        )
+
+
+class TripShareLinkCreateRequest(BaseModel):
+    label: str | None = Field(default=None, max_length=255)
+    expires_at: datetime | None = None
+
+
+class TripShareLinkUpdateRequest(BaseModel):
+    label: str | None = Field(default=None, max_length=255)
+    expires_at: datetime | None = None
+    revoked: bool | None = None
+
+
+class TripShareLinkResponse(BaseModel):
+    id: uuid.UUID
+    trip_id: uuid.UUID
+    label: str | None
+    expires_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+    last_used_at: datetime | None
+
+    @classmethod
+    def from_model(cls, share_link: TripShareLink) -> Self:
+        return cls(
+            id=share_link.id,
+            trip_id=share_link.trip_id,
+            label=share_link.label,
+            expires_at=share_link.expires_at,
+            revoked_at=share_link.revoked_at,
+            created_at=share_link.created_at,
+            last_used_at=share_link.last_used_at,
+        )
+
+
+class TripShareLinkCreateResponse(TripShareLinkResponse):
+    token: str
+
+    @classmethod
+    def from_model_with_token(
+        cls,
+        share_link: TripShareLink,
+        token: str,
+    ) -> Self:
+        return cls(
+            **TripShareLinkResponse.from_model(share_link).model_dump(),
+            token=token,
+        )
+
+
 class TripResponse(BaseModel):
     trip_id: uuid.UUID = Field(alias='id')
     name: str
     description: str
     visibility: TripVisibility
-    start_date: date | None
+    start_date: date
     end_date: date | None
     cover_media: MediaResponse | None
 

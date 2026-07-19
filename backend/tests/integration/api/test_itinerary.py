@@ -6,9 +6,9 @@ import pytest
 
 from core import security
 from factories.places import create_place
-from factories.trips import add_trip_member, create_trip
+from factories.trips import add_trip_viewer, create_trip
 from factories.users import create_user
-from models.database.trips import TripRole, TripVisibility
+from models.database.trips import TripVisibility
 
 
 def _auth_headers(user, *, etag: str | None = None) -> dict[str, str]:
@@ -229,11 +229,11 @@ def test_itinerary_permissions_follow_trip_roles(
     viewer = create_user(db_session, password='ItineraryPass123!')
     non_member = create_user(db_session, password='ItineraryPass123!')
     trip = create_trip(db_session, owner_id=owner.id)
-    add_trip_member(
+    add_trip_viewer(
         db_session,
         trip_id=trip.id,
         user_id=viewer.id,
-        role=TripRole.VIEWER,
+        created_by=owner.id,
     )
     place = create_place(db_session)
     endpoint = f'{api_prefix}/trips/{trip.id}/itinerary/stops'
@@ -256,6 +256,47 @@ def test_itinerary_permissions_follow_trip_roles(
     assert viewer_response.status_code == 403
     assert non_member_response.status_code == 404
     assert read_response.status_code == 200
+
+
+@pytest.mark.integration
+def test_share_link_can_read_private_trip_itinerary(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    owner = create_user(db_session, password='ItineraryPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
+    place = create_place(db_session, name='Utrecht')
+    owner_headers = _auth_headers(owner)
+    create_stop_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops',
+        headers=_auth_headers(owner, etag='"0"'),
+        json=_stop_payload(place, title='Shared stop'),
+    )
+    link_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/share-links',
+        headers=owner_headers,
+        json={'label': 'Itinerary'},
+    )
+    share_headers = {'X-Trip-Share-Token': link_response.json()['token']}
+
+    read_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/itinerary',
+        headers=share_headers,
+    )
+    mutate_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops',
+        headers={**share_headers, 'If-Match': '"1"'},
+        json=_stop_payload(place, title='Blocked stop'),
+    )
+
+    assert create_stop_response.status_code == 201
+    assert link_response.status_code == 201
+    assert read_response.status_code == 200
+    assert [stop['title'] for stop in read_response.json()['stops']] == [
+        'Shared stop'
+    ]
+    assert mutate_response.status_code == 401
 
 
 @pytest.mark.integration
