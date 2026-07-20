@@ -18,8 +18,14 @@ export type CurrentUser = components['schemas']['CurrentUserResponse']
 export type User = components['schemas']['UserResponse']
 export type Trip = components['schemas']['TripResponse']
 export type TripCreatePayload = components['schemas']['TripCreateRequest']
+export type TripSortField = components['schemas']['TripSortField']
+export type TripStatusFilter = components['schemas']['TripStatusFilter']
 export type TripVisibility = components['schemas']['TripVisibility']
 export type Media = components['schemas']['MediaResponse']
+export type UserProfileUpdatePayload =
+  components['schemas']['UserProfileUpdateRequest']
+export type UsernameAvailability =
+  components['schemas']['UsernameAvailabilityResponse']
 export type PaginatedTrips =
   components['schemas']['PaginatedResponse_TripResponse_']
 
@@ -27,7 +33,7 @@ type QueryValue = string | number | boolean | null | undefined
 
 type ApiRequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
-  token?: string | null
+  accessToken?: string | null
   shareToken?: string | null
   query?: Record<string, QueryValue>
   json?: unknown
@@ -52,19 +58,6 @@ export function getErrorMessage(error: unknown): string {
     return error.message
   }
   return 'Something went wrong'
-}
-
-export function appendShareTokenToUrl(
-  mediaUrl: string,
-  shareToken?: string | null,
-): string {
-  if (!shareToken) {
-    return mediaUrl
-  }
-
-  const url = new URL(mediaUrl, API_ROOT)
-  url.searchParams.set('share_token', shareToken)
-  return url.toString()
 }
 
 export async function login(
@@ -92,10 +85,36 @@ export async function refreshAuthTokens(
   })
 }
 
-export async function readCurrentUser(token: string): Promise<CurrentUser> {
+export async function readCurrentUser(accessToken: string): Promise<CurrentUser> {
   return requestJson<CurrentUser>(`${API_V1_PREFIX}/users/me`, {
-    token,
+    accessToken,
   })
+}
+
+export async function updateUserProfile(
+  payload: UserProfileUpdatePayload,
+  accessToken: string,
+): Promise<CurrentUser> {
+  return requestJson<CurrentUser>(`${API_V1_PREFIX}/users/me`, {
+    method: 'PATCH',
+    accessToken,
+    json: payload,
+  })
+}
+
+export async function checkUsernameAvailability(options: {
+  accessToken?: string | null
+  username: string
+}): Promise<UsernameAvailability> {
+  return requestJson<UsernameAvailability>(
+    `${API_V1_PREFIX}/users/username-availability`,
+    {
+      accessToken: options.accessToken,
+      query: {
+        username: options.username,
+      },
+    },
+  )
 }
 
 export async function getUserByUsername(username: string): Promise<User> {
@@ -105,22 +124,31 @@ export async function getUserByUsername(username: string): Promise<User> {
 }
 
 export async function listTrips(options: {
+  accessToken?: string | null
+  page?: number
+  pageSize?: number
+  sortBy?: TripSortField
+  sortOrder?: 'asc' | 'desc'
+  status?: TripStatusFilter
   userId: string
-  token?: string | null
 }): Promise<PaginatedTrips> {
   return requestJson<PaginatedTrips>(`${API_V1_PREFIX}/trips`, {
-    token: options.token,
+    accessToken: options.accessToken,
     query: {
       user_id: options.userId,
-      sort_by: 'updated_at',
-      sort_order: 'desc',
-      page: 1,
-      page_size: 50,
+      sort_by: options.sortBy,
+      sort_order: options.sortOrder,
+      status: options.status,
+      page: options.page ?? 1,
+      page_size: options.pageSize ?? 50,
     },
   })
 }
 
-export async function uploadMedia(file: File, token: string): Promise<string> {
+export async function uploadMedia(
+  file: File,
+  accessToken: string,
+): Promise<string> {
   const formData = new FormData()
   formData.set('file', file)
 
@@ -128,7 +156,7 @@ export async function uploadMedia(file: File, token: string): Promise<string> {
     `${API_V1_PREFIX}/media`,
     {
       method: 'POST',
-      token,
+      accessToken,
       formData,
     },
   )
@@ -138,49 +166,27 @@ export async function uploadMedia(file: File, token: string): Promise<string> {
 
 export async function createTrip(
   payload: TripCreatePayload,
-  token: string,
+  accessToken: string,
 ): Promise<Trip> {
   return requestJson<Trip>(`${API_V1_PREFIX}/trips`, {
     method: 'POST',
-    token,
+    accessToken,
     json: payload,
   })
 }
 
 export async function getTrip(options: {
   tripId: string
-  token?: string | null
+  accessToken?: string | null
   shareToken?: string | null
 }): Promise<Trip> {
   return requestJson<Trip>(
     `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}`,
     {
-      token: options.token,
+      accessToken: options.accessToken,
       shareToken: options.shareToken,
     },
   )
-}
-
-export async function fetchMediaBlobUrl(
-  mediaUrl: string,
-  options: {
-    token?: string | null
-    shareToken?: string | null
-  },
-): Promise<string> {
-  const headers = new Headers()
-  if (options.token) {
-    headers.set('Authorization', `Bearer ${options.token}`)
-  }
-
-  const response = await fetch(appendShareTokenToUrl(mediaUrl, options.shareToken), {
-    headers,
-  })
-  if (!response.ok) {
-    throw await buildApiError(response)
-  }
-
-  return URL.createObjectURL(await response.blob())
 }
 
 async function requestJson<T>(
@@ -191,8 +197,8 @@ async function requestJson<T>(
   const headers = new Headers()
   let body: BodyInit | undefined
 
-  if (options.token) {
-    headers.set('Authorization', `Bearer ${options.token}`)
+  if (options.accessToken) {
+    headers.set('Authorization', `Bearer ${options.accessToken}`)
   }
   if (options.shareToken) {
     headers.set(SHARE_TOKEN_HEADER, options.shareToken)

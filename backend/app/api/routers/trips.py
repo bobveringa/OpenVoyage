@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette import status
 from starlette.requests import Request
 
+from core import security
 from api.deps import (
     CurrentUser,
     OptionalCurrentUser,
@@ -24,6 +25,7 @@ from models.api.trips import (
     TripShareLinkResponse,
     TripShareLinkUpdateRequest,
     TripSortField,
+    TripStatusFilter,
     TripUpdateRequest,
     TripViewerCreateRequest,
     TripViewerResponse,
@@ -47,6 +49,25 @@ from services.trip_service import (
 router = APIRouter(prefix='/trips', tags=['trips'])
 
 
+def _trip_response(
+    trip,
+    media_base_url: str,
+    *,
+    user=None,
+    share_token: str | None = None,
+) -> TripResponse:
+    media_token = (
+        security.create_media_url_token(trip.cover_media.id)
+        if (user or share_token) and trip.cover_media is not None
+        else None
+    )
+    return TripResponse.from_model(
+        trip,
+        media_base_url=media_base_url,
+        media_token=media_token,
+    )
+
+
 @router.post(
     '',
     status_code=status.HTTP_201_CREATED,
@@ -68,7 +89,7 @@ def create_trip(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return TripResponse.from_model(trip, media_base_url=media_base_url)
+    return _trip_response(trip, media_base_url=media_base_url, user=user)
 
 
 @router.get(
@@ -81,8 +102,11 @@ def list_trips(
     user: OptionalCurrentUser,
     pagination: PaginationDep,
     user_id: Annotated[uuid.UUID | None, Query()] = None,
-    sort_by: Annotated[TripSortField, Query()] = TripSortField.CREATED_AT,
+    sort_by: Annotated[TripSortField, Query()] = TripSortField.START_DATE,
     sort_order: Annotated[SortDirection, Query()] = SortDirection.DESC,
+    trip_status: Annotated[TripStatusFilter, Query(alias='status')] = (
+        TripStatusFilter.ALL
+    ),
 ) -> PaginatedResponse[TripResponse]:
     if user_id is None and user is None:
         raise HTTPException(
@@ -99,12 +123,13 @@ def list_trips(
         limit=pagination.page_size,
         sort_by=sort_by,
         sort_order=sort_order,
+        status_filter=trip_status,
     )
 
     media_base_url = str(request.base_url).rstrip('/')
     return PaginatedResponse[TripResponse](
         items=[
-            TripResponse.from_model(trip, media_base_url=media_base_url)
+            _trip_response(trip, media_base_url=media_base_url, user=user)
             for trip in trips
         ],
         total=total,
@@ -165,7 +190,7 @@ def update_trip(
         )
 
     media_base_url = str(request.base_url).rstrip('/')
-    return TripResponse.from_model(trip, media_base_url=media_base_url)
+    return _trip_response(trip, media_base_url=media_base_url, user=user)
 
 
 @router.delete(
@@ -452,4 +477,9 @@ def get_trip(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return TripResponse.from_model(trip, media_base_url=media_base_url)
+    return _trip_response(
+        trip,
+        media_base_url=media_base_url,
+        user=user,
+        share_token=share_token,
+    )

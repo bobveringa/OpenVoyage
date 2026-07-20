@@ -52,8 +52,18 @@ class MediaResponse(BaseModel):
     technical_info: ImageTechnicalInfo | VideoTechnicalInfo | None
 
     @classmethod
-    def from_model(cls, media: 'Media', media_base_url: str = '') -> 'MediaResponse':
-        content_url, thumbnail_url = build_media_urls(media_base_url, media.id)
+    def from_model(
+        cls,
+        media: 'Media',
+        media_base_url: str = '',
+        *,
+        media_token: str | None = None,
+    ) -> 'MediaResponse':
+        content_url, thumbnail_url = build_media_urls(
+            media_base_url,
+            media.id,
+            media_token=media_token,
+        )
         urls = MediaUrls(
             content=content_url,
             thumbnail=thumbnail_url if media.thumbnail_storage_path else None,

@@ -1,5 +1,6 @@
 import enum
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 from typing import Self
 
@@ -52,7 +53,13 @@ class PostResponse(BaseModel):
     media: list[MediaResponse]
 
     @classmethod
-    def from_model(cls, post: Post, media_base_url: str) -> Self:
+    def from_model(
+        cls,
+        post: Post,
+        media_base_url: str,
+        *,
+        media_token_factory: Callable[[uuid.UUID], str | None] | None = None,
+    ) -> Self:
         return cls(
             id=post.id,
             trip_id=post.trip_id,
@@ -64,7 +71,15 @@ class PostResponse(BaseModel):
             created_at=post.created_at,
             updated_at=post.updated_at,
             media=[
-                MediaResponse.from_model(link.media, media_base_url=media_base_url)
+                MediaResponse.from_model(
+                    link.media,
+                    media_base_url=media_base_url,
+                    media_token=(
+                        media_token_factory(link.media.id)
+                        if media_token_factory
+                        else None
+                    ),
+                )
                 for link in post.media_links
             ],
         )

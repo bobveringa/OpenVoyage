@@ -1,9 +1,11 @@
 import os
 import uuid
 
+from jwt import InvalidTokenError
 from starlette import status
 from starlette.responses import StreamingResponse
 
+from core import security
 from api.deps import CurrentUser, MediaServiceDep, OptionalCurrentUser
 from fastapi import APIRouter, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse
@@ -86,7 +88,7 @@ def get_media_content(
     user: OptionalCurrentUser,
     media_id: uuid.UUID,
     thumbnail: bool = False,
-    share_token: str | None = None,
+    media_token: str | None = None,
 ):
     media = media_service.find_by_id(media_id)
     if not media:
@@ -94,10 +96,13 @@ def get_media_content(
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
-    if not media_service.can_read_media(
+    has_signed_media_access = _has_signed_media_access(
+        media_id=media.id,
+        media_token=media_token,
+    )
+    if not has_signed_media_access and not media_service.can_read_media(
         media,
         user.id if user else None,
-        share_token=share_token,
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -171,3 +176,15 @@ def get_media_content(
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
     )
+
+
+def _has_signed_media_access(media_id: uuid.UUID, media_token: str | None) -> bool:
+    if not media_token:
+        return False
+
+    try:
+        token_media_id = security.decode_media_url_token(media_token)
+    except (InvalidTokenError, KeyError, ValueError):
+        return False
+
+    return token_media_id == media_id

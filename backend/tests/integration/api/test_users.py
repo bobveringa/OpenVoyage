@@ -373,6 +373,31 @@ def test_update_current_user_can_remove_avatar(client, db_session, api_prefix) -
 
 
 @pytest.mark.integration
+def test_update_current_user_can_clear_names(client, db_session, api_prefix) -> None:
+    user = create_user(
+        db_session,
+        password='UsersPass123!',
+        username='clear-names',
+        first_name='Clear',
+        last_name='Names',
+    )
+
+    response = client.patch(
+        f'{api_prefix}/users/me',
+        headers=_auth_headers(user),
+        json={
+            'first_name': '',
+            'last_name': '',
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['profile']['first_name'] == ''
+    assert payload['profile']['last_name'] == ''
+
+
+@pytest.mark.integration
 def test_update_current_user_rejects_duplicate_username(
     client,
     db_session,

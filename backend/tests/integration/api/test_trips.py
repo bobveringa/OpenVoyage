@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
 from core import security
 from factories.media import create_media
+from factories.trips import create_trip as create_trip_model
 from factories.users import create_user
 from models.database.media import MediaStatus
 from models.database.trips import TripRole, TripVisibility
@@ -77,14 +79,16 @@ def test_create_trip_success(client, db_session, api_prefix) -> None:
     assert payload['start_date'] == TRIP_START_DATE
     assert payload['cover_media']['id'] == str(media.id)
     assert payload['cover_media']['status'] == 'READY'
-    assert (
-        payload['cover_media']['urls']['content']
-        == f'http://testserver/api/v1/media/{media.id}/content'
-    )
-    assert (
-        payload['cover_media']['urls']['thumbnail']
-        == f'http://testserver/api/v1/media/{media.id}/content?thumbnail=true'
-    )
+    content_url = urlsplit(payload['cover_media']['urls']['content'])
+    content_query = parse_qs(content_url.query)
+    thumbnail_url = urlsplit(payload['cover_media']['urls']['thumbnail'])
+    thumbnail_query = parse_qs(thumbnail_url.query)
+    assert content_url.path == f'/api/v1/media/{media.id}/content'
+    assert 'media_token' in content_query
+    assert 'share_token' not in content_query
+    assert thumbnail_url.path == f'/api/v1/media/{media.id}/content'
+    assert thumbnail_query['media_token'] == content_query['media_token']
+    assert thumbnail_query['thumbnail'] == ['true']
 
 
 @pytest.mark.integration
@@ -389,8 +393,12 @@ def test_list_trips_supports_pagination_and_sorting(
     tokens = security.create_auth_tokens(subject=user.id, email=user.email)
     headers = {'Authorization': f'Bearer {tokens["access_token"]}'}
 
-    trip_names = ['Zagreb', 'Amsterdam', 'Berlin']
-    for index, name in enumerate(trip_names):
+    trip_rows = [
+        ('Zagreb', date(2026, 7, 3)),
+        ('Amsterdam', date(2026, 7, 1)),
+        ('Berlin', date(2026, 7, 2)),
+    ]
+    for index, (name, start_date) in enumerate(trip_rows):
         media = create_media(
             db_session,
             storage_path=f'media/{name.lower()}-cover.jpg',
@@ -403,22 +411,107 @@ def test_list_trips_supports_pagination_and_sorting(
                 'name': name,
                 'description': f'Trip {index}',
                 'media_id': str(media.id),
-                'start_date': TRIP_START_DATE,
+                'start_date': start_date.isoformat(),
             },
         )
         assert response.status_code == 201
 
+    default_response = client.get(
+        f'{api_prefix}/trips?page_size=3',
+        headers=headers,
+    )
     response = client.get(
         f'{api_prefix}/trips?page=2&page_size=1&sort_by=name&sort_order=asc',
         headers=headers,
     )
 
+    assert default_response.status_code == 200
+    assert [trip['name'] for trip in default_response.json()['items']] == [
+        'Zagreb',
+        'Berlin',
+        'Amsterdam',
+    ]
     assert response.status_code == 200
     payload = response.json()
     assert payload['total'] == 3
     assert payload['page'] == 2
     assert payload['page_size'] == 1
     assert [trip['name'] for trip in payload['items']] == ['Berlin']
+
+
+@pytest.mark.integration
+def test_list_trips_filters_by_trip_status(client, db_session, api_prefix) -> None:
+    user = create_user(db_session, password='TripsPass123!')
+    today = date.today()
+    past_trip = create_trip_model(
+        db_session,
+        owner_id=user.id,
+        name='Past',
+        start_date=today - timedelta(days=8),
+        end_date=today - timedelta(days=2),
+    )
+    ongoing_trip = create_trip_model(
+        db_session,
+        owner_id=user.id,
+        name='Ongoing',
+        start_date=today - timedelta(days=2),
+        end_date=today + timedelta(days=2),
+    )
+    open_ended_trip = create_trip_model(
+        db_session,
+        owner_id=user.id,
+        name='Open ended',
+        start_date=today - timedelta(days=1),
+        end_date=None,
+    )
+    upcoming_trip = create_trip_model(
+        db_session,
+        owner_id=user.id,
+        name='Upcoming',
+        start_date=today + timedelta(days=1),
+        end_date=None,
+    )
+    headers = _auth_headers(user)
+
+    ongoing_response = client.get(
+        f'{api_prefix}/trips?status=ongoing&page_size=1',
+        headers=headers,
+    )
+    upcoming_response = client.get(
+        f'{api_prefix}/trips?status=upcoming',
+        headers=headers,
+    )
+    past_response = client.get(
+        f'{api_prefix}/trips?status=past',
+        headers=headers,
+    )
+    all_response = client.get(
+        f'{api_prefix}/trips?status=all',
+        headers=headers,
+    )
+
+    assert ongoing_response.status_code == 200
+    assert ongoing_response.json()['total'] == 2
+    assert len(ongoing_response.json()['items']) == 1
+    assert {
+        ongoing_trip.id,
+        open_ended_trip.id,
+    }.issuperset({uuid.UUID(item['id']) for item in ongoing_response.json()['items']})
+    assert upcoming_response.status_code == 200
+    assert {item['id'] for item in upcoming_response.json()['items']} == {
+        str(upcoming_trip.id),
+    }
+    assert past_response.status_code == 200
+    assert {item['id'] for item in past_response.json()['items']} == {
+        str(past_trip.id),
+    }
+    assert all_response.status_code == 200
+    assert {item['id'] for item in all_response.json()['items']} == {
+        str(past_trip.id),
+        str(ongoing_trip.id),
+        str(open_ended_trip.id),
+        str(upcoming_trip.id),
+    }
 
 
 @pytest.mark.integration

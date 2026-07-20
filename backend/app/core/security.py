@@ -18,6 +18,7 @@ password_hash = PasswordHash(
 ALGORITHM = 'HS256'
 TOKEN_TYPE_ACCESS = 'access'
 TOKEN_TYPE_ID = 'id'
+TOKEN_TYPE_MEDIA = 'media'
 TOKEN_TYPE_REFRESH = 'refresh'
 
 
@@ -85,6 +86,19 @@ def create_auth_tokens(subject: str | Any, email: str) -> dict[str, str]:
         'id_token': id_token,
         'refresh_token': refresh_token,
     }
+
+
+def create_media_url_token(media_id: str | uuid.UUID) -> str:
+    return create_token(
+        subject=media_id,
+        token_type=TOKEN_TYPE_MEDIA,
+        expires_delta=timedelta(minutes=settings.MEDIA_URL_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+def decode_media_url_token(token: str) -> uuid.UUID:
+    payload = decode_token(token, expected_type=TOKEN_TYPE_MEDIA)
+    return uuid.UUID(str(payload['sub']))
 
 
 def verify_password(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit, urlunsplit
 
 import pytest
 
@@ -13,11 +14,17 @@ from models.database.base import utcnow
 from models.database.media import MediaStatus, MediaType
 from models.database.posts import Post, PostMedia
 from models.database.trips import TripVisibility
+from services.trip_access import SHARE_TOKEN_HEADER
 
 
 def _auth_headers(user) -> dict[str, str]:
     tokens = security.create_auth_tokens(subject=user.id, email=user.email)
     return {'Authorization': f'Bearer {tokens["access_token"]}'}
+
+
+def _path_and_query(url: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit(('', '', parts.path, parts.query, ''))
 
 
 @pytest.mark.integration
@@ -211,7 +218,79 @@ def test_get_private_trip_cover_media_requires_member(
 
 
 @pytest.mark.integration
-def test_get_private_trip_cover_media_accepts_share_token(
+def test_trip_list_returns_signed_private_cover_url_that_loads_without_auth(
+    client, db_session, api_prefix, tmp_path
+) -> None:
+    owner = create_user(db_session, password='MediaPass123!')
+    image_path = tmp_path / 'signed-cover.jpg'
+    image_path.write_bytes(b'signed private cover')
+    media = create_media(db_session, storage_path=str(image_path), created_by=owner.id)
+    trip = create_trip(
+        db_session,
+        owner_id=owner.id,
+        visibility=TripVisibility.PRIVATE,
+    )
+    trip.cover_media_id = media.id
+    db_session.add(trip)
+    db_session.commit()
+
+    list_response = client.get(
+        f'{api_prefix}/trips?user_id={owner.id}',
+        headers=_auth_headers(owner),
+    )
+    content_url = list_response.json()['items'][0]['cover_media']['urls']['content']
+    query = parse_qs(urlsplit(content_url).query)
+
+    content_response = client.get(_path_and_query(content_url))
+
+    assert list_response.status_code == 200
+    assert 'media_token' in query
+    assert content_response.status_code == 200
+    assert content_response.content == b'signed private cover'
+
+
+@pytest.mark.integration
+def test_signed_private_video_url_supports_range_without_auth(
+    client, db_session, api_prefix, tmp_path
+) -> None:
+    owner = create_user(db_session, password='MediaPass123!')
+    video_path = tmp_path / 'signed-clip.mp4'
+    video_path.write_bytes(b'0123456789')
+    media = create_media(
+        db_session,
+        storage_path=str(video_path),
+        content_type='video/mp4',
+        media_type=MediaType.VIDEO,
+        duration=10,
+        created_by=owner.id,
+    )
+    trip = create_trip(
+        db_session,
+        owner_id=owner.id,
+        visibility=TripVisibility.PRIVATE,
+    )
+    trip.cover_media_id = media.id
+    db_session.add(trip)
+    db_session.commit()
+
+    list_response = client.get(
+        f'{api_prefix}/trips?user_id={owner.id}',
+        headers=_auth_headers(owner),
+    )
+    content_url = list_response.json()['items'][0]['cover_media']['urls']['content']
+    content_response = client.get(
+        _path_and_query(content_url),
+        headers={'Range': 'bytes=2-5'},
+    )
+
+    assert list_response.status_code == 200
+    assert content_response.status_code == 206
+    assert content_response.content == b'2345'
+    assert content_response.headers['content-range'] == 'bytes 2-5/10'
+
+
+@pytest.mark.integration
+def test_shared_trip_cover_media_url_uses_media_token(
     client, db_session, api_prefix, tmp_path
 ) -> None:
     owner = create_user(db_session, password='MediaPass123!')
@@ -233,13 +312,25 @@ def test_get_private_trip_cover_media_accepts_share_token(
     )
     token = link_response.json()['token']
 
-    response = client.get(
+    trip_response = client.get(
+        f'{api_prefix}/trips/{trip.id}',
+        headers={SHARE_TOKEN_HEADER: token},
+    )
+    content_url = trip_response.json()['cover_media']['urls']['content']
+    query = parse_qs(urlsplit(content_url).query)
+
+    response = client.get(_path_and_query(content_url))
+    direct_share_response = client.get(
         f'{api_prefix}/media/{media.id}/content?share_token={token}'
     )
 
     assert link_response.status_code == 201
+    assert trip_response.status_code == 200
+    assert 'media_token' in query
+    assert 'share_token' not in query
     assert response.status_code == 200
     assert response.content == b'shared cover'
+    assert direct_share_response.status_code == 404
 
 
 @pytest.mark.integration
@@ -299,7 +390,7 @@ def test_get_public_trip_post_media_requires_published_post(
 
 
 @pytest.mark.integration
-def test_get_private_trip_post_media_accepts_share_token_for_published_only(
+def test_shared_trip_post_media_url_uses_media_token_for_published_posts(
     client, db_session, api_prefix, tmp_path
 ) -> None:
     owner = create_user(db_session, password='MediaPass123!')
@@ -355,14 +446,25 @@ def test_get_private_trip_post_media_accepts_share_token_for_published_only(
     )
     token = link_response.json()['token']
 
-    published_response = client.get(
+    posts_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers={SHARE_TOKEN_HEADER: token},
+    )
+    content_url = posts_response.json()['items'][0]['media'][0]['urls']['content']
+    query = parse_qs(urlsplit(content_url).query)
+
+    published_response = client.get(_path_and_query(content_url))
+    direct_share_response = client.get(
         f'{api_prefix}/media/{media.id}/content?share_token={token}'
     )
-    draft_response = client.get(
-        f'{api_prefix}/media/{draft_media.id}/content?share_token={token}'
-    )
+    draft_response = client.get(f'{api_prefix}/media/{draft_media.id}/content')
 
     assert link_response.status_code == 201
+    assert posts_response.status_code == 200
+    assert posts_response.json()['total'] == 1
+    assert 'media_token' in query
+    assert 'share_token' not in query
     assert published_response.status_code == 200
     assert published_response.content == b'shared published post image'
+    assert direct_share_response.status_code == 404
     assert draft_response.status_code == 404

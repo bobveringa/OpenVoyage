@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, aliased, joinedload
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session, aliased, joinedload
 from models.api.pagination import SortDirection
 from models.api.trips import (
     TripCreateRequest,
+    TripStatusFilter,
     TripShareLinkCreateRequest,
     TripShareLinkUpdateRequest,
     TripSortField,
@@ -35,6 +37,23 @@ LISTED_TRIP_ROLES = (TripRole.OWNER, TripRole.MEMBER)
 READABLE_TRIP_ROLES = tuple(
     role for role in TripRole if role_has_permission(role, TripPermission.GET_TRIP)
 )
+
+
+def trip_status_filters(
+    status_filter: TripStatusFilter,
+    *,
+    today: date,
+):
+    if status_filter == TripStatusFilter.UPCOMING:
+        return (Trip.start_date > today,)
+    if status_filter == TripStatusFilter.PAST:
+        return (Trip.end_date.is_not(None), Trip.end_date < today)
+    if status_filter == TripStatusFilter.ONGOING:
+        return (
+            Trip.start_date <= today,
+            or_(Trip.end_date.is_(None), Trip.end_date >= today),
+        )
+    return ()
 
 
 class TripNotFoundError(Exception):
@@ -266,6 +285,7 @@ class TripService:
         limit: int,
         sort_by: TripSortField,
         sort_order: SortDirection,
+        status_filter: TripStatusFilter = TripStatusFilter.ALL,
     ) -> tuple[list[Trip], int]:
         """Return a user's listed trips filtered by requester read access.
 
@@ -276,6 +296,7 @@ class TripService:
             limit: Maximum number of trips to return.
             sort_by: Trip column used for primary sorting.
             sort_order: Direction for the primary sort column.
+            status_filter: Optional trip lifecycle filter evaluated against today.
 
         Returns:
             A tuple containing the current page of trips and total match count.
@@ -284,6 +305,7 @@ class TripService:
         requester_membership = aliased(TripMember)
         requester_viewer = aliased(TripViewer)
         sort_columns = {
+            TripSortField.START_DATE: Trip.start_date,
             TripSortField.CREATED_AT: Trip.created_at,
             TripSortField.UPDATED_AT: Trip.updated_at,
             TripSortField.NAME: Trip.name,
@@ -313,6 +335,7 @@ class TripService:
             listed_membership.user_id == listed_user_id,
             listed_membership.role.in_(LISTED_TRIP_ROLES),
             access_filter,
+            *trip_status_filters(status_filter, today=date.today()),
         )
         total_statement = (
             select(func.count())

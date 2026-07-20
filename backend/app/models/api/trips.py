@@ -17,9 +17,17 @@ from models.database.trips import (
 
 
 class TripSortField(str, enum.Enum):
+    START_DATE = 'start_date'
     CREATED_AT = 'created_at'
     UPDATED_AT = 'updated_at'
     NAME = 'name'
+
+
+class TripStatusFilter(str, enum.Enum):
+    ALL = 'all'
+    ONGOING = 'ongoing'
+    UPCOMING = 'upcoming'
+    PAST = 'past'
 
 
 class TripCreateRequest(BaseModel):
@@ -167,7 +175,13 @@ class TripResponse(BaseModel):
     cover_media: MediaResponse | None
 
     @classmethod
-    def from_model(cls, trip: Trip, media_base_url: str) -> Self:
+    def from_model(
+        cls,
+        trip: Trip,
+        media_base_url: str,
+        *,
+        media_token: str | None = None,
+    ) -> Self:
         return cls(
             id=trip.id,
             name=trip.name,
@@ -177,7 +191,9 @@ class TripResponse(BaseModel):
             end_date=trip.end_date,
             cover_media=(
                 MediaResponse.from_model(
-                    trip.cover_media, media_base_url=media_base_url
+                    trip.cover_media,
+                    media_base_url=media_base_url,
+                    media_token=media_token,
                 )
                 if trip.cover_media
                 else None

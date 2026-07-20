@@ -1,120 +1,208 @@
-import {
-  ArrowRight,
-  CheckCircle2,
-  Code2,
-  Compass,
-  Palette,
-  RefreshCw,
-} from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { API_BASE_URL } from '@/api/client'
+import { AuthProvider } from '@/auth/auth-provider'
+import { useAuth } from '@/auth/use-auth'
 import { AppShell } from '@/components/layout/app-shell'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { getUserUsername } from '@/lib/users'
+import { AdminPage } from '@/pages/admin-page'
+import { LoginPage } from '@/pages/login-page'
+import { PlaceholderPage } from '@/pages/placeholder-page'
+import { ProfileSettingsPage } from '@/pages/profile-settings-page'
+import { SetupPage } from '@/pages/setup-page'
+import { TripDetailPage } from '@/pages/trip-detail-page'
+import { UserTripOverviewPage } from '@/pages/user-trip-overview-page'
 
-type ReadinessItem = {
-  icon: LucideIcon
-  label: string
-  value: string
+type Route =
+  | { name: 'admin' }
+  | { name: 'login' }
+  | { name: 'not-found' }
+  | { name: 'profile-settings' }
+  | { name: 'setup' }
+  | { name: 'trip-detail'; tripId: string }
+  | { name: 'user-overview'; username: string }
+
+type NavigateOptions = {
+  replace?: boolean
 }
-
-const readinessItems: ReadinessItem[] = [
-  {
-    icon: Code2,
-    label: 'TypeScript',
-    value: 'Strict React app shell',
-  },
-  {
-    icon: Palette,
-    label: 'Theme',
-    value: 'Single token source',
-  },
-  {
-    icon: RefreshCw,
-    label: 'API',
-    value: 'Generated OpenAPI types',
-  },
-]
 
 function App() {
   return (
-    <AppShell>
-      <section className="grid min-h-[calc(100vh-4.5rem)] content-center gap-10 py-12 md:grid-cols-[1.05fr_0.95fr] md:items-center md:py-16">
-        <div className="max-w-2xl space-y-8">
-          <Badge variant="secondary" className="gap-2">
-            <Compass className="size-3.5" aria-hidden="true" />
-            OpenVoyage frontend
-          </Badge>
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
+  )
+}
 
-          <div className="space-y-5">
-            <h1 className="text-balance text-5xl font-semibold tracking-normal text-foreground sm:text-6xl">
-              Hello from OpenVoyage.
-            </h1>
-            <p className="max-w-xl text-lg leading-8 text-muted-foreground">
-              The React foundation is ready for the travel planning and blogging
-              pages that come next.
-            </p>
-          </div>
+function AppRoutes() {
+  const { accessToken, currentUser, signOut, status, updateCurrentUser } = useAuth()
+  const { location, navigate } = useBrowserLocation()
+  const route = useMemo(() => parseRoute(location), [location])
+  const currentUsername = getUserUsername(currentUser)
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Button type="button" size="lg">
-              Start building
-              <ArrowRight className="size-4" aria-hidden="true" />
-            </Button>
-            <div className="rounded-md border bg-card px-4 py-3 text-sm text-muted-foreground">
-              API base:{' '}
-              <span className="font-medium text-foreground">{API_BASE_URL}</span>
-            </div>
-          </div>
-        </div>
+  useEffect(() => {
+    if (status !== 'authenticated' || route.name !== 'login') {
+      return
+    }
 
-        <Card className="shadow-soft">
-          <CardHeader>
-            <div className="flex items-center justify-between gap-4">
-              <Badge className="gap-2">
-                <CheckCircle2 className="size-3.5" aria-hidden="true" />
-                Ready
-              </Badge>
-              <Compass
-                className="size-10 text-primary"
-                strokeWidth={1.6}
-                aria-hidden="true"
-              />
-            </div>
-            <CardTitle>Frontend baseline</CardTitle>
-            <CardDescription>
-              Shared structure, typed API access, and standardized visual tokens
-              are in place.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {readinessItems.map((item) => (
-              <div
-                key={item.label}
-                className="grid grid-cols-[2.5rem_1fr] items-center gap-3 rounded-md border bg-background/70 p-3"
-              >
-                <div className="grid size-10 place-items-center rounded-md bg-secondary text-secondary-foreground">
-                  <item.icon className="size-5" aria-hidden="true" />
-                </div>
-                <div>
-                  <p className="font-medium text-foreground">{item.label}</p>
-                  <p className="text-sm text-muted-foreground">{item.value}</p>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </section>
+    navigate(
+      currentUsername ? `/users/${encodeURIComponent(currentUsername)}` : '/setup',
+      { replace: true },
+    )
+  }, [currentUsername, navigate, route.name, status])
+
+  function handleAuthenticated(user: NonNullable<typeof currentUser>) {
+    const username = getUserUsername(user)
+    navigate(username ? `/users/${encodeURIComponent(username)}` : '/setup', {
+      replace: true,
+    })
+  }
+
+  function handleLogout() {
+    signOut()
+    navigate('/', { replace: true })
+  }
+
+  if (route.name === 'login') {
+    return <LoginPage onAuthenticated={handleAuthenticated} />
+  }
+
+  return (
+    <AppShell
+      authStatus={status}
+      currentUser={currentUser}
+      onLogout={handleLogout}
+      onNavigate={navigate}
+    >
+      {renderRoute(route, {
+        accessToken,
+        currentUser,
+        onNavigate: navigate,
+        onProfileUpdated: updateCurrentUser,
+        status,
+      })}
     </AppShell>
   )
+}
+
+type RouteRenderContext = {
+  accessToken: string | null
+  currentUser: ReturnType<typeof useAuth>['currentUser']
+  onNavigate: (to: string) => void
+  onProfileUpdated: ReturnType<typeof useAuth>['updateCurrentUser']
+  status: ReturnType<typeof useAuth>['status']
+}
+
+function renderRoute(route: Route, context: RouteRenderContext) {
+  switch (route.name) {
+    case 'admin':
+      return (
+        <AdminPage
+          authStatus={context.status}
+          currentUser={context.currentUser}
+        />
+      )
+    case 'setup':
+      return <SetupPage />
+    case 'profile-settings':
+      return (
+        <ProfileSettingsPage
+          accessToken={context.accessToken}
+          authStatus={context.status}
+          currentUser={context.currentUser}
+          onNavigate={context.onNavigate}
+          onProfileUpdated={context.onProfileUpdated}
+        />
+      )
+    case 'trip-detail':
+      return <TripDetailPage tripId={route.tripId} />
+    case 'user-overview':
+      return (
+        <UserTripOverviewPage
+          accessToken={context.accessToken}
+          authStatus={context.status}
+          currentUser={context.currentUser}
+          username={route.username}
+        />
+      )
+    case 'not-found':
+      return (
+        <PlaceholderPage
+          description="The page you requested does not exist."
+          title="Page not found"
+        />
+      )
+    case 'login':
+      return null
+  }
+}
+
+function useBrowserLocation() {
+  const [location, setLocation] = useState(() => getCurrentLocation())
+
+  useEffect(() => {
+    function handlePopState() {
+      setLocation(getCurrentLocation())
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  const navigate = useCallback((to: string, options: NavigateOptions = {}) => {
+    if (to === getCurrentLocation()) {
+      return
+    }
+
+    if (options.replace) {
+      window.history.replaceState(null, '', to)
+    } else {
+      window.history.pushState(null, '', to)
+    }
+    setLocation(getCurrentLocation())
+  }, [])
+
+  return { location, navigate }
+}
+
+function getCurrentLocation() {
+  return `${window.location.pathname}${window.location.search}`
+}
+
+function parseRoute(location: string): Route {
+  const pathname = location.split('?')[0] || '/'
+  const segments = pathname.split('/').filter(Boolean).map(decodeURIComponent)
+
+  if (pathname === '/' || pathname === '/login') {
+    return { name: 'login' }
+  }
+
+  if (segments[0] === 'users' && segments[1] && segments.length === 2) {
+    return {
+      name: 'user-overview',
+      username: segments[1],
+    }
+  }
+
+  if (segments[0] === 'trips' && segments[1] && segments.length === 2) {
+    return {
+      name: 'trip-detail',
+      tripId: segments[1],
+    }
+  }
+
+  if (pathname === '/admin') {
+    return { name: 'admin' }
+  }
+
+  if (pathname === '/setup') {
+    return { name: 'setup' }
+  }
+
+  if (pathname === '/settings/profile') {
+    return { name: 'profile-settings' }
+  }
+
+  return { name: 'not-found' }
 }
 
 export default App

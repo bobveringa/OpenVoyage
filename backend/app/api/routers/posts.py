@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette import status
 from starlette.requests import Request
 
+from core import security
 from api.deps import (
     CurrentUser,
     OptionalCurrentUser,
@@ -33,6 +34,21 @@ from services.post_service import (
 router = APIRouter(prefix='/trips/{trip_id}/posts', tags=['posts'])
 
 
+def _post_response(
+    post,
+    media_base_url: str,
+    *,
+    user=None,
+    share_token: str | None = None,
+) -> PostResponse:
+    media_token_factory = security.create_media_url_token if user or share_token else None
+    return PostResponse.from_model(
+        post,
+        media_base_url=media_base_url,
+        media_token_factory=media_token_factory,
+    )
+
+
 @router.post(
     '',
     status_code=status.HTTP_201_CREATED,
@@ -59,7 +75,7 @@ def create_post(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return PostResponse.from_model(post, media_base_url=media_base_url)
+    return _post_response(post, media_base_url=media_base_url, user=user)
 
 
 @router.get(
@@ -99,7 +115,12 @@ def list_posts(
     media_base_url = str(request.base_url).rstrip('/')
     return PaginatedResponse[PostResponse](
         items=[
-            PostResponse.from_model(post, media_base_url=media_base_url)
+            _post_response(
+                post,
+                media_base_url=media_base_url,
+                user=user,
+                share_token=share_token,
+            )
             for post in posts
         ],
         total=total,
@@ -133,7 +154,12 @@ def get_post(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return PostResponse.from_model(post, media_base_url=media_base_url)
+    return _post_response(
+        post,
+        media_base_url=media_base_url,
+        user=user,
+        share_token=share_token,
+    )
 
 
 @router.patch(
@@ -165,7 +191,7 @@ def update_post(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return PostResponse.from_model(post, media_base_url=media_base_url)
+    return _post_response(post, media_base_url=media_base_url, user=user)
 
 
 @router.post(
@@ -191,7 +217,7 @@ def publish_post(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return PostResponse.from_model(post, media_base_url=media_base_url)
+    return _post_response(post, media_base_url=media_base_url, user=user)
 
 
 @router.post(
@@ -217,7 +243,7 @@ def unpublish_post(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return PostResponse.from_model(post, media_base_url=media_base_url)
+    return _post_response(post, media_base_url=media_base_url, user=user)
 
 
 @router.delete(

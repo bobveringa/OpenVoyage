@@ -229,7 +229,6 @@ class MediaService:
         self,
         media: Media,
         current_user_id: uuid.UUID | None,
-        share_token: str | None = None,
     ) -> bool:
         """Return whether the current user may read a media file.
 
@@ -243,10 +242,10 @@ class MediaService:
         if self._is_profile_picture(media.id):
             return True
 
-        if self._is_readable_trip_cover(media.id, current_user_id, share_token):
+        if self._is_readable_trip_cover(media.id, current_user_id):
             return True
 
-        return self._is_readable_post_media(media.id, current_user_id, share_token)
+        return self._is_readable_post_media(media.id, current_user_id)
 
     def _is_profile_picture(self, media_id: uuid.UUID) -> bool:
         statement = (
@@ -260,7 +259,6 @@ class MediaService:
         self,
         media_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
-        share_token: str | None,
     ) -> bool:
         trip_ids = self.db.execute(
             select(Trip.id).where(Trip.cover_media_id == media_id)
@@ -271,7 +269,6 @@ class MediaService:
                 self.db,
                 trip_id=trip_id,
                 current_user_id=current_user_id,
-                share_token=share_token,
             )
             if access is not None:
                 return True
@@ -282,7 +279,6 @@ class MediaService:
         self,
         media_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
-        share_token: str | None,
     ) -> bool:
         post_rows = self.db.execute(
             select(Post.id)
@@ -296,7 +292,6 @@ class MediaService:
                 self.db,
                 trip_id=trip_id,
                 current_user_id=current_user_id,
-                share_token=share_token,
             )
             if access is None:
                 continue

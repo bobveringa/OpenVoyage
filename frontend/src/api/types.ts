@@ -1175,7 +1175,12 @@ export interface components {
          * TripSortField
          * @enum {string}
          */
-        TripSortField: "created_at" | "updated_at" | "name";
+        TripSortField: "start_date" | "created_at" | "updated_at" | "name";
+        /**
+         * TripStatusFilter
+         * @enum {string}
+         */
+        TripStatusFilter: "all" | "ongoing" | "upcoming" | "past";
         /** TripUpdateRequest */
         TripUpdateRequest: {
             /** Description */
@@ -1489,7 +1494,7 @@ export interface operations {
         parameters: {
             query?: {
                 thumbnail?: boolean;
-                share_token?: string | null;
+                media_token?: string | null;
             };
             header?: never;
             path: {
@@ -1592,6 +1597,7 @@ export interface operations {
                 user_id?: string | null;
                 sort_by?: components["schemas"]["TripSortField"];
                 sort_order?: components["schemas"]["SortDirection"];
+                status?: components["schemas"]["TripStatusFilter"];
                 page?: number;
                 page_size?: number;
             };

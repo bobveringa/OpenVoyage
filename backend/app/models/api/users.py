@@ -54,8 +54,8 @@ class UserProfileUpdateRequest(BaseModel):
         min_length=USERNAME_MIN_LENGTH,
         max_length=USERNAME_MAX_LENGTH,
     )
-    first_name: str | None = Field(default=None, min_length=1, max_length=255)
-    last_name: str | None = Field(default=None, min_length=1, max_length=255)
+    first_name: str | None = Field(default=None, max_length=255)
+    last_name: str | None = Field(default=None, max_length=255)
     biography: str | None = Field(default=None, max_length=2048)
     profile_picture_media_id: uuid.UUID | None = None
 
