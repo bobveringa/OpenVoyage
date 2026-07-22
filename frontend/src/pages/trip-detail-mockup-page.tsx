@@ -18,7 +18,7 @@ import {
   Link2,
   Lock,
   Mail,
-  MessageSquare,
+  MapPin,
   Minus,
   MoreHorizontal,
   MousePointer2,
@@ -346,7 +346,9 @@ const travelPosts: readonly TravelPost[] = [
 
 export function TripDetailMockupPage() {
   const shouldUseMobileMapPicker = useMediaQuery('(max-width: 1023px)')
+  const canSwitchModes = true
   const [mode, setMode] = useState<TripMode>('planning')
+  const [planningView, setPlanningView] = useState<PlanningView>('stops')
   const [plannedStops, setPlannedStops] = useState<readonly Stop[]>(initialStops)
   const [travelingView, setTravelingView] = useState<TravelingView>('posts')
   const [activeDialog, setActiveDialog] = useState<TripDialog | null>(null)
@@ -426,6 +428,14 @@ export function TripDetailMockupPage() {
     [shouldUseMobileMapPicker],
   )
 
+  const handleModeChange = useCallback((nextMode: TripMode) => {
+    setMapPointTarget(null)
+    setMobileMapPickerTarget(null)
+    setMode(nextMode)
+    setPlanningView('stops')
+    setTravelingView('posts')
+  }, [])
+
   const activeDraftMapLocation =
     mapPointTarget === 'post'
       ? draftPostLocation
@@ -438,6 +448,7 @@ export function TripDetailMockupPage() {
       : mobileMapPickerTarget === 'stop'
         ? draftStopLocation
         : null
+  const visibleMode: TripMode = canSwitchModes ? mode : 'traveling'
 
   useEffect(() => {
     if (!shouldUseMobileMapPicker) {
@@ -446,29 +457,43 @@ export function TripDetailMockupPage() {
   }, [shouldUseMobileMapPicker])
 
   return (
-    <div className="relative left-1/2 h-[calc(100dvh-4rem-1px)] w-screen -translate-x-1/2 overflow-hidden px-3 py-3 sm:px-5 lg:px-6">
-      <div className="mx-auto h-full max-w-[132rem]">
-        <div className="grid h-full gap-4 lg:grid-cols-[minmax(30rem,46vw)_minmax(0,1fr)]">
-          <TripSidebar
-            mode={mode}
-            draftPostLocation={draftPostLocation}
-            draftStopLocation={draftStopLocation}
-            mapPointTarget={mapPointTarget}
-            onMapPointTargetChange={handleMapPointTargetChange}
-            onModeChange={setMode}
-            onOpenDialog={openDialog}
-            onStopChange={handleStopChange}
-            onTravelingViewChange={setTravelingView}
-            stops={plannedStops}
-            trip={mockTrip}
-            travelingView={travelingView}
-          />
-          <MapWorkspace
-            draftMapLocation={activeDraftMapLocation}
-            mapPointEnabled={mapPointTarget !== null}
-            onDraftMapPointSelect={handleDraftMapPointSelect}
-            stops={plannedStops}
-          />
+    <div className="relative left-1/2 min-h-[calc(100dvh-4rem-1px)] w-screen -translate-x-1/2 overflow-x-hidden px-3 py-3 sm:px-5 lg:h-[calc(100dvh-4rem-1px)] lg:overflow-hidden lg:px-6">
+      <div className="mx-auto min-h-0 max-w-[132rem] lg:h-full">
+        <div className="grid min-h-0 gap-4 lg:h-full lg:grid-cols-[minmax(30rem,46vw)_minmax(0,1fr)]">
+          <div
+            className={cn(
+              'min-h-0 min-w-0',
+              canSwitchModes &&
+                'lg:grid lg:grid-cols-[4.75rem_minmax(0,1fr)] lg:gap-3',
+            )}
+          >
+            {canSwitchModes ? (
+              <TripModeDock mode={mode} onModeChange={handleModeChange} />
+            ) : null}
+            <TripSidebar
+              mode={visibleMode}
+              draftPostLocation={draftPostLocation}
+              draftStopLocation={draftStopLocation}
+              mapPointTarget={mapPointTarget}
+              onMapPointTargetChange={handleMapPointTargetChange}
+              onOpenDialog={openDialog}
+              onPlanningViewChange={setPlanningView}
+              onStopChange={handleStopChange}
+              onTravelingViewChange={setTravelingView}
+              planningView={planningView}
+              stops={plannedStops}
+              trip={mockTrip}
+              travelingView={travelingView}
+            />
+          </div>
+          {!shouldUseMobileMapPicker ? (
+            <MapWorkspace
+              draftMapLocation={activeDraftMapLocation}
+              mapPointEnabled={mapPointTarget !== null}
+              onDraftMapPointSelect={handleDraftMapPointSelect}
+              stops={plannedStops}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -508,6 +533,12 @@ export function TripDetailMockupPage() {
         stops={plannedStops}
         target={mobileMapPickerTarget}
       />
+      {canSwitchModes ? (
+        <MobileModeSwitch
+          mode={mode}
+          onModeChange={handleModeChange}
+        />
+      ) : null}
     </div>
   )
 }
@@ -520,19 +551,25 @@ function TripSidebarHeader({
   trip: MockTrip
 }) {
   return (
-    <div className="space-y-3 border-b border-emerald-100 p-4">
+    <div className="space-y-2 border-b border-emerald-100 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1.5">
+        <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{getVisibilityLabel(trip.visibility)}</Badge>
             <span className="text-xs font-medium text-muted-foreground">Mockup</span>
           </div>
-          <h1 className="truncate text-xl font-semibold tracking-normal text-foreground">
+          <h1 className="truncate text-lg font-semibold tracking-normal text-foreground">
             {trip.name}
           </h1>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <CalendarDays className="size-3.5" aria-hidden="true" />
+              {formatTripDateRange(trip.startDate, trip.endDate)}
+            </span>
+          </div>
         </div>
 
-        <div className="grid shrink-0 grid-cols-2 gap-1.5">
+        <div className="flex shrink-0 items-center gap-1">
           <TripActionButton
             icon={Settings}
             label="Trip settings"
@@ -555,13 +592,6 @@ function TripSidebarHeader({
           />
         </div>
       </div>
-
-      <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <CalendarDays className="size-3.5" aria-hidden="true" />
-          {formatTripDateRange(trip.startDate, trip.endDate)}
-        </span>
-      </div>
     </div>
   )
 }
@@ -578,14 +608,14 @@ function TripActionButton({
   return (
     <Button
       aria-label={label}
-      className="size-9 rounded-xl"
+      className="size-8 rounded-xl"
       onClick={onClick}
       size="icon"
       title={label}
       type="button"
       variant="outline"
     >
-      <Icon className="size-4" aria-hidden="true" />
+      <Icon className="size-3.5" aria-hidden="true" />
     </Button>
   )
 }
@@ -1318,10 +1348,11 @@ function TripSidebar({
   mapPointTarget,
   mode,
   onMapPointTargetChange,
-  onModeChange,
   onOpenDialog,
+  onPlanningViewChange,
   onStopChange,
   onTravelingViewChange,
+  planningView,
   stops,
   trip,
   travelingView,
@@ -1331,55 +1362,27 @@ function TripSidebar({
   mapPointTarget: MapPointTarget | null
   mode: TripMode
   onMapPointTargetChange: (target: MapPointTarget | null) => void
-  onModeChange: (mode: TripMode) => void
   onOpenDialog: (dialog: TripDialog) => void
+  onPlanningViewChange: (view: PlanningView) => void
   onStopChange: (stopId: string, updates: Partial<Stop>) => void
   onTravelingViewChange: (view: TravelingView) => void
+  planningView: PlanningView
   stops: readonly Stop[]
   trip: MockTrip
   travelingView: TravelingView
 }) {
-  const [planningView, setPlanningView] = useState<PlanningView>('stops')
-
   return (
-    <aside className="flex min-h-0 flex-col overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-sm lg:h-full">
+    <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-sm lg:h-full">
       <TripSidebarHeader onOpenDialog={onOpenDialog} trip={trip} />
 
-      <div className="border-b border-emerald-100 p-4">
-        <div className="grid grid-cols-2 rounded-[1.4rem] bg-secondary p-1">
-          <ModeButton
-            active={mode === 'planning'}
-            icon={<PenLine className="size-4" aria-hidden="true" />}
-            label="Planning"
-            onClick={() => {
-              onMapPointTargetChange(null)
-              onModeChange('planning')
-              setPlanningView('stops')
-              onTravelingViewChange('posts')
-            }}
-          />
-          <ModeButton
-            active={mode === 'traveling'}
-            icon={<Navigation className="size-4" aria-hidden="true" />}
-            label="Traveling"
-            onClick={() => {
-              onMapPointTargetChange(null)
-              onModeChange('traveling')
-              setPlanningView('stops')
-              onTravelingViewChange('posts')
-            }}
-          />
-        </div>
-      </div>
-
-      <div className="scrollbar-subtle min-h-0 flex-1 overflow-auto">
+      <div className="scrollbar-subtle min-w-0 flex-1 pb-24 lg:min-h-0 lg:overflow-auto lg:pb-0">
         {mode === 'planning' && planningView === 'create-stop' ? (
           <CreateStopPanel
             draftLocation={draftStopLocation}
             mapPointActive={mapPointTarget === 'stop'}
             onCancel={() => {
               onMapPointTargetChange(null)
-              setPlanningView('stops')
+              onPlanningViewChange('stops')
             }}
             onMapPointTargetChange={onMapPointTargetChange}
             stops={stops}
@@ -1388,7 +1391,7 @@ function TripSidebar({
           <PlanningPanel
             onAddStop={() => {
               onMapPointTargetChange(null)
-              setPlanningView('create-stop')
+              onPlanningViewChange('create-stop')
             }}
             onStopChange={onStopChange}
             stops={stops}
@@ -1441,6 +1444,120 @@ function ModeButton({
       {icon}
       {label}
     </button>
+  )
+}
+
+function TripModeSwitch({
+  className,
+  mode,
+  onModeChange,
+}: {
+  className?: string
+  mode: TripMode
+  onModeChange: (mode: TripMode) => void
+}) {
+  return (
+    <div
+      className={cn(
+        'grid grid-cols-2 rounded-[1.4rem] border border-emerald-100 bg-white/92 p-1 shadow-xl shadow-emerald-950/10 backdrop-blur',
+        className,
+      )}
+    >
+      <ModeButton
+        active={mode === 'planning'}
+        icon={<PenLine className="size-4" aria-hidden="true" />}
+        label="Plan"
+        onClick={() => onModeChange('planning')}
+      />
+      <ModeButton
+        active={mode === 'traveling'}
+        icon={<Navigation className="size-4" aria-hidden="true" />}
+        label="Travel"
+        onClick={() => onModeChange('traveling')}
+      />
+    </div>
+  )
+}
+
+function TripModeDock({
+  mode,
+  onModeChange,
+}: {
+  mode: TripMode
+  onModeChange: (mode: TripMode) => void
+}) {
+  return (
+    <div className="hidden min-h-0 items-center lg:flex">
+      <div className="flex w-full flex-col gap-1.5 rounded-[1.35rem] border border-emerald-100 bg-white/95 p-1.5 shadow-xl shadow-emerald-950/10">
+        <DockModeButton
+          active={mode === 'planning'}
+          icon={PenLine}
+          label="Plan"
+          onClick={() => onModeChange('planning')}
+        />
+        <DockModeButton
+          active={mode === 'traveling'}
+          icon={Navigation}
+          label="Travel"
+          onClick={() => onModeChange('traveling')}
+        />
+      </div>
+    </div>
+  )
+}
+
+function DockModeButton({
+  active,
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  active: boolean
+  icon: LucideIcon
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <Button
+      aria-label={label}
+      aria-pressed={active}
+      className={cn(
+        'h-16 w-full flex-col gap-1 rounded-[1rem] border px-1 py-1.5 text-center text-[13px] font-semibold leading-none tracking-normal transition-colors',
+        active
+          ? 'border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
+          : 'border-transparent bg-white text-muted-foreground hover:bg-emerald-50 hover:text-foreground',
+      )}
+      onClick={onClick}
+      title={label}
+      type="button"
+      variant="ghost"
+    >
+      <Icon className="size-4" aria-hidden="true" />
+      <span className="w-full truncate">{label}</span>
+    </Button>
+  )
+}
+
+function MobileModeSwitch({
+  mode,
+  onModeChange,
+}: {
+  mode: TripMode
+  onModeChange: (mode: TripMode) => void
+}) {
+  if (typeof document === 'undefined') {
+    return null
+  }
+
+  return createPortal(
+    <div className="fixed inset-x-3 bottom-3 z-50 lg:hidden">
+      <TripModeSwitch
+        className="mx-auto max-w-sm"
+        mode={mode}
+        onModeChange={onModeChange}
+      />
+    </div>,
+    document.body,
   )
 }
 
@@ -1514,7 +1631,7 @@ function PlanningPanel({
   stops: readonly Stop[]
 }) {
   return (
-    <div className="space-y-5 p-4">
+    <div className="min-w-0 space-y-5 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground">Planning</h2>
@@ -1598,7 +1715,7 @@ function CreateStopPanel({
   }
 
   return (
-    <div className="space-y-5 p-4">
+    <div className="min-w-0 space-y-5 p-4">
       <div className="flex items-start gap-3">
         <Button
           aria-label="Back to stops"
@@ -1701,7 +1818,7 @@ function CreateStopPanel({
         ) : null}
       </section>
 
-      <section className="space-y-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4">
+      <section className="min-w-0 space-y-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4">
         <div>
           <h3 className="font-semibold text-foreground">Schedule</h3>
           <p className="text-sm text-muted-foreground">
@@ -1785,7 +1902,7 @@ function CreateStopPanel({
 
 function TravelingPanel({ onNewPost }: { onNewPost: () => void }) {
   return (
-    <div className="space-y-4 p-4">
+    <div className="min-w-0 space-y-4 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground">Travel posts</h2>
@@ -1799,9 +1916,11 @@ function TravelingPanel({ onNewPost }: { onNewPost: () => void }) {
         </Button>
       </div>
 
-      {travelPosts.map((post) => (
-        <TravelPostCard key={post.id} post={post} />
-      ))}
+      <div className="space-y-5">
+        {travelPosts.map((post) => (
+          <TravelPostCard key={post.id} post={post} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -2064,10 +2183,10 @@ function CreatePostPanel({
 
         {mediaNotice ? <MockNotice>{mediaNotice}</MockNotice> : null}
 
-        <div className="trip-post-media-strip scrollbar-subtle flex gap-3 overflow-x-auto pb-1">
+        <div className="trip-post-media-strip scrollbar-subtle flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain pb-1">
           {draftMedia.length === 0 ? (
             <button
-              className="grid h-56 w-80 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary"
+              className="grid h-56 w-[76vw] max-w-80 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary sm:w-80"
               onClick={() => setMediaToolsOpen(true)}
               type="button"
             >
@@ -2080,7 +2199,7 @@ function CreatePostPanel({
 
           {draftMedia.map((media, index) => (
             <article
-              className="group relative h-56 w-80 shrink-0 overflow-hidden rounded-[1.4rem] bg-secondary"
+              className="group relative h-56 w-[76vw] max-w-80 shrink-0 overflow-hidden rounded-[1.4rem] bg-secondary sm:w-80"
               key={media.src}
             >
               <img alt={media.alt} className="size-full object-cover" src={media.src} />
@@ -2133,7 +2252,7 @@ function CreatePostPanel({
           ))}
 
           <button
-            className="grid h-56 w-52 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary"
+            className="grid h-56 w-[52vw] max-w-52 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary sm:w-52"
             onClick={() => setMediaToolsOpen(true)}
             type="button"
           >
@@ -2208,36 +2327,34 @@ function CreatePostPanel({
 
 function TravelPostCard({ post }: { post: TravelPost }) {
   return (
-    <article className="overflow-hidden rounded-[1.5rem] border border-emerald-100 bg-white">
+    <article className="min-w-0 overflow-hidden rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 shadow-sm shadow-emerald-950/5">
       <div className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-primary">{post.location}</p>
-            <h3 className="mt-1 text-lg font-semibold leading-6 text-foreground">
+            <h3 className="text-lg font-semibold leading-6 text-foreground">
               {post.title}
             </h3>
           </div>
-          <Badge variant="outline">{post.media.length} media</Badge>
         </div>
 
         <p className="text-sm leading-6 text-muted-foreground">{post.excerpt}</p>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
-            <Clock className="size-3.5" aria-hidden="true" />
-            {post.time}
+            <MapPin className="size-3.5" aria-hidden="true" />
+            {post.location}
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <MessageSquare className="size-3.5" aria-hidden="true" />
-            {post.comments} comments
+            <Clock className="size-3.5" aria-hidden="true" />
+            {post.time}
           </span>
         </div>
       </div>
 
-      <div className="trip-post-media-strip scrollbar-subtle flex gap-3 overflow-x-auto px-4 pb-4">
+      <div className="trip-post-media-strip scrollbar-subtle flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain px-4 pb-4">
         {post.media.map((media) => (
           <div
-            className="relative h-64 w-96 shrink-0 overflow-hidden rounded-[1.5rem] bg-secondary xl:h-72 xl:w-[28rem]"
+            className="relative h-56 w-[76vw] max-w-96 shrink-0 overflow-hidden rounded-[1.5rem] bg-secondary sm:h-64 sm:w-96 xl:h-72 xl:w-[28rem]"
             key={media.src}
           >
             <img alt={media.alt} className="size-full object-cover" src={media.src} />
@@ -2342,7 +2459,7 @@ function MapWorkspace({
   const [resetNonce, setResetNonce] = useState(0)
 
   return (
-    <section className="relative min-h-0 overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-sm lg:h-full">
+    <section className="relative min-h-0 min-w-0 overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-sm lg:h-full">
       <TripLeafletMap
         draftMapLocation={draftMapLocation}
         mapPointEnabled={mapPointEnabled}

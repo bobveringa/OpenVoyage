@@ -188,6 +188,7 @@
 
   .trip-post-media-strip {
     scrollbar-gutter: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .trip-post-media-strip::-webkit-scrollbar-track {
