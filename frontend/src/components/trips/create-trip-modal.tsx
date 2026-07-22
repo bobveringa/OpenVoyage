@@ -11,6 +11,7 @@ import {
 import { createDefaultTripCoverFile } from '@/components/trips/default-trip-cover'
 import { TripCoverField } from '@/components/trips/trip-cover-field'
 import { Button } from '@/components/ui/button'
+import { DatePicker } from '@/components/ui/date-time-picker'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
@@ -108,6 +109,22 @@ export function CreateTripModal({
     }
   }
 
+  function handleStartDateChange(startDate: string) {
+    setFormState((current) => ({
+      ...current,
+      endDate:
+        current.endDate && current.endDate < startDate ? '' : current.endDate,
+      startDate,
+    }))
+  }
+
+  function handleEndDateChange(endDate: string) {
+    setFormState((current) => ({
+      ...current,
+      endDate,
+    }))
+  }
+
   return (
     <Modal
       description="Add the basics now. Details can be expanded later."
@@ -149,16 +166,10 @@ export function CreateTripModal({
             >
               Start date
             </label>
-            <Input
+            <DatePicker
               disabled={isSubmitting}
               id="start-date"
-              onChange={(event) =>
-                setFormState((current) => ({
-                  ...current,
-                  startDate: event.target.value,
-                }))
-              }
-              type="date"
+              onValueChange={handleStartDateChange}
               value={formState.startDate}
             />
           </div>
@@ -170,17 +181,11 @@ export function CreateTripModal({
             >
               End date
             </label>
-            <Input
+            <DatePicker
               disabled={isSubmitting}
               id="end-date"
               min={formState.startDate || undefined}
-              onChange={(event) =>
-                setFormState((current) => ({
-                  ...current,
-                  endDate: event.target.value,
-                }))
-              }
-              type="date"
+              onValueChange={handleEndDateChange}
               value={formState.endDate}
             />
           </div>

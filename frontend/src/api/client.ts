@@ -22,6 +22,10 @@ export type TripSortField = components['schemas']['TripSortField']
 export type TripStatusFilter = components['schemas']['TripStatusFilter']
 export type TripVisibility = components['schemas']['TripVisibility']
 export type Media = components['schemas']['MediaResponse']
+export type PlaceImportDataset =
+  components['schemas']['PlaceImportRequest']['dataset']
+export type PlaceImportPayload = components['schemas']['PlaceImportRequest']
+export type PlaceImportResult = components['schemas']['PlaceImportResponse']
 export type UserProfileUpdatePayload =
   components['schemas']['UserProfileUpdateRequest']
 export type UsernameAvailability =
@@ -88,6 +92,17 @@ export async function refreshAuthTokens(
 export async function readCurrentUser(accessToken: string): Promise<CurrentUser> {
   return requestJson<CurrentUser>(`${API_V1_PREFIX}/users/me`, {
     accessToken,
+  })
+}
+
+export async function importPlaces(
+  payload: PlaceImportPayload,
+  accessToken: string,
+): Promise<PlaceImportResult> {
+  return requestJson<PlaceImportResult>(`${API_V1_PREFIX}/admin/places/import`, {
+    method: 'POST',
+    accessToken,
+    json: payload,
   })
 }
 
