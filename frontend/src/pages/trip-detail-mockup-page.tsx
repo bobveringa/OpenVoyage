@@ -5,14 +5,18 @@ import {
   Archive,
   ArrowLeft,
   ArrowRight,
+  Bike,
+  Bus,
   Camera,
   CalendarDays,
   Check,
+  ChevronDown,
   Clock,
   Compass,
   Copy,
   Download,
   Eye,
+  Car,
   Globe2,
   ImagePlus,
   Link2,
@@ -24,19 +28,24 @@ import {
   MousePointer2,
   Navigation,
   PenLine,
+  Plane,
   Plus,
   Search,
   Send,
   Share2,
   Shield,
+  Ship,
   Settings,
+  Footprints,
   Trash2,
+  TrainFront,
   Upload,
   UserPlus,
   Users,
   type LucideIcon,
 } from 'lucide-react'
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
@@ -63,10 +72,21 @@ type RouteFitMode = 'mobile-picker' | 'workspace'
 type TripDialog = 'actions' | 'members' | 'settings' | 'share'
 type MockTripVisibility = 'PLATFORM_PUBLIC' | 'PRIVATE' | 'PUBLIC'
 type MockTripRole = 'MEMBER' | 'OWNER'
+type TravelMode =
+  | 'BIKE'
+  | 'BUS'
+  | 'CAR'
+  | 'FERRY'
+  | 'FLIGHT'
+  | 'OTHER'
+  | 'TRAIN'
+  | 'UNKNOWN'
+  | 'WALK'
 
 type MockTrip = {
   description: string
   endDate: string
+  id: string
   name: string
   startDate: string
   visibility: MockTripVisibility
@@ -93,16 +113,48 @@ type MockShareLink = {
   token: string
 }
 
-type Stop = {
-  coordinates: L.LatLngTuple
-  country: string
-  description: string
+type MockUserSummary = {
+  first_name: string | null
   id: string
-  image: string
-  label: string
-  plannedNights: number
-  plannedStartDate: string
-  status: 'done' | 'planned'
+  last_name: string | null
+  username: string | null
+}
+
+type ItineraryLocation = {
+  country_code: string
+  full_name: string
+  id: string
+  latitude: number
+  longitude: number
+  name: string
+  region: string
+}
+
+type Stop = {
+  created_at: string
+  created_by: MockUserSummary
+  id: string
+  location: ItineraryLocation
+  notes: string
+  planned_nights: number
+  planned_start_date: string
+  same_day_position: number
+  title: string
+  trip_id: string
+  updated_at: string
+}
+
+type TravelLeg = {
+  created_at: string
+  from_stop_id: string
+  id: string
+  notes: string
+  operator: string | null
+  reference: string | null
+  to_stop_id: string
+  travel_mode: TravelMode
+  trip_id: string
+  updated_at: string
 }
 
 type PostMedia = {
@@ -130,10 +182,28 @@ const mockTrip: MockTrip = {
   description:
     'A rail-heavy route through Portugal, Spain, France, and the Italian mountains.',
   endDate: '2027-05-24',
+  id: '11111111-1111-4111-8111-111111111111',
   name: 'Portugal to the Dolomites',
   startDate: '2027-05-03',
   visibility: 'PRIVATE',
 }
+
+const mockItineraryTimestamp = '2027-04-20T12:00:00Z'
+
+const mockItineraryCreator: MockUserSummary = {
+  first_name: 'Bob',
+  id: '22222222-2222-4222-8222-222222222222',
+  last_name: 'Vermeer',
+  username: 'bob',
+}
+
+const stopIds = {
+  dolomites: '33333333-3333-4333-8333-333333333335',
+  lisbon: '33333333-3333-4333-8333-333333333331',
+  lyon: '33333333-3333-4333-8333-333333333334',
+  madrid: '33333333-3333-4333-8333-333333333333',
+  porto: '33333333-3333-4333-8333-333333333332',
+} as const
 
 const visibilityOptions = [
   { label: 'Private', value: 'PRIVATE' },
@@ -148,6 +218,18 @@ const memberRoleOptions = [
   { label: 'Owner', value: 'OWNER' },
   { label: 'Member', value: 'MEMBER' },
 ] as const satisfies ReadonlyArray<{ label: string; value: MockTripRole }>
+
+const travelModeOptions = [
+  { label: 'Unknown', value: 'UNKNOWN' },
+  { label: 'Walk', value: 'WALK' },
+  { label: 'Bike', value: 'BIKE' },
+  { label: 'Car', value: 'CAR' },
+  { label: 'Bus', value: 'BUS' },
+  { label: 'Train', value: 'TRAIN' },
+  { label: 'Ferry', value: 'FERRY' },
+  { label: 'Flight', value: 'FLIGHT' },
+  { label: 'Other', value: 'OTHER' },
+] as const satisfies ReadonlyArray<{ label: string; value: TravelMode }>
 
 const mockTripMembers: readonly MockTripMember[] = [
   {
@@ -207,64 +289,160 @@ const draftPostMedia = [
 
 const initialStops: readonly Stop[] = [
   {
-    coordinates: [38.7223, -9.1393],
-    country: 'Portugal',
-    description: 'Arrival, Alfama walk, late dinner near the overlook.',
-    id: 'lisbon',
-    image:
-      'https://images.unsplash.com/photo-1585208798174-6cedd86e019a?auto=format&fit=crop&w=420&q=80',
-    label: 'Lisbon',
-    plannedNights: 3,
-    plannedStartDate: '2027-05-03',
-    status: 'done',
+    created_at: mockItineraryTimestamp,
+    created_by: mockItineraryCreator,
+    id: stopIds.lisbon,
+    location: {
+      country_code: 'PT',
+      full_name: 'Lisbon, Portugal',
+      id: '44444444-4444-4444-8444-444444444441',
+      latitude: 38.7223,
+      longitude: -9.1393,
+      name: 'Lisbon',
+      region: 'Lisbon',
+    },
+    notes: 'Arrival, Alfama walk, late dinner near the overlook.',
+    planned_nights: 3,
+    planned_start_date: '2027-05-03',
+    same_day_position: 0,
+    title: 'Lisbon',
+    trip_id: mockTrip.id,
+    updated_at: mockItineraryTimestamp,
   },
   {
-    coordinates: [41.1579, -8.6291],
-    country: 'Portugal',
-    description: 'Train north, bookshops, tiled churches, river evening.',
-    id: 'porto',
-    image:
-      'https://images.unsplash.com/photo-1513735492246-483525079686?auto=format&fit=crop&w=420&q=80',
-    label: 'Porto',
-    plannedNights: 2,
-    plannedStartDate: '2027-05-07',
-    status: 'planned',
+    created_at: mockItineraryTimestamp,
+    created_by: mockItineraryCreator,
+    id: stopIds.porto,
+    location: {
+      country_code: 'PT',
+      full_name: 'Porto, Portugal',
+      id: '44444444-4444-4444-8444-444444444442',
+      latitude: 41.1579,
+      longitude: -8.6291,
+      name: 'Porto',
+      region: 'Porto',
+    },
+    notes: 'Train north, bookshops, tiled churches, river evening.',
+    planned_nights: 2,
+    planned_start_date: '2027-05-07',
+    same_day_position: 0,
+    title: 'Porto',
+    trip_id: mockTrip.id,
+    updated_at: mockItineraryTimestamp,
   },
   {
-    coordinates: [40.4168, -3.7038],
-    country: 'Spain',
-    description: 'Museum day, neighborhood markets, early tapas route.',
-    id: 'madrid',
-    image:
-      'https://images.unsplash.com/photo-1539037116277-4db20889f2d4?auto=format&fit=crop&w=420&q=80',
-    label: 'Madrid',
-    plannedNights: 4,
-    plannedStartDate: '2027-05-10',
-    status: 'planned',
+    created_at: mockItineraryTimestamp,
+    created_by: mockItineraryCreator,
+    id: stopIds.madrid,
+    location: {
+      country_code: 'ES',
+      full_name: 'Madrid, Spain',
+      id: '44444444-4444-4444-8444-444444444443',
+      latitude: 40.4168,
+      longitude: -3.7038,
+      name: 'Madrid',
+      region: 'Community of Madrid',
+    },
+    notes: 'Museum day, neighborhood markets, early tapas route.',
+    planned_nights: 4,
+    planned_start_date: '2027-05-10',
+    same_day_position: 0,
+    title: 'Madrid',
+    trip_id: mockTrip.id,
+    updated_at: mockItineraryTimestamp,
   },
   {
-    coordinates: [45.764, 4.8357],
-    country: 'France',
-    description: 'Long rail day with a mountain transfer.',
-    id: 'lyon',
-    image:
-      'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=420&q=80',
-    label: 'Lyon',
-    plannedNights: 1,
-    plannedStartDate: '2027-05-15',
-    status: 'planned',
+    created_at: mockItineraryTimestamp,
+    created_by: mockItineraryCreator,
+    id: stopIds.lyon,
+    location: {
+      country_code: 'FR',
+      full_name: 'Lyon, Auvergne-Rhone-Alpes, France',
+      id: '44444444-4444-4444-8444-444444444444',
+      latitude: 45.764,
+      longitude: 4.8357,
+      name: 'Lyon',
+      region: 'Auvergne-Rhone-Alpes',
+    },
+    notes: 'Long rail day with a mountain transfer.',
+    planned_nights: 1,
+    planned_start_date: '2027-05-15',
+    same_day_position: 0,
+    title: 'Lyon transfer',
+    trip_id: mockTrip.id,
+    updated_at: mockItineraryTimestamp,
   },
   {
-    coordinates: [46.5405, 12.1357],
-    country: 'Italy',
-    description: 'Trail days, lake ferry, final cabin stay.',
-    id: 'dolomites',
-    image:
-      'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=420&q=80',
-    label: 'Dolomites',
-    plannedNights: 5,
-    plannedStartDate: '2027-05-17',
-    status: 'planned',
+    created_at: mockItineraryTimestamp,
+    created_by: mockItineraryCreator,
+    id: stopIds.dolomites,
+    location: {
+      country_code: 'IT',
+      full_name: 'Dolomites, Veneto, Italy',
+      id: '44444444-4444-4444-8444-444444444445',
+      latitude: 46.5405,
+      longitude: 12.1357,
+      name: 'Dolomites',
+      region: 'Veneto',
+    },
+    notes: 'Trail days, lake ferry, final cabin stay.',
+    planned_nights: 5,
+    planned_start_date: '2027-05-17',
+    same_day_position: 0,
+    title: 'Dolomites',
+    trip_id: mockTrip.id,
+    updated_at: mockItineraryTimestamp,
+  },
+] as const
+
+const initialTravelLegs: readonly TravelLeg[] = [
+  {
+    created_at: mockItineraryTimestamp,
+    from_stop_id: stopIds.lisbon,
+    id: '55555555-5555-4555-8555-555555555551',
+    notes: 'Prefer the direct morning train so arrival still leaves time for dinner.',
+    operator: 'Comboios de Portugal',
+    reference: 'AP 130',
+    to_stop_id: stopIds.porto,
+    travel_mode: 'TRAIN',
+    trip_id: mockTrip.id,
+    updated_at: mockItineraryTimestamp,
+  },
+  {
+    created_at: mockItineraryTimestamp,
+    from_stop_id: stopIds.porto,
+    id: '55555555-5555-4555-8555-555555555552',
+    notes: 'Long leg. Keep one flexible buffer day before committing the Madrid lodging.',
+    operator: 'Iberia',
+    reference: 'IB3095',
+    to_stop_id: stopIds.madrid,
+    travel_mode: 'FLIGHT',
+    trip_id: mockTrip.id,
+    updated_at: mockItineraryTimestamp,
+  },
+  {
+    created_at: mockItineraryTimestamp,
+    from_stop_id: stopIds.madrid,
+    id: '55555555-5555-4555-8555-555555555553',
+    notes: 'Check whether splitting this in Barcelona makes the day less brutal.',
+    operator: 'Renfe / SNCF',
+    reference: null,
+    to_stop_id: stopIds.lyon,
+    travel_mode: 'TRAIN',
+    trip_id: mockTrip.id,
+    updated_at: mockItineraryTimestamp,
+  },
+  {
+    created_at: mockItineraryTimestamp,
+    from_stop_id: stopIds.lyon,
+    id: '55555555-5555-4555-8555-555555555554',
+    notes: 'Mountain transfer details still rough. Add pickup notes once lodging is booked.',
+    operator: null,
+    reference: null,
+    to_stop_id: stopIds.dolomites,
+    travel_mode: 'CAR',
+    trip_id: mockTrip.id,
+    updated_at: mockItineraryTimestamp,
   },
 ] as const
 
@@ -350,6 +528,8 @@ export function TripDetailMockupPage() {
   const [mode, setMode] = useState<TripMode>('planning')
   const [planningView, setPlanningView] = useState<PlanningView>('stops')
   const [plannedStops, setPlannedStops] = useState<readonly Stop[]>(initialStops)
+  const [travelLegs, setTravelLegs] =
+    useState<readonly TravelLeg[]>(initialTravelLegs)
   const [travelingView, setTravelingView] = useState<TravelingView>('posts')
   const [activeDialog, setActiveDialog] = useState<TripDialog | null>(null)
   const [mapPointTarget, setMapPointTarget] = useState<MapPointTarget | null>(
@@ -379,6 +559,19 @@ export function TripDetailMockupPage() {
               ...updates,
             }
           : stop,
+      ),
+    )
+  }
+
+  function handleTravelLegChange(legId: string, updates: Partial<TravelLeg>) {
+    setTravelLegs((currentLegs) =>
+      currentLegs.map((leg) =>
+        leg.id === legId
+          ? {
+              ...leg,
+              ...updates,
+            }
+          : leg,
       ),
     )
   }
@@ -479,10 +672,12 @@ export function TripDetailMockupPage() {
               onOpenDialog={openDialog}
               onPlanningViewChange={setPlanningView}
               onStopChange={handleStopChange}
+              onTravelLegChange={handleTravelLegChange}
               onTravelingViewChange={setTravelingView}
               planningView={planningView}
               stops={plannedStops}
               trip={mockTrip}
+              travelLegs={travelLegs}
               travelingView={travelingView}
             />
           </div>
@@ -554,10 +749,6 @@ function TripSidebarHeader({
     <div className="space-y-2 border-b border-emerald-100 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">{getVisibilityLabel(trip.visibility)}</Badge>
-            <span className="text-xs font-medium text-muted-foreground">Mockup</span>
-          </div>
           <h1 className="truncate text-lg font-semibold tracking-normal text-foreground">
             {trip.name}
           </h1>
@@ -1351,10 +1542,12 @@ function TripSidebar({
   onOpenDialog,
   onPlanningViewChange,
   onStopChange,
+  onTravelLegChange,
   onTravelingViewChange,
   planningView,
   stops,
   trip,
+  travelLegs,
   travelingView,
 }: {
   draftPostLocation: DraftPostLocation | null
@@ -1365,10 +1558,12 @@ function TripSidebar({
   onOpenDialog: (dialog: TripDialog) => void
   onPlanningViewChange: (view: PlanningView) => void
   onStopChange: (stopId: string, updates: Partial<Stop>) => void
+  onTravelLegChange: (legId: string, updates: Partial<TravelLeg>) => void
   onTravelingViewChange: (view: TravelingView) => void
   planningView: PlanningView
   stops: readonly Stop[]
   trip: MockTrip
+  travelLegs: readonly TravelLeg[]
   travelingView: TravelingView
 }) {
   return (
@@ -1394,7 +1589,9 @@ function TripSidebar({
               onPlanningViewChange('create-stop')
             }}
             onStopChange={onStopChange}
+            onTravelLegChange={onTravelLegChange}
             stops={stops}
+            travelLegs={travelLegs}
           />
         ) : travelingView === 'create-post' ? (
           <CreatePostPanel
@@ -1624,11 +1821,15 @@ function LocationOptionCard({
 function PlanningPanel({
   onAddStop,
   onStopChange,
+  onTravelLegChange,
   stops,
+  travelLegs,
 }: {
   onAddStop: () => void
   onStopChange: (stopId: string, updates: Partial<Stop>) => void
+  onTravelLegChange: (legId: string, updates: Partial<TravelLeg>) => void
   stops: readonly Stop[]
+  travelLegs: readonly TravelLeg[]
 }) {
   return (
     <div className="min-w-0 space-y-5 p-4">
@@ -1644,14 +1845,34 @@ function PlanningPanel({
       </div>
 
       <div className="space-y-3">
-        {stops.map((stop, index) => (
-          <StopCard
-            index={index}
-            key={stop.id}
-            onChange={onStopChange}
-            stop={stop}
-          />
-        ))}
+        {stops.map((stop, index) => {
+          const nextStop = stops[index + 1]
+          const leg = nextStop
+            ? travelLegs.find(
+                (travelLeg) =>
+                  travelLeg.from_stop_id === stop.id &&
+                  travelLeg.to_stop_id === nextStop.id,
+              )
+            : undefined
+
+          return (
+            <Fragment key={stop.id}>
+              <StopCard
+                index={index}
+                onChange={onStopChange}
+                stop={stop}
+              />
+              {nextStop && leg ? (
+                <TravelLegCard
+                  fromStop={stop}
+                  leg={leg}
+                  onChange={onTravelLegChange}
+                  toStop={nextStop}
+                />
+              ) : null}
+            </Fragment>
+          )
+        })}
       </div>
     </div>
   )
@@ -1852,7 +2073,7 @@ function CreateStopPanel({
         <div>
           <h3 className="font-semibold text-foreground">Placement</h3>
           <p className="text-sm text-muted-foreground">
-            After {selectedAfterStop?.label ?? 'selected stop'}.
+            After {selectedAfterStop?.title ?? 'selected stop'}.
           </p>
         </div>
 
@@ -1871,10 +2092,10 @@ function CreateStopPanel({
             >
               <span>
                 <span className="block text-sm font-semibold text-foreground">
-                  {stop.label}
+                  {stop.title}
                 </span>
                 <span className="block text-xs text-muted-foreground">
-                  {stop.plannedStartDate}
+                  {stop.planned_start_date}
                 </span>
               </span>
               {stop.id === selectedAfterStopId ? <Badge>After</Badge> : null}
@@ -2376,7 +2597,7 @@ function StopCard({
 }) {
   function updateNights(nextValue: number) {
     onChange(stop.id, {
-      plannedNights: Math.max(0, nextValue),
+      planned_nights: Math.max(0, nextValue),
     })
   }
 
@@ -2384,33 +2605,47 @@ function StopCard({
     <article
       className={cn(
         'grid w-full grid-cols-[3.25rem_1fr] gap-3 rounded-[1.5rem] border p-3 text-left',
-        'border-emerald-100 bg-white',
+        'border-emerald-100 bg-emerald-50/45 shadow-sm shadow-emerald-950/5',
       )}
     >
       <span className="grid size-11 place-items-center rounded-2xl bg-secondary text-sm font-semibold text-primary">
         {index + 1}
       </span>
-      <span className="min-w-0">
-        <span className="flex items-start justify-between gap-2">
-          <span>
-            <span className="block font-semibold text-foreground">{stop.label}</span>
-            <span className="block text-xs text-muted-foreground">
-              {stop.country}
-            </span>
+      <span className="min-w-0 space-y-3">
+        <span className="block min-w-0">
+          <span className="block text-xs font-semibold uppercase text-muted-foreground">
+            Stop {index + 1}
+          </span>
+          <span className="mt-0.5 block truncate text-sm text-muted-foreground">
+            {stop.location.full_name}
           </span>
         </span>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_8.5rem]">
+        <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+          Title
+          <Input
+            className="text-foreground"
+            maxLength={255}
+            onChange={(event) =>
+              onChange(stop.id, {
+                title: event.target.value,
+              })
+            }
+            value={stop.title}
+          />
+        </label>
+
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8.5rem]">
           <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
             Date
             <DatePicker
               className="text-foreground"
-              onValueChange={(plannedStartDate) =>
+              onValueChange={(planned_start_date) =>
                 onChange(stop.id, {
-                  plannedStartDate,
+                  planned_start_date,
                 })
               }
-              value={stop.plannedStartDate}
+              value={stop.planned_start_date}
             />
           </label>
           <div className="grid gap-1.5">
@@ -2418,7 +2653,7 @@ function StopCard({
             <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-sm">
               <button
                 className="grid place-items-center border-r border-emerald-100 text-primary transition-colors hover:bg-emerald-50"
-                onClick={() => updateNights(stop.plannedNights - 1)}
+                onClick={() => updateNights(stop.planned_nights - 1)}
                 type="button"
               >
                 <Minus className="size-4" aria-hidden="true" />
@@ -2428,11 +2663,11 @@ function StopCard({
                 min={0}
                 onChange={(event) => updateNights(Number(event.target.value))}
                 type="number"
-                value={stop.plannedNights}
+                value={stop.planned_nights}
               />
               <button
                 className="grid place-items-center border-l border-emerald-100 text-primary transition-colors hover:bg-emerald-50"
-                onClick={() => updateNights(stop.plannedNights + 1)}
+                onClick={() => updateNights(stop.planned_nights + 1)}
                 type="button"
               >
                 <Plus className="size-4" aria-hidden="true" />
@@ -2440,8 +2675,140 @@ function StopCard({
             </div>
           </div>
         </div>
+
+        <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+          Notes
+          <Textarea
+            className="min-h-20 resize-none text-sm font-normal text-foreground"
+            onChange={(event) =>
+              onChange(stop.id, {
+                notes: event.target.value,
+              })
+            }
+            value={stop.notes}
+          />
+        </label>
       </span>
     </article>
+  )
+}
+
+function TravelLegCard({
+  fromStop,
+  leg,
+  onChange,
+  toStop,
+}: {
+  fromStop: Stop
+  leg: TravelLeg
+  onChange: (legId: string, updates: Partial<TravelLeg>) => void
+  toStop: Stop
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const ModeIcon = getTravelModeIcon(leg.travel_mode)
+  const legDetail = [leg.operator, leg.reference].filter(Boolean).join(' · ')
+
+  return (
+    <div className="grid grid-cols-[3.25rem_1fr] gap-3 px-1 py-0.5">
+      <div className="flex justify-center">
+        <div className="flex w-0 flex-col items-center">
+          <span className="h-2 w-px bg-emerald-100" />
+          <span className="grid size-8 shrink-0 place-items-center rounded-2xl border border-emerald-100 bg-white text-primary shadow-sm">
+            <ModeIcon className="size-4" aria-hidden="true" />
+          </span>
+          <span className="h-2 w-px bg-emerald-100" />
+        </div>
+      </div>
+
+      <section className="min-w-0">
+        <button
+          aria-expanded={expanded}
+          className="flex min-h-10 w-full items-center gap-2 rounded-[1.1rem] border border-emerald-100 bg-white/85 px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-emerald-50"
+          onClick={() => setExpanded((current) => !current)}
+          type="button"
+        >
+          <span className="shrink-0 font-semibold text-primary">
+            {getTravelModeLabel(leg.travel_mode)}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-foreground">
+            {fromStop.title} to {toStop.title}
+          </span>
+          {legDetail ? (
+            <span className="hidden max-w-36 shrink-0 truncate text-xs text-muted-foreground sm:block">
+              {legDetail}
+            </span>
+          ) : null}
+          <ChevronDown
+            className={cn(
+              'size-4 shrink-0 text-muted-foreground transition-transform',
+              expanded && 'rotate-180',
+            )}
+            aria-hidden="true"
+          />
+        </button>
+
+        {expanded ? (
+          <div className="mt-2 rounded-[1.1rem] border border-emerald-100 bg-white p-3 shadow-sm">
+            <div className="grid gap-3 sm:grid-cols-[9.5rem_minmax(0,1fr)]">
+              <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+                Mode
+                <Select<TravelMode>
+                  onValueChange={(travel_mode) =>
+                    onChange(leg.id, {
+                      travel_mode,
+                    })
+                  }
+                  options={travelModeOptions}
+                  value={leg.travel_mode}
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
+                Operator
+                <Input
+                  maxLength={255}
+                  onChange={(event) =>
+                    onChange(leg.id, {
+                      operator: nullableTextValue(event.target.value),
+                    })
+                  }
+                  placeholder="Rail company, airline, rental firm"
+                  value={leg.operator ?? ''}
+                />
+              </label>
+
+              <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground sm:col-start-2">
+                Reference
+                <Input
+                  maxLength={255}
+                  onChange={(event) =>
+                    onChange(leg.id, {
+                      reference: nullableTextValue(event.target.value),
+                    })
+                  }
+                  placeholder="Train number, booking code, route"
+                  value={leg.reference ?? ''}
+                />
+              </label>
+            </div>
+
+            <label className="mt-3 grid gap-1.5 text-xs font-semibold text-muted-foreground">
+              Notes
+              <Textarea
+                className="min-h-20 resize-none text-sm font-normal text-foreground"
+                onChange={(event) =>
+                  onChange(leg.id, {
+                    notes: event.target.value,
+                  })
+                }
+                placeholder="Tickets, buffers, transfers, pickup notes"
+                value={leg.notes}
+              />
+            </label>
+          </div>
+        ) : null}
+      </section>
+    </div>
   )
 }
 
@@ -2645,7 +3012,7 @@ function TripLeafletMap({
 }
 
 function renderRouteLayer(routeLayer: L.LayerGroup, stops: readonly Stop[]) {
-  const routeCoordinates = stops.map((stop) => stop.coordinates)
+  const routeCoordinates = stops.map(getStopCoordinates)
   if (routeCoordinates.length > 0) {
     L.polyline(routeCoordinates, {
       color: '#0f766e',
@@ -2666,7 +3033,7 @@ function renderRouteLayer(routeLayer: L.LayerGroup, stops: readonly Stop[]) {
   }
 
   for (const stop of stops) {
-    L.marker(stop.coordinates, {
+    L.marker(getStopCoordinates(stop), {
       icon: L.divIcon({
         className: 'trip-map-div-icon',
         html: createPlaceMarkerHtml(),
@@ -2675,7 +3042,7 @@ function renderRouteLayer(routeLayer: L.LayerGroup, stops: readonly Stop[]) {
       }),
     })
       .addTo(routeLayer)
-      .bindPopup(`<strong>${escapeHtml(stop.label)}</strong><br>${escapeHtml(stop.description)}`)
+      .bindPopup(`<strong>${escapeHtml(stop.title)}</strong><br>${escapeHtml(stop.notes)}`)
   }
 }
 
@@ -2684,7 +3051,7 @@ function fitRouteBounds(
   stops: readonly Stop[],
   fitMode: RouteFitMode,
 ) {
-  const routeCoordinates = stops.map((stop) => stop.coordinates)
+  const routeCoordinates = stops.map(getStopCoordinates)
   if (routeCoordinates.length === 0) {
     return
   }
@@ -2712,10 +3079,8 @@ function createRouteKey(stops: readonly Stop[]) {
     .map((stop) =>
       [
         stop.id,
-        stop.coordinates[0],
-        stop.coordinates[1],
-        stop.label,
-        stop.description,
+        stop.location.latitude,
+        stop.location.longitude,
       ].join(':'),
     )
     .join('|')
@@ -2780,6 +3145,41 @@ function getRoleLabel(role: MockTripRole) {
   }
 }
 
+function getTravelModeLabel(travelMode: TravelMode) {
+  return travelModeOptions.find((option) => option.value === travelMode)?.label ?? 'Unknown'
+}
+
+function getTravelModeIcon(travelMode: TravelMode): LucideIcon {
+  switch (travelMode) {
+    case 'BIKE':
+      return Bike
+    case 'BUS':
+      return Bus
+    case 'CAR':
+      return Car
+    case 'FERRY':
+      return Ship
+    case 'FLIGHT':
+      return Plane
+    case 'TRAIN':
+      return TrainFront
+    case 'WALK':
+      return Footprints
+    case 'OTHER':
+    case 'UNKNOWN':
+      return Navigation
+  }
+}
+
+function getStopCoordinates(stop: Stop): L.LatLngTuple {
+  return [stop.location.latitude, stop.location.longitude]
+}
+
+function nullableTextValue(value: string) {
+  const trimmedValue = value.trim()
+  return trimmedValue.length > 0 ? trimmedValue : null
+}
+
 function createDraftMapPointLocation(
   coordinates: L.LatLngTuple,
   target: MapPointTarget,
@@ -2807,8 +3207,8 @@ function getMockReverseGeocodeLabel(
 function findNearestMockPlace(coordinates: L.LatLngTuple) {
   const knownPlaces = [
     ...initialStops.map((stop) => ({
-      coordinates: stop.coordinates,
-      label: `${stop.label}, ${stop.country}`,
+      coordinates: getStopCoordinates(stop),
+      label: stop.location.full_name,
     })),
     ...travelPosts.map((post) => ({
       coordinates: post.coordinates,
