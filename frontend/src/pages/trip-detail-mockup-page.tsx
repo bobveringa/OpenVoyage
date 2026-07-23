@@ -10,7 +10,6 @@ import {
   Camera,
   CalendarDays,
   Check,
-  ChevronDown,
   Clock,
   Compass,
   Copy,
@@ -42,7 +41,9 @@ import {
   Upload,
   UserPlus,
   Users,
+  Play,
   type LucideIcon,
+  X,
 } from 'lucide-react'
 import {
   Fragment,
@@ -52,6 +53,7 @@ import {
   useState,
   type FormEvent,
   type ReactNode,
+  type TouchEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -159,7 +161,9 @@ type TravelLeg = {
 
 type PostMedia = {
   alt: string
+  poster?: string
   src: string
+  type?: 'image' | 'video'
 }
 
 type TravelPost = {
@@ -275,17 +279,6 @@ const mockShareLinks: readonly MockShareLink[] = [
     token: 'mock-planning-review-token',
   },
 ]
-
-const draftPostMedia = [
-  {
-    alt: 'Porto riverfront at dusk',
-    src: 'https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=520&q=80',
-  },
-  {
-    alt: 'Tiled facade in Porto',
-    src: 'https://images.unsplash.com/photo-1513735492246-483525079686?auto=format&fit=crop&w=520&q=80',
-  },
-] as const satisfies readonly PostMedia[]
 
 const initialStops: readonly Stop[] = [
   {
@@ -460,11 +453,14 @@ const travelPosts: readonly TravelPost[] = [
       },
       {
         alt: 'Tiled facade in Porto',
-        src: 'https://images.unsplash.com/photo-1513735492246-483525079686?auto=format&fit=crop&w=520&q=80',
+        src: 'https://plus.unsplash.com/premium_photo-1781636233496-0b8b7760f0cb?q=80&w=830&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
       },
       {
-        alt: 'Cafe table with travel notes',
-        src: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=520&q=80',
+        alt: 'Short clip from the riverside',
+        poster:
+          'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=780&q=80',
+        src: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+        type: 'video',
       },
     ],
     time: 'Today, 20:14',
@@ -576,6 +572,28 @@ export function TripDetailMockupPage() {
     )
   }
 
+  function handleStopDelete(stopId: string) {
+    const stopIndex = plannedStops.findIndex((stop) => stop.id === stopId)
+    if (stopIndex < 0) {
+      return
+    }
+
+    const previousStop = plannedStops[stopIndex - 1] ?? null
+    const nextStop = plannedStops[stopIndex + 1] ?? null
+
+    setPlannedStops((currentStops) =>
+      currentStops.filter((stop) => stop.id !== stopId),
+    )
+    setTravelLegs((currentLegs) =>
+      rebalanceTravelLegsAfterStopDelete({
+        currentLegs,
+        nextStop,
+        previousStop,
+        stopId,
+      }),
+    )
+  }
+
   const applyDraftMapPointLocation = useCallback(
     (target: MapPointTarget, coordinates: L.LatLngTuple) => {
       const draftLocation = createDraftMapPointLocation(coordinates, target)
@@ -652,7 +670,7 @@ export function TripDetailMockupPage() {
   return (
     <div className="relative left-1/2 min-h-[calc(100dvh-4rem-1px)] w-screen -translate-x-1/2 overflow-x-hidden px-3 py-3 sm:px-5 lg:h-[calc(100dvh-4rem-1px)] lg:overflow-hidden lg:px-6">
       <div className="mx-auto min-h-0 max-w-[132rem] lg:h-full">
-        <div className="grid min-h-0 gap-4 lg:h-full lg:grid-cols-[minmax(30rem,46vw)_minmax(0,1fr)]">
+        <div className="grid min-h-0 gap-4 lg:h-full lg:grid-cols-[minmax(32rem,49vw)_minmax(0,1fr)]">
           <div
             className={cn(
               'min-h-0 min-w-0',
@@ -672,6 +690,7 @@ export function TripDetailMockupPage() {
               onOpenDialog={openDialog}
               onPlanningViewChange={setPlanningView}
               onStopChange={handleStopChange}
+              onStopDelete={handleStopDelete}
               onTravelLegChange={handleTravelLegChange}
               onTravelingViewChange={setTravelingView}
               planningView={planningView}
@@ -1542,6 +1561,7 @@ function TripSidebar({
   onOpenDialog,
   onPlanningViewChange,
   onStopChange,
+  onStopDelete,
   onTravelLegChange,
   onTravelingViewChange,
   planningView,
@@ -1558,6 +1578,7 @@ function TripSidebar({
   onOpenDialog: (dialog: TripDialog) => void
   onPlanningViewChange: (view: PlanningView) => void
   onStopChange: (stopId: string, updates: Partial<Stop>) => void
+  onStopDelete: (stopId: string) => void
   onTravelLegChange: (legId: string, updates: Partial<TravelLeg>) => void
   onTravelingViewChange: (view: TravelingView) => void
   planningView: PlanningView
@@ -1589,6 +1610,7 @@ function TripSidebar({
               onPlanningViewChange('create-stop')
             }}
             onStopChange={onStopChange}
+            onStopDelete={onStopDelete}
             onTravelLegChange={onTravelLegChange}
             stops={stops}
             travelLegs={travelLegs}
@@ -1821,16 +1843,31 @@ function LocationOptionCard({
 function PlanningPanel({
   onAddStop,
   onStopChange,
+  onStopDelete,
   onTravelLegChange,
   stops,
   travelLegs,
 }: {
   onAddStop: () => void
   onStopChange: (stopId: string, updates: Partial<Stop>) => void
+  onStopDelete: (stopId: string) => void
   onTravelLegChange: (legId: string, updates: Partial<TravelLeg>) => void
   stops: readonly Stop[]
   travelLegs: readonly TravelLeg[]
 }) {
+  const [editingStopId, setEditingStopId] = useState<string | null>(null)
+  const [editingLegId, setEditingLegId] = useState<string | null>(null)
+  const editingStop = stops.find((stop) => stop.id === editingStopId) ?? null
+  const editingLeg = travelLegs.find((leg) => leg.id === editingLegId) ?? null
+  const editingLegFromStop =
+    editingLeg
+      ? stops.find((stop) => stop.id === editingLeg.from_stop_id) ?? null
+      : null
+  const editingLegToStop =
+    editingLeg
+      ? stops.find((stop) => stop.id === editingLeg.to_stop_id) ?? null
+      : null
+
   return (
     <div className="min-w-0 space-y-5 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -1845,6 +1882,12 @@ function PlanningPanel({
       </div>
 
       <div className="space-y-3">
+        {stops.length === 0 ? (
+          <div className="rounded-[1.5rem] border border-dashed border-emerald-200 bg-emerald-50/45 p-4 text-sm text-muted-foreground">
+            No planned stops yet.
+          </div>
+        ) : null}
+
         {stops.map((stop, index) => {
           const nextStop = stops[index + 1]
           const leg = nextStop
@@ -1860,13 +1903,15 @@ function PlanningPanel({
               <StopCard
                 index={index}
                 onChange={onStopChange}
+                onDelete={onStopDelete}
+                onDetails={setEditingStopId}
                 stop={stop}
               />
               {nextStop && leg ? (
                 <TravelLegCard
                   fromStop={stop}
                   leg={leg}
-                  onChange={onTravelLegChange}
+                  onEdit={setEditingLegId}
                   toStop={nextStop}
                 />
               ) : null}
@@ -1874,6 +1919,21 @@ function PlanningPanel({
           )
         })}
       </div>
+
+      <StopEditDialog
+        onChange={onStopChange}
+        onClose={() => setEditingStopId(null)}
+        open={Boolean(editingStop)}
+        stop={editingStop}
+      />
+      <TravelLegEditDialog
+        fromStop={editingLegFromStop}
+        leg={editingLeg}
+        onChange={onTravelLegChange}
+        onClose={() => setEditingLegId(null)}
+        open={Boolean(editingLeg && editingLegFromStop && editingLegToStop)}
+        toStop={editingLegToStop}
+      />
     </div>
   )
 }
@@ -2162,9 +2222,10 @@ function CreatePostPanel({
   )
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const uploadedMediaUrlsRef = useRef<string[]>([])
-  const [draftMedia, setDraftMedia] = useState<PostMedia[]>(() => [
-    ...draftPostMedia,
-  ])
+  const [draftMedia, setDraftMedia] = useState<PostMedia[]>([])
+  const [activeDraftMediaIndex, setActiveDraftMediaIndex] = useState<
+    number | null
+  >(null)
   const [mediaNotice, setMediaNotice] = useState<string | null>(null)
   const [mediaToolsOpen, setMediaToolsOpen] = useState(false)
   const [occurredAt, setOccurredAt] = useState('2027-05-08T20:14')
@@ -2208,28 +2269,29 @@ function CreatePostPanel({
   }
 
   function handleUploadFiles(files: FileList | null) {
-    const imageFiles = Array.from(files ?? []).filter((file) =>
-      file.type.startsWith('image/'),
+    const mediaFiles = Array.from(files ?? []).filter((file) =>
+      isSupportedMediaFile(file),
     )
 
-    if (imageFiles.length === 0) {
-      setMediaNotice('Choose one or more image files.')
+    if (mediaFiles.length === 0) {
+      setMediaNotice('Choose one or more image or video files.')
       return
     }
 
-    const uploadedMedia = imageFiles.map((file) => {
+    const uploadedMedia = mediaFiles.map((file) => {
       const objectUrl = URL.createObjectURL(file)
       uploadedMediaUrlsRef.current.push(objectUrl)
 
       return {
         alt: file.name,
+        type: getPostMediaType(file),
         src: objectUrl,
       }
     })
 
     setDraftMedia((currentMedia) => [...currentMedia, ...uploadedMedia])
     setMediaNotice(
-      `${imageFiles.length} ${imageFiles.length === 1 ? 'image' : 'images'} added.`,
+      `${mediaFiles.length} ${mediaFiles.length === 1 ? 'media item' : 'media items'} added.`,
     )
   }
 
@@ -2255,6 +2317,7 @@ function CreatePostPanel({
 
   function removeDraftMedia(media: PostMedia) {
     revokeUploadedMediaUrl(media.src)
+    setActiveDraftMediaIndex(null)
     setDraftMedia((currentMedia) =>
       currentMedia.filter((item) => item.src !== media.src),
     )
@@ -2387,8 +2450,8 @@ function CreatePostPanel({
             <h3 className="font-semibold text-foreground">Media</h3>
             <p className="text-sm text-muted-foreground">
               {draftMedia.length === 0
-                ? 'Add images to build the post gallery.'
-                : `${draftMedia.length} ${draftMedia.length === 1 ? 'image' : 'images'} · first image becomes the map bubble.`}
+                ? 'Add photos or videos to build the post gallery.'
+                : `${draftMedia.length} ${draftMedia.length === 1 ? 'media item' : 'media items'} · first visual becomes the map bubble.`}
             </p>
           </div>
           <Button
@@ -2407,29 +2470,27 @@ function CreatePostPanel({
         <div className="trip-post-media-strip scrollbar-subtle flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain pb-1">
           {draftMedia.length === 0 ? (
             <button
-              className="grid h-56 w-[76vw] max-w-80 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary sm:w-80"
+              className={cn(
+                'grid w-[76vw] max-w-80 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary sm:w-80',
+                mediaStripHeightClassName,
+              )}
               onClick={() => setMediaToolsOpen(true)}
               type="button"
             >
               <span className="grid justify-items-center gap-2 text-sm font-semibold">
                 <ImagePlus className="size-6" aria-hidden="true" />
-                Add the first image
+                Add the first media
               </span>
             </button>
           ) : null}
 
           {draftMedia.map((media, index) => (
-            <article
-              className="group relative h-56 w-[76vw] max-w-80 shrink-0 overflow-hidden rounded-[1.4rem] bg-secondary sm:w-80"
+            <MediaStripCard
+              badge={index === 0 ? 'Map bubble media' : null}
               key={media.src}
+              media={media}
+              onOpen={() => setActiveDraftMediaIndex(index)}
             >
-              <img alt={media.alt} className="size-full object-cover" src={media.src} />
-              {index === 0 ? (
-                <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[0.68rem] font-semibold text-primary shadow-sm">
-                  Map bubble image
-                </span>
-              ) : null}
-
               <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 rounded-2xl bg-white/90 p-1.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 <div className="flex gap-1">
                   <Button
@@ -2469,11 +2530,14 @@ function CreatePostPanel({
                   <Trash2 className="size-4" aria-hidden="true" />
                 </Button>
               </div>
-            </article>
+            </MediaStripCard>
           ))}
 
           <button
-            className="grid h-56 w-[52vw] max-w-52 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary sm:w-52"
+            className={cn(
+              'grid w-[52vw] max-w-52 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary sm:w-52',
+              mediaStripHeightClassName,
+            )}
             onClick={() => setMediaToolsOpen(true)}
             type="button"
           >
@@ -2506,7 +2570,7 @@ function CreatePostPanel({
             </div>
 
             <input
-              accept="image/*"
+              accept="image/*,video/*"
               className="sr-only"
               multiple
               onChange={(event) => {
@@ -2518,7 +2582,7 @@ function CreatePostPanel({
             />
 
             <p className="rounded-[1.1rem] bg-white/75 px-3 py-2 text-sm text-muted-foreground">
-              Select one or more images. New uploads are added to the end of the
+              Select photos or videos. New uploads are added to the end of the
               strip and can be reordered before publishing.
             </p>
           </div>
@@ -2542,11 +2606,23 @@ function CreatePostPanel({
           Publish post
         </Button>
       </div>
+
+      {activeDraftMediaIndex !== null ? (
+        <MediaLightbox
+          activeIndex={activeDraftMediaIndex}
+          media={draftMedia}
+          onClose={() => setActiveDraftMediaIndex(null)}
+          onIndexChange={setActiveDraftMediaIndex}
+          title="Draft media"
+        />
+      ) : null}
     </div>
   )
 }
 
 function TravelPostCard({ post }: { post: TravelPost }) {
+  const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
+
   return (
     <article className="min-w-0 overflow-hidden rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 shadow-sm shadow-emerald-950/5">
       <div className="space-y-3 p-4">
@@ -2573,26 +2649,329 @@ function TravelPostCard({ post }: { post: TravelPost }) {
       </div>
 
       <div className="trip-post-media-strip scrollbar-subtle flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain px-4 pb-4">
-        {post.media.map((media) => (
-          <div
-            className="relative h-56 w-[76vw] max-w-96 shrink-0 overflow-hidden rounded-[1.5rem] bg-secondary sm:h-64 sm:w-96 xl:h-72 xl:w-[28rem]"
+        {post.media.map((media, index) => (
+          <MediaStripCard
             key={media.src}
-          >
-            <img alt={media.alt} className="size-full object-cover" src={media.src} />
-          </div>
+            media={media}
+            onOpen={() => setActiveMediaIndex(index)}
+          />
         ))}
       </div>
+
+      {activeMediaIndex !== null ? (
+        <MediaLightbox
+          activeIndex={activeMediaIndex}
+          media={post.media}
+          onClose={() => setActiveMediaIndex(null)}
+          onIndexChange={setActiveMediaIndex}
+          title={post.title}
+        />
+      ) : null}
     </article>
+  )
+}
+
+function MediaStripCard({
+  badge,
+  children,
+  media,
+  onOpen,
+}: {
+  badge?: string | null
+  children?: ReactNode
+  media: PostMedia
+  onOpen: () => void
+}) {
+  const isVideo = getMediaType(media) === 'video'
+
+  return (
+    <article
+      className={cn(
+        'group relative shrink-0 overflow-hidden rounded-[1.5rem] bg-secondary',
+        mediaStripHeightClassName,
+      )}
+    >
+      <button
+        className="block h-full w-fit text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        onClick={onOpen}
+        type="button"
+      >
+        <MediaPreview
+          className="h-full w-auto transition-transform duration-300 group-hover:scale-[1.025]"
+          media={media}
+        />
+        <span className="sr-only">Open {media.alt}</span>
+        <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+        {isVideo ? (
+          <span className="pointer-events-none absolute inset-0 grid place-items-center">
+            <span className="grid size-12 place-items-center rounded-full bg-white/90 text-primary shadow-lg shadow-black/15">
+              <Play className="ml-0.5 size-5 fill-current" aria-hidden="true" />
+            </span>
+          </span>
+        ) : null}
+      </button>
+
+      {badge ? (
+        <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[0.68rem] font-semibold text-primary shadow-sm">
+          {badge}
+        </span>
+      ) : null}
+
+      {children}
+    </article>
+  )
+}
+
+function MediaLightbox({
+  activeIndex,
+  media,
+  onClose,
+  onIndexChange,
+  title,
+}: {
+  activeIndex: number
+  media: readonly PostMedia[]
+  onClose: () => void
+  onIndexChange: (index: number) => void
+  title: string
+}) {
+  const activeMedia = media[activeIndex]
+  const hasMultipleMedia = media.length > 1
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+
+  function showRelativeMedia(offset: number) {
+    if (media.length === 0) {
+      return
+    }
+
+    onIndexChange((activeIndex + offset + media.length) % media.length)
+  }
+
+  useEffect(() => {
+    if (!activeMedia) {
+      return undefined
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+        return
+      }
+
+      if (event.key === 'ArrowLeft' && hasMultipleMedia) {
+        event.preventDefault()
+        onIndexChange((activeIndex - 1 + media.length) % media.length)
+        return
+      }
+
+      if (event.key === 'ArrowRight' && hasMultipleMedia) {
+        event.preventDefault()
+        onIndexChange((activeIndex + 1) % media.length)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [
+    activeIndex,
+    activeMedia,
+    hasMultipleMedia,
+    media.length,
+    onClose,
+    onIndexChange,
+  ])
+
+  if (!activeMedia || typeof document === 'undefined') {
+    return null
+  }
+
+  function handleTouchStart(event: TouchEvent<HTMLDivElement>) {
+    const touch = event.touches[0]
+    if (!touch) {
+      return
+    }
+
+    touchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+    }
+  }
+
+  function handleTouchEnd(event: TouchEvent<HTMLDivElement>) {
+    const start = touchStartRef.current
+    const touch = event.changedTouches[0]
+    touchStartRef.current = null
+
+    if (!start || !touch || !hasMultipleMedia) {
+      return
+    }
+
+    const deltaX = touch.clientX - start.x
+    const deltaY = touch.clientY - start.y
+    if (Math.abs(deltaX) < 50 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) {
+      return
+    }
+
+    showRelativeMedia(deltaX > 0 ? -1 : 1)
+  }
+
+  return createPortal(
+    <div
+      aria-label={`${title} media viewer`}
+      aria-modal="true"
+      className="fixed inset-0 z-[1000] bg-slate-950/95 text-white"
+      onClick={onClose}
+      role="dialog"
+    >
+      <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 px-4 py-4 sm:px-6">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-white">{title}</p>
+          <p className="truncate text-xs text-white/65">
+            {activeMedia.alt} · {activeIndex + 1} of {media.length}
+          </p>
+        </div>
+        <Button
+          aria-label="Close media viewer"
+          className="size-10 rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+          onClick={onClose}
+          size="icon"
+          title="Close"
+          type="button"
+          variant="ghost"
+        >
+          <X className="size-5" aria-hidden="true" />
+        </Button>
+      </div>
+
+      <button
+        aria-label="Previous media"
+        className="absolute left-3 top-1/2 z-20 hidden size-12 -translate-y-1/2 place-items-center rounded-full border border-white/15 bg-white/10 text-white shadow-xl transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35 sm:grid"
+        disabled={!hasMultipleMedia}
+        onClick={(event) => {
+          event.stopPropagation()
+          showRelativeMedia(-1)
+        }}
+        type="button"
+      >
+        <ArrowLeft className="size-5" aria-hidden="true" />
+      </button>
+
+      <button
+        aria-label="Next media"
+        className="absolute right-3 top-1/2 z-20 hidden size-12 -translate-y-1/2 place-items-center rounded-full border border-white/15 bg-white/10 text-white shadow-xl transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35 sm:grid"
+        disabled={!hasMultipleMedia}
+        onClick={(event) => {
+          event.stopPropagation()
+          showRelativeMedia(1)
+        }}
+        type="button"
+      >
+        <ArrowRight className="size-5" aria-hidden="true" />
+      </button>
+
+      <div
+        className="flex h-full items-center justify-center px-4 py-20 sm:px-20"
+        onClick={(event) => event.stopPropagation()}
+        onTouchEnd={handleTouchEnd}
+        onTouchStart={handleTouchStart}
+      >
+        <MediaPreview
+          className="max-h-[calc(100vh-10rem)] max-w-[calc(100vw-2rem)] rounded-[1.35rem] object-contain shadow-2xl shadow-black/35 sm:max-w-[calc(100vw-10rem)]"
+          controls
+          media={activeMedia}
+        />
+      </div>
+
+      <div className="absolute inset-x-4 bottom-4 z-20 flex items-center justify-between gap-3 sm:justify-center">
+        <Button
+          aria-label="Previous media"
+          className="size-11 rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/20 hover:text-white disabled:opacity-35 sm:hidden"
+          disabled={!hasMultipleMedia}
+          onClick={(event) => {
+            event.stopPropagation()
+            showRelativeMedia(-1)
+          }}
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <ArrowLeft className="size-5" aria-hidden="true" />
+        </Button>
+        <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
+          {activeIndex + 1} / {media.length}
+        </span>
+        <Button
+          aria-label="Next media"
+          className="size-11 rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/20 hover:text-white disabled:opacity-35 sm:hidden"
+          disabled={!hasMultipleMedia}
+          onClick={(event) => {
+            event.stopPropagation()
+            showRelativeMedia(1)
+          }}
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <ArrowRight className="size-5" aria-hidden="true" />
+        </Button>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function MediaPreview({
+  className,
+  controls = false,
+  media,
+}: {
+  className?: string
+  controls?: boolean
+  media: PostMedia
+}) {
+  if (getMediaType(media) === 'video') {
+    return (
+      <video
+        aria-label={media.alt}
+        className={cn('bg-black object-contain', className)}
+        controls={controls}
+        muted={!controls}
+        playsInline
+        poster={media.poster}
+        preload="metadata"
+        src={media.src}
+      />
+    )
+  }
+
+  return (
+    <img
+      alt={media.alt}
+      className={cn('object-cover', className)}
+      loading="lazy"
+      src={media.src}
+    />
   )
 }
 
 function StopCard({
   index,
   onChange,
+  onDelete,
+  onDetails,
   stop,
 }: {
   index: number
   onChange: (stopId: string, updates: Partial<Stop>) => void
+  onDelete: (stopId: string) => void
+  onDetails: (stopId: string) => void
   stop: Stop
 }) {
   function updateNights(nextValue: number) {
@@ -2601,93 +2980,122 @@ function StopCard({
     })
   }
 
+  function updateLeaveDate(leaveDate: string) {
+    onChange(stop.id, {
+      planned_nights: getNightsBetweenDates(stop.planned_start_date, leaveDate),
+    })
+  }
+
+  const leaveDate = getStayLeaveDateValue(
+    stop.planned_start_date,
+    stop.planned_nights,
+  )
+
   return (
     <article
       className={cn(
-        'grid w-full grid-cols-[3.25rem_1fr] gap-3 rounded-[1.5rem] border p-3 text-left',
+        'grid w-full grid-cols-[3rem_1fr] gap-3 rounded-[1.5rem] border p-3 text-left',
         'border-emerald-100 bg-emerald-50/45 shadow-sm shadow-emerald-950/5',
       )}
     >
-      <span className="grid size-11 place-items-center rounded-2xl bg-secondary text-sm font-semibold text-primary">
+      <span className="grid size-10 place-items-center rounded-2xl bg-secondary text-sm font-semibold text-primary">
         {index + 1}
       </span>
       <span className="min-w-0 space-y-3">
-        <span className="block min-w-0">
-          <span className="block text-xs font-semibold uppercase text-muted-foreground">
-            Stop {index + 1}
+        <span className="flex min-w-0 items-center justify-between gap-3">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-semibold text-foreground">
+              {stop.title}
+            </span>
           </span>
-          <span className="mt-0.5 block truncate text-sm text-muted-foreground">
-            {stop.location.full_name}
+          <span className="flex shrink-0 items-center gap-1">
+            <Button
+              aria-label={`Show details for ${stop.title}`}
+              className="size-8 rounded-xl"
+              onClick={() => onDetails(stop.id)}
+              size="icon"
+              title={`Show details for ${stop.title}`}
+              type="button"
+              variant="outline"
+            >
+              <PenLine className="size-3.5" aria-hidden="true" />
+            </Button>
+            <Button
+              aria-label={`Delete ${stop.title}`}
+              className="size-8 rounded-xl text-destructive hover:bg-destructive/10"
+              onClick={() => onDelete(stop.id)}
+              size="icon"
+              title={`Delete ${stop.title}`}
+              type="button"
+              variant="ghost"
+            >
+              <Trash2 className="size-3.5" aria-hidden="true" />
+            </Button>
           </span>
         </span>
 
-        <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
-          Title
-          <Input
-            className="text-foreground"
-            maxLength={255}
-            onChange={(event) =>
-              onChange(stop.id, {
-                title: event.target.value,
-              })
-            }
-            value={stop.title}
-          />
-        </label>
-
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8.5rem]">
-          <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
-            Date
+        <div className="grid grid-cols-2 rounded-2xl border border-emerald-100 bg-white shadow-sm sm:min-h-14 sm:grid-cols-[minmax(0,1fr)_7.75rem_minmax(0,1fr)]">
+          <div className="min-w-0 px-3 py-2">
+            <span className="block text-[0.65rem] font-semibold uppercase text-muted-foreground">
+              Arrive
+            </span>
             <DatePicker
-              className="text-foreground"
+              ariaLabel={`Edit arrival date for ${stop.title}`}
+              className="mt-1"
+              displayValue={formatStopDateLabel(stop.planned_start_date)}
               onValueChange={(planned_start_date) =>
                 onChange(stop.id, {
                   planned_start_date,
                 })
               }
+              triggerClassName="h-auto min-h-0 justify-start gap-1.5 rounded-lg border-0 bg-transparent p-0 text-sm font-semibold shadow-none hover:border-transparent hover:bg-transparent focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0 [&>svg]:size-3.5"
               value={stop.planned_start_date}
             />
-          </label>
-          <div className="grid gap-1.5">
-            <span className="text-xs font-semibold text-muted-foreground">Nights</span>
-            <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-sm">
-              <button
-                className="grid place-items-center border-r border-emerald-100 text-primary transition-colors hover:bg-emerald-50"
-                onClick={() => updateNights(stop.planned_nights - 1)}
-                type="button"
-              >
-                <Minus className="size-4" aria-hidden="true" />
-              </button>
-              <input
-                className="h-10 w-full bg-white text-center text-sm font-semibold text-foreground focus-visible:outline-none"
-                min={0}
-                onChange={(event) => updateNights(Number(event.target.value))}
-                type="number"
-                value={stop.planned_nights}
-              />
-              <button
-                className="grid place-items-center border-l border-emerald-100 text-primary transition-colors hover:bg-emerald-50"
-                onClick={() => updateNights(stop.planned_nights + 1)}
-                type="button"
-              >
-                <Plus className="size-4" aria-hidden="true" />
-              </button>
-            </div>
+          </div>
+
+          <div className="min-w-0 border-l border-emerald-100 bg-white/70 px-3 py-2 text-right sm:order-3">
+            <span className="block text-[0.65rem] font-semibold uppercase text-muted-foreground">
+              Leave
+            </span>
+            <DatePicker
+              ariaLabel={`Edit leave date for ${stop.title}`}
+              className="mt-1"
+              displayValue={formatStopDateLabel(leaveDate)}
+              min={stop.planned_start_date}
+              onValueChange={updateLeaveDate}
+              popoverAlign="end"
+              triggerClassName="h-auto min-h-0 justify-end gap-1.5 rounded-lg border-0 bg-transparent p-0 text-sm font-semibold shadow-none hover:border-transparent hover:bg-transparent focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0 [&>svg]:size-3.5"
+              value={leaveDate}
+            />
+          </div>
+
+          <div className="col-span-2 grid grid-cols-[2rem_minmax(0,1fr)_2rem] border-t border-emerald-100 bg-emerald-50/50 sm:order-2 sm:col-span-1 sm:border-x sm:border-t-0">
+            <button
+              aria-label={`Remove one night from ${stop.title}`}
+              className="grid place-items-center border-r border-emerald-100 text-primary transition-colors hover:bg-emerald-100/70"
+              onClick={() => updateNights(stop.planned_nights - 1)}
+              type="button"
+            >
+              <Minus className="size-4" aria-hidden="true" />
+            </button>
+            <span className="grid min-h-14 place-items-center px-1 text-center leading-none">
+              <span className="text-[0.65rem] font-semibold uppercase text-muted-foreground">
+                Stay
+              </span>
+              <span className="text-sm font-semibold text-foreground">
+                {formatNights(stop.planned_nights)}
+              </span>
+            </span>
+            <button
+              aria-label={`Add one night to ${stop.title}`}
+              className="grid place-items-center border-l border-emerald-100 text-primary transition-colors hover:bg-emerald-100/70"
+              onClick={() => updateNights(stop.planned_nights + 1)}
+              type="button"
+            >
+              <Plus className="size-4" aria-hidden="true" />
+            </button>
           </div>
         </div>
-
-        <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
-          Notes
-          <Textarea
-            className="min-h-20 resize-none text-sm font-normal text-foreground"
-            onChange={(event) =>
-              onChange(stop.id, {
-                notes: event.target.value,
-              })
-            }
-            value={stop.notes}
-          />
-        </label>
       </span>
     </article>
   )
@@ -2696,15 +3104,14 @@ function StopCard({
 function TravelLegCard({
   fromStop,
   leg,
-  onChange,
+  onEdit,
   toStop,
 }: {
   fromStop: Stop
   leg: TravelLeg
-  onChange: (legId: string, updates: Partial<TravelLeg>) => void
+  onEdit: (legId: string) => void
   toStop: Stop
 }) {
-  const [expanded, setExpanded] = useState(false)
   const ModeIcon = getTravelModeIcon(leg.travel_mode)
   const legDetail = [leg.operator, leg.reference].filter(Boolean).join(' · ')
 
@@ -2722,9 +3129,8 @@ function TravelLegCard({
 
       <section className="min-w-0">
         <button
-          aria-expanded={expanded}
           className="flex min-h-10 w-full items-center gap-2 rounded-[1.1rem] border border-emerald-100 bg-white/85 px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-emerald-50"
-          onClick={() => setExpanded((current) => !current)}
+          onClick={() => onEdit(leg.id)}
           type="button"
         >
           <span className="shrink-0 font-semibold text-primary">
@@ -2738,77 +3144,263 @@ function TravelLegCard({
               {legDetail}
             </span>
           ) : null}
-          <ChevronDown
-            className={cn(
-              'size-4 shrink-0 text-muted-foreground transition-transform',
-              expanded && 'rotate-180',
-            )}
+          <PenLine
+            className="size-3.5 shrink-0 text-muted-foreground"
             aria-hidden="true"
           />
         </button>
-
-        {expanded ? (
-          <div className="mt-2 rounded-[1.1rem] border border-emerald-100 bg-white p-3 shadow-sm">
-            <div className="grid gap-3 sm:grid-cols-[9.5rem_minmax(0,1fr)]">
-              <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
-                Mode
-                <Select<TravelMode>
-                  onValueChange={(travel_mode) =>
-                    onChange(leg.id, {
-                      travel_mode,
-                    })
-                  }
-                  options={travelModeOptions}
-                  value={leg.travel_mode}
-                />
-              </label>
-
-              <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground">
-                Operator
-                <Input
-                  maxLength={255}
-                  onChange={(event) =>
-                    onChange(leg.id, {
-                      operator: nullableTextValue(event.target.value),
-                    })
-                  }
-                  placeholder="Rail company, airline, rental firm"
-                  value={leg.operator ?? ''}
-                />
-              </label>
-
-              <label className="grid gap-1.5 text-xs font-semibold text-muted-foreground sm:col-start-2">
-                Reference
-                <Input
-                  maxLength={255}
-                  onChange={(event) =>
-                    onChange(leg.id, {
-                      reference: nullableTextValue(event.target.value),
-                    })
-                  }
-                  placeholder="Train number, booking code, route"
-                  value={leg.reference ?? ''}
-                />
-              </label>
-            </div>
-
-            <label className="mt-3 grid gap-1.5 text-xs font-semibold text-muted-foreground">
-              Notes
-              <Textarea
-                className="min-h-20 resize-none text-sm font-normal text-foreground"
-                onChange={(event) =>
-                  onChange(leg.id, {
-                    notes: event.target.value,
-                  })
-                }
-                placeholder="Tickets, buffers, transfers, pickup notes"
-                value={leg.notes}
-              />
-            </label>
-          </div>
-        ) : null}
       </section>
     </div>
+  )
+}
+
+function StopEditDialog({
+  onChange,
+  onClose,
+  open,
+  stop,
+}: {
+  onChange: (stopId: string, updates: Partial<Stop>) => void
+  onClose: () => void
+  open: boolean
+  stop: Stop | null
+}) {
+  if (!stop) {
+    return null
+  }
+
+  const editableStop = stop
+
+  function updateNights(nextValue: number) {
+    onChange(editableStop.id, {
+      planned_nights: Math.max(0, nextValue),
+    })
+  }
+
+  function updateLeaveDate(leaveDate: string) {
+    onChange(editableStop.id, {
+      planned_nights: getNightsBetweenDates(
+        editableStop.planned_start_date,
+        leaveDate,
+      ),
+    })
+  }
+
+  const leaveDate = getStayLeaveDateValue(
+    editableStop.planned_start_date,
+    editableStop.planned_nights,
+  )
+
+  return (
+    <Modal
+      description="Edit the itinerary stop fields that will map to the API."
+      onClose={onClose}
+      open={open}
+      title={`Edit ${editableStop.title}`}
+    >
+      <div className="grid gap-5">
+        <section className="space-y-3 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 p-4">
+          <div>
+            <h3 className="font-semibold text-foreground">Stop</h3>
+            <p className="text-sm text-muted-foreground">
+              {editableStop.location.full_name}
+            </p>
+          </div>
+
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Title
+            <Input
+              maxLength={255}
+              onChange={(event) =>
+                onChange(editableStop.id, {
+                  title: event.target.value,
+                })
+              }
+              value={editableStop.title}
+            />
+          </label>
+
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Notes
+            <Textarea
+              className="min-h-32 resize-none"
+              onChange={(event) =>
+                onChange(editableStop.id, {
+                  notes: event.target.value,
+                })
+              }
+              value={editableStop.notes}
+            />
+          </label>
+        </section>
+
+        <section className="grid gap-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_10rem]">
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Arrival date
+            <DatePicker
+              onValueChange={(planned_start_date) =>
+                onChange(editableStop.id, {
+                  planned_start_date,
+                })
+              }
+              value={editableStop.planned_start_date}
+            />
+          </label>
+
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Leave date
+            <DatePicker
+              min={editableStop.planned_start_date}
+              onValueChange={updateLeaveDate}
+              value={leaveDate}
+            />
+          </label>
+
+          <div className="grid gap-2">
+            <span className="text-sm font-medium text-foreground">Nights</span>
+            <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-sm">
+              <button
+                className="grid place-items-center border-r border-emerald-100 text-primary transition-colors hover:bg-emerald-50"
+                onClick={() => updateNights(editableStop.planned_nights - 1)}
+                type="button"
+              >
+                <Minus className="size-4" aria-hidden="true" />
+              </button>
+              <input
+                className="h-10 w-full bg-white text-center text-sm font-semibold text-foreground focus-visible:outline-none"
+                min={0}
+                onChange={(event) => updateNights(Number(event.target.value))}
+                type="number"
+                value={editableStop.planned_nights}
+              />
+              <button
+                className="grid place-items-center border-l border-emerald-100 text-primary transition-colors hover:bg-emerald-50"
+                onClick={() => updateNights(editableStop.planned_nights + 1)}
+                type="button"
+              >
+                <Plus className="size-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <div className="flex justify-end">
+          <Button onClick={onClose} type="button">
+            Done
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function TravelLegEditDialog({
+  fromStop,
+  leg,
+  onChange,
+  onClose,
+  open,
+  toStop,
+}: {
+  fromStop: Stop | null
+  leg: TravelLeg | null
+  onChange: (legId: string, updates: Partial<TravelLeg>) => void
+  onClose: () => void
+  open: boolean
+  toStop: Stop | null
+}) {
+  if (!leg || !fromStop || !toStop) {
+    return null
+  }
+
+  const ModeIcon = getTravelModeIcon(leg.travel_mode)
+
+  return (
+    <Modal
+      description="Edit the travel leg fields that will map to the API."
+      onClose={onClose}
+      open={open}
+      title={`${fromStop.title} to ${toStop.title}`}
+    >
+      <div className="grid gap-5">
+        <section className="space-y-3 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 p-4">
+          <div className="flex items-start gap-3">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-white text-primary">
+              <ModeIcon className="size-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="font-semibold text-foreground">Travel leg</h3>
+              <p className="truncate text-sm text-muted-foreground">
+                {fromStop.location.name} to {toStop.location.name}
+              </p>
+            </div>
+          </div>
+
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Mode
+            <Select<TravelMode>
+              onValueChange={(travel_mode) =>
+                onChange(leg.id, {
+                  travel_mode,
+                })
+              }
+              options={travelModeOptions}
+              value={leg.travel_mode}
+            />
+          </label>
+        </section>
+
+        <section className="grid gap-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4 sm:grid-cols-2">
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Operator
+            <Input
+              maxLength={255}
+              onChange={(event) =>
+                onChange(leg.id, {
+                  operator: nullableTextValue(event.target.value),
+                })
+              }
+              placeholder="Rail company, airline, rental firm"
+              value={leg.operator ?? ''}
+            />
+          </label>
+
+          <label className="grid gap-2 text-sm font-medium text-foreground">
+            Reference
+            <Input
+              maxLength={255}
+              onChange={(event) =>
+                onChange(leg.id, {
+                  reference: nullableTextValue(event.target.value),
+                })
+              }
+              placeholder="Train number, booking code, route"
+              value={leg.reference ?? ''}
+            />
+          </label>
+
+          <label className="grid gap-2 text-sm font-medium text-foreground sm:col-span-2">
+            Notes
+            <Textarea
+              className="min-h-32 resize-none"
+              onChange={(event) =>
+                onChange(leg.id, {
+                  notes: event.target.value,
+                })
+              }
+              placeholder="Tickets, buffers, transfers, pickup notes"
+              value={leg.notes}
+            />
+          </label>
+        </section>
+
+        <div className="flex justify-end">
+          <Button onClick={onClose} type="button">
+            Done
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -3095,9 +3687,11 @@ function createPlaceMarkerHtml() {
 
 function createPostBubbleHtml(post: TravelPost) {
   const primaryMedia = getPrimaryPostMedia(post)
+  const thumbnailSrc = getMediaThumbnailSrc(primaryMedia)
+
   return `
     <div class="trip-map-post-bubble">
-      <img class="trip-map-post-bubble__image" src="${escapeHtml(primaryMedia.src)}" alt="${escapeHtml(primaryMedia.alt)}" />
+      <img class="trip-map-post-bubble__image" src="${escapeHtml(thumbnailSrc)}" alt="${escapeHtml(primaryMedia.alt)}" width="44" height="44" />
     </div>
   `
 }
@@ -3111,7 +3705,30 @@ function createDraftPostMarkerHtml() {
 }
 
 function getPrimaryPostMedia(post: TravelPost): PostMedia {
-  return post.media[0]
+  return (
+    post.media.find((media) => getMediaType(media) === 'image') ??
+    post.media[0]
+  )
+}
+
+function getMediaType(media: PostMedia): NonNullable<PostMedia['type']> {
+  return media.type ?? 'image'
+}
+
+function getMediaThumbnailSrc(media: PostMedia) {
+  return getMediaType(media) === 'video'
+    ? media.poster ?? media.src
+    : media.src
+}
+
+const mediaStripHeightClassName = 'h-56 sm:h-64 lg:h-72 xl:h-80'
+
+function isSupportedMediaFile(file: File) {
+  return file.type.startsWith('image/') || file.type.startsWith('video/')
+}
+
+function getPostMediaType(file: File): NonNullable<PostMedia['type']> {
+  return file.type.startsWith('video/') ? 'video' : 'image'
 }
 
 function getVisibilityLabel(visibility: MockTripVisibility) {
@@ -3146,7 +3763,102 @@ function getRoleLabel(role: MockTripRole) {
 }
 
 function getTravelModeLabel(travelMode: TravelMode) {
-  return travelModeOptions.find((option) => option.value === travelMode)?.label ?? 'Unknown'
+  return (
+    travelModeOptions.find((option) => option.value === travelMode)?.label ??
+    'Unknown'
+  )
+}
+
+function formatNights(nights: number) {
+  return `${nights} ${nights === 1 ? 'night' : 'nights'}`
+}
+
+function formatStopDateLabel(value: string) {
+  const date = parseDateOnly(value)
+  return date ? formatMonthDayLabel(date) : value
+}
+
+function getStayLeaveDateValue(startDateValue: string, nights: number) {
+  const startDate = parseDateOnly(startDateValue)
+  if (!startDate) {
+    return startDateValue
+  }
+
+  return formatDateInputValue(addDays(startDate, Math.max(0, nights)))
+}
+
+function getNightsBetweenDates(startDateValue: string, endDateValue: string) {
+  const startDate = parseDateOnly(startDateValue)
+  const endDate = parseDateOnly(endDateValue)
+  if (!startDate || !endDate) {
+    return 0
+  }
+
+  return Math.max(
+    0,
+    Math.round((toDateOnlyTime(endDate) - toDateOnlyTime(startDate)) / dayInMs),
+  )
+}
+
+function rebalanceTravelLegsAfterStopDelete({
+  currentLegs,
+  nextStop,
+  previousStop,
+  stopId,
+}: {
+  currentLegs: readonly TravelLeg[]
+  nextStop: Stop | null
+  previousStop: Stop | null
+  stopId: string
+}) {
+  const remainingLegs = currentLegs.filter(
+    (leg) => leg.from_stop_id !== stopId && leg.to_stop_id !== stopId,
+  )
+
+  if (!previousStop || !nextStop) {
+    return remainingLegs
+  }
+
+  const hasRebalancedLeg = remainingLegs.some(
+    (leg) =>
+      leg.from_stop_id === previousStop.id && leg.to_stop_id === nextStop.id,
+  )
+
+  if (hasRebalancedLeg) {
+    return remainingLegs
+  }
+
+  return [
+    ...remainingLegs,
+    createDefaultTravelLeg({
+      fromStopId: previousStop.id,
+      toStopId: nextStop.id,
+      tripId: previousStop.trip_id,
+    }),
+  ]
+}
+
+function createDefaultTravelLeg({
+  fromStopId,
+  toStopId,
+  tripId,
+}: {
+  fromStopId: string
+  toStopId: string
+  tripId: string
+}): TravelLeg {
+  return {
+    created_at: mockItineraryTimestamp,
+    from_stop_id: fromStopId,
+    id: `mock-leg-${fromStopId}-${toStopId}`,
+    notes: '',
+    operator: null,
+    reference: null,
+    to_stop_id: toStopId,
+    travel_mode: 'UNKNOWN',
+    trip_id: tripId,
+    updated_at: mockItineraryTimestamp,
+  }
 }
 
 function getTravelModeIcon(travelMode: TravelMode): LucideIcon {
@@ -3261,6 +3973,13 @@ function formatDateLabel(value: string) {
   }).format(date)
 }
 
+function formatMonthDayLabel(date: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    month: 'short',
+  }).format(date)
+}
+
 function formatDateTimeLabel(value: string) {
   const date = parseDateTime(value)
   if (!date) {
@@ -3283,6 +4002,25 @@ function parseDateOnly(value: string) {
   }
 
   return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+}
+
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date)
+  nextDate.setDate(nextDate.getDate() + days)
+  return nextDate
+}
+
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const dayInMs = 24 * 60 * 60 * 1000
+
+function toDateOnlyTime(date: Date) {
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
 }
 
 function parseDateTime(value: string) {

@@ -11,13 +11,17 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 type DatePickerProps = {
+  ariaLabel?: string
   className?: string
   disabled?: boolean
+  displayValue?: string
   id?: string
   max?: string
   min?: string
   onValueChange: (value: string) => void
   placeholder?: string
+  popoverAlign?: 'start' | 'end'
+  triggerClassName?: string
   value: string
 }
 
@@ -52,14 +56,18 @@ export function DateTimePicker(props: DateTimePickerProps) {
 }
 
 function DateTimePickerBase({
+  ariaLabel,
   className,
   disabled = false,
+  displayValue,
   id,
   max,
   min,
   mode,
   onValueChange,
   placeholder,
+  popoverAlign = 'start',
+  triggerClassName,
   value,
 }: DatePickerProps & { mode: PickerMode }) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -72,6 +80,8 @@ function DateTimePickerBase({
   const [visibleMonth, setVisibleMonth] = useState(() =>
     startOfMonth(selectedDate ?? minDate ?? new Date()),
   )
+  const formattedDisplayValue =
+    displayValue ?? formatDisplayValue(value, mode, placeholder)
 
   const calendarDays = useMemo(
     () => getCalendarDays(visibleMonth),
@@ -135,15 +145,24 @@ function DateTimePickerBase({
       <button
         aria-expanded={open}
         aria-haspopup="dialog"
-        className="flex h-11 w-full items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-white px-3 py-2 text-left text-base text-foreground shadow-sm transition-colors hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+        aria-label={ariaLabel}
+        className={cn(
+          'flex h-11 w-full items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-white px-3 py-2 text-left text-base text-foreground shadow-sm transition-colors hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+          triggerClassName,
+        )}
         disabled={disabled}
         id={id}
         onClick={openPicker}
         onKeyDown={handleTriggerKeyDown}
         type="button"
       >
-        <span className={cn(selectedDate ? '' : 'text-muted-foreground')}>
-          {formatDisplayValue(value, mode, placeholder)}
+        <span
+          className={cn(
+            'min-w-0 truncate',
+            selectedDate ? '' : 'text-muted-foreground',
+          )}
+        >
+          {formattedDisplayValue}
         </span>
         {mode === 'datetime' ? (
           <Clock className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -154,7 +173,10 @@ function DateTimePickerBase({
 
       {open ? (
         <div
-          className="absolute left-0 z-40 mt-2 w-[17rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[1.35rem] border border-emerald-100 bg-white p-2.5 shadow-xl shadow-emerald-950/10"
+          className={cn(
+            'absolute z-40 mt-2 w-[17rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[1.35rem] border border-emerald-100 bg-white p-2.5 shadow-xl shadow-emerald-950/10',
+            popoverAlign === 'end' ? 'right-0' : 'left-0',
+          )}
           role="dialog"
         >
           <div className="flex items-center justify-between gap-3">
@@ -221,7 +243,9 @@ function DateTimePickerBase({
           ) : null}
 
           <div className="mt-3 flex items-center justify-between gap-3 rounded-[1.1rem] bg-secondary px-3 py-2 text-xs text-muted-foreground">
-            <span>{formatDisplayValue(value, mode, placeholder)}</span>
+            <span className="min-w-0 truncate">
+              {formattedDisplayValue}
+            </span>
             {selectedDate ? (
               <Check className="size-4 text-primary" aria-hidden="true" />
             ) : null}
