@@ -70,7 +70,7 @@ type TripMode = 'planning' | 'traveling'
 type PlanningView = 'create-stop' | 'stops'
 type TravelingView = 'create-post' | 'posts'
 type MapPointTarget = 'post' | 'stop'
-type RouteFitMode = 'mobile-picker' | 'workspace'
+type RouteFitMode = 'mobile-picker' | 'mobile-travel' | 'workspace'
 type TripDialog = 'actions' | 'members' | 'settings' | 'share'
 type MockTripVisibility = 'PLATFORM_PUBLIC' | 'PRIVATE' | 'PUBLIC'
 type MockTripRole = 'MEMBER' | 'OWNER'
@@ -694,6 +694,7 @@ export function TripDetailMockupPage() {
               onTravelLegChange={handleTravelLegChange}
               onTravelingViewChange={setTravelingView}
               planningView={planningView}
+              showMobileTravelMap={shouldUseMobileMapPicker}
               stops={plannedStops}
               trip={mockTrip}
               travelLegs={travelLegs}
@@ -1565,6 +1566,7 @@ function TripSidebar({
   onTravelLegChange,
   onTravelingViewChange,
   planningView,
+  showMobileTravelMap,
   stops,
   trip,
   travelLegs,
@@ -1582,16 +1584,29 @@ function TripSidebar({
   onTravelLegChange: (legId: string, updates: Partial<TravelLeg>) => void
   onTravelingViewChange: (view: TravelingView) => void
   planningView: PlanningView
+  showMobileTravelMap: boolean
   stops: readonly Stop[]
   trip: MockTrip
   travelLegs: readonly TravelLeg[]
   travelingView: TravelingView
 }) {
+  const isMobileTravelPosts = mode === 'traveling' && travelingView === 'posts'
+
   return (
-    <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-sm lg:h-full">
+    <aside
+      className={cn(
+        'flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-sm lg:h-full',
+        isMobileTravelPosts && 'h-[calc(100dvh-9.75rem)] lg:h-full',
+      )}
+    >
       <TripSidebarHeader onOpenDialog={onOpenDialog} trip={trip} />
 
-      <div className="scrollbar-subtle min-w-0 flex-1 pb-24 lg:min-h-0 lg:overflow-auto lg:pb-0">
+      <div
+        className={cn(
+          'scrollbar-subtle min-w-0 flex-1 pb-24 lg:min-h-0 lg:overflow-auto lg:pb-0',
+          isMobileTravelPosts && 'min-h-0 overflow-hidden pb-0',
+        )}
+      >
         {mode === 'planning' && planningView === 'create-stop' ? (
           <CreateStopPanel
             draftLocation={draftStopLocation}
@@ -1631,6 +1646,8 @@ function TripSidebar({
               onMapPointTargetChange(null)
               onTravelingViewChange('create-post')
             }}
+            showMobileMap={showMobileTravelMap}
+            stops={stops}
           />
         )}
       </div>
@@ -2181,26 +2198,116 @@ function CreateStopPanel({
   )
 }
 
-function TravelingPanel({ onNewPost }: { onNewPost: () => void }) {
+function MobileTravelMap({ stops }: { stops: readonly Stop[] }) {
+  const [resetNonce, setResetNonce] = useState(0)
+
   return (
-    <div className="min-w-0 space-y-4 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">Travel posts</h2>
-          <p className="text-sm text-muted-foreground">
-            {travelPosts.length} posts
-          </p>
-        </div>
-        <Button onClick={onNewPost} size="sm" type="button">
-          <Camera className="size-4" aria-hidden="true" />
-          New post
+    <section className="trip-mobile-travel-map absolute inset-0 overflow-hidden bg-white lg:hidden">
+      <TripLeafletMap
+        draftMapLocation={null}
+        fitMode="mobile-travel"
+        mapPointEnabled={false}
+        onDraftMapPointSelect={() => undefined}
+        resetNonce={resetNonce}
+        stops={stops}
+      />
+
+      <div className="pointer-events-none absolute right-3 top-3 z-[500]">
+        <Button
+          aria-label="Recenter travel map"
+          className="pointer-events-auto size-10 rounded-full bg-white/90 shadow-lg shadow-emerald-950/10 backdrop-blur hover:bg-white"
+          onClick={() => setResetNonce((current) => current + 1)}
+          size="icon"
+          title="Recenter"
+          type="button"
+          variant="outline"
+        >
+          <Compass className="size-4" aria-hidden="true" />
         </Button>
       </div>
+    </section>
+  )
+}
 
-      <div className="space-y-5">
-        {travelPosts.map((post) => (
-          <TravelPostCard key={post.id} post={post} />
-        ))}
+function TravelingPanel({
+  onNewPost,
+  showMobileMap,
+  stops,
+}: {
+  onNewPost: () => void
+  showMobileMap: boolean
+  stops: readonly Stop[]
+}) {
+  const [activePostId, setActivePostId] = useState<string | null>(null)
+  const activePost =
+    travelPosts.find((post) => post.id === activePostId) ?? null
+
+  return (
+    <div
+      className={cn(
+        'min-w-0 lg:p-4',
+        showMobileMap &&
+          'relative h-full min-h-0 overflow-hidden lg:block lg:h-auto lg:overflow-visible',
+      )}
+    >
+      {showMobileMap ? (
+        <div className="relative h-full min-h-0 overflow-hidden lg:hidden">
+          {activePost ? (
+            <MobilePostDetailCard
+              onBack={() => setActivePostId(null)}
+              post={activePost}
+            />
+          ) : (
+            <>
+              <MobileTravelMap stops={stops} />
+
+              <div className="pointer-events-none absolute left-3 top-3 z-[500]">
+                <Button
+                  className="pointer-events-auto shadow-xl shadow-emerald-950/10"
+                  onClick={onNewPost}
+                  size="sm"
+                  type="button"
+                >
+                  <Camera className="size-4" aria-hidden="true" />
+                  New post
+                </Button>
+              </div>
+
+              <div className="absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-white/90 via-white/45 to-transparent pb-3 pt-10">
+                <div className="trip-mobile-post-carousel scrollbar-subtle flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1">
+                  {travelPosts.map((post) => (
+                    <TravelPostPreviewCard
+                      key={post.id}
+                      onOpen={() => setActivePostId(post.id)}
+                      post={post}
+                    />
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
+
+      <div className="hidden space-y-4 p-4 lg:block lg:p-0">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">Travel posts</h2>
+            <p className="text-sm text-muted-foreground">
+              {travelPosts.length} posts
+            </p>
+          </div>
+          <Button onClick={onNewPost} size="sm" type="button">
+            <Camera className="size-4" aria-hidden="true" />
+            New post
+          </Button>
+        </div>
+
+        <div className="space-y-5">
+          {travelPosts.map((post) => (
+            <TravelPostCard key={post.id} post={post} />
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -2667,6 +2774,167 @@ function TravelPostCard({ post }: { post: TravelPost }) {
           title={post.title}
         />
       ) : null}
+    </article>
+  )
+}
+
+function TravelPostPreviewCard({
+  onOpen,
+  post,
+}: {
+  onOpen: () => void
+  post: TravelPost
+}) {
+  const primaryMedia = getPrimaryPostMedia(post)
+  const isVideo = getMediaType(primaryMedia) === 'video'
+
+  return (
+    <article className="trip-mobile-post-carousel__card shrink-0 snap-center overflow-hidden rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 shadow-sm shadow-emerald-950/5">
+      <button
+        aria-label={`Open ${post.title}`}
+        className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        onClick={onOpen}
+        type="button"
+      >
+        <div className="relative h-36 overflow-hidden bg-secondary">
+          <MediaPreview
+            className="size-full object-cover"
+            media={primaryMedia}
+          />
+          <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
+          {isVideo ? (
+            <span className="pointer-events-none absolute inset-0 grid place-items-center">
+              <span className="grid size-11 place-items-center rounded-full bg-white/90 text-primary shadow-lg shadow-black/15">
+                <Play className="ml-0.5 size-5 fill-current" aria-hidden="true" />
+              </span>
+            </span>
+          ) : null}
+          {post.media.length > 1 ? (
+            <span className="absolute right-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[0.68rem] font-semibold text-primary shadow-sm">
+              {post.media.length} media
+            </span>
+          ) : null}
+        </div>
+
+        <div className="space-y-1.5 p-3">
+          <h3 className="text-base font-semibold leading-6 text-foreground">
+            {post.title}
+          </h3>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <MapPin className="size-3.5" aria-hidden="true" />
+              {post.location}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Clock className="size-3.5" aria-hidden="true" />
+              {post.time}
+            </span>
+          </div>
+        </div>
+      </button>
+    </article>
+  )
+}
+
+function MobilePostDetailCard({
+  onBack,
+  post,
+}: {
+  onBack: () => void
+  post: TravelPost
+}) {
+  const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
+
+  return (
+    <article className="flex h-full min-h-0 flex-col overflow-hidden bg-white lg:hidden">
+      <div className="flex min-w-0 items-start gap-3 border-b border-emerald-100 bg-white/85 p-3">
+        <Button
+          aria-label="Back to post carousel"
+          className="size-9 rounded-full"
+          onClick={onBack}
+          size="icon"
+          title="Back"
+          type="button"
+          variant="outline"
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-base font-semibold leading-6 text-foreground">
+            {post.title}
+          </h3>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <MapPin className="size-3.5" aria-hidden="true" />
+              {post.location}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Clock className="size-3.5" aria-hidden="true" />
+              {post.time}
+            </span>
+            <span>{post.comments} comments</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-4 p-4">
+        <p className="line-clamp-4 text-sm leading-6 text-muted-foreground">
+          {post.excerpt}
+        </p>
+
+        <div className="trip-post-media-strip scrollbar-subtle -mx-4 flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain px-4 pb-1">
+          {post.media.map((media, index) => (
+            <MobilePostDetailMediaCard
+              key={media.src}
+              media={media}
+              onOpen={() => setActiveMediaIndex(index)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {activeMediaIndex !== null ? (
+        <MediaLightbox
+          activeIndex={activeMediaIndex}
+          media={post.media}
+          onClose={() => setActiveMediaIndex(null)}
+          onIndexChange={setActiveMediaIndex}
+          title={post.title}
+        />
+      ) : null}
+    </article>
+  )
+}
+
+function MobilePostDetailMediaCard({
+  media,
+  onOpen,
+}: {
+  media: PostMedia
+  onOpen: () => void
+}) {
+  const isVideo = getMediaType(media) === 'video'
+
+  return (
+    <article className="group relative h-44 w-[min(20rem,calc(100vw-3rem))] shrink-0 overflow-hidden rounded-[1.35rem] bg-secondary">
+      <button
+        className="block size-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        onClick={onOpen}
+        type="button"
+      >
+        <MediaPreview
+          className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.025]"
+          media={media}
+        />
+        <span className="sr-only">Open {media.alt}</span>
+        {isVideo ? (
+          <span className="pointer-events-none absolute inset-0 grid place-items-center">
+            <span className="grid size-10 place-items-center rounded-full bg-white/90 text-primary shadow-lg shadow-black/15">
+              <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
+            </span>
+          </span>
+        ) : null}
+      </button>
     </article>
   )
 }
@@ -3499,7 +3767,9 @@ function TripLeafletMap({
       maxZoom: 19,
     }).addTo(map)
 
-    L.control.zoom({ position: 'bottomright' }).addTo(map)
+    if (fitMode !== 'mobile-travel') {
+      L.control.zoom({ position: 'bottomright' }).addTo(map)
+    }
 
     function handleMapClick(event: L.LeafletMouseEvent) {
       if (!mapPointEnabledRef.current) {
@@ -3540,7 +3810,7 @@ function TripLeafletMap({
       mapRef.current = null
       routeLayerRef.current = null
     }
-  }, [])
+  }, [fitMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -3657,6 +3927,14 @@ function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
       maxZoom: 4,
       paddingBottomRight: [32, 260],
       paddingTopLeft: [32, 96],
+    }
+  }
+
+  if (fitMode === 'mobile-travel') {
+    return {
+      maxZoom: 4,
+      paddingBottomRight: [36, 280],
+      paddingTopLeft: [36, 96],
     }
   }
 

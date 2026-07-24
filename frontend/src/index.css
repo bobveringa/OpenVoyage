@@ -89,6 +89,10 @@
     cursor: crosshair;
   }
 
+  .trip-mobile-travel-map .trip-leaflet-map {
+    min-height: 0;
+  }
+
   .trip-leaflet-map .leaflet-control-attribution {
     margin: 0 0.75rem 0.75rem 0;
     border-radius: 999px;
@@ -98,25 +102,6 @@
     font-size: 0.68rem;
     box-shadow: 0 16px 40px -28px rgb(15 23 42 / 0.5);
     backdrop-filter: blur(12px);
-  }
-
-  .trip-leaflet-map .leaflet-control-zoom {
-    overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: 1rem;
-    box-shadow: 0 18px 50px -30px rgb(15 23 42 / 0.55);
-  }
-
-  .trip-leaflet-map .leaflet-control-zoom a {
-    width: 2.6rem;
-    height: 2.6rem;
-    border: 0;
-    color: var(--foreground);
-    font: 700 1.25rem/2.6rem var(--app-font-sans);
-  }
-
-  .trip-leaflet-map .leaflet-control-zoom a:first-child {
-    border-bottom: 1px solid var(--border);
   }
 
   .trip-leaflet-map .leaflet-popup-content-wrapper {
@@ -198,4 +183,73 @@
   .trip-post-media-strip::-webkit-scrollbar-track {
     margin-inline: 1rem;
   }
+
+  .trip-mobile-post-carousel {
+    --trip-mobile-post-card-width: min(17rem, calc(100vw - 4rem));
+    padding-inline: calc((100% - var(--trip-mobile-post-card-width)) / 2);
+    scroll-padding-inline: calc(
+      (100% - var(--trip-mobile-post-card-width)) / 2
+    );
+  }
+
+  .trip-mobile-post-carousel__card {
+    width: var(--trip-mobile-post-card-width);
+  }
+}
+
+body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: white;
+  box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.06);
+}
+
+body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar a {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: white;
+  color: var(--foreground);
+  font: 800 1.2rem/1 var(--app-font-sans);
+  text-decoration: none;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar a:first-child {
+  border-top-left-radius: 0.75rem;
+  border-top-right-radius: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar a:last-child {
+  border-bottom-right-radius: 0.75rem;
+  border-bottom-left-radius: 0.75rem;
+}
+
+body
+  .trip-leaflet-map
+  .leaflet-control-zoom.leaflet-bar
+  a:not(.leaflet-disabled):hover,
+body
+  .trip-leaflet-map
+  .leaflet-control-zoom.leaflet-bar
+  a:not(.leaflet-disabled):focus-visible {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar a.leaflet-disabled {
+  color: var(--muted-foreground);
+  opacity: 0.55;
 }
