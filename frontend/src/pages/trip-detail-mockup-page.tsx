@@ -668,9 +668,9 @@ export function TripDetailMockupPage() {
   }, [shouldUseMobileMapPicker])
 
   return (
-    <div className="relative left-1/2 min-h-[calc(100dvh-4rem-1px)] w-screen -translate-x-1/2 overflow-x-hidden px-3 py-3 sm:px-5 lg:h-[calc(100dvh-4rem-1px)] lg:overflow-hidden lg:px-6">
-      <div className="mx-auto min-h-0 max-w-[132rem] lg:h-full">
-        <div className="grid min-h-0 gap-4 lg:h-full lg:grid-cols-[minmax(32rem,49vw)_minmax(0,1fr)]">
+    <div className="relative min-h-[calc(100dvh-4rem-1px)] w-full overflow-x-hidden py-3 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-hidden lg:px-6">
+      <div className="min-h-0 w-full lg:h-full">
+        <div className="grid min-h-0 gap-4 lg:h-full lg:grid-cols-[minmax(28rem,45%)_minmax(0,1fr)]">
           <div
             className={cn(
               'min-h-0 min-w-0',
@@ -3151,7 +3151,7 @@ function MediaLightbox({
         onTouchStart={handleTouchStart}
       >
         <MediaPreview
-          className="max-h-[calc(100vh-10rem)] max-w-[calc(100vw-2rem)] rounded-[1.35rem] object-contain shadow-2xl shadow-black/35 sm:max-w-[calc(100vw-10rem)]"
+          className="max-h-[calc(100dvh-10rem)] max-w-[calc(100dvw-2rem)] rounded-[1.35rem] object-contain shadow-2xl shadow-black/35 sm:max-w-[calc(100dvw-10rem)]"
           controls
           media={activeMedia}
         />

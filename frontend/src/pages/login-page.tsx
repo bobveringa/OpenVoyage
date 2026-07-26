@@ -31,7 +31,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
   }
 
   return (
-    <main className="relative isolate grid min-h-screen place-items-center px-4 py-10 text-foreground">
+    <main className="relative isolate grid min-h-dvh place-items-center px-4 py-10 text-foreground">
       <AppBackground />
       <section className="w-full max-w-md rounded-2xl border border-emerald-100 bg-white p-6 shadow-soft sm:p-8">
         <div className="mb-8 grid justify-items-center gap-4 text-center">

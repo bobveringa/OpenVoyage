@@ -34,11 +34,11 @@ export function AppShell({
   }
 
   return (
-    <div className="relative isolate min-h-screen text-foreground">
+    <div className="relative isolate min-h-dvh text-foreground">
       <AppBackground />
       {showHeader ? (
         <header className="sticky top-0 z-10 border-b border-emerald-100/80 bg-white/80 backdrop-blur-xl">
-          <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <div className="mx-auto flex h-16 w-full max-w-6xl min-w-0 items-center justify-between px-4 sm:px-6 lg:px-8">
             <button
               className="inline-flex items-center gap-3 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               onClick={() => handleNavigate(homePath)}
@@ -76,7 +76,7 @@ export function AppShell({
 
       <main
         className={cn(
-          'mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8',
+          'mx-auto min-w-0 w-full max-w-6xl px-4 sm:px-6 lg:px-8',
           !showHeader && 'max-w-none px-0 sm:px-0 lg:px-0',
         )}
       >
