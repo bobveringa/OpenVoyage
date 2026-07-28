@@ -64,6 +64,11 @@ import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import type {
+  GeoJsonLineString,
+  ItineraryTravelRoute,
+  ItineraryRouteType,
+} from '@/api/client'
 import { cn } from '@/lib/utils'
 
 type TripMode = 'planning' | 'traveling'
@@ -153,6 +158,7 @@ type TravelLeg = {
   notes: string
   operator: string | null
   reference: string | null
+  route: ItineraryTravelRoute
   to_stop_id: string
   travel_mode: TravelMode
   trip_id: string
@@ -181,6 +187,14 @@ type DraftPostLocation = {
   coordinates: L.LatLngTuple
   label: string
 }
+
+type RouteSegment = {
+  coordinates: L.LatLngTuple[]
+  routeType: ItineraryRouteType
+}
+
+const earthRadiusKilometers = 6371
+const geodesicSegmentKilometers = 125
 
 const mockTrip: MockTrip = {
   description:
@@ -396,6 +410,16 @@ const initialTravelLegs: readonly TravelLeg[] = [
     notes: 'Prefer the direct morning train so arrival still leaves time for dinner.',
     operator: 'Comboios de Portugal',
     reference: 'AP 130',
+    route: createMockProviderRoute({
+      coordinates: [
+        [-9.1393, 38.7223],
+        [-8.9439, 39.2619],
+        [-8.8071, 40.2109],
+        [-8.6291, 41.1579],
+      ],
+      distanceMeters: 332000,
+      durationSeconds: 10800,
+    }),
     to_stop_id: stopIds.porto,
     travel_mode: 'TRAIN',
     trip_id: mockTrip.id,
@@ -408,6 +432,10 @@ const initialTravelLegs: readonly TravelLeg[] = [
     notes: 'Long leg. Keep one flexible buffer day before committing the Madrid lodging.',
     operator: 'Iberia',
     reference: 'IB3095',
+    route: createMockSimpleRoute([
+      [-8.6291, 41.1579],
+      [-3.7038, 40.4168],
+    ]),
     to_stop_id: stopIds.madrid,
     travel_mode: 'FLIGHT',
     trip_id: mockTrip.id,
@@ -420,6 +448,16 @@ const initialTravelLegs: readonly TravelLeg[] = [
     notes: 'Check whether splitting this in Barcelona makes the day less brutal.',
     operator: 'Renfe / SNCF',
     reference: null,
+    route: createMockProviderRoute({
+      coordinates: [
+        [-3.7038, 40.4168],
+        [-0.3763, 39.4699],
+        [2.1734, 41.3851],
+        [4.8357, 45.764],
+      ],
+      distanceMeters: 1258000,
+      durationSeconds: 40800,
+    }),
     to_stop_id: stopIds.lyon,
     travel_mode: 'TRAIN',
     trip_id: mockTrip.id,
@@ -432,6 +470,17 @@ const initialTravelLegs: readonly TravelLeg[] = [
     notes: 'Mountain transfer details still rough. Add pickup notes once lodging is booked.',
     operator: null,
     reference: null,
+    route: createMockProviderRoute({
+      coordinates: [
+        [4.8357, 45.764],
+        [7.2619, 45.737],
+        [9.19, 45.4642],
+        [11.1217, 46.0679],
+        [12.1357, 46.5405],
+      ],
+      distanceMeters: 681000,
+      durationSeconds: 25200,
+    }),
     to_stop_id: stopIds.dolomites,
     travel_mode: 'CAR',
     trip_id: mockTrip.id,
@@ -561,14 +610,32 @@ export function TripDetailMockupPage() {
 
   function handleTravelLegChange(legId: string, updates: Partial<TravelLeg>) {
     setTravelLegs((currentLegs) =>
-      currentLegs.map((leg) =>
-        leg.id === legId
-          ? {
-              ...leg,
-              ...updates,
-            }
-          : leg,
-      ),
+      currentLegs.map((leg) => {
+        if (leg.id !== legId) {
+          return leg
+        }
+
+        const nextLeg = {
+          ...leg,
+          ...updates,
+        }
+        if (!hasRouteDefiningTravelLegUpdate(updates)) {
+          return nextLeg
+        }
+
+        const fromStop =
+          plannedStops.find((stop) => stop.id === nextLeg.from_stop_id) ?? null
+        const toStop =
+          plannedStops.find((stop) => stop.id === nextLeg.to_stop_id) ?? null
+        if (!fromStop || !toStop) {
+          return nextLeg
+        }
+
+        return {
+          ...nextLeg,
+          route: createSimpleRouteForStops(fromStop, toStop),
+        }
+      }),
     )
   }
 
@@ -707,6 +774,7 @@ export function TripDetailMockupPage() {
               mapPointEnabled={mapPointTarget !== null}
               onDraftMapPointSelect={handleDraftMapPointSelect}
               stops={plannedStops}
+              travelLegs={travelLegs}
             />
           ) : null}
         </div>
@@ -747,6 +815,7 @@ export function TripDetailMockupPage() {
         open={Boolean(mobileMapPickerTarget && shouldUseMobileMapPicker)}
         stops={plannedStops}
         target={mobileMapPickerTarget}
+        travelLegs={travelLegs}
       />
       {canSwitchModes ? (
         <MobileModeSwitch
@@ -1458,6 +1527,7 @@ function MobileMapPointPicker({
   open,
   stops,
   target,
+  travelLegs,
 }: {
   initialLocation: DraftPostLocation | null
   onCancel: () => void
@@ -1465,6 +1535,7 @@ function MobileMapPointPicker({
   open: boolean
   stops: readonly Stop[]
   target: MapPointTarget | null
+  travelLegs: readonly TravelLeg[]
 }) {
   const [pendingLocation, setPendingLocation] =
     useState<DraftPostLocation | null>(initialLocation)
@@ -1494,6 +1565,7 @@ function MobileMapPointPicker({
         }
         resetNonce={0}
         stops={stops}
+        travelLegs={travelLegs}
       />
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] bg-gradient-to-b from-white/95 via-white/70 to-transparent px-3 pb-8 pt-3">
@@ -1648,6 +1720,7 @@ function TripSidebar({
             }}
             showMobileMap={showMobileTravelMap}
             stops={stops}
+            travelLegs={travelLegs}
           />
         )}
       </div>
@@ -2198,7 +2271,13 @@ function CreateStopPanel({
   )
 }
 
-function MobileTravelMap({ stops }: { stops: readonly Stop[] }) {
+function MobileTravelMap({
+  stops,
+  travelLegs,
+}: {
+  stops: readonly Stop[]
+  travelLegs: readonly TravelLeg[]
+}) {
   const [resetNonce, setResetNonce] = useState(0)
 
   return (
@@ -2210,6 +2289,7 @@ function MobileTravelMap({ stops }: { stops: readonly Stop[] }) {
         onDraftMapPointSelect={() => undefined}
         resetNonce={resetNonce}
         stops={stops}
+        travelLegs={travelLegs}
       />
 
       <div className="pointer-events-none absolute right-3 top-3 z-[500]">
@@ -2233,10 +2313,12 @@ function TravelingPanel({
   onNewPost,
   showMobileMap,
   stops,
+  travelLegs,
 }: {
   onNewPost: () => void
   showMobileMap: boolean
   stops: readonly Stop[]
+  travelLegs: readonly TravelLeg[]
 }) {
   const [activePostId, setActivePostId] = useState<string | null>(null)
   const activePost =
@@ -2259,7 +2341,7 @@ function TravelingPanel({
             />
           ) : (
             <>
-              <MobileTravelMap stops={stops} />
+              <MobileTravelMap stops={stops} travelLegs={travelLegs} />
 
               <div className="pointer-events-none absolute left-3 top-3 z-[500]">
                 <Button
@@ -3677,11 +3759,13 @@ function MapWorkspace({
   mapPointEnabled,
   onDraftMapPointSelect,
   stops,
+  travelLegs,
 }: {
   draftMapLocation: DraftPostLocation | null
   mapPointEnabled: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
   stops: readonly Stop[]
+  travelLegs: readonly TravelLeg[]
 }) {
   const [resetNonce, setResetNonce] = useState(0)
 
@@ -3693,6 +3777,7 @@ function MapWorkspace({
         onDraftMapPointSelect={onDraftMapPointSelect}
         resetNonce={resetNonce}
         stops={stops}
+        travelLegs={travelLegs}
       />
 
       <div className="pointer-events-none absolute right-4 top-4 z-[500] lg:right-5">
@@ -3718,6 +3803,7 @@ function TripLeafletMap({
   onDraftMapPointSelect,
   resetNonce,
   stops,
+  travelLegs,
 }: {
   draftMapLocation: DraftPostLocation | null
   fitMode?: RouteFitMode
@@ -3725,6 +3811,7 @@ function TripLeafletMap({
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
   resetNonce: number
   stops: readonly Stop[]
+  travelLegs: readonly TravelLeg[]
 }) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const draftMarkerRef = useRef<L.Marker | null>(null)
@@ -3733,9 +3820,11 @@ function TripLeafletMap({
   const mapRef = useRef<L.Map | null>(null)
   const routeLayerRef = useRef<L.LayerGroup | null>(null)
   const stopsRef = useRef(stops)
-  const routeKey = createRouteKey(stops)
+  const travelLegsRef = useRef(travelLegs)
+  const routeKey = createRouteKey(stops, travelLegs)
  
   stopsRef.current = stops
+  travelLegsRef.current = travelLegs
 
   useEffect(() => {
     latestLocationSelectRef.current = onDraftMapPointSelect
@@ -3820,10 +3909,10 @@ function TripLeafletMap({
     }
 
     routeLayer.clearLayers()
-    renderRouteLayer(routeLayer, stopsRef.current)
+    renderRouteLayer(routeLayer, stopsRef.current, travelLegsRef.current)
     const animationFrameId = window.requestAnimationFrame(() => {
       map.invalidateSize()
-      fitRouteBounds(map, stopsRef.current, fitMode)
+      fitRouteBounds(map, stopsRef.current, travelLegsRef.current, fitMode)
     })
 
     return () => window.cancelAnimationFrame(animationFrameId)
@@ -3861,7 +3950,7 @@ function TripLeafletMap({
       return
     }
 
-    fitRouteBounds(map, stopsRef.current, fitMode)
+    fitRouteBounds(map, stopsRef.current, travelLegsRef.current, fitMode)
   }, [fitMode, resetNonce])
 
   return (
@@ -3873,18 +3962,31 @@ function TripLeafletMap({
   )
 }
 
-function renderRouteLayer(routeLayer: L.LayerGroup, stops: readonly Stop[]) {
-  const routeCoordinates = stops.map(getStopCoordinates)
-  if (routeCoordinates.length > 0) {
-    L.polyline(routeCoordinates, {
+function renderRouteLayer(
+  routeLayer: L.LayerGroup,
+  stops: readonly Stop[],
+  travelLegs: readonly TravelLeg[],
+) {
+  const routeSegments = getRouteSegments(stops, travelLegs)
+  for (const segment of routeSegments) {
+    if (segment.coordinates.length < 2) {
+      continue
+    }
+
+    L.polyline(segment.coordinates, {
       color: '#0f766e',
+      dashArray: segment.routeType === 'SIMPLE' ? '10 10' : undefined,
       lineCap: 'round',
       lineJoin: 'round',
-      opacity: 0.86,
+      opacity: segment.routeType === 'SIMPLE' ? 0.62 : 0.86,
       weight: 4,
     }).addTo(routeLayer)
 
-    L.polyline(routeCoordinates, {
+    if (segment.routeType === 'SIMPLE') {
+      continue
+    }
+
+    L.polyline(segment.coordinates, {
       color: '#ffffff',
       dashArray: '2 10',
       lineCap: 'round',
@@ -3911,9 +4013,10 @@ function renderRouteLayer(routeLayer: L.LayerGroup, stops: readonly Stop[]) {
 function fitRouteBounds(
   map: L.Map,
   stops: readonly Stop[],
+  travelLegs: readonly TravelLeg[],
   fitMode: RouteFitMode,
 ) {
-  const routeCoordinates = stops.map(getStopCoordinates)
+  const routeCoordinates = getRouteBoundsCoordinates(stops, travelLegs)
   if (routeCoordinates.length === 0) {
     return
   }
@@ -3944,8 +4047,11 @@ function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
   }
 }
 
-function createRouteKey(stops: readonly Stop[]) {
-  return stops
+function createRouteKey(
+  stops: readonly Stop[],
+  travelLegs: readonly TravelLeg[],
+) {
+  const stopKey = stops
     .map((stop) =>
       [
         stop.id,
@@ -3954,6 +4060,263 @@ function createRouteKey(stops: readonly Stop[]) {
       ].join(':'),
     )
     .join('|')
+  const legKey = travelLegs
+    .map((leg) =>
+      [
+        leg.id,
+        leg.from_stop_id,
+        leg.to_stop_id,
+        leg.route.type,
+        createRouteGeometryKey(leg.route.geometry),
+      ].join(':'),
+    )
+    .join('|')
+
+  return `${stopKey}::${legKey}`
+}
+
+function getRouteSegments(
+  stops: readonly Stop[],
+  travelLegs: readonly TravelLeg[],
+): RouteSegment[] {
+  const legsByPair = new Map<string, TravelLeg>(
+    travelLegs.map((leg): [string, TravelLeg] => [
+      createStopPairKey(leg.from_stop_id, leg.to_stop_id),
+      leg,
+    ]),
+  )
+  const segments: RouteSegment[] = []
+
+  for (let index = 0; index < stops.length - 1; index += 1) {
+    const fromStop = stops[index]
+    const toStop = stops[index + 1]
+    if (!fromStop || !toStop) {
+      continue
+    }
+
+    const leg = legsByPair.get(createStopPairKey(fromStop.id, toStop.id))
+    const routeCoordinates = leg
+      ? getRouteCoordinates(leg.route)
+      : getSimpleRouteCoordinates(fromStop, toStop)
+    const coordinates =
+      routeCoordinates ?? getSimpleRouteCoordinates(fromStop, toStop)
+
+    segments.push({
+      coordinates,
+      routeType: leg?.route.type ?? 'SIMPLE',
+    })
+  }
+
+  return segments
+}
+
+function getRouteBoundsCoordinates(
+  stops: readonly Stop[],
+  travelLegs: readonly TravelLeg[],
+) {
+  const routeCoordinates = getRouteSegments(stops, travelLegs).flatMap(
+    (segment) => segment.coordinates,
+  )
+
+  return routeCoordinates.length > 0
+    ? routeCoordinates
+    : stops.map(getStopCoordinates)
+}
+
+function getRouteCoordinates(
+  route: ItineraryTravelRoute,
+): L.LatLngTuple[] | null {
+  if (
+    route.geometry.type !== 'LineString' ||
+    route.geometry.coordinates.length < 2
+  ) {
+    return null
+  }
+
+  const coordinates: L.LatLngTuple[] = []
+  for (const position of route.geometry.coordinates) {
+    const coordinate = getLeafletCoordinate(position)
+    if (!coordinate) {
+      return null
+    }
+    coordinates.push(coordinate)
+  }
+
+  if (route.type === 'SIMPLE') {
+    return createGeodesicRoute(coordinates)
+  }
+
+  return unwrapRouteLongitudes(coordinates)
+}
+
+function getSimpleRouteCoordinates(fromStop: Stop, toStop: Stop) {
+  return createGeodesicRoute([
+    getStopCoordinates(fromStop),
+    getStopCoordinates(toStop),
+  ])
+}
+
+function getLeafletCoordinate(
+  position: GeoJsonLineString['coordinates'][number],
+): L.LatLngTuple | null {
+  const [longitude, latitude] = position
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    Math.abs(latitude) > 90
+  ) {
+    return null
+  }
+
+  return [latitude, longitude]
+}
+
+function createGeodesicRoute(coordinates: readonly L.LatLngTuple[]) {
+  if (coordinates.length < 2) {
+    return [...coordinates]
+  }
+
+  const route: L.LatLngTuple[] = []
+  for (let index = 0; index < coordinates.length - 1; index += 1) {
+    const start = coordinates[index]
+    const end = coordinates[index + 1]
+    if (!start || !end) {
+      continue
+    }
+
+    const segment = interpolateGeodesicSegment(start, end)
+    route.push(...(route.length > 0 ? segment.slice(1) : segment))
+  }
+
+  return unwrapRouteLongitudes(route)
+}
+
+function interpolateGeodesicSegment(
+  start: L.LatLngTuple,
+  end: L.LatLngTuple,
+) {
+  const angularDistance = getCentralAngle(start, end)
+  if (angularDistance < 1e-9) {
+    return [start, end]
+  }
+
+  const segmentCount = Math.max(
+    1,
+    Math.min(
+      128,
+      Math.ceil(
+        (angularDistance * earthRadiusKilometers) / geodesicSegmentKilometers,
+      ),
+    ),
+  )
+  const points: L.LatLngTuple[] = []
+
+  for (let index = 0; index <= segmentCount; index += 1) {
+    points.push(interpolateGreatCirclePoint(start, end, index / segmentCount))
+  }
+
+  return points
+}
+
+function interpolateGreatCirclePoint(
+  start: L.LatLngTuple,
+  end: L.LatLngTuple,
+  fraction: number,
+): L.LatLngTuple {
+  const startLat = toRadians(start[0])
+  const startLng = toRadians(start[1])
+  const endLat = toRadians(end[0])
+  const endLng = toRadians(end[1])
+  const angularDistance = getCentralAngle(start, end)
+  const sinDistance = Math.sin(angularDistance)
+
+  if (Math.abs(sinDistance) < 1e-9) {
+    return [
+      start[0] + (end[0] - start[0]) * fraction,
+      start[1] + (end[1] - start[1]) * fraction,
+    ]
+  }
+
+  const startWeight = Math.sin((1 - fraction) * angularDistance) / sinDistance
+  const endWeight = Math.sin(fraction * angularDistance) / sinDistance
+  const x =
+    startWeight * Math.cos(startLat) * Math.cos(startLng) +
+    endWeight * Math.cos(endLat) * Math.cos(endLng)
+  const y =
+    startWeight * Math.cos(startLat) * Math.sin(startLng) +
+    endWeight * Math.cos(endLat) * Math.sin(endLng)
+  const z = startWeight * Math.sin(startLat) + endWeight * Math.sin(endLat)
+
+  return [
+    toDegrees(Math.atan2(z, Math.sqrt(x * x + y * y))),
+    normalizeLongitude(toDegrees(Math.atan2(y, x))),
+  ]
+}
+
+function getCentralAngle(start: L.LatLngTuple, end: L.LatLngTuple) {
+  const startLat = toRadians(start[0])
+  const endLat = toRadians(end[0])
+  const deltaLat = endLat - startLat
+  const deltaLng = toRadians(end[1] - start[1])
+  const haversine =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(startLat) * Math.cos(endLat) * Math.sin(deltaLng / 2) ** 2
+
+  return 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(Math.max(0, 1 - haversine)))
+}
+
+function unwrapRouteLongitudes(coordinates: readonly L.LatLngTuple[]) {
+  if (coordinates.length <= 1) {
+    return [...coordinates]
+  }
+
+  const firstCoordinate = coordinates[0]
+  if (!firstCoordinate) {
+    return []
+  }
+
+  const unwrapped: L.LatLngTuple[] = [firstCoordinate]
+  let previousLongitude = firstCoordinate[1]
+  for (const coordinate of coordinates.slice(1)) {
+    const longitude = unwrapLongitude(coordinate[1], previousLongitude)
+    unwrapped.push([coordinate[0], longitude])
+    previousLongitude = longitude
+  }
+
+  return unwrapped
+}
+
+function unwrapLongitude(longitude: number, previousLongitude: number) {
+  let unwrapped = longitude
+  while (unwrapped - previousLongitude > 180) {
+    unwrapped -= 360
+  }
+  while (unwrapped - previousLongitude < -180) {
+    unwrapped += 360
+  }
+  return unwrapped
+}
+
+function normalizeLongitude(longitude: number) {
+  return ((((longitude + 180) % 360) + 360) % 360) - 180
+}
+
+function toRadians(degrees: number) {
+  return (degrees * Math.PI) / 180
+}
+
+function toDegrees(radians: number) {
+  return (radians * 180) / Math.PI
+}
+
+function createRouteGeometryKey(geometry: GeoJsonLineString) {
+  return geometry.coordinates
+    .map((position) => `${position[0]},${position[1]}`)
+    .join(';')
+}
+
+function createStopPairKey(fromStopId: string, toStopId: string) {
+  return `${fromStopId}:${toStopId}`
 }
 
 function createPlaceMarkerHtml() {
@@ -4047,6 +4410,58 @@ function getTravelModeLabel(travelMode: TravelMode) {
   )
 }
 
+function createMockProviderRoute({
+  coordinates,
+  distanceMeters,
+  durationSeconds,
+}: {
+  coordinates: GeoJsonLineString['coordinates']
+  distanceMeters: number
+  durationSeconds: number
+}): ItineraryTravelRoute {
+  return {
+    distance_meters: distanceMeters,
+    duration_seconds: durationSeconds,
+    geometry: {
+      coordinates,
+      type: 'LineString',
+    },
+    type: 'PROVIDER_BACKED',
+  }
+}
+
+function createMockSimpleRoute(
+  coordinates: GeoJsonLineString['coordinates'],
+): ItineraryTravelRoute {
+  return {
+    distance_meters: null,
+    duration_seconds: null,
+    geometry: {
+      coordinates,
+      type: 'LineString',
+    },
+    type: 'SIMPLE',
+  }
+}
+
+function createSimpleRouteForStops(
+  fromStop: Stop,
+  toStop: Stop,
+): ItineraryTravelRoute {
+  return createMockSimpleRoute([
+    [fromStop.location.longitude, fromStop.location.latitude],
+    [toStop.location.longitude, toStop.location.latitude],
+  ])
+}
+
+function hasRouteDefiningTravelLegUpdate(updates: Partial<TravelLeg>) {
+  return (
+    'from_stop_id' in updates ||
+    'to_stop_id' in updates ||
+    'travel_mode' in updates
+  )
+}
+
 function formatNights(nights: number) {
   return `${nights} ${nights === 1 ? 'night' : 'nights'}`
 }
@@ -4109,32 +4524,30 @@ function rebalanceTravelLegsAfterStopDelete({
   return [
     ...remainingLegs,
     createDefaultTravelLeg({
-      fromStopId: previousStop.id,
-      toStopId: nextStop.id,
-      tripId: previousStop.trip_id,
+      fromStop: previousStop,
+      toStop: nextStop,
     }),
   ]
 }
 
 function createDefaultTravelLeg({
-  fromStopId,
-  toStopId,
-  tripId,
+  fromStop,
+  toStop,
 }: {
-  fromStopId: string
-  toStopId: string
-  tripId: string
+  fromStop: Stop
+  toStop: Stop
 }): TravelLeg {
   return {
     created_at: mockItineraryTimestamp,
-    from_stop_id: fromStopId,
-    id: `mock-leg-${fromStopId}-${toStopId}`,
+    from_stop_id: fromStop.id,
+    id: `mock-leg-${fromStop.id}-${toStop.id}`,
     notes: '',
     operator: null,
     reference: null,
-    to_stop_id: toStopId,
+    route: createSimpleRouteForStops(fromStop, toStop),
+    to_stop_id: toStop.id,
     travel_mode: 'UNKNOWN',
-    trip_id: tripId,
+    trip_id: fromStop.trip_id,
     updated_at: mockItineraryTimestamp,
   }
 }

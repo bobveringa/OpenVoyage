@@ -1,12 +1,38 @@
+import enum
 import uuid
+from collections.abc import Callable
 from datetime import date, datetime
-from typing import Self
+from typing import Literal, Self, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from models.api.locations import LocationInput, LocationResponse
 from models.api.users import UserSummaryResponse
-from models.database.itinerary import ItineraryStop, ItineraryTravelLeg, TravelMode
+from models.database.itinerary import (
+    ItineraryStop,
+    ItineraryTravelLeg,
+    TravelMode,
+)
+
+
+class ItineraryRouteType(str, enum.Enum):
+    PROVIDER_BACKED = 'PROVIDER_BACKED'
+    SIMPLE = 'SIMPLE'
+
+
+class GeoJsonLineString(BaseModel):
+    type: Literal['LineString'] = 'LineString'
+    coordinates: list[tuple[float, float]]
+
+
+class ItineraryTravelRouteResponse(BaseModel):
+    type: ItineraryRouteType
+    geometry: GeoJsonLineString
+    distance_meters: int | None
+    duration_seconds: int | None
+
+
+RouteResolver: TypeAlias = Callable[[ItineraryTravelLeg], ItineraryTravelRouteResponse]
 
 
 class ItineraryPlacement(BaseModel):
@@ -74,11 +100,17 @@ class ItineraryTravelLegResponse(BaseModel):
     notes: str
     operator: str | None
     reference: str | None
+    route: ItineraryTravelRouteResponse
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_model(cls, leg: ItineraryTravelLeg) -> Self:
+    def from_model(
+        cls,
+        leg: ItineraryTravelLeg,
+        *,
+        route: ItineraryTravelRouteResponse,
+    ) -> Self:
         return cls(
             id=leg.id,
             trip_id=leg.trip_id,
@@ -88,6 +120,7 @@ class ItineraryTravelLegResponse(BaseModel):
             notes=leg.notes,
             operator=leg.operator,
             reference=leg.reference,
+            route=route,
             created_at=leg.created_at,
             updated_at=leg.updated_at,
         )
@@ -137,12 +170,19 @@ class ItineraryResponse(BaseModel):
         itinerary_revision: int,
         stops: list[ItineraryStop],
         legs: list[ItineraryTravelLeg],
+        route_resolver: RouteResolver,
     ) -> Self:
         return cls(
             trip_id=trip_id,
             itinerary_revision=itinerary_revision,
             stops=[ItineraryStopResponse.from_model(stop) for stop in stops],
-            legs=[ItineraryTravelLegResponse.from_model(leg) for leg in legs],
+            legs=[
+                ItineraryTravelLegResponse.from_model(
+                    leg,
+                    route=route_resolver(leg),
+                )
+                for leg in legs
+            ],
         )
 
 
@@ -158,16 +198,23 @@ class ItineraryStopDetailResponse(BaseModel):
         stop: ItineraryStop,
         incoming_leg: ItineraryTravelLeg | None,
         outgoing_leg: ItineraryTravelLeg | None,
+        route_resolver: RouteResolver,
     ) -> Self:
         return cls(
             stop=ItineraryStopResponse.from_model(stop),
             incoming_leg=(
-                ItineraryTravelLegResponse.from_model(incoming_leg)
+                ItineraryTravelLegResponse.from_model(
+                    incoming_leg,
+                    route=route_resolver(incoming_leg),
+                )
                 if incoming_leg
                 else None
             ),
             outgoing_leg=(
-                ItineraryTravelLegResponse.from_model(outgoing_leg)
+                ItineraryTravelLegResponse.from_model(
+                    outgoing_leg,
+                    route=route_resolver(outgoing_leg),
+                )
                 if outgoing_leg
                 else None
             ),

@@ -15,6 +15,7 @@ from models.api.itinerary import (
 from models.database.itinerary import ItineraryStop, ItineraryTravelLeg, TravelMode
 from models.database.trips import Trip, TripMember
 from models.database.user import User
+from services.itinerary_route_service import ItineraryRouteService
 from services.location_service import LocationService
 from services.trip_access import get_membership, get_trip_read_access
 from services.trip_authorization import TripPermission, role_has_permission
@@ -79,9 +80,11 @@ class ItineraryService:
         self,
         db: Session,
         location_service: LocationService,
+        route_service: ItineraryRouteService,
     ) -> None:
         self.db = db
         self.location_service = location_service
+        self.route_service = route_service
 
     def get_itinerary(
         self,
@@ -154,6 +157,11 @@ class ItineraryService:
             outgoing_pair=outgoing_pair,
             incoming_travel=payload.incoming_travel,
             outgoing_travel=payload.outgoing_travel,
+        )
+        self._sync_side_routes(
+            legs_by_pair=legs_by_pair,
+            incoming_pair=incoming_pair,
+            outgoing_pair=outgoing_pair,
         )
         self._increment_revision(trip)
         self.db.commit()
@@ -286,6 +294,11 @@ class ItineraryService:
                 incoming_travel=payload.incoming_travel,
                 outgoing_travel=payload.outgoing_travel,
             )
+            self._sync_side_routes(
+                legs_by_pair=legs_by_pair,
+                incoming_pair=incoming_pair,
+                outgoing_pair=outgoing_pair,
+            )
 
         self._increment_revision(trip)
         self.db.commit()
@@ -310,9 +323,14 @@ class ItineraryService:
 
         new_order = [item for item in old_stops if item.id != stop_id]
         self._apply_order(new_order)
-        self._rebalance_legs(
+        legs_by_pair = self._rebalance_legs(
             trip_id=trip_id,
             new_pairs=self._adjacent_pairs(new_order),
+        )
+        self._sync_bridge_route_after_stop_delete(
+            old_ordered_stops=old_stops,
+            deleted_stop_id=stop_id,
+            legs_by_pair=legs_by_pair,
         )
         self.db.delete(stop)
         self._increment_revision(trip)
@@ -364,7 +382,32 @@ class ItineraryService:
             )
 
         self._replace_travel(leg=leg, payload=payload)
+        self.route_service.sync_leg_route_after_change(leg)
         self._increment_revision(trip)
+        self.db.commit()
+        return ItineraryTravelLegDetail(
+            leg=self._get_leg_or_raise(trip_id=trip_id, leg_id=leg_id),
+            itinerary_revision=trip.itinerary_revision,
+        )
+
+    def refresh_travel_leg_route(
+        self,
+        trip_id: uuid.UUID,
+        leg_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+    ) -> ItineraryTravelLegDetail:
+        trip, _membership = self._require_manage_trip_locked_without_revision(
+            trip_id=trip_id,
+            user_id=current_user_id,
+        )
+        leg = self._get_leg_or_raise(trip_id=trip_id, leg_id=leg_id)
+        current_pairs = set(self._adjacent_pairs(self._load_ordered_stops(trip_id)))
+        if (leg.from_stop_id, leg.to_stop_id) not in current_pairs:
+            raise ItineraryTravelLegNotFoundError(
+                f'Itinerary travel leg not found: {leg_id}'
+            )
+
+        self.route_service.refresh_leg_route(leg)
         self.db.commit()
         return ItineraryTravelLegDetail(
             leg=self._get_leg_or_raise(trip_id=trip_id, leg_id=leg_id),
@@ -393,6 +436,19 @@ class ItineraryService:
         user_id: uuid.UUID,
         expected_revision: int,
     ) -> tuple[Trip, TripMember]:
+        trip, membership = self._require_manage_trip_locked_without_revision(
+            trip_id=trip_id,
+            user_id=user_id,
+        )
+        if trip.itinerary_revision != expected_revision:
+            raise ItineraryRevisionMismatchError('Itinerary revision does not match')
+        return trip, membership
+
+    def _require_manage_trip_locked_without_revision(
+        self,
+        trip_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> tuple[Trip, TripMember]:
         trip = self.db.execute(
             select(Trip).where(Trip.id == trip_id).with_for_update()
         ).scalar_one_or_none()
@@ -415,8 +471,6 @@ class ItineraryService:
             raise TripNotFoundError(f'Trip not found: {trip_id}')
         if not role_has_permission(membership.role, TripPermission.MANAGE_ITINERARY):
             raise ItineraryPermissionError('The user does not have enough privileges')
-        if trip.itinerary_revision != expected_revision:
-            raise ItineraryRevisionMismatchError('Itinerary revision does not match')
         return trip, membership
 
     def _get_membership(
@@ -672,6 +726,42 @@ class ItineraryService:
         for pair in (incoming_pair, outgoing_pair):
             if pair is not None:
                 self._reset_travel(legs_by_pair[pair])
+
+    def _sync_side_routes(
+        self,
+        *,
+        legs_by_pair: dict[StopPair, ItineraryTravelLeg],
+        incoming_pair: StopPair | None,
+        outgoing_pair: StopPair | None,
+    ) -> None:
+        synced_leg_ids: set[uuid.UUID] = set()
+        for pair in (incoming_pair, outgoing_pair):
+            if pair is None:
+                continue
+            leg = legs_by_pair[pair]
+            if leg.id in synced_leg_ids:
+                continue
+            self.route_service.sync_leg_route_after_change(leg)
+            synced_leg_ids.add(leg.id)
+
+    def _sync_bridge_route_after_stop_delete(
+        self,
+        *,
+        old_ordered_stops: list[ItineraryStop],
+        deleted_stop_id: uuid.UUID,
+        legs_by_pair: dict[StopPair, ItineraryTravelLeg],
+    ) -> None:
+        incoming_pair, outgoing_pair = self._neighbor_pairs_for_stop(
+            ordered_stops=old_ordered_stops,
+            stop_id=deleted_stop_id,
+        )
+        if incoming_pair is None or outgoing_pair is None:
+            return
+
+        bridge_pair = (incoming_pair[0], outgoing_pair[1])
+        bridge_leg = legs_by_pair.get(bridge_pair)
+        if bridge_leg is not None:
+            self.route_service.sync_leg_route_after_change(bridge_leg)
 
     def _reset_travel(self, leg: ItineraryTravelLeg) -> None:
         leg.travel_mode = TravelMode.UNKNOWN

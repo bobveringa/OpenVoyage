@@ -5,10 +5,20 @@ import uuid
 import pytest
 
 from core import security
+from core.config import settings
 from factories.places import create_place
 from factories.trips import add_trip_viewer, create_trip
 from factories.users import create_user
+from models.database.itinerary import (
+    ItineraryTravelLegRoute,
+    ItineraryTravelRouteStatus,
+)
 from models.database.trips import TripVisibility
+from services.route_providers import (
+    GraphHopperRouteProvider,
+    RouteProviderError,
+    RouteResponse,
+)
 
 
 def _auth_headers(user, *, etag: str | None = None) -> dict[str, str]:
@@ -21,6 +31,44 @@ def _auth_headers(user, *, etag: str | None = None) -> dict[str, str]:
 
 def _place_location(place) -> dict[str, str]:
     return {'place_id': str(place.id)}
+
+
+PROVIDER_GEOMETRY = {
+    'type': 'LineString',
+    'coordinates': [[5.4697, 51.4416], [5.3, 51.8], [5.1214, 52.0907]],
+}
+
+
+def _enable_graphhopper(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    route_error: RouteProviderError | None = None,
+) -> None:
+    monkeypatch.setattr(settings, 'ROUTING_PROVIDER', 'graphhopper')
+    monkeypatch.setattr(settings, 'GRAPHHOPPER_API_KEY', 'test-key')
+    if route_error is not None:
+        def fail_route(*_args: object, **_kwargs: object) -> RouteResponse:
+            raise route_error
+
+        monkeypatch.setattr(
+            GraphHopperRouteProvider,
+            'get_route',
+            fail_route,
+        )
+        return
+
+    def successful_route(*_args: object, **_kwargs: object) -> RouteResponse:
+        return RouteResponse(
+            geometry_geojson=PROVIDER_GEOMETRY,
+            distance_meters=123456,
+            duration_seconds=7890,
+        )
+
+    monkeypatch.setattr(
+        GraphHopperRouteProvider,
+        'get_route',
+        successful_route,
+    )
 
 
 def _stop_payload(
@@ -44,6 +92,49 @@ def _stop_payload(
         'incoming_travel': incoming_travel,
         'outgoing_travel': outgoing_travel,
     }
+
+
+def _assert_simple_route(leg: dict, from_place, to_place) -> None:
+    assert leg['route'] == {
+        'type': 'SIMPLE',
+        'geometry': {
+            'type': 'LineString',
+            'coordinates': [
+                [from_place.longitude, from_place.latitude],
+                [to_place.longitude, to_place.latitude],
+            ],
+        },
+        'distance_meters': None,
+        'duration_seconds': None,
+    }
+
+
+def _create_two_stop_itinerary(
+    client,
+    api_prefix: str,
+    owner,
+    trip,
+    first_place,
+    second_place,
+    *,
+    travel_mode: str = 'CAR',
+) -> dict:
+    first_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops',
+        headers=_auth_headers(owner, etag='"0"'),
+        json=_stop_payload(first_place, title='First stop'),
+    )
+    first_stop_id = first_response.json()['stops'][0]['id']
+    return client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops',
+        headers=_auth_headers(owner, etag='"1"'),
+        json=_stop_payload(
+            second_place,
+            title='Second stop',
+            after_stop_id=first_stop_id,
+            incoming_travel={'travel_mode': travel_mode},
+        ),
+    ).json()
 
 
 @pytest.mark.integration
@@ -170,6 +261,268 @@ def test_itinerary_create_insert_and_delete_rebalances_legs(
         (leg['from_stop_id'], leg['to_stop_id'], leg['travel_mode'])
         for leg in delete_payload['legs']
     ] == [(first_stop_id, second_stop_id, 'UNKNOWN')]
+
+
+@pytest.mark.integration
+def test_itinerary_returns_simple_route_without_provider(
+    client,
+    db_session,
+    api_prefix,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, 'ROUTING_PROVIDER', 'none')
+    owner = create_user(db_session, password='ItineraryPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
+    first_place = create_place(
+        db_session,
+        name='Eindhoven',
+        latitude=51.4416,
+        longitude=5.4697,
+    )
+    second_place = create_place(
+        db_session,
+        name='Utrecht',
+        latitude=52.0907,
+        longitude=5.1214,
+    )
+
+    payload = _create_two_stop_itinerary(
+        client,
+        api_prefix,
+        owner,
+        trip,
+        first_place,
+        second_place,
+    )
+    leg = payload['legs'][0]
+
+    _assert_simple_route(leg, first_place, second_place)
+    assert db_session.get(ItineraryTravelLegRoute, uuid.UUID(leg['id'])) is None
+
+
+@pytest.mark.integration
+def test_itinerary_generates_provider_route_for_supported_provider_mode(
+    client,
+    db_session,
+    api_prefix,
+    monkeypatch,
+) -> None:
+    _enable_graphhopper(monkeypatch)
+    owner = create_user(db_session, password='ItineraryPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
+    first_place = create_place(db_session, latitude=51.4416, longitude=5.4697)
+    second_place = create_place(db_session, latitude=52.0907, longitude=5.1214)
+
+    payload = _create_two_stop_itinerary(
+        client,
+        api_prefix,
+        owner,
+        trip,
+        first_place,
+        second_place,
+    )
+    leg = payload['legs'][0]
+    route = db_session.get(ItineraryTravelLegRoute, uuid.UUID(leg['id']))
+
+    _assert_simple_route(leg, first_place, second_place)
+    assert route is not None
+    assert route.status == ItineraryTravelRouteStatus.READY
+    assert route.provider == 'graphhopper'
+    assert route.geometry_geojson == PROVIDER_GEOMETRY
+    assert route.distance_meters == 123456
+    assert route.duration_seconds == 7890
+    assert route.attempt_count == 1
+
+
+@pytest.mark.integration
+def test_provider_generation_failure_keeps_simple_route(
+    client,
+    db_session,
+    api_prefix,
+    monkeypatch,
+) -> None:
+    _enable_graphhopper(monkeypatch, route_error=RouteProviderError('boom'))
+    owner = create_user(db_session, password='ItineraryPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
+    first_place = create_place(db_session, latitude=51.4416, longitude=5.4697)
+    second_place = create_place(db_session, latitude=52.0907, longitude=5.1214)
+
+    payload = _create_two_stop_itinerary(
+        client,
+        api_prefix,
+        owner,
+        trip,
+        first_place,
+        second_place,
+    )
+    leg = payload['legs'][0]
+    route = db_session.get(ItineraryTravelLegRoute, uuid.UUID(leg['id']))
+
+    _assert_simple_route(leg, first_place, second_place)
+    assert route is not None
+    assert route.status == ItineraryTravelRouteStatus.FAILED
+    assert route.provider == 'graphhopper'
+    assert route.geometry_geojson is None
+    assert route.error_code == 'PROVIDER_ERROR'
+    assert route.attempt_count == 1
+    assert route.next_retry_at is not None
+
+
+@pytest.mark.integration
+def test_itinerary_returns_ready_provider_backed_route(
+    client,
+    db_session,
+    api_prefix,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, 'ROUTING_PROVIDER', 'none')
+    owner = create_user(db_session, password='ItineraryPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
+    first_place = create_place(db_session)
+    second_place = create_place(db_session, latitude=35.68, longitude=139.76)
+    payload = _create_two_stop_itinerary(
+        client,
+        api_prefix,
+        owner,
+        trip,
+        first_place,
+        second_place,
+    )
+    leg_id = uuid.UUID(payload['legs'][0]['id'])
+    provider_geometry = {
+        'type': 'LineString',
+        'coordinates': [[135.7681, 35.0116], [137.0, 35.5], [139.76, 35.68]],
+    }
+    db_session.add(
+        ItineraryTravelLegRoute(
+            id=leg_id,
+            status=ItineraryTravelRouteStatus.READY,
+            provider='graphhopper',
+            geometry_geojson=provider_geometry,
+            distance_meters=430000,
+            duration_seconds=14400,
+        )
+    )
+    db_session.commit()
+
+    response = client.get(
+        f'{api_prefix}/trips/{trip.id}/itinerary/legs/{leg_id}',
+        headers=_auth_headers(owner),
+    )
+
+    assert response.status_code == 200
+    assert response.json()['route'] == {
+        'type': 'PROVIDER_BACKED',
+        'geometry': provider_geometry,
+        'distance_meters': 430000,
+        'duration_seconds': 14400,
+    }
+
+
+@pytest.mark.integration
+def test_failed_route_row_returns_simple_and_refresh_regenerates_route(
+    client,
+    db_session,
+    api_prefix,
+    monkeypatch,
+) -> None:
+    _enable_graphhopper(monkeypatch)
+    owner = create_user(db_session, password='ItineraryPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
+    first_place = create_place(db_session, latitude=51.4416, longitude=5.4697)
+    second_place = create_place(db_session, latitude=52.0907, longitude=5.1214)
+    payload = _create_two_stop_itinerary(
+        client,
+        api_prefix,
+        owner,
+        trip,
+        first_place,
+        second_place,
+    )
+    leg_id = uuid.UUID(payload['legs'][0]['id'])
+    route = db_session.get(ItineraryTravelLegRoute, leg_id)
+    assert route is not None
+    route.status = ItineraryTravelRouteStatus.FAILED
+    route.error_code = 'NO_ROUTE'
+    route.attempt_count = 1
+    db_session.commit()
+
+    read_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/itinerary/legs/{leg_id}',
+        headers=_auth_headers(owner),
+    )
+    refresh_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/legs/{leg_id}/route-refresh',
+        headers=_auth_headers(owner),
+    )
+    db_session.expire_all()
+    refreshed_route = db_session.get(ItineraryTravelLegRoute, leg_id)
+
+    assert read_response.status_code == 200
+    _assert_simple_route(read_response.json(), first_place, second_place)
+    assert refresh_response.status_code == 200
+    assert refresh_response.headers['etag'] == '"2"'
+    _assert_simple_route(refresh_response.json(), first_place, second_place)
+    assert refreshed_route is not None
+    assert refreshed_route.status == ItineraryTravelRouteStatus.READY
+    assert refreshed_route.geometry_geojson == PROVIDER_GEOMETRY
+    assert refreshed_route.error_code is None
+    assert refreshed_route.attempt_count == 1
+
+
+@pytest.mark.integration
+def test_travel_mode_change_deletes_ready_route_and_regenerates_replacement(
+    client,
+    db_session,
+    api_prefix,
+    monkeypatch,
+) -> None:
+    _enable_graphhopper(monkeypatch)
+    owner = create_user(db_session, password='ItineraryPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
+    first_place = create_place(db_session, latitude=51.4416, longitude=5.4697)
+    second_place = create_place(db_session, latitude=52.0907, longitude=5.1214)
+    payload = _create_two_stop_itinerary(
+        client,
+        api_prefix,
+        owner,
+        trip,
+        first_place,
+        second_place,
+    )
+    leg_id = uuid.UUID(payload['legs'][0]['id'])
+    route = db_session.get(ItineraryTravelLegRoute, leg_id)
+    assert route is not None
+    route.status = ItineraryTravelRouteStatus.READY
+    route.geometry_geojson = {
+        'type': 'LineString',
+        'coordinates': [[5.4697, 51.4416], [5.1214, 52.0907]],
+    }
+    route.distance_meters = 90000
+    route.duration_seconds = 3600
+    db_session.commit()
+
+    response = client.put(
+        f'{api_prefix}/trips/{trip.id}/itinerary/legs/{leg_id}',
+        headers=_auth_headers(owner, etag='"2"'),
+        json={
+            'travel_mode': 'WALK',
+            'notes': '',
+            'operator': None,
+            'reference': None,
+        },
+    )
+    db_session.expire_all()
+    replacement_route = db_session.get(ItineraryTravelLegRoute, leg_id)
+
+    assert response.status_code == 200
+    assert response.headers['etag'] == '"3"'
+    assert response.json()['travel_mode'] == 'WALK'
+    _assert_simple_route(response.json(), first_place, second_place)
+    assert replacement_route is not None
+    assert replacement_route.status == ItineraryTravelRouteStatus.READY
+    assert replacement_route.geometry_geojson == PROVIDER_GEOMETRY
+    assert replacement_route.attempt_count == 1
 
 
 @pytest.mark.integration

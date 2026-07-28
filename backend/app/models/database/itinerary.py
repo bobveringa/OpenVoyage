@@ -16,6 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, utcnow
@@ -36,6 +37,12 @@ class TravelMode(str, enum.Enum):
     FERRY = 'FERRY'
     FLIGHT = 'FLIGHT'
     OTHER = 'OTHER'
+
+
+class ItineraryTravelRouteStatus(str, enum.Enum):
+    READY = 'READY'
+    PENDING = 'PENDING'
+    FAILED = 'FAILED'
 
 
 class ItineraryStop(Base):
@@ -245,4 +252,103 @@ class ItineraryTravelLeg(Base):
         ),
         foreign_keys='[ItineraryTravelLeg.trip_id, ItineraryTravelLeg.to_stop_id]',
         viewonly=True,
+    )
+    route: Mapped['ItineraryTravelLegRoute | None'] = relationship(
+        'ItineraryTravelLegRoute',
+        back_populates='leg',
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+        uselist=False,
+    )
+
+
+class ItineraryTravelLegRoute(Base):
+    __tablename__ = 'itinerary_travel_leg_routes'
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('READY', 'PENDING', 'FAILED')",
+            name='ck_itinerary_travel_leg_routes_status',
+        ),
+        CheckConstraint(
+            "status <> 'READY' OR geometry_geojson IS NOT NULL",
+            name='ck_itinerary_travel_leg_routes_ready_geometry',
+        ),
+        CheckConstraint(
+            'attempt_count >= 0',
+            name='ck_itinerary_travel_leg_routes_attempt_count_nonnegative',
+        ),
+        CheckConstraint(
+            'distance_meters IS NULL OR distance_meters >= 0',
+            name='ck_itinerary_travel_leg_routes_distance_nonnegative',
+        ),
+        CheckConstraint(
+            'duration_seconds IS NULL OR duration_seconds >= 0',
+            name='ck_itinerary_travel_leg_routes_duration_nonnegative',
+        ),
+        Index(
+            'ix_itinerary_travel_leg_routes_retry',
+            'status',
+            'next_retry_at',
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            'itinerary_travel_legs.id',
+            ondelete='CASCADE',
+            name='fk_itinerary_travel_leg_routes_id',
+        ),
+        primary_key=True,
+    )
+    status: Mapped[ItineraryTravelRouteStatus] = mapped_column(
+        String(32),
+        nullable=False,
+    )
+    geometry_geojson: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+    provider: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    distance_meters: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    duration_seconds: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    attempt_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default='0',
+    )
+    next_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    error_code: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=func.now(),
+    )
+
+    leg: Mapped[ItineraryTravelLeg] = relationship(
+        'ItineraryTravelLeg',
+        back_populates='route',
     )

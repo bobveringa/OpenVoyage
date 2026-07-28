@@ -215,6 +215,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/route-refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Leg Route */
+        post: operations["refresh_leg_route_api_v1_trips__trip_id__itinerary_legs__leg_id__route_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/itinerary/stops": {
         parameters: {
             query?: never;
@@ -587,6 +604,20 @@ export interface components {
              */
             id: string;
         };
+        /** GeoJsonLineString */
+        GeoJsonLineString: {
+            /** Coordinates */
+            coordinates: [
+                number,
+                number
+            ][];
+            /**
+             * Type
+             * @default LineString
+             * @constant
+             */
+            type: "LineString";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -623,6 +654,11 @@ export interface components {
              */
             trip_id: string;
         };
+        /**
+         * ItineraryRouteType
+         * @enum {string}
+         */
+        ItineraryRouteType: "PROVIDER_BACKED" | "SIMPLE";
         /** ItineraryStopCreateRequest */
         ItineraryStopCreateRequest: {
             incoming_travel?: components["schemas"]["ItineraryTravelReplaceRequest"] | null;
@@ -721,6 +757,7 @@ export interface components {
             operator: string | null;
             /** Reference */
             reference: string | null;
+            route: components["schemas"]["ItineraryTravelRouteResponse"];
             /**
              * To Stop Id
              * Format: uuid
@@ -750,6 +787,15 @@ export interface components {
             /** Reference */
             reference?: string | null;
             travel_mode: components["schemas"]["TravelMode"];
+        };
+        /** ItineraryTravelRouteResponse */
+        ItineraryTravelRouteResponse: {
+            /** Distance Meters */
+            distance_meters: number | null;
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            geometry: components["schemas"]["GeoJsonLineString"];
+            type: components["schemas"]["ItineraryRouteType"];
         };
         /** LocationCoordinatesInput */
         LocationCoordinatesInput: {
@@ -1841,6 +1887,38 @@ export interface operations {
                 "application/json": components["schemas"]["ItineraryTravelReplaceRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItineraryTravelLegResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_leg_route_api_v1_trips__trip_id__itinerary_legs__leg_id__route_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                leg_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

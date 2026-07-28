@@ -15,6 +15,10 @@ from core.db import get_engine
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from models.api.token import TokenPayload
 from models.database.user import User
+from services.itinerary_route_service import (
+    ItineraryRouteService,
+    build_configured_route_provider,
+)
 from services.location_service import LocationService
 from services.media_service import MediaService
 from services.itinerary_service import ItineraryService
@@ -154,13 +158,32 @@ def get_post_service(
     )
 
 
+def get_itinerary_route_service(
+    session: SessionDep,
+    background_tasks: BackgroundTasks,
+):
+    provider_name, route_provider = build_configured_route_provider(
+        settings.ROUTING_PROVIDER
+    )
+    return ItineraryRouteService(
+        db=session,
+        background_tasks=background_tasks,
+        provider_name=provider_name,
+        route_provider=route_provider,
+    )
+
+
 def get_itinerary_service(
     session: SessionDep,
     location_service: Annotated[LocationService, Depends(get_location_service)],
+    route_service: Annotated[
+        ItineraryRouteService, Depends(get_itinerary_route_service)
+    ],
 ):
     return ItineraryService(
         db=session,
         location_service=location_service,
+        route_service=route_service,
     )
 
 
@@ -173,6 +196,9 @@ OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 CurrentAdmin = Annotated[User, Depends(get_current_admin_user)]
 MediaServiceDep = Annotated[MediaService, Depends(get_media_service)]
 LocationServiceDep = Annotated[LocationService, Depends(get_location_service)]
+ItineraryRouteServiceDep = Annotated[
+    ItineraryRouteService, Depends(get_itinerary_route_service)
+]
 ItineraryServiceDep = Annotated[ItineraryService, Depends(get_itinerary_service)]
 PlaceServiceDep = Annotated[PlaceService, Depends(get_place_service)]
 PostServiceDep = Annotated[PostService, Depends(get_post_service)]

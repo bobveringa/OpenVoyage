@@ -3,3 +3,4 @@ private/
 data/
 .coverage
 __pycache__/
+.env

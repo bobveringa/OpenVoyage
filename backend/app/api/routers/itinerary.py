@@ -101,6 +101,7 @@ def get_itinerary(
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
         legs=snapshot.legs,
+        route_resolver=itinerary_service.route_service.get_route_response,
     )
 
 
@@ -133,6 +134,7 @@ def create_stop(
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
         legs=snapshot.legs,
+        route_resolver=itinerary_service.route_service.get_route_response,
     )
 
 
@@ -163,6 +165,7 @@ def get_stop(
         stop=detail.stop,
         incoming_leg=detail.incoming_leg,
         outgoing_leg=detail.outgoing_leg,
+        route_resolver=itinerary_service.route_service.get_route_response,
     )
 
 
@@ -196,6 +199,7 @@ def update_stop(
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
         legs=snapshot.legs,
+        route_resolver=itinerary_service.route_service.get_route_response,
     )
 
 
@@ -227,6 +231,7 @@ def delete_stop(
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
         legs=snapshot.legs,
+        route_resolver=itinerary_service.route_service.get_route_response,
     )
 
 
@@ -253,7 +258,10 @@ def get_leg(
         _raise_http_error(exc)
 
     response.headers['ETag'] = _etag(detail.itinerary_revision)
-    return ItineraryTravelLegResponse.from_model(detail.leg)
+    return ItineraryTravelLegResponse.from_model(
+        detail.leg,
+        route=itinerary_service.route_service.get_route_response(detail.leg),
+    )
 
 
 @router.put(
@@ -281,4 +289,34 @@ def replace_leg(
         _raise_http_error(exc)
 
     response.headers['ETag'] = _etag(detail.itinerary_revision)
-    return ItineraryTravelLegResponse.from_model(detail.leg)
+    return ItineraryTravelLegResponse.from_model(
+        detail.leg,
+        route=itinerary_service.route_service.get_route_response(detail.leg),
+    )
+
+
+@router.post(
+    '/legs/{leg_id}/route-refresh',
+    response_model=ItineraryTravelLegResponse,
+)
+def refresh_leg_route(
+    trip_id: uuid.UUID,
+    leg_id: uuid.UUID,
+    response: Response,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+) -> ItineraryTravelLegResponse:
+    try:
+        detail = itinerary_service.refresh_travel_leg_route(
+            trip_id=trip_id,
+            leg_id=leg_id,
+            current_user_id=user.id,
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+
+    response.headers['ETag'] = _etag(detail.itinerary_revision)
+    return ItineraryTravelLegResponse.from_model(
+        detail.leg,
+        route=itinerary_service.route_service.get_route_response(detail.leg),
+    )

@@ -21,6 +21,14 @@ export type TripCreatePayload = components['schemas']['TripCreateRequest']
 export type TripSortField = components['schemas']['TripSortField']
 export type TripStatusFilter = components['schemas']['TripStatusFilter']
 export type TripVisibility = components['schemas']['TripVisibility']
+export type GeoJsonLineString = components['schemas']['GeoJsonLineString']
+export type Itinerary = components['schemas']['ItineraryResponse']
+export type ItineraryStop = components['schemas']['ItineraryStopResponse']
+export type ItineraryTravelLeg =
+  components['schemas']['ItineraryTravelLegResponse']
+export type ItineraryTravelRoute =
+  components['schemas']['ItineraryTravelRouteResponse']
+export type ItineraryRouteType = components['schemas']['ItineraryRouteType']
 export type Media = components['schemas']['MediaResponse']
 export type PlaceImportDataset =
   components['schemas']['PlaceImportRequest']['dataset']
@@ -200,6 +208,37 @@ export async function getTrip(options: {
     {
       accessToken: options.accessToken,
       shareToken: options.shareToken,
+    },
+  )
+}
+
+export async function getItinerary(options: {
+  tripId: string
+  accessToken?: string | null
+  shareToken?: string | null
+}): Promise<Itinerary> {
+  return requestJson<Itinerary>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary`,
+    {
+      accessToken: options.accessToken,
+      shareToken: options.shareToken,
+    },
+  )
+}
+
+export async function refreshItineraryTravelLegRoute(options: {
+  tripId: string
+  legId: string
+  accessToken: string
+}): Promise<ItineraryTravelLeg> {
+  const tripId = encodeURIComponent(options.tripId)
+  const legId = encodeURIComponent(options.legId)
+
+  return requestJson<ItineraryTravelLeg>(
+    `${API_V1_PREFIX}/trips/${tripId}/itinerary/legs/${legId}/route-refresh`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
     },
   )
 }

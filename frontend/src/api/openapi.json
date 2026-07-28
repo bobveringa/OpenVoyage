@@ -165,6 +165,38 @@
         "title": "FirstUserCreateResponse",
         "type": "object"
       },
+      "GeoJsonLineString": {
+        "properties": {
+          "coordinates": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "LineString",
+            "default": "LineString",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "coordinates"
+        ],
+        "title": "GeoJsonLineString",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -258,6 +290,14 @@
         ],
         "title": "ItineraryResponse",
         "type": "object"
+      },
+      "ItineraryRouteType": {
+        "enum": [
+          "PROVIDER_BACKED",
+          "SIMPLE"
+        ],
+        "title": "ItineraryRouteType",
+        "type": "string"
       },
       "ItineraryStopCreateRequest": {
         "additionalProperties": false,
@@ -552,6 +592,9 @@
             ],
             "title": "Reference"
           },
+          "route": {
+            "$ref": "#/components/schemas/ItineraryTravelRouteResponse"
+          },
           "to_stop_id": {
             "format": "uuid",
             "title": "To Stop Id",
@@ -580,6 +623,7 @@
           "notes",
           "operator",
           "reference",
+          "route",
           "created_at",
           "updated_at"
         ],
@@ -626,6 +670,46 @@
           "travel_mode"
         ],
         "title": "ItineraryTravelReplaceRequest",
+        "type": "object"
+      },
+      "ItineraryTravelRouteResponse": {
+        "properties": {
+          "distance_meters": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance Meters"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/GeoJsonLineString"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ItineraryRouteType"
+          }
+        },
+        "required": [
+          "type",
+          "geometry",
+          "distance_meters",
+          "duration_seconds"
+        ],
+        "title": "ItineraryTravelRouteResponse",
         "type": "object"
       },
       "LocationCoordinatesInput": {
@@ -3122,6 +3206,64 @@
           }
         ],
         "summary": "Replace Leg",
+        "tags": [
+          "itinerary"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/route-refresh": {
+      "post": {
+        "operationId": "refresh_leg_route_api_v1_trips__trip_id__itinerary_legs__leg_id__route_refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "leg_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Leg Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItineraryTravelLegResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Refresh Leg Route",
         "tags": [
           "itinerary"
         ]

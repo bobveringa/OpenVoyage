@@ -45,6 +45,9 @@ class Settings(BaseSettings):
 
     MEDIA_DIRECTORY: str = ''
     GEONAMES_DOWNLOAD_BASE_URL: str = 'https://download.geonames.org/export/dump'
+    ROUTING_PROVIDER: str = 'none'
+    GRAPHHOPPER_API_KEY: str = ''
+    GRAPHHOPPER_BASE_URL: str = 'https://graphhopper.com/api/1'
 
     @computed_field
     @property
