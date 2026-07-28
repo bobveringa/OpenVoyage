@@ -7,6 +7,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    String,
     Text,
     UniqueConstraint,
     func,
@@ -56,6 +57,10 @@ class Post(Base):
             name='fk_posts_location_id',
             ondelete='CASCADE',
         ),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(
+        String(255),
         nullable=False,
     )
     body: Mapped[str] = mapped_column(

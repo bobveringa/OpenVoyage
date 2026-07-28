@@ -977,6 +977,8 @@ export interface components {
              * @default false
              */
             publish: boolean;
+            /** Title */
+            title: string;
         };
         /** PostResponse */
         PostResponse: {
@@ -1003,6 +1005,8 @@ export interface components {
             occurred_at: string;
             /** Published At */
             published_at: string | null;
+            /** Title */
+            title: string;
             /**
              * Trip Id
              * Format: uuid
@@ -1034,6 +1038,8 @@ export interface components {
             media_ids?: string[] | null;
             /** Occurred At */
             occurred_at?: string | null;
+            /** Title */
+            title?: string | null;
         };
         /** RefreshTokenRequest */
         RefreshTokenRequest: {

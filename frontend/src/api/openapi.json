@@ -1144,9 +1144,16 @@
             "default": false,
             "title": "Publish",
             "type": "boolean"
+          },
+          "title": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
           }
         },
         "required": [
+          "title",
           "body",
           "location",
           "occurred_at"
@@ -1200,6 +1207,10 @@
             ],
             "title": "Published At"
           },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
           "trip_id": {
             "format": "uuid",
             "title": "Trip Id",
@@ -1216,6 +1227,7 @@
           "trip_id",
           "author",
           "location",
+          "title",
           "body",
           "occurred_at",
           "published_at",
@@ -1299,6 +1311,19 @@
               }
             ],
             "title": "Occurred At"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
           }
         },
         "title": "PostUpdateRequest",

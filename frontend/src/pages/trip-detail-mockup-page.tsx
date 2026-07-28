@@ -49,6 +49,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -592,6 +593,7 @@ export function TripDetailMockupPage() {
   const [travelPosts, setTravelPosts] =
     useState<readonly TravelPost[]>(initialTravelPosts)
   const [travelingView, setTravelingView] = useState<TravelingView>('posts')
+  const [focusedPostId, setFocusedPostId] = useState<string | null>(null)
   const [activeDialog, setActiveDialog] = useState<TripDialog | null>(null)
   const [mapPointTarget, setMapPointTarget] = useState<MapPointTarget | null>(
     null,
@@ -740,9 +742,16 @@ export function TripDetailMockupPage() {
   const handleModeChange = useCallback((nextMode: TripMode) => {
     setMapPointTarget(null)
     setMobileMapPickerTarget(null)
+    setFocusedPostId(null)
     setMode(nextMode)
     setPlanningView('stops')
     setTravelingView('posts')
+  }, [])
+
+  const handleFocusedPostChange = useCallback((postId: string | null) => {
+    setFocusedPostId((currentPostId) =>
+      currentPostId === postId ? currentPostId : postId,
+    )
   }, [])
 
   const activeDraftMapLocation =
@@ -774,8 +783,14 @@ export function TripDetailMockupPage() {
     }
   }, [shouldUseMobileMapPicker])
 
+  useEffect(() => {
+    if (visibleMode !== 'traveling') {
+      setFocusedPostId(null)
+    }
+  }, [visibleMode])
+
   return (
-    <div className="relative min-h-[calc(100dvh-4rem-1px)] w-full overflow-x-hidden py-3 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-hidden lg:px-6">
+    <div className="relative z-0 min-h-[calc(100dvh-4rem-1px)] w-full overflow-x-hidden py-3 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-hidden lg:px-6">
       <div className="min-h-0 w-full lg:h-full">
         <div className="grid min-h-0 gap-4 lg:h-full lg:grid-cols-[minmax(28rem,45%)_minmax(0,1fr)]">
           <div
@@ -792,8 +807,10 @@ export function TripDetailMockupPage() {
               mode={visibleMode}
               draftPostLocation={draftPostLocation}
               draftStopLocation={draftStopLocation}
+              focusedPostId={focusedPostId}
               mapPointTarget={mapPointTarget}
               onMapPointTargetChange={handleMapPointTargetChange}
+              onFocusedPostChange={handleFocusedPostChange}
               onOpenDialog={openDialog}
               onPostChange={handlePostChange}
               onPlanningViewChange={setPlanningView}
@@ -802,6 +819,7 @@ export function TripDetailMockupPage() {
               onTravelLegChange={handleTravelLegChange}
               onTravelingViewChange={setTravelingView}
               planningView={planningView}
+              reserveMobileModeSwitchSpace={canSwitchModes}
               showMobileTravelMap={shouldUseMobileMapPicker}
               stops={visibleStops}
               trip={mockTrip}
@@ -814,6 +832,7 @@ export function TripDetailMockupPage() {
             <MapWorkspace
               draftMapLocation={activeDraftMapLocation}
               mapPointEnabled={mapPointTarget !== null}
+              focusedPostId={focusedPostId}
               onDraftMapPointSelect={handleDraftMapPointSelect}
               routeMode={mapRouteMode}
               stops={visibleStops}
@@ -1680,8 +1699,10 @@ function MobileMapPointPicker({
 function TripSidebar({
   draftPostLocation,
   draftStopLocation,
+  focusedPostId,
   mapPointTarget,
   mode,
+  onFocusedPostChange,
   onMapPointTargetChange,
   onOpenDialog,
   onPostChange,
@@ -1691,6 +1712,7 @@ function TripSidebar({
   onTravelLegChange,
   onTravelingViewChange,
   planningView,
+  reserveMobileModeSwitchSpace,
   showMobileTravelMap,
   stops,
   trip,
@@ -1700,8 +1722,10 @@ function TripSidebar({
 }: {
   draftPostLocation: DraftPostLocation | null
   draftStopLocation: DraftPostLocation | null
+  focusedPostId: string | null
   mapPointTarget: MapPointTarget | null
   mode: TripMode
+  onFocusedPostChange: (postId: string | null) => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
   onOpenDialog: (dialog: TripDialog) => void
   onPostChange: (postId: string, updates: Partial<TravelPost>) => void
@@ -1711,6 +1735,7 @@ function TripSidebar({
   onTravelLegChange: (legId: string, updates: Partial<TravelLeg>) => void
   onTravelingViewChange: (view: TravelingView) => void
   planningView: PlanningView
+  reserveMobileModeSwitchSpace: boolean
   showMobileTravelMap: boolean
   stops: readonly Stop[]
   trip: MockTrip
@@ -1719,19 +1744,25 @@ function TripSidebar({
   travelingView: TravelingView
 }) {
   const isMobileTravelPosts = mode === 'traveling' && travelingView === 'posts'
+  const sidebarScrollRef = useRef<HTMLDivElement | null>(null)
   const [editingPostId, setEditingPostId] = useState<string | null>(null)
   const editingPost =
     travelPosts.find((post) => post.id === editingPostId) ?? null
+  const mobileTravelMapHeight = reserveMobileModeSwitchSpace
+    ? 'h-[calc(100dvh-9.75rem)]'
+    : 'h-[calc(100dvh-5.5rem)]'
 
   function closePostForm() {
     onMapPointTargetChange(null)
     setEditingPostId(null)
+    onFocusedPostChange(null)
     onTravelingViewChange('posts')
   }
 
   function editPost(postId: string) {
     onMapPointTargetChange(null)
     setEditingPostId(postId)
+    onFocusedPostChange(getMapFocusedPostId(postId, travelPosts))
     onTravelingViewChange('edit-post')
   }
 
@@ -1739,16 +1770,18 @@ function TripSidebar({
     <aside
       className={cn(
         'flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-sm lg:h-full',
-        isMobileTravelPosts && 'h-[calc(100dvh-9.75rem)] lg:h-full',
+        isMobileTravelPosts && `${mobileTravelMapHeight} lg:h-full`,
       )}
     >
       <TripSidebarHeader onOpenDialog={onOpenDialog} trip={trip} />
 
       <div
         className={cn(
-          'scrollbar-subtle min-w-0 flex-1 pb-24 lg:min-h-0 lg:overflow-auto lg:pb-0',
+          'scrollbar-subtle min-w-0 flex-1 lg:min-h-0 lg:overflow-auto lg:pb-0',
+          reserveMobileModeSwitchSpace ? 'pb-24' : 'pb-4',
           isMobileTravelPosts && 'min-h-0 overflow-hidden pb-0',
         )}
+        ref={sidebarScrollRef}
       >
         {mode === 'planning' && planningView === 'create-stop' ? (
           <CreateStopPanel
@@ -1793,12 +1826,16 @@ function TripSidebar({
           />
         ) : (
           <TravelingPanel
+            focusedPostId={focusedPostId}
             onEditPost={editPost}
+            onFocusedPostChange={onFocusedPostChange}
             onNewPost={() => {
               onMapPointTargetChange(null)
+              onFocusedPostChange(null)
               setEditingPostId(null)
               onTravelingViewChange('create-post')
             }}
+            scrollRootRef={sidebarScrollRef}
             showMobileMap={showMobileTravelMap}
             stops={stops}
             travelLegs={travelLegs}
@@ -2354,10 +2391,12 @@ function CreateStopPanel({
 }
 
 function MobileTravelMap({
+  focusedPostId,
   stops,
   travelLegs,
   travelPosts,
 }: {
+  focusedPostId: string | null
   stops: readonly Stop[]
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
@@ -2373,6 +2412,7 @@ function MobileTravelMap({
         onDraftMapPointSelect={() => undefined}
         resetNonce={resetNonce}
         routeMode="travel-timeline"
+        focusedPostId={focusedPostId}
         stops={stops}
         travelLegs={travelLegs}
         travelPosts={travelPosts}
@@ -2396,15 +2436,21 @@ function MobileTravelMap({
 }
 
 function TravelingPanel({
+  focusedPostId,
+  onFocusedPostChange,
   onEditPost,
   onNewPost,
+  scrollRootRef,
   showMobileMap,
   stops,
   travelLegs,
   travelPosts,
 }: {
+  focusedPostId: string | null
+  onFocusedPostChange: (postId: string | null) => void
   onEditPost: (postId: string) => void
   onNewPost: () => void
+  scrollRootRef: PostScrollRootRef
   showMobileMap: boolean
   stops: readonly Stop[]
   travelLegs: readonly TravelLeg[]
@@ -2413,6 +2459,37 @@ function TravelingPanel({
   const [activePostId, setActivePostId] = useState<string | null>(null)
   const activePost =
     travelPosts.find((post) => post.id === activePostId) ?? null
+  const displayedPosts = useMemo(
+    () => getTravelPostsInRouteOrder(travelPosts),
+    [travelPosts],
+  )
+  const displayedPostIds = useMemo(
+    () => displayedPosts.map((post) => post.id),
+    [displayedPosts],
+  )
+  const firstPostId = displayedPostIds[0] ?? null
+  const desktopPostElementsRef = useRef(new Map<string, HTMLElement>())
+  const mobilePostElementsRef = useRef(new Map<string, HTMLElement>())
+  const mobileCarouselRef = useRef<HTMLDivElement | null>(null)
+
+  usePostScrollFocus({
+    axis: 'y',
+    enabled: !showMobileMap,
+    firstPostId,
+    onFocusedPostChange,
+    postElementsRef: desktopPostElementsRef,
+    postIds: displayedPostIds,
+    rootRef: scrollRootRef,
+  })
+  usePostScrollFocus({
+    axis: 'x',
+    enabled: showMobileMap && !activePost,
+    firstPostId,
+    onFocusedPostChange,
+    postElementsRef: mobilePostElementsRef,
+    postIds: displayedPostIds,
+    rootRef: mobileCarouselRef,
+  })
 
   return (
     <div
@@ -2433,6 +2510,7 @@ function TravelingPanel({
           ) : (
             <>
               <MobileTravelMap
+                focusedPostId={focusedPostId}
                 stops={stops}
                 travelLegs={travelLegs}
                 travelPosts={travelPosts}
@@ -2451,12 +2529,28 @@ function TravelingPanel({
               </div>
 
               <div className="absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-white/90 via-white/45 to-transparent pb-3 pt-10">
-                <div className="trip-mobile-post-carousel scrollbar-subtle flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1">
-                  {travelPosts.map((post) => (
+                <div
+                  className="trip-mobile-post-carousel scrollbar-subtle flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1"
+                  ref={mobileCarouselRef}
+                >
+                  {displayedPosts.map((post) => (
                     <TravelPostPreviewCard
+                      active={focusedPostId === post.id}
                       key={post.id}
-                      onOpen={() => setActivePostId(post.id)}
+                      onOpen={() => {
+                        onFocusedPostChange(
+                          getMapFocusedPostId(post.id, travelPosts),
+                        )
+                        setActivePostId(post.id)
+                      }}
                       post={post}
+                      postRef={(element) =>
+                        setPostScrollElement(
+                          mobilePostElementsRef,
+                          post.id,
+                          element,
+                        )
+                      }
                     />
                   ))}
                 </div>
@@ -2471,7 +2565,7 @@ function TravelingPanel({
           <div>
             <h2 className="text-base font-semibold text-foreground">Travel posts</h2>
             <p className="text-sm text-muted-foreground">
-              {travelPosts.length} posts
+              {displayedPosts.length} posts
             </p>
           </div>
           <Button onClick={onNewPost} size="sm" type="button">
@@ -2481,11 +2575,15 @@ function TravelingPanel({
         </div>
 
         <div className="space-y-5">
-          {travelPosts.map((post) => (
+          {displayedPosts.map((post) => (
             <TravelPostCard
+              active={focusedPostId === post.id}
               key={post.id}
               onEdit={() => onEditPost(post.id)}
               post={post}
+              postRef={(element) =>
+                setPostScrollElement(desktopPostElementsRef, post.id, element)
+              }
             />
           ))}
         </div>
@@ -3020,16 +3118,26 @@ function PostFormPanel({
 }
 
 function TravelPostCard({
+  active = false,
   onEdit,
   post,
+  postRef,
 }: {
+  active?: boolean
   onEdit: () => void
   post: TravelPost
+  postRef?: (element: HTMLElement | null) => void
 }) {
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
 
   return (
-    <article className="min-w-0 overflow-hidden rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 shadow-sm shadow-emerald-950/5">
+    <article
+      className={cn(
+        'min-w-0 overflow-hidden rounded-[1.5rem] border bg-emerald-50/45 shadow-sm shadow-emerald-950/5 transition-colors',
+        active ? 'border-primary/55' : 'border-emerald-100',
+      )}
+      ref={postRef}
+    >
       <div className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -3088,17 +3196,27 @@ function TravelPostCard({
 }
 
 function TravelPostPreviewCard({
+  active = false,
   onOpen,
   post,
+  postRef,
 }: {
+  active?: boolean
   onOpen: () => void
   post: TravelPost
+  postRef?: (element: HTMLElement | null) => void
 }) {
   const primaryMedia = getPrimaryPostMedia(post)
   const isVideo = getMediaType(primaryMedia) === 'video'
 
   return (
-    <article className="trip-mobile-post-carousel__card shrink-0 snap-center overflow-hidden rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 shadow-sm shadow-emerald-950/5">
+    <article
+      className={cn(
+        'trip-mobile-post-carousel__card shrink-0 snap-center overflow-hidden rounded-[1.5rem] border bg-emerald-50/45 shadow-sm shadow-emerald-950/5 transition-colors',
+        active ? 'border-primary/55' : 'border-emerald-100',
+      )}
+      ref={postRef}
+    >
       <button
         aria-label={`Open ${post.title}`}
         className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -3996,6 +4114,7 @@ function TravelLegEditDialog({
 
 function MapWorkspace({
   draftMapLocation,
+  focusedPostId,
   mapPointEnabled,
   onDraftMapPointSelect,
   routeMode,
@@ -4004,6 +4123,7 @@ function MapWorkspace({
   travelPosts,
 }: {
   draftMapLocation: DraftPostLocation | null
+  focusedPostId: string | null
   mapPointEnabled: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
   routeMode: MapRouteMode
@@ -4017,6 +4137,7 @@ function MapWorkspace({
     <section className="relative min-h-0 min-w-0 overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-sm lg:h-full">
       <TripLeafletMap
         draftMapLocation={draftMapLocation}
+        focusedPostId={focusedPostId}
         mapPointEnabled={mapPointEnabled}
         onDraftMapPointSelect={onDraftMapPointSelect}
         resetNonce={resetNonce}
@@ -4045,6 +4166,7 @@ function MapWorkspace({
 function TripLeafletMap({
   draftMapLocation,
   fitMode = 'workspace',
+  focusedPostId = null,
   mapPointEnabled,
   onDraftMapPointSelect,
   resetNonce,
@@ -4055,6 +4177,7 @@ function TripLeafletMap({
 }: {
   draftMapLocation: DraftPostLocation | null
   fitMode?: RouteFitMode
+  focusedPostId?: string | null
   mapPointEnabled: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
   resetNonce: number
@@ -4070,11 +4193,13 @@ function TripLeafletMap({
   const mapRef = useRef<L.Map | null>(null)
   const postMarkerLayerRef = useRef<L.LayerGroup | null>(null)
   const routeLayerRef = useRef<L.LayerGroup | null>(null)
+  const focusedPostIdRef = useRef<string | null>(focusedPostId)
   const travelPostsRef = useRef(travelPosts)
   const stopsRef = useRef(stops)
   const travelLegsRef = useRef(travelLegs)
   const routeKey = createRouteKey(routeMode, stops, travelLegs, travelPosts)
- 
+
+  focusedPostIdRef.current = focusedPostId
   travelPostsRef.current = travelPosts
   stopsRef.current = stops
   travelLegsRef.current = travelLegs
@@ -4150,9 +4275,13 @@ function TripLeafletMap({
 
     postMarkerLayer.clearLayers()
     if (routeMode === 'travel-timeline') {
-      renderPostMarkerLayer(postMarkerLayer, travelPostsRef.current)
+      renderPostMarkerLayer(
+        postMarkerLayer,
+        travelPostsRef.current,
+        focusedPostId,
+      )
     }
-  }, [routeMode, routeKey])
+  }, [focusedPostId, routeMode, routeKey])
 
   useEffect(() => {
     const map = mapRef.current
@@ -4171,6 +4300,28 @@ function TripLeafletMap({
     )
     const animationFrameId = window.requestAnimationFrame(() => {
       map.invalidateSize()
+      if (!focusedPostIdRef.current) {
+        fitRouteBounds(
+          map,
+          routeMode,
+          stopsRef.current,
+          travelLegsRef.current,
+          travelPostsRef.current,
+          fitMode,
+        )
+      }
+    })
+
+    return () => window.cancelAnimationFrame(animationFrameId)
+  }, [fitMode, routeKey, routeMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || routeMode !== 'travel-timeline') {
+      return
+    }
+
+    if (!focusedPostId) {
       fitRouteBounds(
         map,
         routeMode,
@@ -4179,10 +4330,25 @@ function TripLeafletMap({
         travelPostsRef.current,
         fitMode,
       )
-    })
+      return
+    }
 
-    return () => window.cancelAnimationFrame(animationFrameId)
-  }, [fitMode, routeKey, routeMode])
+    const focusedPost =
+      travelPostsRef.current.find((post) => post.id === focusedPostId) ?? null
+    if (!focusedPost) {
+      return
+    }
+
+    map.flyTo(
+      focusedPost.coordinates,
+      getFocusedPostZoom(map.getZoom(), fitMode),
+      {
+        animate: true,
+        duration: 0.7,
+        easeLinearity: 0.25,
+      },
+    )
+  }, [fitMode, focusedPostId, routeKey, routeMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -4293,16 +4459,24 @@ function renderRouteLayer(
 function renderPostMarkerLayer(
   postMarkerLayer: L.LayerGroup,
   travelPosts: readonly TravelPost[],
+  focusedPostId: string | null,
 ) {
-  for (const post of travelPosts) {
+  const orderedPosts = [
+    ...travelPosts.filter((post) => post.id !== focusedPostId),
+    ...travelPosts.filter((post) => post.id === focusedPostId),
+  ]
+
+  for (const post of orderedPosts) {
+    const isFocused = post.id === focusedPostId
+
     L.marker(post.coordinates, {
       icon: L.divIcon({
         className: 'trip-map-div-icon',
-        html: createPostBubbleHtml(post),
+        html: createPostBubbleHtml(post, isFocused),
         iconAnchor: [22, 22],
         iconSize: [44, 44],
       }),
-      zIndexOffset: 500,
+      zIndexOffset: isFocused ? 1000 : 500,
     })
       .addTo(postMarkerLayer)
       .bindPopup(
@@ -4353,6 +4527,17 @@ function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
     paddingBottomRight: [64, 64],
     paddingTopLeft: [360, 150],
   }
+}
+
+function getFocusedPostZoom(currentZoom: number, fitMode: RouteFitMode) {
+  const maxFocusedZoom = fitMode === 'mobile-travel' ? 6 : 7
+  const minFocusedZoom = fitMode === 'mobile-travel' ? 5 : 6
+  const focusedZoom = Math.min(
+    Math.max(currentZoom + 1, minFocusedZoom),
+    maxFocusedZoom,
+  )
+
+  return Math.max(currentZoom, focusedZoom)
 }
 
 function createRouteKey(
@@ -4413,6 +4598,15 @@ function getTravelPostsInRouteOrder(travelPosts: readonly TravelPost[]) {
 
     return timeDelta || leftPost.id.localeCompare(rightPost.id)
   })
+}
+
+function getMapFocusedPostId(
+  postId: string,
+  travelPosts: readonly TravelPost[],
+) {
+  const firstPost = getTravelPostsInRouteOrder(travelPosts)[0] ?? null
+
+  return firstPost?.id === postId ? null : postId
 }
 
 function getPostRouteTime(post: TravelPost) {
@@ -4803,12 +4997,15 @@ function createPlaceMarkerHtml() {
   `
 }
 
-function createPostBubbleHtml(post: TravelPost) {
+function createPostBubbleHtml(post: TravelPost, active: boolean) {
   const primaryMedia = getPrimaryPostMedia(post)
   const thumbnailSrc = getMediaThumbnailSrc(primaryMedia)
+  const className = active
+    ? 'trip-map-post-bubble trip-map-post-bubble--active'
+    : 'trip-map-post-bubble'
 
   return `
-    <div class="trip-map-post-bubble">
+    <div class="${className}">
       <img class="trip-map-post-bubble__image" src="${escapeHtml(thumbnailSrc)}" alt="${escapeHtml(primaryMedia.alt)}" width="44" height="44" />
     </div>
   `
@@ -5258,6 +5455,247 @@ function escapeHtml(value: string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
+}
+
+type PostScrollElementsRef = {
+  current: Map<string, HTMLElement>
+}
+
+type PostScrollRootRef = {
+  current: HTMLElement | null
+}
+
+type PostScrollAxis = 'x' | 'y'
+
+function setPostScrollElement(
+  postElementsRef: PostScrollElementsRef,
+  postId: string,
+  element: HTMLElement | null,
+) {
+  if (!element) {
+    postElementsRef.current.delete(postId)
+    return
+  }
+
+  element.dataset.tripPostId = postId
+  postElementsRef.current.set(postId, element)
+}
+
+function usePostScrollFocus({
+  axis,
+  enabled,
+  firstPostId,
+  onFocusedPostChange,
+  postElementsRef,
+  postIds,
+  rootRef,
+}: {
+  axis: PostScrollAxis
+  enabled: boolean
+  firstPostId: string | null
+  onFocusedPostChange: (postId: string | null) => void
+  postElementsRef: PostScrollElementsRef
+  postIds: readonly string[]
+  rootRef?: PostScrollRootRef
+}) {
+  const latestFocusedPostChangeRef = useRef(onFocusedPostChange)
+
+  useEffect(() => {
+    latestFocusedPostChangeRef.current = onFocusedPostChange
+  }, [onFocusedPostChange])
+
+  useEffect(() => {
+    if (!enabled) {
+      latestFocusedPostChangeRef.current(null)
+      return undefined
+    }
+
+    if (typeof window === 'undefined') {
+      return undefined
+    }
+
+    const elements = postIds
+      .map((postId) => postElementsRef.current.get(postId) ?? null)
+      .filter((element): element is HTMLElement => Boolean(element))
+    const rootElement =
+      rootRef?.current ?? getNearestScrollAncestor(elements[0] ?? null, axis)
+    const scrollTarget: HTMLElement | Window = rootElement ?? window
+    let animationFrameId: number | null = null
+
+    function updateFocusedPost() {
+      animationFrameId = null
+      const nextPostId = getFocusedPostIdFromScrollPosition({
+        axis,
+        elements,
+        postIds,
+        rootElement,
+      })
+
+      latestFocusedPostChangeRef.current(
+        nextPostId === firstPostId ? null : nextPostId,
+      )
+    }
+
+    function scheduleFocusedPostUpdate() {
+      if (animationFrameId !== null) {
+        return
+      }
+
+      animationFrameId = window.requestAnimationFrame(updateFocusedPost)
+    }
+
+    scheduleFocusedPostUpdate()
+    scrollTarget.addEventListener('scroll', scheduleFocusedPostUpdate, {
+      passive: true,
+    })
+    window.addEventListener('resize', scheduleFocusedPostUpdate)
+
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(scheduleFocusedPostUpdate)
+    if (resizeObserver) {
+      for (const element of elements) {
+        resizeObserver.observe(element)
+      }
+      if (rootElement) {
+        resizeObserver.observe(rootElement)
+      }
+    }
+
+    return () => {
+      scrollTarget.removeEventListener('scroll', scheduleFocusedPostUpdate)
+      window.removeEventListener('resize', scheduleFocusedPostUpdate)
+      resizeObserver?.disconnect()
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId)
+      }
+    }
+  }, [axis, enabled, firstPostId, postElementsRef, postIds, rootRef])
+}
+
+function getFocusedPostIdFromScrollPosition({
+  axis,
+  elements,
+  postIds,
+  rootElement,
+}: {
+  axis: PostScrollAxis
+  elements: readonly HTMLElement[]
+  postIds: readonly string[]
+  rootElement: HTMLElement | null
+}) {
+  if (elements.length === 0) {
+    return null
+  }
+
+  const rootRange = getScrollRootRange(rootElement, axis)
+  if (isScrollRootAtEnd(rootElement, axis)) {
+    return postIds[postIds.length - 1] ?? null
+  }
+
+  const activationPoint = rootRange.start + rootRange.size * 0.5
+  let nextPostId: string | null = null
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  for (const element of elements) {
+    const postId = element.dataset.tripPostId
+    if (!postId) {
+      continue
+    }
+
+    const elementRange = getElementRange(element, axis)
+    const visibleSize =
+      Math.min(rootRange.end, elementRange.end) -
+      Math.max(rootRange.start, elementRange.start)
+    if (visibleSize <= 0) {
+      continue
+    }
+
+    const elementCenter = elementRange.start + elementRange.size * 0.5
+    const distance = Math.abs(elementCenter - activationPoint)
+    if (distance < bestDistance) {
+      nextPostId = postId
+      bestDistance = distance
+    }
+  }
+
+  return nextPostId
+}
+
+function getScrollRootRange(
+  rootElement: HTMLElement | null,
+  axis: PostScrollAxis,
+) {
+  const rootRect = rootElement?.getBoundingClientRect()
+  const start =
+    axis === 'x' ? rootRect?.left ?? 0 : rootRect?.top ?? 0
+  const end =
+    axis === 'x'
+      ? rootRect?.right ?? window.innerWidth
+      : rootRect?.bottom ?? window.innerHeight
+
+  return {
+    end,
+    size: end - start,
+    start,
+  }
+}
+
+function getElementRange(element: HTMLElement, axis: PostScrollAxis) {
+  const rect = element.getBoundingClientRect()
+  const start = axis === 'x' ? rect.left : rect.top
+  const end = axis === 'x' ? rect.right : rect.bottom
+
+  return {
+    end,
+    size: end - start,
+    start,
+  }
+}
+
+function isScrollRootAtEnd(
+  rootElement: HTMLElement | null,
+  axis: PostScrollAxis,
+) {
+  if (!rootElement) {
+    return false
+  }
+
+  const scrollOffset = axis === 'x' ? rootElement.scrollLeft : rootElement.scrollTop
+  const clientSize = axis === 'x' ? rootElement.clientWidth : rootElement.clientHeight
+  const scrollSize = axis === 'x' ? rootElement.scrollWidth : rootElement.scrollHeight
+
+  if (scrollSize <= clientSize + 2) {
+    return false
+  }
+
+  return scrollOffset + clientSize >= scrollSize - 2
+}
+
+function getNearestScrollAncestor(
+  element: HTMLElement | null,
+  axis: PostScrollAxis,
+) {
+  let currentElement = element?.parentElement ?? null
+  while (currentElement) {
+    const style = window.getComputedStyle(currentElement)
+    const overflow = axis === 'x' ? style.overflowX : style.overflowY
+    const isScrollable =
+      overflow === 'auto' || overflow === 'scroll' || overflow === 'overlay'
+    const hasScrollableContent =
+      axis === 'x'
+        ? currentElement.scrollWidth > currentElement.clientWidth
+        : currentElement.scrollHeight > currentElement.clientHeight
+
+    if (isScrollable && hasScrollableContent) {
+      return currentElement
+    }
+
+    currentElement = currentElement.parentElement
+  }
+
+  return null
 }
 
 function useMediaQuery(query: string) {

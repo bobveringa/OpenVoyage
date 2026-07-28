@@ -50,11 +50,13 @@ def _create_payload(
     *,
     place_id: uuid.UUID,
     body: str,
+    title: str | None = None,
     occurred_at: datetime = OCCURRED_AT,
     publish: bool = False,
     media_ids: list[uuid.UUID] | None = None,
 ) -> PostCreateRequest:
     return PostCreateRequest(
+        title=title or body,
         body=body,
         location=LocationPlaceInput(place_id=place_id),
         occurred_at=occurred_at,
@@ -431,12 +433,14 @@ def test_update_post_replaces_location_and_occurred_at(
         trip_id=trip.id,
         post_id=post.id,
         payload=PostUpdateRequest(
+            title='After update',
             location=LocationPlaceInput(place_id=new_place.id),
             occurred_at=new_occurred_at,
         ),
         current_user_id=owner.id,
     )
 
+    assert updated.title == 'After update'
     assert updated.location.name == 'Osaka'
     assert updated.location.latitude == 34.6937
     assert updated.occurred_at == new_occurred_at

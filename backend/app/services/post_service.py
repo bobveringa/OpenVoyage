@@ -80,6 +80,7 @@ class PostService:
             trip_id=trip_id,
             author_user_id=membership.user_id,
             location_id=location.id,
+            title=payload.title,
             body=payload.body,
             occurred_at=payload.occurred_at,
             published_at=utcnow() if payload.publish else None,
@@ -188,6 +189,8 @@ class PostService:
 
         if payload.body is not None:
             post.body = payload.body
+        if payload.title is not None:
+            post.title = payload.title
         if payload.location is not None:
             location = self.location_service.create_location_for_trip(
                 trip_id=trip_id,

@@ -54,6 +54,7 @@ def test_create_post_derives_media_order_from_media_ids(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=_auth_headers(user),
         json={
+            'title': 'Kyoto arrival',
             'body': 'Today we reached Kyoto...',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
@@ -64,6 +65,7 @@ def test_create_post_derives_media_order_from_media_ids(
 
     assert response.status_code == 201
     payload = response.json()
+    assert payload['title'] == 'Kyoto arrival'
     assert payload['body'] == 'Today we reached Kyoto...'
     assert payload['occurred_at'] == OCCURRED_AT_RESPONSE
     assert payload['published_at'] is None
@@ -89,6 +91,26 @@ def test_create_post_derives_media_order_from_media_ids(
 
 
 @pytest.mark.integration
+def test_create_post_requires_title(client, db_session, api_prefix) -> None:
+    user = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(db_session, owner_id=user.id)
+    place = create_place(db_session)
+
+    response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers=_auth_headers(user),
+        json={
+            'body': 'Missing title',
+            'location': _place_location(place),
+            'occurred_at': OCCURRED_AT,
+            'media_ids': [],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.integration
 def test_list_posts_without_auth_returns_only_published_public_posts(
     client,
     db_session,
@@ -107,6 +129,7 @@ def test_list_posts_without_auth_returns_only_published_public_posts(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=headers,
         json={
+            'title': 'Draft notes',
             'body': 'Draft notes',
             'location': _place_location(place),
             'occurred_at': '2026-06-28T09:00:00+00:00',
@@ -117,6 +140,7 @@ def test_list_posts_without_auth_returns_only_published_public_posts(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=headers,
         json={
+            'title': 'Published notes',
             'body': 'Published notes',
             'location': _place_location(place),
             'occurred_at': '2026-06-27T09:00:00+00:00',
@@ -158,6 +182,7 @@ def test_list_posts_orders_by_occurred_at_by_default(
             f'{api_prefix}/trips/{trip.id}/posts',
             headers=headers,
             json={
+                'title': body,
                 'body': body,
                 'location': _place_location(place),
                 'occurred_at': occurred_at,
@@ -199,6 +224,7 @@ def test_create_post_with_coordinates_preserves_coordinates_and_uses_place_metad
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=_auth_headers(user),
         json={
+            'title': 'Near Eindhoven',
             'body': 'Close to Eindhoven',
             'location': {
                 'latitude': 51.44,
@@ -232,6 +258,7 @@ def test_create_post_with_coordinates_uses_unknown_location_when_no_place_matche
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=_auth_headers(user),
         json={
+            'title': 'Middle of nowhere',
             'body': 'Middle of nowhere',
             'location': {
                 'latitude': 0.1,
@@ -282,6 +309,7 @@ def test_update_post_replaces_and_reorders_media_ids(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=headers,
         json={
+            'title': 'Before',
             'body': 'Before',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
@@ -294,6 +322,7 @@ def test_update_post_replaces_and_reorders_media_ids(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
         headers=headers,
         json={
+            'title': 'After',
             'body': 'After',
             'occurred_at': '2026-06-30T08:15:00+00:00',
             'media_ids': [str(third_media.id), str(first_media.id)],
@@ -303,6 +332,7 @@ def test_update_post_replaces_and_reorders_media_ids(
     assert create_response.status_code == 201
     assert update_response.status_code == 200
     payload = update_response.json()
+    assert payload['title'] == 'After'
     assert payload['body'] == 'After'
     assert payload['occurred_at'] == '2026-06-30T08:15:00Z'
     assert [item['id'] for item in payload['media']] == [
@@ -339,6 +369,7 @@ def test_post_update_requires_owner_or_author(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=_auth_headers(author),
         json={
+            'title': 'Author draft',
             'body': 'Author draft',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
@@ -390,6 +421,7 @@ def test_create_post_validates_media_ids(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=headers,
         json={
+            'title': 'Duplicate media',
             'body': 'Duplicate media',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
@@ -400,6 +432,7 @@ def test_create_post_validates_media_ids(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=headers,
         json={
+            'title': 'Other media',
             'body': 'Other media',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
@@ -425,6 +458,7 @@ def test_create_post_returns_not_found_for_missing_media(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=_auth_headers(user),
         json={
+            'title': 'Missing media',
             'body': 'Missing media',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
@@ -452,6 +486,7 @@ def test_private_trip_posts_return_not_found_without_membership(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=_auth_headers(owner),
         json={
+            'title': 'Private post',
             'body': 'Private post',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
@@ -487,6 +522,7 @@ def test_share_link_reads_private_published_posts_but_not_drafts(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=owner_headers,
         json={
+            'title': 'Hidden draft',
             'body': 'Hidden draft',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
@@ -496,6 +532,7 @@ def test_share_link_reads_private_published_posts_but_not_drafts(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=owner_headers,
         json={
+            'title': 'Shared published post',
             'body': 'Shared published post',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
@@ -558,6 +595,7 @@ def test_update_post_translates_media_validation_errors(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=headers,
         json={
+            'title': 'Before media validation',
             'body': 'Before media validation',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
@@ -604,6 +642,7 @@ def test_publish_unpublish_and_delete_post_endpoints(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=_auth_headers(author),
         json={
+            'title': 'Publish me',
             'body': 'Publish me',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,

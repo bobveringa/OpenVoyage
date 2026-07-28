@@ -26,6 +26,7 @@ class PostStatusFilter(str, enum.Enum):
 
 
 class PostCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
     body: str = Field(min_length=1)
     location: LocationInput
     occurred_at: datetime
@@ -34,6 +35,7 @@ class PostCreateRequest(BaseModel):
 
 
 class PostUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
     body: str | None = Field(default=None, min_length=1)
     location: LocationInput | None = None
     occurred_at: datetime | None = None
@@ -45,6 +47,7 @@ class PostResponse(BaseModel):
     trip_id: uuid.UUID
     author: UserSummaryResponse
     location: LocationResponse
+    title: str
     body: str
     occurred_at: datetime
     published_at: datetime | None
@@ -65,6 +68,7 @@ class PostResponse(BaseModel):
             trip_id=post.trip_id,
             author=UserSummaryResponse.from_model(post.author),
             location=LocationResponse.from_model(post.location),
+            title=post.title,
             body=post.body,
             occurred_at=post.occurred_at,
             published_at=post.published_at,
