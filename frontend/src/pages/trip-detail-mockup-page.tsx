@@ -200,6 +200,16 @@ type RouteSegment = {
   routeType: ItineraryRouteType
 }
 
+type TripMockupHistoryAction = 'push' | 'replace'
+
+type TripMockupUrlState = {
+  activeDialog: TripDialog | null
+  editingPostId: string | null
+  mode: TripMode
+  planningView: PlanningView
+  travelingView: TravelingView
+}
+
 const earthRadiusKilometers = 6371
 const geodesicSegmentKilometers = 125
 
@@ -585,16 +595,29 @@ const initialTravelPosts: readonly TravelPost[] = [
 export function TripDetailMockupPage() {
   const shouldUseMobileMapPicker = useMediaQuery('(max-width: 1023px)')
   const canSwitchModes = true
-  const [mode, setMode] = useState<TripMode>('planning')
-  const [planningView, setPlanningView] = useState<PlanningView>('stops')
+  const initialUrlState = readTripMockupUrlState({
+    canSwitchModes,
+    travelPosts: initialTravelPosts,
+  })
+  const [mode, setMode] = useState<TripMode>(initialUrlState.mode)
+  const [planningView, setPlanningView] = useState<PlanningView>(
+    initialUrlState.planningView,
+  )
   const [plannedStops, setPlannedStops] = useState<readonly Stop[]>(initialStops)
   const [travelLegs, setTravelLegs] =
     useState<readonly TravelLeg[]>(initialTravelLegs)
   const [travelPosts, setTravelPosts] =
     useState<readonly TravelPost[]>(initialTravelPosts)
-  const [travelingView, setTravelingView] = useState<TravelingView>('posts')
+  const [travelingView, setTravelingView] = useState<TravelingView>(
+    initialUrlState.travelingView,
+  )
+  const [editingPostId, setEditingPostId] = useState<string | null>(
+    initialUrlState.editingPostId,
+  )
   const [focusedPostId, setFocusedPostId] = useState<string | null>(null)
-  const [activeDialog, setActiveDialog] = useState<TripDialog | null>(null)
+  const [activeDialog, setActiveDialog] = useState<TripDialog | null>(
+    initialUrlState.activeDialog,
+  )
   const [mapPointTarget, setMapPointTarget] = useState<MapPointTarget | null>(
     null,
   )
@@ -604,14 +627,69 @@ export function TripDetailMockupPage() {
     useState<DraftPostLocation | null>(null)
   const [draftStopLocation, setDraftStopLocation] =
     useState<DraftPostLocation | null>(null)
+  const urlStateRef = useRef<TripMockupUrlState>(initialUrlState)
+
+  const applyTripMockupUrlState = useCallback(
+    (nextState: TripMockupUrlState) => {
+      urlStateRef.current = nextState
+      setMode(nextState.mode)
+      setPlanningView(nextState.planningView)
+      setTravelingView(nextState.travelingView)
+      setEditingPostId(nextState.editingPostId)
+      setActiveDialog(nextState.activeDialog)
+      setMapPointTarget(null)
+      setMobileMapPickerTarget(null)
+
+      if (
+        nextState.mode === 'traveling' &&
+        nextState.travelingView === 'edit-post' &&
+        nextState.editingPostId
+      ) {
+        setFocusedPostId(
+          getMapFocusedPostId(nextState.editingPostId, travelPosts),
+        )
+        return
+      }
+
+      if (
+        nextState.mode !== 'traveling' ||
+        nextState.travelingView === 'create-post'
+      ) {
+        setFocusedPostId(null)
+      }
+    },
+    [travelPosts],
+  )
+
+  const navigateTripMockupUrlState = useCallback(
+    (
+      updates: Partial<TripMockupUrlState>,
+      historyAction: TripMockupHistoryAction = 'push',
+    ) => {
+      const nextState = normalizeTripMockupUrlState(
+        {
+          ...urlStateRef.current,
+          ...updates,
+        },
+        {
+          canSwitchModes,
+          travelPosts,
+        },
+      )
+
+      applyTripMockupUrlState(nextState)
+      writeTripMockupUrlState(nextState, historyAction)
+    },
+    [applyTripMockupUrlState, canSwitchModes, travelPosts],
+  )
 
   const openDialog = useCallback((dialog: TripDialog) => {
-    setActiveDialog(dialog)
-  }, [])
+    navigateTripMockupUrlState({ activeDialog: dialog })
+  }, [navigateTripMockupUrlState])
 
   const closeDialog = useCallback(() => {
-    setActiveDialog(null)
-  }, [])
+    navigateTripMockupUrlState({ activeDialog: null }, 'replace')
+  }, [navigateTripMockupUrlState])
 
   function handleStopChange(stopId: string, updates: Partial<Stop>) {
     setPlannedStops((currentStops) =>
@@ -698,10 +776,15 @@ export function TripDetailMockupPage() {
 
       if (target === 'post') {
         setDraftPostLocation(draftLocation)
-        setMode('traveling')
-        setTravelingView((currentView) =>
-          currentView === 'edit-post' ? currentView : 'create-post',
-        )
+        navigateTripMockupUrlState({
+          editingPostId: urlStateRef.current.editingPostId,
+          mode: 'traveling',
+          planningView: 'stops',
+          travelingView:
+            urlStateRef.current.travelingView === 'edit-post'
+              ? 'edit-post'
+              : 'create-post',
+        })
         return
       }
 
@@ -709,7 +792,7 @@ export function TripDetailMockupPage() {
         setDraftStopLocation(draftLocation)
       }
     },
-    [],
+    [navigateTripMockupUrlState],
   )
 
   const handleDraftMapPointSelect = useCallback(
@@ -739,20 +822,106 @@ export function TripDetailMockupPage() {
     [shouldUseMobileMapPicker],
   )
 
-  const handleModeChange = useCallback((nextMode: TripMode) => {
-    setMapPointTarget(null)
-    setMobileMapPickerTarget(null)
-    setFocusedPostId(null)
-    setMode(nextMode)
-    setPlanningView('stops')
-    setTravelingView('posts')
-  }, [])
+  const handleModeChange = useCallback(
+    (nextMode: TripMode) => {
+      setFocusedPostId(null)
+      navigateTripMockupUrlState({
+        activeDialog: null,
+        editingPostId: null,
+        mode: nextMode,
+        planningView: 'stops',
+        travelingView: 'posts',
+      })
+    },
+    [navigateTripMockupUrlState],
+  )
+
+  const handlePlanningViewChange = useCallback(
+    (nextView: PlanningView) => {
+      navigateTripMockupUrlState(
+        {
+          editingPostId: null,
+          mode: 'planning',
+          planningView: nextView,
+          travelingView: 'posts',
+        },
+        nextView === 'stops' ? 'replace' : 'push',
+      )
+    },
+    [navigateTripMockupUrlState],
+  )
+
+  const handleTravelingViewChange = useCallback(
+    (nextView: TravelingView) => {
+      navigateTripMockupUrlState(
+        {
+          editingPostId: null,
+          mode: 'traveling',
+          planningView: 'stops',
+          travelingView: nextView,
+        },
+        nextView === 'posts' ? 'replace' : 'push',
+      )
+    },
+    [navigateTripMockupUrlState],
+  )
+
+  const handleEditPost = useCallback(
+    (postId: string) => {
+      setFocusedPostId(getMapFocusedPostId(postId, travelPosts))
+      navigateTripMockupUrlState({
+        editingPostId: postId,
+        mode: 'traveling',
+        planningView: 'stops',
+        travelingView: 'edit-post',
+      })
+    },
+    [navigateTripMockupUrlState, travelPosts],
+  )
 
   const handleFocusedPostChange = useCallback((postId: string | null) => {
     setFocusedPostId((currentPostId) =>
       currentPostId === postId ? currentPostId : postId,
     )
   }, [])
+
+  useEffect(() => {
+    urlStateRef.current = normalizeTripMockupUrlState(
+      {
+        activeDialog,
+        editingPostId,
+        mode,
+        planningView,
+        travelingView,
+      },
+      {
+        canSwitchModes,
+        travelPosts,
+      },
+    )
+  }, [
+    activeDialog,
+    canSwitchModes,
+    editingPostId,
+    mode,
+    planningView,
+    travelingView,
+    travelPosts,
+  ])
+
+  useEffect(() => {
+    function handlePopState() {
+      applyTripMockupUrlState(
+        readTripMockupUrlState({
+          canSwitchModes,
+          travelPosts,
+        }),
+      )
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [applyTripMockupUrlState, canSwitchModes, travelPosts])
 
   const activeDraftMapLocation =
     mapPointTarget === 'post'
@@ -812,12 +981,14 @@ export function TripDetailMockupPage() {
               onMapPointTargetChange={handleMapPointTargetChange}
               onFocusedPostChange={handleFocusedPostChange}
               onOpenDialog={openDialog}
+              onEditPost={handleEditPost}
               onPostChange={handlePostChange}
-              onPlanningViewChange={setPlanningView}
+              onPlanningViewChange={handlePlanningViewChange}
               onStopChange={handleStopChange}
               onStopDelete={handleStopDelete}
               onTravelLegChange={handleTravelLegChange}
-              onTravelingViewChange={setTravelingView}
+              onTravelingViewChange={handleTravelingViewChange}
+              editingPostId={editingPostId}
               planningView={planningView}
               reserveMobileModeSwitchSpace={canSwitchModes}
               showMobileTravelMap={shouldUseMobileMapPicker}
@@ -1699,9 +1870,11 @@ function MobileMapPointPicker({
 function TripSidebar({
   draftPostLocation,
   draftStopLocation,
+  editingPostId,
   focusedPostId,
   mapPointTarget,
   mode,
+  onEditPost,
   onFocusedPostChange,
   onMapPointTargetChange,
   onOpenDialog,
@@ -1722,9 +1895,11 @@ function TripSidebar({
 }: {
   draftPostLocation: DraftPostLocation | null
   draftStopLocation: DraftPostLocation | null
+  editingPostId: string | null
   focusedPostId: string | null
   mapPointTarget: MapPointTarget | null
   mode: TripMode
+  onEditPost: (postId: string) => void
   onFocusedPostChange: (postId: string | null) => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
   onOpenDialog: (dialog: TripDialog) => void
@@ -1745,7 +1920,6 @@ function TripSidebar({
 }) {
   const isMobileTravelPosts = mode === 'traveling' && travelingView === 'posts'
   const sidebarScrollRef = useRef<HTMLDivElement | null>(null)
-  const [editingPostId, setEditingPostId] = useState<string | null>(null)
   const editingPost =
     travelPosts.find((post) => post.id === editingPostId) ?? null
   const mobileTravelMapHeight = reserveMobileModeSwitchSpace
@@ -1754,16 +1928,14 @@ function TripSidebar({
 
   function closePostForm() {
     onMapPointTargetChange(null)
-    setEditingPostId(null)
     onFocusedPostChange(null)
     onTravelingViewChange('posts')
   }
 
   function editPost(postId: string) {
     onMapPointTargetChange(null)
-    setEditingPostId(postId)
     onFocusedPostChange(getMapFocusedPostId(postId, travelPosts))
-    onTravelingViewChange('edit-post')
+    onEditPost(postId)
   }
 
   return (
@@ -1832,7 +2004,6 @@ function TripSidebar({
             onNewPost={() => {
               onMapPointTargetChange(null)
               onFocusedPostChange(null)
-              setEditingPostId(null)
               onTravelingViewChange('create-post')
             }}
             scrollRootRef={sidebarScrollRef}
@@ -5696,6 +5867,158 @@ function getNearestScrollAncestor(
   }
 
   return null
+}
+
+function readTripMockupUrlState({
+  canSwitchModes,
+  travelPosts,
+}: {
+  canSwitchModes: boolean
+  travelPosts: readonly TravelPost[]
+}): TripMockupUrlState {
+  const defaultState = createDefaultTripMockupUrlState(canSwitchModes)
+
+  if (typeof window === 'undefined') {
+    return defaultState
+  }
+
+  const searchParams = new URLSearchParams(window.location.search)
+  const tab = searchParams.get('tab')
+  const panel = searchParams.get('panel')
+  const postId = searchParams.get('post')
+  const mode: TripMode =
+    tab === 'travel'
+      ? 'traveling'
+      : tab === 'plan'
+        ? 'planning'
+        : defaultState.mode
+
+  return normalizeTripMockupUrlState(
+    {
+      activeDialog: parseTripDialogParam(searchParams.get('dialog')),
+      editingPostId: panel === 'edit-post' ? postId : null,
+      mode,
+      planningView: panel === 'new-stop' ? 'create-stop' : 'stops',
+      travelingView:
+        panel === 'new-post'
+          ? 'create-post'
+          : panel === 'edit-post'
+            ? 'edit-post'
+            : 'posts',
+    },
+    {
+      canSwitchModes,
+      travelPosts,
+    },
+  )
+}
+
+function createDefaultTripMockupUrlState(
+  canSwitchModes: boolean,
+): TripMockupUrlState {
+  return {
+    activeDialog: null,
+    editingPostId: null,
+    mode: canSwitchModes ? 'planning' : 'traveling',
+    planningView: 'stops',
+    travelingView: 'posts',
+  }
+}
+
+function normalizeTripMockupUrlState(
+  state: TripMockupUrlState,
+  {
+    canSwitchModes,
+    travelPosts,
+  }: {
+    canSwitchModes: boolean
+    travelPosts: readonly TravelPost[]
+  },
+): TripMockupUrlState {
+  const mode = canSwitchModes ? state.mode : 'traveling'
+  const planningView = mode === 'planning' ? state.planningView : 'stops'
+  let travelingView = mode === 'traveling' ? state.travelingView : 'posts'
+  let editingPostId =
+    mode === 'traveling' && travelingView === 'edit-post'
+      ? state.editingPostId
+      : null
+
+  if (
+    travelingView === 'edit-post' &&
+    (!editingPostId || !travelPosts.some((post) => post.id === editingPostId))
+  ) {
+    travelingView = 'posts'
+    editingPostId = null
+  }
+
+  return {
+    activeDialog: state.activeDialog,
+    editingPostId,
+    mode,
+    planningView,
+    travelingView,
+  }
+}
+
+function writeTripMockupUrlState(
+  state: TripMockupUrlState,
+  historyAction: TripMockupHistoryAction,
+) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const url = new URL(window.location.href)
+  url.searchParams.delete('tab')
+  url.searchParams.delete('panel')
+  url.searchParams.delete('post')
+  url.searchParams.delete('dialog')
+
+  url.searchParams.set('tab', state.mode === 'planning' ? 'plan' : 'travel')
+
+  if (state.mode === 'planning' && state.planningView === 'create-stop') {
+    url.searchParams.set('panel', 'new-stop')
+  }
+  if (state.mode === 'traveling' && state.travelingView === 'create-post') {
+    url.searchParams.set('panel', 'new-post')
+  }
+  if (
+    state.mode === 'traveling' &&
+    state.travelingView === 'edit-post' &&
+    state.editingPostId
+  ) {
+    url.searchParams.set('panel', 'edit-post')
+    url.searchParams.set('post', state.editingPostId)
+  }
+  if (state.activeDialog) {
+    url.searchParams.set('dialog', state.activeDialog)
+  }
+
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`
+
+  if (nextUrl === currentUrl) {
+    return
+  }
+
+  if (historyAction === 'replace') {
+    window.history.replaceState(null, '', nextUrl)
+    return
+  }
+
+  window.history.pushState(null, '', nextUrl)
+}
+
+function parseTripDialogParam(value: string | null): TripDialog | null {
+  switch (value) {
+    case 'actions':
+    case 'members':
+    case 'settings':
+    case 'share':
+      return value
+    default:
+      return null
+  }
 }
 
 function useMediaQuery(query: string) {
