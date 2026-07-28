@@ -73,7 +73,7 @@ import { cn } from '@/lib/utils'
 
 type TripMode = 'planning' | 'traveling'
 type PlanningView = 'create-stop' | 'stops'
-type TravelingView = 'create-post' | 'posts'
+type TravelingView = 'create-post' | 'edit-post' | 'posts'
 type MapPointTarget = 'post' | 'stop'
 type RouteFitMode = 'mobile-picker' | 'mobile-travel' | 'workspace'
 type TripDialog = 'actions' | 'members' | 'settings' | 'share'
@@ -149,6 +149,7 @@ type Stop = {
   title: string
   trip_id: string
   updated_at: string
+  visited: boolean
 }
 
 type TravelLeg = {
@@ -179,6 +180,7 @@ type TravelPost = {
   id: string
   location: string
   media: readonly [PostMedia, ...PostMedia[]]
+  occurred_at: string
   time: string
   title: string
 }
@@ -188,8 +190,12 @@ type DraftPostLocation = {
   label: string
 }
 
+type MapRouteMode = 'itinerary' | 'travel-timeline'
+type RouteSegmentKind = 'itinerary' | 'post-link' | 'post-to-stop'
+
 type RouteSegment = {
   coordinates: L.LatLngTuple[]
+  kind: RouteSegmentKind
   routeType: ItineraryRouteType
 }
 
@@ -315,6 +321,7 @@ const initialStops: readonly Stop[] = [
     title: 'Lisbon',
     trip_id: mockTrip.id,
     updated_at: mockItineraryTimestamp,
+    visited: true,
   },
   {
     created_at: mockItineraryTimestamp,
@@ -336,6 +343,7 @@ const initialStops: readonly Stop[] = [
     title: 'Porto',
     trip_id: mockTrip.id,
     updated_at: mockItineraryTimestamp,
+    visited: true,
   },
   {
     created_at: mockItineraryTimestamp,
@@ -357,6 +365,7 @@ const initialStops: readonly Stop[] = [
     title: 'Madrid',
     trip_id: mockTrip.id,
     updated_at: mockItineraryTimestamp,
+    visited: true,
   },
   {
     created_at: mockItineraryTimestamp,
@@ -378,6 +387,7 @@ const initialStops: readonly Stop[] = [
     title: 'Lyon transfer',
     trip_id: mockTrip.id,
     updated_at: mockItineraryTimestamp,
+    visited: false,
   },
   {
     created_at: mockItineraryTimestamp,
@@ -399,6 +409,7 @@ const initialStops: readonly Stop[] = [
     title: 'Dolomites',
     trip_id: mockTrip.id,
     updated_at: mockItineraryTimestamp,
+    visited: false,
   },
 ] as const
 
@@ -488,7 +499,7 @@ const initialTravelLegs: readonly TravelLeg[] = [
   },
 ] as const
 
-const travelPosts: readonly TravelPost[] = [
+const initialTravelPosts: readonly TravelPost[] = [
   {
     comments: 8,
     coordinates: [41.1418, -8.6159],
@@ -512,6 +523,7 @@ const travelPosts: readonly TravelPost[] = [
         type: 'video',
       },
     ],
+    occurred_at: '2027-05-08T20:14:00Z',
     time: 'Today, 20:14',
     title: 'First evening above the Douro',
   },
@@ -539,6 +551,7 @@ const travelPosts: readonly TravelPost[] = [
         src: 'https://images.unsplash.com/photo-1504754524776-8f4f37790ca0?auto=format&fit=crop&w=520&q=80',
       },
     ],
+    occurred_at: '2027-05-06T09:32:00Z',
     time: 'Yesterday, 09:32',
     title: 'Packing lighter for rail days',
   },
@@ -562,6 +575,7 @@ const travelPosts: readonly TravelPost[] = [
         src: 'https://images.unsplash.com/photo-1474487548417-781cb71495f3?auto=format&fit=crop&w=520&q=80',
       },
     ],
+    occurred_at: '2027-05-10T17:48:00Z',
     time: '10 May, 17:48',
     title: 'A better transfer plan',
   },
@@ -575,6 +589,8 @@ export function TripDetailMockupPage() {
   const [plannedStops, setPlannedStops] = useState<readonly Stop[]>(initialStops)
   const [travelLegs, setTravelLegs] =
     useState<readonly TravelLeg[]>(initialTravelLegs)
+  const [travelPosts, setTravelPosts] =
+    useState<readonly TravelPost[]>(initialTravelPosts)
   const [travelingView, setTravelingView] = useState<TravelingView>('posts')
   const [activeDialog, setActiveDialog] = useState<TripDialog | null>(null)
   const [mapPointTarget, setMapPointTarget] = useState<MapPointTarget | null>(
@@ -661,6 +677,19 @@ export function TripDetailMockupPage() {
     )
   }
 
+  function handlePostChange(postId: string, updates: Partial<TravelPost>) {
+    setTravelPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              ...updates,
+            }
+          : post,
+      ),
+    )
+  }
+
   const applyDraftMapPointLocation = useCallback(
     (target: MapPointTarget, coordinates: L.LatLngTuple) => {
       const draftLocation = createDraftMapPointLocation(coordinates, target)
@@ -668,7 +697,9 @@ export function TripDetailMockupPage() {
       if (target === 'post') {
         setDraftPostLocation(draftLocation)
         setMode('traveling')
-        setTravelingView('create-post')
+        setTravelingView((currentView) =>
+          currentView === 'edit-post' ? currentView : 'create-post',
+        )
         return
       }
 
@@ -727,6 +758,15 @@ export function TripDetailMockupPage() {
         ? draftStopLocation
         : null
   const visibleMode: TripMode = canSwitchModes ? mode : 'traveling'
+  const upcomingStops = getUpcomingStops(plannedStops)
+  const mapRouteMode: MapRouteMode =
+    visibleMode === 'traveling' ? 'travel-timeline' : 'itinerary'
+  const visibleStops =
+    visibleMode === 'traveling' ? upcomingStops : plannedStops
+  const mobileMapPickerStops =
+    mobileMapPickerTarget === 'post' ? upcomingStops : plannedStops
+  const mobileMapPickerRouteMode: MapRouteMode =
+    mobileMapPickerTarget === 'post' ? 'travel-timeline' : 'itinerary'
 
   useEffect(() => {
     if (!shouldUseMobileMapPicker) {
@@ -755,6 +795,7 @@ export function TripDetailMockupPage() {
               mapPointTarget={mapPointTarget}
               onMapPointTargetChange={handleMapPointTargetChange}
               onOpenDialog={openDialog}
+              onPostChange={handlePostChange}
               onPlanningViewChange={setPlanningView}
               onStopChange={handleStopChange}
               onStopDelete={handleStopDelete}
@@ -762,9 +803,10 @@ export function TripDetailMockupPage() {
               onTravelingViewChange={setTravelingView}
               planningView={planningView}
               showMobileTravelMap={shouldUseMobileMapPicker}
-              stops={plannedStops}
+              stops={visibleStops}
               trip={mockTrip}
               travelLegs={travelLegs}
+              travelPosts={travelPosts}
               travelingView={travelingView}
             />
           </div>
@@ -773,8 +815,10 @@ export function TripDetailMockupPage() {
               draftMapLocation={activeDraftMapLocation}
               mapPointEnabled={mapPointTarget !== null}
               onDraftMapPointSelect={handleDraftMapPointSelect}
-              stops={plannedStops}
+              routeMode={mapRouteMode}
+              stops={visibleStops}
               travelLegs={travelLegs}
+              travelPosts={travelPosts}
             />
           ) : null}
         </div>
@@ -813,9 +857,11 @@ export function TripDetailMockupPage() {
           setMobileMapPickerTarget(null)
         }}
         open={Boolean(mobileMapPickerTarget && shouldUseMobileMapPicker)}
-        stops={plannedStops}
+        routeMode={mobileMapPickerRouteMode}
+        stops={mobileMapPickerStops}
         target={mobileMapPickerTarget}
         travelLegs={travelLegs}
+        travelPosts={travelPosts}
       />
       {canSwitchModes ? (
         <MobileModeSwitch
@@ -1525,17 +1571,21 @@ function MobileMapPointPicker({
   onCancel,
   onConfirm,
   open,
+  routeMode,
   stops,
   target,
   travelLegs,
+  travelPosts,
 }: {
   initialLocation: DraftPostLocation | null
   onCancel: () => void
   onConfirm: (coordinates: L.LatLngTuple) => void
   open: boolean
+  routeMode: MapRouteMode
   stops: readonly Stop[]
   target: MapPointTarget | null
   travelLegs: readonly TravelLeg[]
+  travelPosts: readonly TravelPost[]
 }) {
   const [pendingLocation, setPendingLocation] =
     useState<DraftPostLocation | null>(initialLocation)
@@ -1564,8 +1614,10 @@ function MobileMapPointPicker({
           setPendingLocation(createDraftMapPointLocation(coordinates, target))
         }
         resetNonce={0}
+        routeMode={routeMode}
         stops={stops}
         travelLegs={travelLegs}
+        travelPosts={travelPosts}
       />
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] bg-gradient-to-b from-white/95 via-white/70 to-transparent px-3 pb-8 pt-3">
@@ -1632,6 +1684,7 @@ function TripSidebar({
   mode,
   onMapPointTargetChange,
   onOpenDialog,
+  onPostChange,
   onPlanningViewChange,
   onStopChange,
   onStopDelete,
@@ -1642,6 +1695,7 @@ function TripSidebar({
   stops,
   trip,
   travelLegs,
+  travelPosts,
   travelingView,
 }: {
   draftPostLocation: DraftPostLocation | null
@@ -1650,6 +1704,7 @@ function TripSidebar({
   mode: TripMode
   onMapPointTargetChange: (target: MapPointTarget | null) => void
   onOpenDialog: (dialog: TripDialog) => void
+  onPostChange: (postId: string, updates: Partial<TravelPost>) => void
   onPlanningViewChange: (view: PlanningView) => void
   onStopChange: (stopId: string, updates: Partial<Stop>) => void
   onStopDelete: (stopId: string) => void
@@ -1660,9 +1715,25 @@ function TripSidebar({
   stops: readonly Stop[]
   trip: MockTrip
   travelLegs: readonly TravelLeg[]
+  travelPosts: readonly TravelPost[]
   travelingView: TravelingView
 }) {
   const isMobileTravelPosts = mode === 'traveling' && travelingView === 'posts'
+  const [editingPostId, setEditingPostId] = useState<string | null>(null)
+  const editingPost =
+    travelPosts.find((post) => post.id === editingPostId) ?? null
+
+  function closePostForm() {
+    onMapPointTargetChange(null)
+    setEditingPostId(null)
+    onTravelingViewChange('posts')
+  }
+
+  function editPost(postId: string) {
+    onMapPointTargetChange(null)
+    setEditingPostId(postId)
+    onTravelingViewChange('edit-post')
+  }
 
   return (
     <aside
@@ -1703,24 +1774,35 @@ function TripSidebar({
             travelLegs={travelLegs}
           />
         ) : travelingView === 'create-post' ? (
-          <CreatePostPanel
+          <PostFormPanel
             draftLocation={draftPostLocation}
             mapPointActive={mapPointTarget === 'post'}
-            onCancel={() => {
-              onMapPointTargetChange(null)
-              onTravelingViewChange('posts')
-            }}
+            mode="create"
+            onCancel={closePostForm}
             onMapPointTargetChange={onMapPointTargetChange}
+          />
+        ) : travelingView === 'edit-post' && editingPost ? (
+          <PostFormPanel
+            draftLocation={draftPostLocation}
+            mapPointActive={mapPointTarget === 'post'}
+            mode="edit"
+            onCancel={closePostForm}
+            onMapPointTargetChange={onMapPointTargetChange}
+            onPostChange={onPostChange}
+            post={editingPost}
           />
         ) : (
           <TravelingPanel
+            onEditPost={editPost}
             onNewPost={() => {
               onMapPointTargetChange(null)
+              setEditingPostId(null)
               onTravelingViewChange('create-post')
             }}
             showMobileMap={showMobileTravelMap}
             stops={stops}
             travelLegs={travelLegs}
+            travelPosts={travelPosts}
           />
         )}
       </div>
@@ -2274,9 +2356,11 @@ function CreateStopPanel({
 function MobileTravelMap({
   stops,
   travelLegs,
+  travelPosts,
 }: {
   stops: readonly Stop[]
   travelLegs: readonly TravelLeg[]
+  travelPosts: readonly TravelPost[]
 }) {
   const [resetNonce, setResetNonce] = useState(0)
 
@@ -2288,8 +2372,10 @@ function MobileTravelMap({
         mapPointEnabled={false}
         onDraftMapPointSelect={() => undefined}
         resetNonce={resetNonce}
+        routeMode="travel-timeline"
         stops={stops}
         travelLegs={travelLegs}
+        travelPosts={travelPosts}
       />
 
       <div className="pointer-events-none absolute right-3 top-3 z-[500]">
@@ -2310,15 +2396,19 @@ function MobileTravelMap({
 }
 
 function TravelingPanel({
+  onEditPost,
   onNewPost,
   showMobileMap,
   stops,
   travelLegs,
+  travelPosts,
 }: {
+  onEditPost: (postId: string) => void
   onNewPost: () => void
   showMobileMap: boolean
   stops: readonly Stop[]
   travelLegs: readonly TravelLeg[]
+  travelPosts: readonly TravelPost[]
 }) {
   const [activePostId, setActivePostId] = useState<string | null>(null)
   const activePost =
@@ -2337,11 +2427,16 @@ function TravelingPanel({
           {activePost ? (
             <MobilePostDetailCard
               onBack={() => setActivePostId(null)}
+              onEdit={() => onEditPost(activePost.id)}
               post={activePost}
             />
           ) : (
             <>
-              <MobileTravelMap stops={stops} travelLegs={travelLegs} />
+              <MobileTravelMap
+                stops={stops}
+                travelLegs={travelLegs}
+                travelPosts={travelPosts}
+              />
 
               <div className="pointer-events-none absolute left-3 top-3 z-[500]">
                 <Button
@@ -2387,7 +2482,11 @@ function TravelingPanel({
 
         <div className="space-y-5">
           {travelPosts.map((post) => (
-            <TravelPostCard key={post.id} post={post} />
+            <TravelPostCard
+              key={post.id}
+              onEdit={() => onEditPost(post.id)}
+              post={post}
+            />
           ))}
         </div>
       </div>
@@ -2395,37 +2494,92 @@ function TravelingPanel({
   )
 }
 
-function CreatePostPanel({
+function PostFormPanel({
   draftLocation,
   mapPointActive,
+  mode,
   onCancel,
   onMapPointTargetChange,
+  onPostChange,
+  post = null,
 }: {
   draftLocation: DraftPostLocation | null
   mapPointActive: boolean
+  mode: 'create' | 'edit'
   onCancel: () => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
+  onPostChange?: (postId: string, updates: Partial<TravelPost>) => void
+  post?: TravelPost | null
 }) {
+  const editingPost = mode === 'edit' ? post : null
   const [locationSource, setLocationSource] = useState<'map' | 'search'>(
     mapPointActive ? 'map' : 'search',
   )
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const uploadedMediaUrlsRef = useRef<string[]>([])
-  const [draftMedia, setDraftMedia] = useState<PostMedia[]>([])
+  const keepUploadedMediaUrlsRef = useRef(false)
+  const [draftMedia, setDraftMedia] = useState<PostMedia[]>(() =>
+    editingPost ? [...editingPost.media] : [],
+  )
   const [activeDraftMediaIndex, setActiveDraftMediaIndex] = useState<
     number | null
   >(null)
   const [mediaNotice, setMediaNotice] = useState<string | null>(null)
   const [mediaToolsOpen, setMediaToolsOpen] = useState(false)
-  const [occurredAt, setOccurredAt] = useState('2027-05-08T20:14')
-  const [searchValue, setSearchValue] = useState('Porto riverside')
-  const [story, setStory] = useState(
-    'The light moved across the river just as the terraces started to fill up. This is the note I want pinned to this exact place.',
+  const [occurredAt, setOccurredAt] = useState(() =>
+    editingPost
+      ? formatDateTimeInputValue(parseDateTime(editingPost.occurred_at))
+      : '2027-05-08T20:14',
   )
-  const [title, setTitle] = useState('Sunset above the Douro')
+  const [searchValue, setSearchValue] = useState(
+    editingPost?.location ?? 'Porto riverside',
+  )
+  const [story, setStory] = useState(
+    editingPost?.excerpt ??
+      'The light moved across the river just as the terraces started to fill up. This is the note I want pinned to this exact place.',
+  )
+  const [title, setTitle] = useState(
+    editingPost?.title ?? 'Sunset above the Douro',
+  )
+  const selectedMapLocation =
+    locationSource === 'map' && mapPointActive ? draftLocation : null
+  const selectedPostCoordinates =
+    selectedMapLocation?.coordinates ?? editingPost?.coordinates ?? null
+  const selectedLocationLabel =
+    selectedMapLocation?.label ?? searchValue.trim()
   const hasLocation =
-    locationSource === 'search' ||
-    (locationSource === 'map' && mapPointActive && Boolean(draftLocation))
+    selectedLocationLabel.length > 0 &&
+    (locationSource === 'search' || Boolean(selectedMapLocation))
+  const canSubmit =
+    hasLocation &&
+    title.trim().length > 0 &&
+    story.trim().length > 0 &&
+    occurredAt.trim().length > 0 &&
+    draftMedia.length > 0
+
+  useEffect(() => {
+    keepUploadedMediaUrlsRef.current = false
+    for (const objectUrl of uploadedMediaUrlsRef.current) {
+      URL.revokeObjectURL(objectUrl)
+    }
+    uploadedMediaUrlsRef.current = []
+    setActiveDraftMediaIndex(null)
+    setDraftMedia(editingPost ? [...editingPost.media] : [])
+    setLocationSource('search')
+    setMediaNotice(null)
+    setMediaToolsOpen(false)
+    setOccurredAt(
+      editingPost
+        ? formatDateTimeInputValue(parseDateTime(editingPost.occurred_at))
+        : '2027-05-08T20:14',
+    )
+    setSearchValue(editingPost?.location ?? 'Porto riverside')
+    setStory(
+      editingPost?.excerpt ??
+        'The light moved across the river just as the terraces started to fill up. This is the note I want pinned to this exact place.',
+    )
+    setTitle(editingPost?.title ?? 'Sunset above the Douro')
+  }, [editingPost, mode])
 
   useEffect(() => {
     if (mapPointActive) {
@@ -2440,6 +2594,10 @@ function CreatePostPanel({
 
   useEffect(
     () => () => {
+      if (keepUploadedMediaUrlsRef.current) {
+        return
+      }
+
       for (const objectUrl of uploadedMediaUrlsRef.current) {
         URL.revokeObjectURL(objectUrl)
       }
@@ -2524,12 +2682,49 @@ function CreatePostPanel({
     )
   }
 
+  function discardUploadedMediaUrls() {
+    for (const objectUrl of uploadedMediaUrlsRef.current) {
+      URL.revokeObjectURL(objectUrl)
+    }
+    uploadedMediaUrlsRef.current = []
+  }
+
+  function handleCancel() {
+    keepUploadedMediaUrlsRef.current = false
+    discardUploadedMediaUrls()
+    onCancel()
+  }
+
+  function handleSaveEdit() {
+    if (
+      !editingPost ||
+      !onPostChange ||
+      !canSubmit ||
+      !selectedPostCoordinates
+    ) {
+      return
+    }
+
+    const nextOccurredAt = toPostOccurredAtValue(occurredAt)
+    keepUploadedMediaUrlsRef.current = true
+    onPostChange(editingPost.id, {
+      coordinates: selectedPostCoordinates,
+      excerpt: story.trim(),
+      location: selectedLocationLabel,
+      media: toPostMediaTuple(draftMedia),
+      occurred_at: nextOccurredAt,
+      time: formatDateTimeLabel(nextOccurredAt),
+      title: title.trim(),
+    })
+    onCancel()
+  }
+
   return (
     <div className="space-y-5 p-4">
       <div className="flex items-start gap-3">
         <Button
           aria-label="Back to posts"
-          onClick={onCancel}
+          onClick={handleCancel}
           size="icon"
           title="Back to posts"
           type="button"
@@ -2538,9 +2733,13 @@ function CreatePostPanel({
           <ArrowLeft className="size-4" aria-hidden="true" />
         </Button>
         <div>
-          <h2 className="text-base font-semibold text-foreground">New post</h2>
+          <h2 className="text-base font-semibold text-foreground">
+            {mode === 'edit' ? 'Edit post' : 'New post'}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Pick a map location, add media, then write the story.
+            {mode === 'edit'
+              ? 'Update the location, media, and story.'
+              : 'Pick a map location, add media, then write the story.'}
           </p>
         </div>
       </div>
@@ -2579,11 +2778,19 @@ function CreatePostPanel({
 
         <LocationOptionCard
           active={locationSource === 'search' && !mapPointActive}
-          detail="Portugal · 41.1408, -8.6110"
+          detail={
+            editingPost
+              ? formatCoordinates(editingPost.coordinates)
+              : 'Portugal · 41.1408, -8.6110'
+          }
           icon={Search}
-          label={searchValue.trim() || 'Ribeira, Porto'}
+          label={
+            searchValue.trim() ||
+            editingPost?.location ||
+            'Ribeira, Porto'
+          }
           onClick={selectSearchLocation}
-          source="Searched place"
+          source={editingPost ? 'Saved place' : 'Searched place'}
         />
 
         <LocationOptionCard
@@ -2779,21 +2986,24 @@ function CreatePostPanel({
       </section>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button onClick={onCancel} type="button" variant="outline">
+        <Button onClick={handleCancel} type="button" variant="outline">
           Cancel
         </Button>
-        <Button onClick={onCancel} type="button" variant="outline">
-          Save draft
-        </Button>
-        <Button
-          disabled={
-            !hasLocation || story.trim().length === 0 || draftMedia.length === 0
-          }
-          onClick={onCancel}
-          type="button"
-        >
-          Publish post
-        </Button>
+        {mode === 'edit' ? (
+          <Button disabled={!canSubmit} onClick={handleSaveEdit} type="button">
+            <Check className="size-4" aria-hidden="true" />
+            Save post
+          </Button>
+        ) : (
+          <>
+            <Button onClick={handleCancel} type="button" variant="outline">
+              Save draft
+            </Button>
+            <Button disabled={!canSubmit} onClick={handleCancel} type="button">
+              Publish post
+            </Button>
+          </>
+        )}
       </div>
 
       {activeDraftMediaIndex !== null ? (
@@ -2802,14 +3012,20 @@ function CreatePostPanel({
           media={draftMedia}
           onClose={() => setActiveDraftMediaIndex(null)}
           onIndexChange={setActiveDraftMediaIndex}
-          title="Draft media"
+          title={title.trim() || (editingPost ? editingPost.title : 'Draft media')}
         />
       ) : null}
     </div>
   )
 }
 
-function TravelPostCard({ post }: { post: TravelPost }) {
+function TravelPostCard({
+  onEdit,
+  post,
+}: {
+  onEdit: () => void
+  post: TravelPost
+}) {
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
 
   return (
@@ -2821,6 +3037,17 @@ function TravelPostCard({ post }: { post: TravelPost }) {
               {post.title}
             </h3>
           </div>
+          <Button
+            aria-label={`Edit ${post.title}`}
+            className="size-8 shrink-0 rounded-xl"
+            onClick={onEdit}
+            size="icon"
+            title={`Edit ${post.title}`}
+            type="button"
+            variant="outline"
+          >
+            <PenLine className="size-3.5" aria-hidden="true" />
+          </Button>
         </div>
 
         <p className="text-sm leading-6 text-muted-foreground">{post.excerpt}</p>
@@ -2920,9 +3147,11 @@ function TravelPostPreviewCard({
 
 function MobilePostDetailCard({
   onBack,
+  onEdit,
   post,
 }: {
   onBack: () => void
+  onEdit: () => void
   post: TravelPost
 }) {
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
@@ -2957,6 +3186,17 @@ function MobilePostDetailCard({
             <span>{post.comments} comments</span>
           </div>
         </div>
+        <Button
+          aria-label={`Edit ${post.title}`}
+          className="size-9 shrink-0 rounded-full"
+          onClick={onEdit}
+          size="icon"
+          title={`Edit ${post.title}`}
+          type="button"
+          variant="outline"
+        >
+          <PenLine className="size-4" aria-hidden="true" />
+        </Button>
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 p-4">
@@ -3758,14 +3998,18 @@ function MapWorkspace({
   draftMapLocation,
   mapPointEnabled,
   onDraftMapPointSelect,
+  routeMode,
   stops,
   travelLegs,
+  travelPosts,
 }: {
   draftMapLocation: DraftPostLocation | null
   mapPointEnabled: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
+  routeMode: MapRouteMode
   stops: readonly Stop[]
   travelLegs: readonly TravelLeg[]
+  travelPosts: readonly TravelPost[]
 }) {
   const [resetNonce, setResetNonce] = useState(0)
 
@@ -3776,8 +4020,10 @@ function MapWorkspace({
         mapPointEnabled={mapPointEnabled}
         onDraftMapPointSelect={onDraftMapPointSelect}
         resetNonce={resetNonce}
+        routeMode={routeMode}
         stops={stops}
         travelLegs={travelLegs}
+        travelPosts={travelPosts}
       />
 
       <div className="pointer-events-none absolute right-4 top-4 z-[500] lg:right-5">
@@ -3802,27 +4048,34 @@ function TripLeafletMap({
   mapPointEnabled,
   onDraftMapPointSelect,
   resetNonce,
+  routeMode = 'itinerary',
   stops,
   travelLegs,
+  travelPosts,
 }: {
   draftMapLocation: DraftPostLocation | null
   fitMode?: RouteFitMode
   mapPointEnabled: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
   resetNonce: number
+  routeMode?: MapRouteMode
   stops: readonly Stop[]
   travelLegs: readonly TravelLeg[]
+  travelPosts: readonly TravelPost[]
 }) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const draftMarkerRef = useRef<L.Marker | null>(null)
   const latestLocationSelectRef = useRef(onDraftMapPointSelect)
   const mapPointEnabledRef = useRef(mapPointEnabled)
   const mapRef = useRef<L.Map | null>(null)
+  const postMarkerLayerRef = useRef<L.LayerGroup | null>(null)
   const routeLayerRef = useRef<L.LayerGroup | null>(null)
+  const travelPostsRef = useRef(travelPosts)
   const stopsRef = useRef(stops)
   const travelLegsRef = useRef(travelLegs)
-  const routeKey = createRouteKey(stops, travelLegs)
+  const routeKey = createRouteKey(routeMode, stops, travelLegs, travelPosts)
  
+  travelPostsRef.current = travelPosts
   stopsRef.current = stops
   travelLegsRef.current = travelLegs
 
@@ -3875,20 +4128,7 @@ function TripLeafletMap({
     mapRef.current = map
 
     routeLayerRef.current = L.layerGroup().addTo(map)
-
-    for (const post of travelPosts) {
-      L.marker(post.coordinates, {
-        icon: L.divIcon({
-          className: 'trip-map-div-icon',
-          html: createPostBubbleHtml(post),
-          iconAnchor: [22, 22],
-          iconSize: [44, 44],
-        }),
-        zIndexOffset: 500,
-      })
-        .addTo(map)
-        .bindPopup(`<strong>${escapeHtml(post.title)}</strong><br>${escapeHtml(post.excerpt)}`)
-    }
+    postMarkerLayerRef.current = L.layerGroup().addTo(map)
 
     window.requestAnimationFrame(() => map.invalidateSize())
 
@@ -3897,9 +4137,22 @@ function TripLeafletMap({
       map.remove()
       draftMarkerRef.current = null
       mapRef.current = null
+      postMarkerLayerRef.current = null
       routeLayerRef.current = null
     }
   }, [fitMode])
+
+  useEffect(() => {
+    const postMarkerLayer = postMarkerLayerRef.current
+    if (!postMarkerLayer) {
+      return
+    }
+
+    postMarkerLayer.clearLayers()
+    if (routeMode === 'travel-timeline') {
+      renderPostMarkerLayer(postMarkerLayer, travelPostsRef.current)
+    }
+  }, [routeMode, routeKey])
 
   useEffect(() => {
     const map = mapRef.current
@@ -3909,14 +4162,27 @@ function TripLeafletMap({
     }
 
     routeLayer.clearLayers()
-    renderRouteLayer(routeLayer, stopsRef.current, travelLegsRef.current)
+    renderRouteLayer(
+      routeLayer,
+      routeMode,
+      stopsRef.current,
+      travelLegsRef.current,
+      travelPostsRef.current,
+    )
     const animationFrameId = window.requestAnimationFrame(() => {
       map.invalidateSize()
-      fitRouteBounds(map, stopsRef.current, travelLegsRef.current, fitMode)
+      fitRouteBounds(
+        map,
+        routeMode,
+        stopsRef.current,
+        travelLegsRef.current,
+        travelPostsRef.current,
+        fitMode,
+      )
     })
 
     return () => window.cancelAnimationFrame(animationFrameId)
-  }, [fitMode, routeKey])
+  }, [fitMode, routeKey, routeMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -3950,8 +4216,15 @@ function TripLeafletMap({
       return
     }
 
-    fitRouteBounds(map, stopsRef.current, travelLegsRef.current, fitMode)
-  }, [fitMode, resetNonce])
+    fitRouteBounds(
+      map,
+      routeMode,
+      stopsRef.current,
+      travelLegsRef.current,
+      travelPostsRef.current,
+      fitMode,
+    )
+  }, [fitMode, resetNonce, routeMode])
 
   return (
     <div
@@ -3964,25 +4237,32 @@ function TripLeafletMap({
 
 function renderRouteLayer(
   routeLayer: L.LayerGroup,
+  routeMode: MapRouteMode,
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
+  travelPosts: readonly TravelPost[],
 ) {
-  const routeSegments = getRouteSegments(stops, travelLegs)
+  const routeSegments = getMapRouteSegments(
+    routeMode,
+    stops,
+    travelLegs,
+    travelPosts,
+  )
   for (const segment of routeSegments) {
     if (segment.coordinates.length < 2) {
       continue
     }
 
-    L.polyline(segment.coordinates, {
-      color: '#0f766e',
-      dashArray: segment.routeType === 'SIMPLE' ? '10 10' : undefined,
-      lineCap: 'round',
-      lineJoin: 'round',
-      opacity: segment.routeType === 'SIMPLE' ? 0.62 : 0.86,
-      weight: 4,
-    }).addTo(routeLayer)
+    L.polyline(
+      segment.coordinates,
+      getRouteSegmentPathOptions(segment, routeMode),
+    ).addTo(routeLayer)
 
-    if (segment.routeType === 'SIMPLE') {
+    if (
+      routeMode === 'itinerary' ||
+      segment.kind !== 'itinerary' ||
+      segment.routeType === 'SIMPLE'
+    ) {
       continue
     }
 
@@ -4010,13 +4290,41 @@ function renderRouteLayer(
   }
 }
 
+function renderPostMarkerLayer(
+  postMarkerLayer: L.LayerGroup,
+  travelPosts: readonly TravelPost[],
+) {
+  for (const post of travelPosts) {
+    L.marker(post.coordinates, {
+      icon: L.divIcon({
+        className: 'trip-map-div-icon',
+        html: createPostBubbleHtml(post),
+        iconAnchor: [22, 22],
+        iconSize: [44, 44],
+      }),
+      zIndexOffset: 500,
+    })
+      .addTo(postMarkerLayer)
+      .bindPopup(
+        `<strong>${escapeHtml(post.title)}</strong><br>${escapeHtml(post.excerpt)}`,
+      )
+  }
+}
+
 function fitRouteBounds(
   map: L.Map,
+  routeMode: MapRouteMode,
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
+  travelPosts: readonly TravelPost[],
   fitMode: RouteFitMode,
 ) {
-  const routeCoordinates = getRouteBoundsCoordinates(stops, travelLegs)
+  const routeCoordinates = getRouteBoundsCoordinates(
+    routeMode,
+    stops,
+    travelLegs,
+    travelPosts,
+  )
   if (routeCoordinates.length === 0) {
     return
   }
@@ -4048,8 +4356,10 @@ function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
 }
 
 function createRouteKey(
+  routeMode: MapRouteMode,
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
+  travelPosts: readonly TravelPost[],
 ) {
   const stopKey = stops
     .map((stop) =>
@@ -4071,11 +4381,59 @@ function createRouteKey(
       ].join(':'),
     )
     .join('|')
+  const postKey =
+    routeMode === 'travel-timeline'
+      ? getTravelPostsInRouteOrder(travelPosts)
+          .map((post) =>
+            [
+              post.id,
+              post.title,
+              post.excerpt,
+              post.location,
+              post.coordinates[0],
+              post.coordinates[1],
+              post.occurred_at,
+              getPrimaryPostMedia(post).src,
+            ].join(':'),
+          )
+          .join('|')
+      : ''
 
-  return `${stopKey}::${legKey}`
+  return `${routeMode}::${stopKey}::${legKey}::${postKey}`
 }
 
-function getRouteSegments(
+function getUpcomingStops(stops: readonly Stop[]) {
+  return stops.filter((stop) => !stop.visited)
+}
+
+function getTravelPostsInRouteOrder(travelPosts: readonly TravelPost[]) {
+  return [...travelPosts].sort((leftPost, rightPost) => {
+    const timeDelta =
+      getPostRouteTime(leftPost) - getPostRouteTime(rightPost)
+
+    return timeDelta || leftPost.id.localeCompare(rightPost.id)
+  })
+}
+
+function getPostRouteTime(post: TravelPost) {
+  const time = Date.parse(post.occurred_at)
+  return Number.isFinite(time) ? time : 0
+}
+
+function getMapRouteSegments(
+  routeMode: MapRouteMode,
+  stops: readonly Stop[],
+  travelLegs: readonly TravelLeg[],
+  travelPosts: readonly TravelPost[],
+): RouteSegment[] {
+  if (routeMode === 'travel-timeline') {
+    return getTravelTimelineRouteSegments(stops, travelLegs, travelPosts)
+  }
+
+  return getItineraryRouteSegments(stops, travelLegs)
+}
+
+function getItineraryRouteSegments(
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
 ): RouteSegment[] {
@@ -4103,6 +4461,7 @@ function getRouteSegments(
 
     segments.push({
       coordinates,
+      kind: 'itinerary',
       routeType: leg?.route.type ?? 'SIMPLE',
     })
   }
@@ -4110,17 +4469,135 @@ function getRouteSegments(
   return segments
 }
 
-function getRouteBoundsCoordinates(
+function getTravelTimelineRouteSegments(
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
-) {
-  const routeCoordinates = getRouteSegments(stops, travelLegs).flatMap(
-    (segment) => segment.coordinates,
-  )
+  travelPosts: readonly TravelPost[],
+): RouteSegment[] {
+  const postsInRouteOrder = getTravelPostsInRouteOrder(travelPosts)
+  const segments = getTravelPostRouteSegments(postsInRouteOrder)
+  const finalPost = postsInRouteOrder[postsInRouteOrder.length - 1] ?? null
+  const upcomingStop = stops[0] ?? null
 
-  return routeCoordinates.length > 0
-    ? routeCoordinates
-    : stops.map(getStopCoordinates)
+  if (finalPost && upcomingStop) {
+    segments.push({
+      coordinates: getPointToPointRouteCoordinates(
+        finalPost.coordinates,
+        getStopCoordinates(upcomingStop),
+      ),
+      kind: 'post-to-stop',
+      routeType: 'SIMPLE',
+    })
+  }
+
+  segments.push(...getItineraryRouteSegments(stops, travelLegs))
+  return segments
+}
+
+function getTravelPostRouteSegments(
+  postsInRouteOrder: readonly TravelPost[],
+): RouteSegment[] {
+  const segments: RouteSegment[] = []
+
+  for (let index = 0; index < postsInRouteOrder.length - 1; index += 1) {
+    const fromPost = postsInRouteOrder[index]
+    const toPost = postsInRouteOrder[index + 1]
+    if (!fromPost || !toPost) {
+      continue
+    }
+
+    segments.push({
+      coordinates: getPointToPointRouteCoordinates(
+        fromPost.coordinates,
+        toPost.coordinates,
+      ),
+      kind: 'post-link',
+      routeType: 'SIMPLE',
+    })
+  }
+
+  return segments
+}
+
+function getRouteSegmentPathOptions(
+  segment: RouteSegment,
+  routeMode: MapRouteMode,
+): L.PolylineOptions {
+  if (segment.kind === 'post-link') {
+    return {
+      color: '#334155',
+      lineCap: 'round',
+      lineJoin: 'round',
+      opacity: 0.52,
+      weight: 3,
+    }
+  }
+
+  if (segment.kind === 'post-to-stop') {
+    return {
+      color: '#334155',
+      dashArray: '7 9',
+      lineCap: 'round',
+      lineJoin: 'round',
+      opacity: 0.62,
+      weight: 3,
+    }
+  }
+
+  if (routeMode === 'itinerary') {
+    return {
+      color: '#0f766e',
+      lineCap: 'round',
+      lineJoin: 'round',
+      opacity: 0.82,
+      weight: 4,
+    }
+  }
+
+  return {
+    color: '#0f766e',
+    dashArray: segment.routeType === 'SIMPLE' ? '10 10' : undefined,
+    lineCap: 'round',
+    lineJoin: 'round',
+    opacity: segment.routeType === 'SIMPLE' ? 0.62 : 0.86,
+    weight: 4,
+  }
+}
+
+function getRouteBoundsCoordinates(
+  routeMode: MapRouteMode,
+  stops: readonly Stop[],
+  travelLegs: readonly TravelLeg[],
+  travelPosts: readonly TravelPost[],
+) {
+  const routeCoordinates = getMapRouteSegments(
+    routeMode,
+    stops,
+    travelLegs,
+    travelPosts,
+  ).flatMap((segment) => segment.coordinates)
+
+  if (routeCoordinates.length > 0) {
+    return routeCoordinates
+  }
+
+  if (routeMode === 'travel-timeline') {
+    const postCoordinates = getTravelPostsInRouteOrder(travelPosts).map(
+      (post) => post.coordinates,
+    )
+    if (postCoordinates.length > 0) {
+      return postCoordinates
+    }
+  }
+
+  return stops.map(getStopCoordinates)
+}
+
+function getPointToPointRouteCoordinates(
+  fromCoordinates: L.LatLngTuple,
+  toCoordinates: L.LatLngTuple,
+) {
+  return [fromCoordinates, toCoordinates]
 }
 
 function getRouteCoordinates(
@@ -4372,6 +4849,21 @@ function getPostMediaType(file: File): NonNullable<PostMedia['type']> {
   return file.type.startsWith('video/') ? 'video' : 'image'
 }
 
+function toPostOccurredAtValue(value: string) {
+  const date = parseDateTime(value)
+  return date ? date.toISOString() : value
+}
+
+function toPostMediaTuple(
+  media: readonly PostMedia[],
+): readonly [PostMedia, ...PostMedia[]] {
+  if (media.length === 0) {
+    throw new Error('Posts require at least one media item.')
+  }
+
+  return media as readonly [PostMedia, ...PostMedia[]]
+}
+
 function getVisibilityLabel(visibility: MockTripVisibility) {
   switch (visibility) {
     case 'PRIVATE':
@@ -4613,7 +5105,7 @@ function findNearestMockPlace(coordinates: L.LatLngTuple) {
       coordinates: getStopCoordinates(stop),
       label: stop.location.full_name,
     })),
-    ...travelPosts.map((post) => ({
+    ...initialTravelPosts.map((post) => ({
       coordinates: post.coordinates,
       label: post.location,
     })),
@@ -4706,6 +5198,14 @@ function formatDateInputValue(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function formatDateTimeInputValue(date: Date | null) {
+  if (!date) {
+    return ''
+  }
+
+  return `${formatDateInputValue(date)}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
 const dayInMs = 24 * 60 * 60 * 1000

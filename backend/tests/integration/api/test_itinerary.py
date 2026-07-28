@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date, timedelta
 
 import pytest
 
@@ -76,6 +77,7 @@ def _stop_payload(
     *,
     title: str,
     planned_start_date: str = '2026-08-14',
+    planned_nights: int = 0,
     after_stop_id: str | None = None,
     incoming_travel: dict | None = None,
     outgoing_travel: dict | None = None,
@@ -84,7 +86,7 @@ def _stop_payload(
         'location': _place_location(place),
         'title': title,
         'notes': '',
-        'planned_nights': 0,
+        'planned_nights': planned_nights,
         'placement': {
             'planned_start_date': planned_start_date,
             'after_stop_id': after_stop_id,
@@ -417,6 +419,49 @@ def test_itinerary_returns_ready_provider_backed_route(
         'distance_meters': 430000,
         'duration_seconds': 14400,
     }
+
+
+@pytest.mark.integration
+def test_itinerary_stop_visited_is_derived_from_departure_date(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    owner = create_user(db_session, password='ItineraryPass123!')
+    trip = create_trip(db_session, owner_id=owner.id)
+    current_place = create_place(db_session, name='Current city')
+    next_place = create_place(db_session, name='Next city')
+    today = date.today()
+
+    current_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops',
+        headers=_auth_headers(owner, etag='"0"'),
+        json=_stop_payload(
+            current_place,
+            title='Current stop',
+            planned_start_date=today.isoformat(),
+            planned_nights=0,
+        ),
+    )
+    next_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/itinerary/stops',
+        headers=_auth_headers(owner, etag='"1"'),
+        json=_stop_payload(
+            next_place,
+            title='Next stop',
+            planned_start_date=(today + timedelta(days=1)).isoformat(),
+        ),
+    )
+
+    assert current_response.status_code == 201
+    assert next_response.status_code == 201
+    assert [
+        (stop['title'], stop['visited'])
+        for stop in next_response.json()['stops']
+    ] == [
+        ('Current stop', True),
+        ('Next stop', False),
+    ]
 
 
 @pytest.mark.integration

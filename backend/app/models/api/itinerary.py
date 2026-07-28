@@ -1,7 +1,7 @@
 import enum
 import uuid
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Literal, Self, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -33,6 +33,16 @@ class ItineraryTravelRouteResponse(BaseModel):
 
 
 RouteResolver: TypeAlias = Callable[[ItineraryTravelLeg], ItineraryTravelRouteResponse]
+
+
+def is_itinerary_stop_visited(
+    *,
+    planned_start_date: date,
+    planned_nights: int,
+    today: date,
+) -> bool:
+    leave_date = planned_start_date + timedelta(days=planned_nights)
+    return today >= leave_date
 
 
 class ItineraryPlacement(BaseModel):
@@ -135,12 +145,13 @@ class ItineraryStopResponse(BaseModel):
     notes: str
     planned_start_date: date
     planned_nights: int
+    visited: bool
     created_by: UserSummaryResponse
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_model(cls, stop: ItineraryStop) -> Self:
+    def from_model(cls, stop: ItineraryStop, *, today: date) -> Self:
         return cls(
             id=stop.id,
             trip_id=stop.trip_id,
@@ -150,6 +161,11 @@ class ItineraryStopResponse(BaseModel):
             notes=stop.notes,
             planned_start_date=stop.planned_start_date,
             planned_nights=stop.planned_nights,
+            visited=is_itinerary_stop_visited(
+                planned_start_date=stop.planned_start_date,
+                planned_nights=stop.planned_nights,
+                today=today,
+            ),
             created_by=UserSummaryResponse.from_model(stop.creator),
             created_at=stop.created_at,
             updated_at=stop.updated_at,
@@ -171,11 +187,16 @@ class ItineraryResponse(BaseModel):
         stops: list[ItineraryStop],
         legs: list[ItineraryTravelLeg],
         route_resolver: RouteResolver,
+        today: date | None = None,
     ) -> Self:
+        response_date = today or date.today()
         return cls(
             trip_id=trip_id,
             itinerary_revision=itinerary_revision,
-            stops=[ItineraryStopResponse.from_model(stop) for stop in stops],
+            stops=[
+                ItineraryStopResponse.from_model(stop, today=response_date)
+                for stop in stops
+            ],
             legs=[
                 ItineraryTravelLegResponse.from_model(
                     leg,
@@ -199,9 +220,11 @@ class ItineraryStopDetailResponse(BaseModel):
         incoming_leg: ItineraryTravelLeg | None,
         outgoing_leg: ItineraryTravelLeg | None,
         route_resolver: RouteResolver,
+        today: date | None = None,
     ) -> Self:
+        response_date = today or date.today()
         return cls(
-            stop=ItineraryStopResponse.from_model(stop),
+            stop=ItineraryStopResponse.from_model(stop, today=response_date),
             incoming_leg=(
                 ItineraryTravelLegResponse.from_model(
                     incoming_leg,

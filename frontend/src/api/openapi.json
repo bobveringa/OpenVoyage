@@ -444,6 +444,10 @@
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
+          },
+          "visited": {
+            "title": "Visited",
+            "type": "boolean"
           }
         },
         "required": [
@@ -455,6 +459,7 @@
           "notes",
           "planned_start_date",
           "planned_nights",
+          "visited",
           "created_by",
           "created_at",
           "updated_at"
