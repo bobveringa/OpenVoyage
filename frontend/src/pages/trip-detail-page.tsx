@@ -5354,6 +5354,17 @@ function TravelLegCard({
 }) {
   const ModeIcon = getTravelModeIcon(leg.travel_mode)
   const legDetail = [leg.operator, leg.reference].filter(Boolean).join(' · ')
+  const routeDistanceLabel =
+    leg.route.type === 'PROVIDER_BACKED' &&
+    typeof leg.route.distance_meters === 'number'
+      ? formatDistance(leg.route.distance_meters)
+      : null
+  const routeDurationLabel =
+    leg.route.type === 'PROVIDER_BACKED' &&
+    typeof leg.route.duration_seconds === 'number'
+      ? formatDuration(leg.route.duration_seconds)
+      : null
+  const hasRouteMetrics = Boolean(routeDistanceLabel || routeDurationLabel)
 
   return (
     <div className="grid grid-cols-[3.25rem_1fr] gap-3 px-1 py-0.5">
@@ -5377,16 +5388,37 @@ function TravelLegCard({
           <span className="shrink-0 font-semibold text-primary">
             {getTravelModeLabel(leg.travel_mode)}
           </span>
-          <span className="min-w-0 flex-1 truncate text-foreground">
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate text-foreground',
+              hasRouteMetrics && 'hidden sm:block',
+            )}
+          >
             {fromStop.title} to {toStop.title}
           </span>
+          {hasRouteMetrics ? (
+            <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-foreground">
+              {routeDurationLabel ? (
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-emerald-50 px-1.5 py-0.5">
+                  <Clock className="size-3" aria-hidden="true" />
+                  {routeDurationLabel}
+                </span>
+              ) : null}
+              {routeDistanceLabel ? (
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-emerald-50 px-1.5 py-0.5">
+                  <Navigation className="size-3" aria-hidden="true" />
+                  {routeDistanceLabel}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
           {legDetail ? (
-            <span className="hidden max-w-36 shrink-0 truncate text-xs text-muted-foreground sm:block">
+            <span className="hidden max-w-36 shrink-0 truncate text-xs text-muted-foreground md:block">
               {legDetail}
             </span>
           ) : null}
           <Badge
-            className="hidden shrink-0 sm:inline-flex"
+            className="hidden shrink-0 lg:inline-flex"
             variant={leg.route.type === 'PROVIDER_BACKED' ? 'default' : 'outline'}
           >
             {leg.route.type === 'PROVIDER_BACKED' ? 'Provider route' : 'Simple route'}
@@ -7411,16 +7443,17 @@ function formatDistance(distanceMeters: number) {
 }
 
 function formatDuration(durationSeconds: number) {
-  const totalMinutes = Math.round(durationSeconds / 60)
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
+  const totalMinutes = Math.max(0, Math.floor(durationSeconds / 60))
+  const roundedMinutes = Math.floor(totalMinutes / 5) * 5
+  const hours = Math.floor(roundedMinutes / 60)
+  const minutes = roundedMinutes % 60
   if (hours === 0) {
-    return `${minutes} min`
+    return `${minutes} min +`
   }
   if (minutes === 0) {
-    return `${hours} hr`
+    return `${hours} hr +`
   }
-  return `${hours} hr ${minutes} min`
+  return `${hours} hr ${minutes} min +`
 }
 
 function canUseProviderRoute(travelMode: TravelMode) {
