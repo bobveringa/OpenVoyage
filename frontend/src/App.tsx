@@ -128,6 +128,7 @@ function renderRoute(route: Route, context: RouteRenderContext) {
           accessToken={context.accessToken}
           authStatus={context.status}
           currentUser={context.currentUser}
+          onNavigate={context.onNavigate}
           username={route.username}
         />
       )

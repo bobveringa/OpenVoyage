@@ -21,6 +21,7 @@ type UserTripOverviewPageProps = {
   accessToken?: string | null
   authStatus: AuthStatus
   currentUser: CurrentUser | null
+  onNavigate: (to: string) => void
   username: string
 }
 
@@ -100,6 +101,7 @@ export function UserTripOverviewPage({
   accessToken,
   authStatus,
   currentUser,
+  onNavigate,
   username,
 }: UserTripOverviewPageProps) {
   const [state, setState] = useState<OverviewState>(initialState)
@@ -214,11 +216,7 @@ export function UserTripOverviewPage({
   const canCreateTrips = isOwner && Boolean(accessToken)
 
   function handleTripCreated(trip: Trip) {
-    void trip
-
-    void loadOverview({
-      isCurrent: () => true,
-    })
+    onNavigate(`/trips/${encodeURIComponent(trip.id)}`)
   }
 
   async function handleLoadMore(sectionStatus: TripSectionStatus) {
