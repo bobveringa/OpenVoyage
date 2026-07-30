@@ -278,6 +278,11 @@ type CreateStopDraft = {
   title: string
 }
 
+type StopInsertionPoint = {
+  afterStopId: string | null
+  plannedStartDate: string
+}
+
 type StopEditDraft = {
   notes: string
   plannedNights: number
@@ -2912,11 +2917,29 @@ function TripSidebar({
 }) {
   const isMobileTravelPosts = mode === 'traveling' && travelingView === 'posts'
   const sidebarScrollRef = useRef<HTMLDivElement | null>(null)
+  const [stopInsertionPoint, setStopInsertionPoint] =
+    useState<StopInsertionPoint | null>(null)
   const editingPost =
     travelPosts.find((post) => post.id === editingPostId) ?? null
   const mobileTravelMapHeight = reserveMobileModeSwitchSpace
     ? 'h-[calc(100dvh-9.75rem)]'
     : 'h-[calc(100dvh-5.5rem)]'
+  const fallbackStopInsertionPoint = useMemo(
+    () => createFirstStopInsertionPoint(trip.startDate),
+    [trip.startDate],
+  )
+
+  useEffect(() => {
+    if (planningView !== 'create-stop') {
+      setStopInsertionPoint(null)
+    }
+  }, [planningView])
+
+  function openCreateStop(insertionPoint: StopInsertionPoint) {
+    setStopInsertionPoint(insertionPoint)
+    onMapPointTargetChange(null)
+    onPlanningViewChange('create-stop')
+  }
 
   function closePostForm() {
     onMapPointTargetChange(null)
@@ -2964,6 +2987,7 @@ function TripSidebar({
           <CreateStopPanel
             draftLocation={draftStopLocation}
             isSubmitting={isMutating}
+            insertionPoint={stopInsertionPoint ?? fallbackStopInsertionPoint}
             mapPointActive={mapPointTarget === 'stop'}
             onCancel={() => {
               onMapPointTargetChange(null)
@@ -2971,14 +2995,10 @@ function TripSidebar({
             }}
             onCreateStop={onCreateStop}
             onMapPointTargetChange={onMapPointTargetChange}
-            stops={stops}
           />
         ) : mode === 'planning' ? (
           <PlanningPanel
-            onAddStop={() => {
-              onMapPointTargetChange(null)
-              onPlanningViewChange('create-stop')
-            }}
+            onAddStop={openCreateStop}
             canMutate={canMutate}
             isMutating={isMutating}
             onRefreshTravelLegRoute={onRefreshTravelLegRoute}
@@ -2988,6 +3008,7 @@ function TripSidebar({
             onTravelLegSave={onTravelLegSave}
             pendingAction={pendingAction}
             stops={stops}
+            tripStartDate={trip.startDate}
             travelLegs={travelLegs}
           />
         ) : travelingView === 'create-post' ? (
@@ -3366,11 +3387,12 @@ function PlanningPanel({
   onTravelLegSave,
   pendingAction,
   stops,
+  tripStartDate,
   travelLegs,
 }: {
   canMutate: boolean
   isMutating: boolean
-  onAddStop: () => void
+  onAddStop: (insertionPoint: StopInsertionPoint) => void
   onRefreshTravelLegRoute: (legId: string) => void
   onStopChange: (stopId: string, updates: Partial<Stop>) => void
   onStopDelete: (stopId: string) => void
@@ -3378,10 +3400,12 @@ function PlanningPanel({
   onTravelLegSave: (legId: string, draft: TravelLegEditDraft) => void
   pendingAction: string | null
   stops: readonly Stop[]
+  tripStartDate: string
   travelLegs: readonly TravelLeg[]
 }) {
   const [editingStopId, setEditingStopId] = useState<string | null>(null)
   const [editingLegId, setEditingLegId] = useState<string | null>(null)
+  const addStopDisabled = !canMutate || isMutating
   const editingStop = stops.find((stop) => stop.id === editingStopId) ?? null
   const editingLeg = travelLegs.find((leg) => leg.id === editingLegId) ?? null
   const editingLegFromStop =
@@ -3395,22 +3419,22 @@ function PlanningPanel({
 
   return (
     <div className="min-w-0 space-y-5 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">Planning</h2>
-          <p className="text-sm text-muted-foreground">Build the route one stop at a time.</p>
-        </div>
-        <Button disabled={!canMutate || isMutating} onClick={onAddStop} size="sm" type="button">
-          <Plus className="size-4" aria-hidden="true" />
-          Add stop
-        </Button>
+      <div>
+        <h2 className="text-base font-semibold text-foreground">Planning</h2>
+        <p className="text-sm text-muted-foreground">
+          Build the route one stop at a time.
+        </p>
       </div>
 
       <div className="space-y-3">
         {stops.length === 0 ? (
-          <div className="rounded-[1.5rem] border border-dashed border-emerald-200 bg-emerald-50/45 p-4 text-sm text-muted-foreground">
-            No planned stops yet.
-          </div>
+          <StopInsertButton
+            disabled={addStopDisabled}
+            label="Create your first stop"
+            onClick={() =>
+              onAddStop(createFirstStopInsertionPoint(tripStartDate))
+            }
+          />
         ) : null}
 
         {stops.map((stop, index) => {
@@ -3442,6 +3466,11 @@ function PlanningPanel({
                   toStop={nextStop}
                 />
               ) : null}
+              <StopInsertButton
+                disabled={addStopDisabled}
+                label={nextStop ? 'Add stop here' : 'Add stop after this stop'}
+                onClick={() => onAddStop(createStopInsertionPointAfterStop(stop))}
+              />
             </Fragment>
           )
         })}
@@ -3469,27 +3498,63 @@ function PlanningPanel({
   )
 }
 
+function StopInsertButton({
+  disabled,
+  label,
+  onClick,
+}: {
+  disabled: boolean
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <div className="grid grid-cols-[3.25rem_1fr] gap-3 px-1 py-0.5">
+      <div className="flex justify-center">
+        <div className="flex w-0 flex-col items-center">
+          <span className="h-2 w-px bg-emerald-100" />
+          <span className="grid size-8 shrink-0 place-items-center rounded-2xl border border-dashed border-emerald-200 bg-emerald-50 text-primary">
+            <Plus className="size-4" aria-hidden="true" />
+          </span>
+          <span className="h-2 w-px bg-emerald-100" />
+        </div>
+      </div>
+
+      <button
+        className="flex min-h-10 w-full items-center justify-center gap-2 rounded-[1.1rem] border border-dashed border-emerald-200 bg-emerald-50/55 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:border-primary/50 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={disabled}
+        onClick={onClick}
+        type="button"
+      >
+        <Plus className="size-4" aria-hidden="true" />
+        {label}
+      </button>
+    </div>
+  )
+}
+
 function CreateStopPanel({
   draftLocation,
+  insertionPoint,
   isSubmitting,
   mapPointActive,
   onCancel,
   onCreateStop,
   onMapPointTargetChange,
-  stops,
 }: {
   draftLocation: DraftPostLocation | null
+  insertionPoint: StopInsertionPoint
   isSubmitting: boolean
   mapPointActive: boolean
   onCancel: () => void
   onCreateStop: (draft: CreateStopDraft) => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
-  stops: readonly Stop[]
 }) {
   const [locationSource, setLocationSource] = useState<'map' | 'search'>(
     mapPointActive ? 'map' : 'search',
   )
-  const [newStopDate, setNewStopDate] = useState('2027-05-12')
+  const [newStopDate, setNewStopDate] = useState(
+    insertionPoint.plannedStartDate,
+  )
   const [newStopNights, setNewStopNights] = useState(2)
   const [searchValue, setSearchValue] = useState('')
   const [selectedSearchPlace, setSelectedSearchPlace] = useState<Place | null>(
@@ -3498,18 +3563,10 @@ function CreateStopPanel({
   const [placeResultsOpen, setPlaceResultsOpen] = useState(false)
   const [stopTitle, setStopTitle] = useState('')
   const [stopTitleEdited, setStopTitleEdited] = useState(false)
-  const [selectedAfterStopId, setSelectedAfterStopId] = useState(
-    stops[1]?.id ?? stops[0]?.id ?? '',
-  )
   const placeSearch = usePlaceSearch(
     searchValue,
     locationSource === 'search' && !isSubmitting,
   )
-  const sameDateStops = stops.filter(
-    (stop) => stop.planned_start_date === newStopDate,
-  )
-  const selectedAfterStop =
-    sameDateStops.find((stop) => stop.id === selectedAfterStopId) ?? null
   const selectedSearchCoordinates = selectedSearchPlace
     ? getPlaceCoordinates(selectedSearchPlace)
     : getSearchLocationCoordinates(searchValue, 'stop')
@@ -3540,16 +3597,14 @@ function CreateStopPanel({
   }, [draftLocation, mapPointActive])
 
   useEffect(() => {
+    setNewStopDate(insertionPoint.plannedStartDate)
+  }, [insertionPoint.plannedStartDate])
+
+  useEffect(() => {
     if (!stopTitleEdited) {
       setStopTitle(suggestedStopTitle)
     }
   }, [stopTitleEdited, suggestedStopTitle])
-
-  useEffect(() => {
-    if (selectedAfterStopId && !selectedAfterStop) {
-      setSelectedAfterStopId('')
-    }
-  }, [selectedAfterStop, selectedAfterStopId])
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -3558,7 +3613,7 @@ function CreateStopPanel({
     }
 
     onCreateStop({
-      afterStopId: selectedAfterStop?.id ?? null,
+      afterStopId: insertionPoint.afterStopId,
       coordinates: selectedCoordinates,
       notes: '',
       placeId:
@@ -3755,65 +3810,6 @@ function CreateStopPanel({
               value={newStopNights}
             />
           </label>
-        </div>
-      </section>
-
-      <section className="space-y-3 rounded-[1.5rem] border border-emerald-100 bg-white p-4">
-        <div>
-          <h3 className="font-semibold text-foreground">Placement</h3>
-          <p className="text-sm text-muted-foreground">
-            After {selectedAfterStop?.title ?? 'selected stop'}.
-          </p>
-        </div>
-
-        <div className="grid gap-2">
-          {sameDateStops.length === 0 ? (
-            <button
-              className={cn(
-                'flex items-center justify-between gap-3 rounded-[1.1rem] border px-3 py-2 text-left transition-colors hover:bg-emerald-50',
-                selectedAfterStopId === ''
-                  ? 'border-primary bg-emerald-50'
-                  : 'border-emerald-100 bg-white',
-              )}
-              disabled={isSubmitting}
-              onClick={() => setSelectedAfterStopId('')}
-              type="button"
-            >
-              <span>
-                <span className="block text-sm font-semibold text-foreground">
-                  First stop on {newStopDate}
-                </span>
-                <span className="block text-xs text-muted-foreground">
-                  No same-day anchor
-                </span>
-              </span>
-              {selectedAfterStopId === '' ? <Badge>First</Badge> : null}
-            </button>
-          ) : null}
-          {sameDateStops.slice(0, 3).map((stop) => (
-            <button
-              className={cn(
-                'flex items-center justify-between gap-3 rounded-[1.1rem] border px-3 py-2 text-left transition-colors hover:bg-emerald-50',
-                stop.id === selectedAfterStopId
-                  ? 'border-primary bg-emerald-50'
-                  : 'border-emerald-100 bg-white',
-              )}
-              disabled={isSubmitting}
-              key={stop.id}
-              onClick={() => setSelectedAfterStopId(stop.id)}
-              type="button"
-            >
-              <span>
-                <span className="block text-sm font-semibold text-foreground">
-                  {stop.title}
-                </span>
-                <span className="block text-xs text-muted-foreground">
-                  {stop.planned_start_date}
-                </span>
-              </span>
-              {stop.id === selectedAfterStopId ? <Badge>After</Badge> : null}
-            </button>
-          ))}
         </div>
       </section>
 
@@ -6802,6 +6798,23 @@ function formatNights(nights: number) {
 function formatStopDateLabel(value: string) {
   const date = parseDateOnly(value)
   return date ? formatMonthDayLabel(date) : value
+}
+
+function createFirstStopInsertionPoint(tripStartDate: string): StopInsertionPoint {
+  return {
+    afterStopId: null,
+    plannedStartDate: tripStartDate || formatDateInputValue(new Date()),
+  }
+}
+
+function createStopInsertionPointAfterStop(stop: Stop): StopInsertionPoint {
+  return {
+    afterStopId: stop.id,
+    plannedStartDate: getStayLeaveDateValue(
+      stop.planned_start_date,
+      stop.planned_nights,
+    ),
+  }
 }
 
 function getStayLeaveDateValue(startDateValue: string, nights: number) {

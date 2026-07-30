@@ -127,12 +127,25 @@ async function createStop(
     title: string
   },
 ) {
-  await page.getByRole('button', { name: 'Add stop' }).click()
+  await openCreateStopPanel(page)
   const place = await selectPlaceSearchResult(page, search)
   await expect(page.getByLabel('Title')).toHaveValue(place.name)
   await page.getByLabel('Title').fill(title)
   await page.getByRole('button', { name: 'Create stop' }).click()
   await expect(page.getByRole('heading', { name: 'Planning' })).toBeVisible()
+}
+
+async function openCreateStopPanel(page: Page) {
+  const firstStopButton = page.getByRole('button', {
+    name: 'Create your first stop',
+  })
+
+  if ((await firstStopButton.count()) > 0) {
+    await firstStopButton.click()
+    return
+  }
+
+  await page.getByRole('button', { name: /Add stop/ }).last().click()
 }
 
 type GeocodedPlace = {
