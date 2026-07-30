@@ -29,23 +29,56 @@ export type ItineraryTravelLeg =
 export type ItineraryTravelRoute =
   components['schemas']['ItineraryTravelRouteResponse']
 export type ItineraryRouteType = components['schemas']['ItineraryRouteType']
+export type ItineraryStopCreatePayload =
+  components['schemas']['ItineraryStopCreateRequest']
+export type ItineraryStopUpdatePayload =
+  components['schemas']['ItineraryStopUpdateRequest']
+export type ItineraryTravelReplacePayload =
+  components['schemas']['ItineraryTravelReplaceRequest']
 export type Media = components['schemas']['MediaResponse']
 export type PlaceImportDataset =
   components['schemas']['PlaceImportRequest']['dataset']
 export type PlaceImportPayload = components['schemas']['PlaceImportRequest']
 export type PlaceImportResult = components['schemas']['PlaceImportResponse']
+export type Place = components['schemas']['PlaceResponse']
+export type ReverseGeocodeResult =
+  components['schemas']['ReverseGeocodeResponse']
+export type Post = components['schemas']['PostResponse']
+export type PostCreatePayload = components['schemas']['PostCreateRequest']
+export type PostUpdatePayload = components['schemas']['PostUpdateRequest']
 export type UserProfileUpdatePayload =
   components['schemas']['UserProfileUpdateRequest']
+export type UserSummary = components['schemas']['UserSummaryResponse']
 export type UsernameAvailability =
   components['schemas']['UsernameAvailabilityResponse']
+export type PaginatedPosts =
+  components['schemas']['PaginatedResponse_PostResponse_']
 export type PaginatedTrips =
   components['schemas']['PaginatedResponse_TripResponse_']
+export type PaginatedUsers =
+  components['schemas']['PaginatedResponse_UserSummaryResponse_']
+export type TripMember = components['schemas']['TripMemberResponse']
+export type TripMemberCreatePayload =
+  components['schemas']['TripMemberCreateRequest']
+export type TripMemberUpdatePayload =
+  components['schemas']['TripMemberUpdateRequest']
+export type TripShareLink = components['schemas']['TripShareLinkResponse']
+export type TripShareLinkCreatePayload =
+  components['schemas']['TripShareLinkCreateRequest']
+export type TripShareLinkCreateResponse =
+  components['schemas']['TripShareLinkCreateResponse']
+export type TripUpdatePayload = components['schemas']['TripUpdateRequest']
+export type TripViewer = components['schemas']['TripViewerResponse']
+export type TripViewerCreatePayload =
+  components['schemas']['TripViewerCreateRequest']
 
 type QueryValue = string | number | boolean | null | undefined
 
 type ApiRequestOptions = {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   accessToken?: string | null
+  headers?: Record<string, string>
+  ifMatchRevision?: number
   shareToken?: string | null
   query?: Record<string, QueryValue>
   json?: unknown
@@ -114,6 +147,39 @@ export async function importPlaces(
   })
 }
 
+export async function geocodePlaces(options: {
+  countryCode?: string | null
+  limit?: number
+  query: string
+}): Promise<Place[]> {
+  return requestJson<Place[]>(`${API_V1_PREFIX}/places/geocode`, {
+    query: {
+      country_code: options.countryCode,
+      limit: options.limit ?? 10,
+      query: options.query,
+    },
+  })
+}
+
+export async function reverseGeocodePlaces(options: {
+  latitude: number
+  limit?: number
+  longitude: number
+  maxDistanceKm?: number | null
+}): Promise<ReverseGeocodeResult[]> {
+  return requestJson<ReverseGeocodeResult[]>(
+    `${API_V1_PREFIX}/places/reverse-geocode`,
+    {
+      query: {
+        latitude: options.latitude,
+        limit: options.limit ?? 1,
+        longitude: options.longitude,
+        max_distance_km: options.maxDistanceKm,
+      },
+    },
+  )
+}
+
 export async function updateUserProfile(
   payload: UserProfileUpdatePayload,
   accessToken: string,
@@ -138,6 +204,24 @@ export async function checkUsernameAvailability(options: {
       },
     },
   )
+}
+
+export async function searchUsers(options: {
+  accessToken: string
+  excludeCurrentUser?: boolean
+  page?: number
+  pageSize?: number
+  query: string
+}): Promise<PaginatedUsers> {
+  return requestJson<PaginatedUsers>(`${API_V1_PREFIX}/users`, {
+    accessToken: options.accessToken,
+    query: {
+      exclude_current_user: options.excludeCurrentUser,
+      page: options.page ?? 1,
+      page_size: options.pageSize ?? 10,
+      query: options.query,
+    },
+  })
 }
 
 export async function getUserByUsername(username: string): Promise<User> {
@@ -198,6 +282,21 @@ export async function createTrip(
   })
 }
 
+export async function updateTrip(options: {
+  tripId: string
+  payload: TripUpdatePayload
+  accessToken: string
+}): Promise<Trip> {
+  return requestJson<Trip>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}`,
+    {
+      method: 'PATCH',
+      accessToken: options.accessToken,
+      json: options.payload,
+    },
+  )
+}
+
 export async function getTrip(options: {
   tripId: string
   accessToken?: string | null
@@ -208,6 +307,150 @@ export async function getTrip(options: {
     {
       accessToken: options.accessToken,
       shareToken: options.shareToken,
+    },
+  )
+}
+
+export async function listTripMembers(options: {
+  tripId: string
+  accessToken?: string | null
+  shareToken?: string | null
+}): Promise<TripMember[]> {
+  return requestJson<TripMember[]>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/members`,
+    {
+      accessToken: options.accessToken,
+      shareToken: options.shareToken,
+    },
+  )
+}
+
+export async function addTripMember(options: {
+  tripId: string
+  payload: TripMemberCreatePayload
+  accessToken: string
+}): Promise<TripMember> {
+  return requestJson<TripMember>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/members`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      json: options.payload,
+    },
+  )
+}
+
+export async function updateTripMember(options: {
+  tripId: string
+  userId: string
+  payload: TripMemberUpdatePayload
+  accessToken: string
+}): Promise<TripMember> {
+  const tripId = encodeURIComponent(options.tripId)
+  const userId = encodeURIComponent(options.userId)
+
+  return requestJson<TripMember>(`${API_V1_PREFIX}/trips/${tripId}/members/${userId}`, {
+    method: 'PATCH',
+    accessToken: options.accessToken,
+    json: options.payload,
+  })
+}
+
+export async function removeTripMember(options: {
+  tripId: string
+  userId: string
+  accessToken: string
+}): Promise<void> {
+  const tripId = encodeURIComponent(options.tripId)
+  const userId = encodeURIComponent(options.userId)
+
+  return requestJson<void>(`${API_V1_PREFIX}/trips/${tripId}/members/${userId}`, {
+    method: 'DELETE',
+    accessToken: options.accessToken,
+  })
+}
+
+export async function listTripViewers(options: {
+  tripId: string
+  accessToken: string
+}): Promise<TripViewer[]> {
+  return requestJson<TripViewer[]>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/viewers`,
+    {
+      accessToken: options.accessToken,
+    },
+  )
+}
+
+export async function addTripViewer(options: {
+  tripId: string
+  payload: TripViewerCreatePayload
+  accessToken: string
+}): Promise<TripViewer> {
+  return requestJson<TripViewer>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/viewers`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      json: options.payload,
+    },
+  )
+}
+
+export async function removeTripViewer(options: {
+  tripId: string
+  userId: string
+  accessToken: string
+}): Promise<void> {
+  const tripId = encodeURIComponent(options.tripId)
+  const userId = encodeURIComponent(options.userId)
+
+  return requestJson<void>(`${API_V1_PREFIX}/trips/${tripId}/viewers/${userId}`, {
+    method: 'DELETE',
+    accessToken: options.accessToken,
+  })
+}
+
+export async function listTripShareLinks(options: {
+  tripId: string
+  accessToken: string
+}): Promise<TripShareLink[]> {
+  return requestJson<TripShareLink[]>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/share-links`,
+    {
+      accessToken: options.accessToken,
+    },
+  )
+}
+
+export async function createTripShareLink(options: {
+  tripId: string
+  payload: TripShareLinkCreatePayload
+  accessToken: string
+}): Promise<TripShareLinkCreateResponse> {
+  return requestJson<TripShareLinkCreateResponse>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/share-links`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      json: options.payload,
+    },
+  )
+}
+
+export async function revokeTripShareLink(options: {
+  tripId: string
+  shareLinkId: string
+  accessToken: string
+}): Promise<void> {
+  const tripId = encodeURIComponent(options.tripId)
+  const shareLinkId = encodeURIComponent(options.shareLinkId)
+
+  return requestJson<void>(
+    `${API_V1_PREFIX}/trips/${tripId}/share-links/${shareLinkId}`,
+    {
+      method: 'DELETE',
+      accessToken: options.accessToken,
     },
   )
 }
@@ -226,16 +469,192 @@ export async function getItinerary(options: {
   )
 }
 
+export async function createItineraryStop(options: {
+  tripId: string
+  payload: ItineraryStopCreatePayload
+  accessToken: string
+  itineraryRevision: number
+}): Promise<Itinerary> {
+  return requestJson<Itinerary>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/stops`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      ifMatchRevision: options.itineraryRevision,
+      json: options.payload,
+    },
+  )
+}
+
+export async function updateItineraryStop(options: {
+  tripId: string
+  stopId: string
+  payload: ItineraryStopUpdatePayload
+  accessToken: string
+  itineraryRevision: number
+}): Promise<Itinerary> {
+  const tripId = encodeURIComponent(options.tripId)
+  const stopId = encodeURIComponent(options.stopId)
+
+  return requestJson<Itinerary>(
+    `${API_V1_PREFIX}/trips/${tripId}/itinerary/stops/${stopId}`,
+    {
+      method: 'PATCH',
+      accessToken: options.accessToken,
+      ifMatchRevision: options.itineraryRevision,
+      json: options.payload,
+    },
+  )
+}
+
+export async function deleteItineraryStop(options: {
+  tripId: string
+  stopId: string
+  accessToken: string
+  itineraryRevision: number
+}): Promise<Itinerary> {
+  const tripId = encodeURIComponent(options.tripId)
+  const stopId = encodeURIComponent(options.stopId)
+
+  return requestJson<Itinerary>(
+    `${API_V1_PREFIX}/trips/${tripId}/itinerary/stops/${stopId}`,
+    {
+      method: 'DELETE',
+      accessToken: options.accessToken,
+      ifMatchRevision: options.itineraryRevision,
+    },
+  )
+}
+
+export async function replaceItineraryTravelLeg(options: {
+  tripId: string
+  legId: string
+  payload: ItineraryTravelReplacePayload
+  accessToken: string
+  itineraryRevision: number
+}): Promise<{ itineraryRevision: number | null; leg: ItineraryTravelLeg }> {
+  const tripId = encodeURIComponent(options.tripId)
+  const legId = encodeURIComponent(options.legId)
+
+  const result = await requestJsonResponse<ItineraryTravelLeg>(
+    `${API_V1_PREFIX}/trips/${tripId}/itinerary/legs/${legId}`,
+    {
+      method: 'PUT',
+      accessToken: options.accessToken,
+      ifMatchRevision: options.itineraryRevision,
+      json: options.payload,
+    },
+  )
+
+  return {
+    itineraryRevision: readEtagRevision(result.response),
+    leg: result.data,
+  }
+}
+
 export async function refreshItineraryTravelLegRoute(options: {
   tripId: string
   legId: string
   accessToken: string
-}): Promise<ItineraryTravelLeg> {
+}): Promise<{ itineraryRevision: number | null; leg: ItineraryTravelLeg }> {
   const tripId = encodeURIComponent(options.tripId)
   const legId = encodeURIComponent(options.legId)
 
-  return requestJson<ItineraryTravelLeg>(
+  const result = await requestJsonResponse<ItineraryTravelLeg>(
     `${API_V1_PREFIX}/trips/${tripId}/itinerary/legs/${legId}/route-refresh`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+    },
+  )
+
+  return {
+    itineraryRevision: readEtagRevision(result.response),
+    leg: result.data,
+  }
+}
+
+export async function listPosts(options: {
+  tripId: string
+  accessToken?: string | null
+  page?: number
+  pageSize?: number
+  shareToken?: string | null
+  sortBy?: components['schemas']['PostSortField']
+  sortOrder?: 'asc' | 'desc'
+  status?: components['schemas']['PostStatusFilter']
+}): Promise<PaginatedPosts> {
+  return requestJson<PaginatedPosts>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts`,
+    {
+      accessToken: options.accessToken,
+      shareToken: options.shareToken,
+      query: {
+        page: options.page ?? 1,
+        page_size: options.pageSize ?? 50,
+        sort_by: options.sortBy,
+        sort_order: options.sortOrder,
+        status: options.status,
+      },
+    },
+  )
+}
+
+export async function createPost(options: {
+  tripId: string
+  payload: PostCreatePayload
+  accessToken: string
+}): Promise<Post> {
+  return requestJson<Post>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      json: options.payload,
+    },
+  )
+}
+
+export async function updatePost(options: {
+  tripId: string
+  postId: string
+  payload: PostUpdatePayload
+  accessToken: string
+}): Promise<Post> {
+  const tripId = encodeURIComponent(options.tripId)
+  const postId = encodeURIComponent(options.postId)
+
+  return requestJson<Post>(`${API_V1_PREFIX}/trips/${tripId}/posts/${postId}`, {
+    method: 'PATCH',
+    accessToken: options.accessToken,
+    json: options.payload,
+  })
+}
+
+export async function deletePost(options: {
+  tripId: string
+  postId: string
+  accessToken: string
+}): Promise<void> {
+  const tripId = encodeURIComponent(options.tripId)
+  const postId = encodeURIComponent(options.postId)
+
+  return requestJson<void>(`${API_V1_PREFIX}/trips/${tripId}/posts/${postId}`, {
+    method: 'DELETE',
+    accessToken: options.accessToken,
+  })
+}
+
+export async function publishPost(options: {
+  tripId: string
+  postId: string
+  accessToken: string
+}): Promise<Post> {
+  const tripId = encodeURIComponent(options.tripId)
+  const postId = encodeURIComponent(options.postId)
+
+  return requestJson<Post>(
+    `${API_V1_PREFIX}/trips/${tripId}/posts/${postId}/publish`,
     {
       method: 'POST',
       accessToken: options.accessToken,
@@ -247,12 +666,25 @@ async function requestJson<T>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<T> {
+  return (await requestJsonResponse<T>(path, options)).data
+}
+
+async function requestJsonResponse<T>(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<{ data: T; response: Response }> {
   const url = buildApiUrl(path, options.query)
   const headers = new Headers()
   let body: BodyInit | undefined
 
+  for (const [key, value] of Object.entries(options.headers ?? {})) {
+    headers.set(key, value)
+  }
   if (options.accessToken) {
     headers.set('Authorization', `Bearer ${options.accessToken}`)
+  }
+  if (options.ifMatchRevision !== undefined) {
+    headers.set('If-Match', `"${options.ifMatchRevision}"`)
   }
   if (options.shareToken) {
     headers.set(SHARE_TOKEN_HEADER, options.shareToken)
@@ -280,11 +712,14 @@ async function requestJson<T>(
   }
 
   if (response.status === 204) {
-    return undefined as T
+    return { data: undefined as T, response }
   }
 
   const text = await response.text()
-  return (text ? JSON.parse(text) : undefined) as T
+  return {
+    data: (text ? JSON.parse(text) : undefined) as T,
+    response,
+  }
 }
 
 function buildApiUrl(path: string, query?: Record<string, QueryValue>): string {
@@ -332,4 +767,10 @@ function detailToMessage(detail: unknown): string {
     }
   }
   return 'Request failed'
+}
+
+function readEtagRevision(response: Response) {
+  const etag = response.headers.get('ETag')
+  const match = /^"([0-9]+)"$/.exec(etag ?? '')
+  return match ? Number(match[1]) : null
 }

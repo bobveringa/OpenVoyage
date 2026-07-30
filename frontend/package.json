@@ -10,7 +10,8 @@
     "check": "npm run lint && npm run build",
     "start": "npm run dev",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@tailwindcss/vite": "4.1.17",

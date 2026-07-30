@@ -10,7 +10,6 @@ import { PlaceholderPage } from '@/pages/placeholder-page'
 import { ProfileSettingsPage } from '@/pages/profile-settings-page'
 import { SetupPage } from '@/pages/setup-page'
 import { TripDetailPage } from '@/pages/trip-detail-page'
-import { TripDetailMockupPage } from '@/pages/trip-detail-mockup-page'
 import { UserTripOverviewPage } from '@/pages/user-trip-overview-page'
 
 type Route =
@@ -20,7 +19,6 @@ type Route =
   | { name: 'profile-settings' }
   | { name: 'setup' }
   | { name: 'trip-detail'; tripId: string }
-  | { name: 'trip-detail-mockup' }
   | { name: 'user-overview'; username: string }
 
 type NavigateOptions = {
@@ -117,9 +115,13 @@ function renderRoute(route: Route, context: RouteRenderContext) {
         />
       )
     case 'trip-detail':
-      return <TripDetailPage tripId={route.tripId} />
-    case 'trip-detail-mockup':
-      return <TripDetailMockupPage />
+      return (
+        <TripDetailPage
+          accessToken={context.accessToken}
+          authStatus={context.status}
+          tripId={route.tripId}
+        />
+      )
     case 'user-overview':
       return (
         <UserTripOverviewPage
@@ -186,10 +188,6 @@ function parseRoute(location: string): Route {
       name: 'user-overview',
       username: segments[1],
     }
-  }
-
-  if (pathname === '/trips/mockup') {
-    return { name: 'trip-detail-mockup' }
   }
 
   if (segments[0] === 'trips' && segments[1] && segments.length === 2) {
