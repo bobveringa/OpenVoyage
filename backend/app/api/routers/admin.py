@@ -65,9 +65,11 @@ def import_places(
     _admin: CurrentAdmin,
 ) -> PlaceImportResponse:
     result = place_service.import_geonames_dataset(
-        dataset=GeoNamesDataset(payload.dataset)
+        dataset=GeoNamesDataset(payload.dataset),
+        replace_existing=payload.replace_existing,
     )
     return PlaceImportResponse(
+        deleted=result.deleted,
         dataset=result.dataset.value,
         processed=result.processed,
     )

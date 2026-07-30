@@ -92,6 +92,7 @@ def test_import_geonames_zip_processes_valid_rows(tmp_path) -> None:
     assert values[0]['full_name'] == 'Amsterdam, 07, NL'
     assert values[0]['feature_class'] == PlaceFeatureClass.POPULATED_PLACE
     assert values[0]['feature_class'].value == 'P'
+    assert values[0]['population'] == 741636
 
 
 @pytest.mark.unit
@@ -143,6 +144,54 @@ def test_import_geonames_zip_uses_name_metadata_for_full_name(tmp_path) -> None:
     assert values[0]['region'] == 'North Brabant'
     assert values[0]['full_name'] == 'Eindhoven, North Brabant, The Netherlands'
     assert values[0]['feature_class'] == PlaceFeatureClass.POPULATED_PLACE
+    assert values[0]['population'] == 209620
+
+
+@pytest.mark.unit
+def test_import_geonames_zip_can_replace_existing_places(tmp_path) -> None:
+    zip_path = tmp_path / 'cities500.zip'
+    _write_geonames_zip(
+        zip_path,
+        [
+            [
+                '2756253',
+                'Eindhoven',
+                'Eindhoven',
+                '',
+                '51.44083',
+                '5.47778',
+                'P',
+                'PPL',
+                'NL',
+                '',
+                '06',
+                '',
+                '',
+                '',
+                'not-a-number',
+                '',
+                '',
+                'Europe/Amsterdam',
+                '2024-01-01',
+            ],
+        ],
+    )
+    db = Mock()
+    db.execute.return_value.rowcount = 12
+    service = PlaceService(db=db)
+    upsert = Mock()
+    service._upsert_places = upsert
+
+    result = service.import_geonames_zip(
+        path=zip_path,
+        dataset=GeoNamesDataset.CITIES_500,
+        replace_existing=True,
+    )
+
+    assert result.deleted == 12
+    assert result.processed == 1
+    values = upsert.call_args.args[0]
+    assert values[0]['population'] == 0
 
 
 @pytest.mark.unit

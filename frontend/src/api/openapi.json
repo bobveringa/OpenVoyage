@@ -1030,6 +1030,11 @@
             ],
             "title": "Dataset",
             "type": "string"
+          },
+          "replace_existing": {
+            "default": false,
+            "title": "Replace Existing",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1048,6 +1053,10 @@
             "title": "Dataset",
             "type": "string"
           },
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          },
           "processed": {
             "title": "Processed",
             "type": "integer"
@@ -1055,7 +1064,8 @@
         },
         "required": [
           "dataset",
-          "processed"
+          "processed",
+          "deleted"
         ],
         "title": "PlaceImportResponse",
         "type": "object"
@@ -1091,6 +1101,10 @@
             "title": "Name",
             "type": "string"
           },
+          "population": {
+            "title": "Population",
+            "type": "integer"
+          },
           "region": {
             "title": "Region",
             "type": "string"
@@ -1104,7 +1118,8 @@
           "longitude",
           "country_code",
           "region",
-          "feature_class"
+          "feature_class",
+          "population"
         ],
         "title": "PlaceResponse",
         "type": "object"

@@ -8,7 +8,7 @@ from pathlib import Path
 from shutil import copyfileobj
 from urllib.request import urlopen
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -51,6 +51,7 @@ class PlaceImportResult:
 
     dataset: GeoNamesDataset
     processed: int
+    deleted: int = 0
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,14 @@ class GeoNamesNameMetadata:
     country_names: dict[str, str]
 
 
+@dataclass(frozen=True)
+class PlaceSearchQuery:
+    """Parsed place search text split into name and location qualifiers."""
+
+    primary: str
+    qualifiers: tuple[str, ...]
+
+
 def _distance_km_expression(latitude: float, longitude: float):
     """Build a PostgreSQL haversine distance expression in kilometers."""
     earth_radius_km = 6371.0088
@@ -83,6 +92,36 @@ def _distance_km_expression(latitude: float, longitude: float):
 def _escape_like(value: str) -> str:
     """Escape user input used in SQL LIKE patterns."""
     return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
+def _normalize_search_text(value: str) -> str:
+    """Normalize user search text for ranking and LIKE comparisons."""
+    return ' '.join(value.strip().lower().split())
+
+
+def _parse_geocode_query(query: str) -> PlaceSearchQuery | None:
+    """Split a query like ``Paris, France`` into name and qualifier terms."""
+    parts: list[str] = []
+    for part in query.split(','):
+        normalized_part = _normalize_search_text(part)
+        if normalized_part:
+            parts.append(normalized_part)
+
+    if not parts:
+        return None
+
+    return PlaceSearchQuery(
+        primary=parts[0],
+        qualifiers=tuple(parts[1:]),
+    )
+
+
+def _parse_geonames_population(value: str) -> int:
+    """Parse GeoNames population, using zero when the dump value is unusable."""
+    try:
+        return max(0, int(value.strip() or '0'))
+    except ValueError:
+        return 0
 
 
 def _download_geonames_url(url: str, suffix: str) -> Path:
@@ -245,24 +284,56 @@ class PlaceService:
         limit: int,
         country_code: str | None = None,
     ) -> list[Place]:
-        """Find places whose name or full name matches a text query."""
-        normalized_query = query.strip()
-        if not normalized_query:
+        """Find places whose name or full name matches a text query.
+
+        Comma-separated trailing query parts are treated as location qualifiers.
+        For example, ``Paris, France`` searches for places named ``Paris`` and
+        requires ``France`` to match the country, region, or full display name.
+        """
+        parsed_query = _parse_geocode_query(query)
+        if parsed_query is None:
             return []
 
-        query_lower = normalized_query.lower()
-        escaped_query = _escape_like(query_lower)
+        query_lower = parsed_query.primary
+        escaped_query = _escape_like(parsed_query.primary)
         contains_query = f'%{escaped_query}%'
         starts_with_query = f'{escaped_query}%'
+        query_terms = tuple(query_lower.split())
         lower_name = func.lower(Place.name)
         lower_full_name = func.lower(Place.full_name)
+        lower_region = func.lower(Place.region)
+        lower_country_code = func.lower(Place.country_code)
 
-        filters = [
-            or_(
-                lower_name.like(contains_query, escape='\\'),
-                lower_full_name.like(contains_query, escape='\\'),
-            )
+        base_match_filters = [
+            lower_name.like(contains_query, escape='\\'),
+            lower_full_name.like(contains_query, escape='\\'),
         ]
+        if len(query_terms) > 1:
+            base_match_filters.append(
+                and_(
+                    *[
+                        lower_full_name.like(
+                            f'%{_escape_like(term)}%',
+                            escape='\\',
+                        )
+                        for term in query_terms
+                    ]
+                )
+            )
+
+        filters = [or_(*base_match_filters)]
+        for qualifier in parsed_query.qualifiers:
+            escaped_qualifier = _escape_like(qualifier)
+            contains_qualifier = f'%{escaped_qualifier}%'
+            qualifier_filters = [
+                lower_full_name.like(contains_qualifier, escape='\\'),
+                lower_region.like(contains_qualifier, escape='\\'),
+            ]
+            if len(qualifier) == 2:
+                qualifier_filters.append(lower_country_code == qualifier)
+
+            filters.append(or_(*qualifier_filters))
+
         if country_code:
             filters.append(Place.country_code == country_code.strip().upper())
 
@@ -273,12 +344,23 @@ class PlaceService:
             (lower_full_name.like(starts_with_query, escape='\\'), 3),
             else_=4,
         )
+        feature_rank = case(
+            (Place.feature_class == PlaceFeatureClass.POPULATED_PLACE.value, 0),
+            (Place.feature_class == PlaceFeatureClass.ADMINISTRATIVE_BOUNDARY.value, 1),
+            (Place.feature_class == PlaceFeatureClass.AREA.value, 2),
+            else_=3,
+        )
 
         statement = (
             select(Place)
             .where(*filters)
             .order_by(
-                rank, Place.name.asc(), Place.region.asc(), Place.country_code.asc()
+                rank,
+                feature_rank,
+                Place.population.desc(),
+                Place.name.asc(),
+                Place.region.asc(),
+                Place.country_code.asc(),
             )
             .limit(limit)
         )
@@ -310,7 +392,11 @@ class PlaceService:
             for place, distance in rows
         ]
 
-    def import_geonames_dataset(self, dataset: GeoNamesDataset) -> PlaceImportResult:
+    def import_geonames_dataset(
+        self,
+        dataset: GeoNamesDataset,
+        replace_existing: bool = False,
+    ) -> PlaceImportResult:
         """Download and import a supported GeoNames zip dataset.
 
         Args:
@@ -336,6 +422,7 @@ class PlaceService:
                 path=zip_path,
                 dataset=dataset,
                 name_metadata=name_metadata,
+                replace_existing=replace_existing,
             )
         finally:
             zip_path.unlink(missing_ok=True)
@@ -347,6 +434,7 @@ class PlaceService:
         path: Path,
         dataset: GeoNamesDataset,
         name_metadata: GeoNamesNameMetadata | None = None,
+        replace_existing: bool = False,
     ) -> PlaceImportResult:
         """Import place rows from a local GeoNames zip file.
 
@@ -358,6 +446,11 @@ class PlaceService:
         Returns:
             Summary containing the selected dataset and processed row count.
         """
+        deleted = 0
+        if replace_existing:
+            result = self.db.execute(delete(Place))
+            deleted = result.rowcount or 0
+
         processed = 0
         batch: list[dict[str, object]] = []
         for row in _iter_geonames_rows(path=path):
@@ -378,7 +471,11 @@ class PlaceService:
             self._upsert_places(batch)
 
         self.db.commit()
-        return PlaceImportResult(dataset=dataset, processed=processed)
+        return PlaceImportResult(
+            dataset=dataset,
+            deleted=deleted,
+            processed=processed,
+        )
 
     def _place_values_from_geonames_row(
         self,
@@ -433,6 +530,7 @@ class PlaceService:
             'region': region_name,
             'full_name': full_name,
             'feature_class': feature_class,
+            'population': _parse_geonames_population(row[14]),
         }
 
     def _upsert_places(self, values: list[dict[str, object]]) -> None:
@@ -451,6 +549,7 @@ class PlaceService:
             'region': excluded.region,
             'full_name': excluded.full_name,
             'feature_class': excluded.feature_class,
+            'population': excluded.population,
             'updated_at': func.now(),
         }
         self.db.execute(

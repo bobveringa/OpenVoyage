@@ -32,8 +32,10 @@ class FirstUserCreateResponse(BaseModel):
 
 class PlaceImportRequest(BaseModel):
     dataset: Literal['cities500', 'allCountries']
+    replace_existing: bool = False
 
 
 class PlaceImportResponse(BaseModel):
     dataset: Literal['cities500', 'allCountries']
     processed: int
+    deleted: int

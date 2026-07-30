@@ -15,6 +15,7 @@ class PlaceResponse(BaseModel):
     country_code: str
     region: str
     feature_class: str
+    population: int
 
     @classmethod
     def from_model(cls, place: Place) -> Self:
@@ -28,6 +29,7 @@ class PlaceResponse(BaseModel):
             country_code=place.country_code,
             region=place.region,
             feature_class=feature_class.name,
+            population=place.population,
         )
 
 

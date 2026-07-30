@@ -39,6 +39,7 @@ def test_import_places_triggers_place_service(client, db_session, api_prefix) ->
     )
     place_service = Mock()
     place_service.import_geonames_dataset.return_value = PlaceImportResult(
+        deleted=4,
         dataset=GeoNamesDataset.CITIES_500,
         processed=2,
     )
@@ -47,14 +48,16 @@ def test_import_places_triggers_place_service(client, db_session, api_prefix) ->
     response = client.post(
         f'{api_prefix}/admin/places/import',
         headers=_auth_headers(admin),
-        json={'dataset': 'cities500'},
+        json={'dataset': 'cities500', 'replace_existing': True},
     )
 
     assert response.status_code == 200
     assert response.json() == {
         'dataset': 'cities500',
+        'deleted': 4,
         'processed': 2,
     }
     place_service.import_geonames_dataset.assert_called_once_with(
-        dataset=GeoNamesDataset.CITIES_500
+        dataset=GeoNamesDataset.CITIES_500,
+        replace_existing=True,
     )

@@ -3491,12 +3491,12 @@ function CreateStopPanel({
   )
   const [newStopDate, setNewStopDate] = useState('2027-05-12')
   const [newStopNights, setNewStopNights] = useState(2)
-  const [searchValue, setSearchValue] = useState('Coimbra')
+  const [searchValue, setSearchValue] = useState('')
   const [selectedSearchPlace, setSelectedSearchPlace] = useState<Place | null>(
     null,
   )
   const [placeResultsOpen, setPlaceResultsOpen] = useState(false)
-  const [stopTitle, setStopTitle] = useState('Coimbra')
+  const [stopTitle, setStopTitle] = useState('')
   const [stopTitleEdited, setStopTitleEdited] = useState(false)
   const [selectedAfterStopId, setSelectedAfterStopId] = useState(
     stops[1]?.id ?? stops[0]?.id ?? '',
@@ -3518,7 +3518,7 @@ function CreateStopPanel({
   const suggestedStopTitle =
     locationSource === 'map' && mapPointActive && draftLocation
       ? getStopTitleSuggestion(draftLocation.label)
-      : (selectedSearchPlace?.name ?? searchValue.trim()) || 'Coimbra'
+      : (selectedSearchPlace?.name ?? searchValue.trim())
   const selectedCoordinates =
     locationSource === 'map' && mapPointActive && draftLocation
       ? draftLocation.coordinates
@@ -3613,7 +3613,9 @@ function CreateStopPanel({
         </Button>
         <div>
           <h2 className="text-base font-semibold text-foreground">New stop</h2>
-          <p className="text-sm text-muted-foreground">Coimbra between Porto and Madrid.</p>
+          <p className="text-sm text-muted-foreground">
+            Add a place to the itinerary.
+          </p>
         </div>
       </div>
 
@@ -3694,18 +3696,21 @@ function CreateStopPanel({
 
         <label className="grid gap-2 text-sm font-medium text-foreground">
           Title
-            <Input
-              disabled={isSubmitting}
-              maxLength={255}
-              onChange={(event) => {
-                setStopTitle(event.target.value)
-                setStopTitleEdited(true)
-              }}
-              value={stopTitle}
-            />
+          <Input
+            disabled={isSubmitting}
+            maxLength={255}
+            onChange={(event) => {
+              setStopTitle(event.target.value)
+              setStopTitleEdited(true)
+            }}
+            placeholder="Place name"
+            value={stopTitle}
+          />
         </label>
 
-        {stopTitleEdited && stopTitle !== suggestedStopTitle ? (
+        {suggestedStopTitle &&
+        stopTitleEdited &&
+        stopTitle !== suggestedStopTitle ? (
           <Button
             className="w-fit"
             onClick={() => {
@@ -4069,22 +4074,19 @@ function PostFormPanel({
   const [occurredAt, setOccurredAt] = useState(() =>
     editingPost
       ? formatDateTimeInputValue(parseDateTime(editingPost.occurred_at))
-      : '2027-05-08T20:14',
+      : formatDateTimeInputValue(new Date()),
   )
   const [searchValue, setSearchValue] = useState(
-    editingPost?.location ?? 'Porto riverside',
+    editingPost?.location ?? '',
   )
   const [selectedSearchPlace, setSelectedSearchPlace] = useState<Place | null>(
     null,
   )
   const [placeResultsOpen, setPlaceResultsOpen] = useState(false)
   const [story, setStory] = useState(
-    editingPost?.excerpt ??
-      'The light moved across the river just as the terraces started to fill up. This is the note I want pinned to this exact place.',
+    editingPost?.excerpt ?? '',
   )
-  const [title, setTitle] = useState(
-    editingPost?.title ?? 'Sunset above the Douro',
-  )
+  const [title, setTitle] = useState(editingPost?.title ?? '')
   const selectedMapLocation =
     locationSource === 'map' && mapPointActive ? draftLocation : null
   const selectedSearchCoordinates = selectedSearchPlace
@@ -4134,14 +4136,11 @@ function PostFormPanel({
     setOccurredAt(
       editingPost
         ? formatDateTimeInputValue(parseDateTime(editingPost.occurred_at))
-        : '2027-05-08T20:14',
+        : formatDateTimeInputValue(new Date()),
     )
-    setSearchValue(editingPost?.location ?? 'Porto riverside')
-    setStory(
-      editingPost?.excerpt ??
-        'The light moved across the river just as the terraces started to fill up. This is the note I want pinned to this exact place.',
-    )
-    setTitle(editingPost?.title ?? 'Sunset above the Douro')
+    setSearchValue(editingPost?.location ?? '')
+    setStory(editingPost?.excerpt ?? '')
+    setTitle(editingPost?.title ?? '')
   }, [editingPost, mode])
 
   useEffect(() => {
@@ -4411,6 +4410,7 @@ function PostFormPanel({
           <Input
             disabled={isSubmitting}
             onChange={(event) => setTitle(event.target.value)}
+            placeholder="Post title"
             value={title}
           />
         </label>
@@ -4421,6 +4421,7 @@ function PostFormPanel({
             className="min-h-36 resize-none"
             disabled={isSubmitting}
             onChange={(event) => setStory(event.target.value)}
+            placeholder="Write the story"
             value={story}
           />
         </label>

@@ -18,6 +18,7 @@ def _create_place(
     region: str,
     full_name: str,
     feature_class: PlaceFeatureClass = PlaceFeatureClass.POPULATED_PLACE,
+    population: int = 0,
 ) -> Place:
     place = Place(
         id=uuid.uuid4(),
@@ -30,6 +31,7 @@ def _create_place(
         region=region,
         full_name=full_name,
         feature_class=feature_class.value,
+        population=population,
     )
     db_session.add(place)
     db_session.commit()
@@ -48,6 +50,7 @@ def test_geocode_places_returns_matching_places(client, db_session, api_prefix) 
         country_code='NL',
         region='North Holland',
         full_name='Amsterdam, North Holland, The Netherlands',
+        population=741636,
     )
     _create_place(
         db_session,
@@ -76,8 +79,129 @@ def test_geocode_places_returns_matching_places(client, db_session, api_prefix) 
             'country_code': 'NL',
             'region': 'North Holland',
             'feature_class': 'POPULATED_PLACE',
+            'population': 741636,
         }
     ]
+
+
+@pytest.mark.integration
+def test_geocode_places_ranks_exact_name_matches_by_population(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    paris_france = _create_place(
+        db_session,
+        external_id='paris-france',
+        name='Paris',
+        latitude=48.8534,
+        longitude=2.3488,
+        country_code='FR',
+        region='Ile-de-France',
+        full_name='Paris, Ile-de-France, France',
+        population=2161000,
+    )
+    paris_texas = _create_place(
+        db_session,
+        external_id='paris-texas',
+        name='Paris',
+        latitude=33.6609,
+        longitude=-95.5555,
+        country_code='US',
+        region='Texas',
+        full_name='Paris, Texas, United States',
+        population=25171,
+    )
+
+    response = client.get(
+        f'{api_prefix}/places/geocode',
+        params={'query': 'Paris', 'limit': 2},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [place['id'] for place in data] == [
+        str(paris_france.id),
+        str(paris_texas.id),
+    ]
+
+
+@pytest.mark.integration
+def test_geocode_places_uses_comma_qualifiers(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    paris_france = _create_place(
+        db_session,
+        external_id='paris-france',
+        name='Paris',
+        latitude=48.8534,
+        longitude=2.3488,
+        country_code='FR',
+        region='Ile-de-France',
+        full_name='Paris, Ile-de-France, France',
+        population=2161000,
+    )
+    _create_place(
+        db_session,
+        external_id='paris-texas',
+        name='Paris',
+        latitude=33.6609,
+        longitude=-95.5555,
+        country_code='US',
+        region='Texas',
+        full_name='Paris, Texas, United States',
+        population=25171,
+    )
+
+    response = client.get(
+        f'{api_prefix}/places/geocode',
+        params={'query': 'Paris, France', 'limit': 5},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [place['id'] for place in data] == [str(paris_france.id)]
+
+
+@pytest.mark.integration
+def test_geocode_places_matches_multi_word_query_terms(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    paris_france = _create_place(
+        db_session,
+        external_id='paris-france',
+        name='Paris',
+        latitude=48.8534,
+        longitude=2.3488,
+        country_code='FR',
+        region='Ile-de-France',
+        full_name='Paris, Ile-de-France, France',
+        population=2161000,
+    )
+    _create_place(
+        db_session,
+        external_id='paris-texas',
+        name='Paris',
+        latitude=33.6609,
+        longitude=-95.5555,
+        country_code='US',
+        region='Texas',
+        full_name='Paris, Texas, United States',
+        population=25171,
+    )
+
+    response = client.get(
+        f'{api_prefix}/places/geocode',
+        params={'query': 'Paris France', 'limit': 5},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [place['id'] for place in data] == [str(paris_france.id)]
 
 
 @pytest.mark.integration

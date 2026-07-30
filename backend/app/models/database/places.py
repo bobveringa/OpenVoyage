@@ -3,9 +3,11 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     Float,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -37,6 +39,8 @@ class Place(Base):
             name='uq_places_external_source_external_id',
         ),
         Index('ix_places_country_code_region', 'country_code', 'region'),
+        Index('ix_places_population', 'population'),
+        CheckConstraint('population >= 0', name='ck_places_population_nonnegative'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -78,6 +82,12 @@ class Place(Base):
     feature_class: Mapped[PlaceFeatureClass] = mapped_column(
         String(1),
         nullable=False,
+    )
+    population: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default='0',
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

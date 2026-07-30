@@ -926,6 +926,11 @@ export interface components {
              * @enum {string}
              */
             dataset: "cities500" | "allCountries";
+            /**
+             * Replace Existing
+             * @default false
+             */
+            replace_existing: boolean;
         };
         /** PlaceImportResponse */
         PlaceImportResponse: {
@@ -934,6 +939,8 @@ export interface components {
              * @enum {string}
              */
             dataset: "cities500" | "allCountries";
+            /** Deleted */
+            deleted: number;
             /** Processed */
             processed: number;
         };
@@ -956,6 +963,8 @@ export interface components {
             longitude: number;
             /** Name */
             name: string;
+            /** Population */
+            population: number;
             /** Region */
             region: string;
         };

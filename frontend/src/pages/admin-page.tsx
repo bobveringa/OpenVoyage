@@ -62,6 +62,7 @@ export function AdminPage({
   const [dataset, setDataset] = useState<PlaceImportDataset>('cities500')
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null)
   const [isImporting, setIsImporting] = useState(false)
+  const [replaceExisting, setReplaceExisting] = useState(false)
 
   if (authStatus === 'loading') {
     return <LoadingState label="Checking access" />
@@ -88,9 +89,16 @@ export function AdminPage({
     setImportStatus(null)
 
     try {
-      const result = await importPlaces({ dataset }, accessToken)
+      const result = await importPlaces(
+        { dataset, replace_existing: replaceExisting },
+        accessToken,
+      )
+      const deletedMessage =
+        result.deleted > 0
+          ? ` Deleted ${numberFormatter.format(result.deleted)} existing places.`
+          : ''
       setImportStatus({
-        message: `Processed ${numberFormatter.format(result.processed)} places from ${getPlaceDatasetLabel(result.dataset)}.`,
+        message: `Processed ${numberFormatter.format(result.processed)} places from ${getPlaceDatasetLabel(result.dataset)}.${deletedMessage}`,
         type: 'success',
       })
     } catch (error) {
@@ -156,6 +164,25 @@ export function AdminPage({
                 {placeDatasetDescriptions[dataset]}
               </p>
             </div>
+
+            <label className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-white px-3 py-2 text-sm text-foreground">
+              <input
+                checked={replaceExisting}
+                className="mt-1 size-4 accent-emerald-700"
+                disabled={isImporting}
+                onChange={(event) => {
+                  setReplaceExisting(event.target.checked)
+                  setImportStatus(null)
+                }}
+                type="checkbox"
+              />
+              <span>
+                <span className="block font-medium">Replace existing places</span>
+                <span className="block text-xs leading-5 text-muted-foreground">
+                  Deletes current place search rows before importing GeoNames.
+                </span>
+              </span>
+            </label>
 
             {importStatus ? (
               <p

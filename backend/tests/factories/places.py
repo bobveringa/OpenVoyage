@@ -17,6 +17,7 @@ def create_place(
     region: str = 'Kyoto',
     full_name: str = 'Kyoto, Kyoto, Japan',
     feature_class: PlaceFeatureClass = PlaceFeatureClass.POPULATED_PLACE,
+    population: int = 1_463_723,
 ) -> Place:
     place = Place(
         id=uuid.uuid4(),
@@ -29,6 +30,7 @@ def create_place(
         region=region,
         full_name=full_name,
         feature_class=feature_class.value,
+        population=population,
     )
     db_session.add(place)
     db_session.commit()
