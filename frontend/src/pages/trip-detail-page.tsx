@@ -6111,13 +6111,16 @@ function renderRouteLayer(
     }).addTo(routeLayer)
   }
 
-  for (const stop of stops) {
+  const showStopOrder = routeMode === 'itinerary'
+  const stopMarkerSize = showStopOrder ? 22 : 14
+
+  for (const [stopIndex, stop] of stops.entries()) {
     L.marker(getStopCoordinates(stop), {
       icon: L.divIcon({
         className: 'trip-map-div-icon',
-        html: createPlaceMarkerHtml(),
-        iconAnchor: [7, 7],
-        iconSize: [14, 14],
+        html: createPlaceMarkerHtml(showStopOrder ? stopIndex + 1 : null),
+        iconAnchor: [stopMarkerSize / 2, stopMarkerSize / 2],
+        iconSize: [stopMarkerSize, stopMarkerSize],
       }),
     })
       .addTo(routeLayer)
@@ -6662,9 +6665,19 @@ function createStopPairKey(fromStopId: string, toStopId: string) {
   return `${fromStopId}:${toStopId}`
 }
 
-function createPlaceMarkerHtml() {
+function createPlaceMarkerHtml(stopOrder: number | null) {
+  const className =
+    stopOrder === null
+      ? 'trip-map-place-marker'
+      : 'trip-map-place-marker trip-map-place-marker--numbered'
+  const labelHtml =
+    stopOrder === null
+      ? ''
+      : `<span class="trip-map-place-marker__number">${stopOrder}</span>`
+
   return `
-    <div class="trip-map-place-marker">
+    <div class="${className}">
+      ${labelHtml}
     </div>
   `
 }
