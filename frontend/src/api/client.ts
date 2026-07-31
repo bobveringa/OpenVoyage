@@ -86,6 +86,13 @@ type ApiRequestOptions = {
   urlEncoded?: URLSearchParams
 }
 
+type AuthTokenRefreshHandler = (options: {
+  accessToken: string
+  forceRefresh: boolean
+}) => Promise<string | null>
+
+let authTokenRefreshHandler: AuthTokenRefreshHandler | null = null
+
 export class ApiError extends Error {
   readonly status: number
   readonly detail: unknown
@@ -96,6 +103,12 @@ export class ApiError extends Error {
     this.status = status
     this.detail = detail
   }
+}
+
+export function configureAuthTokenRefresh(
+  handler: AuthTokenRefreshHandler | null,
+) {
+  authTokenRefreshHandler = handler
 }
 
 export function getErrorMessage(error: unknown): string {
@@ -674,14 +687,60 @@ async function requestJsonResponse<T>(
   options: ApiRequestOptions = {},
 ): Promise<{ data: T; response: Response }> {
   const url = buildApiUrl(path, options.query)
+  const requestedAccessToken = options.accessToken ?? null
+  let accessToken = await resolveAccessToken(requestedAccessToken, false)
+
+  let response = await sendApiRequest(url, options, accessToken)
+  if (response.status === 401 && requestedAccessToken) {
+    const refreshedAccessToken = await resolveAccessToken(accessToken, true)
+    if (refreshedAccessToken && refreshedAccessToken !== accessToken) {
+      accessToken = refreshedAccessToken
+      response = await sendApiRequest(url, options, accessToken)
+    }
+  }
+
+  if (!response.ok) {
+    throw await buildApiError(response)
+  }
+
+  if (response.status === 204) {
+    return { data: undefined as T, response }
+  }
+
+  const text = await response.text()
+  return {
+    data: (text ? JSON.parse(text) : undefined) as T,
+    response,
+  }
+}
+
+async function resolveAccessToken(
+  accessToken: string | null,
+  forceRefresh: boolean,
+) {
+  if (!accessToken || !authTokenRefreshHandler) {
+    return accessToken
+  }
+
+  return authTokenRefreshHandler({
+    accessToken,
+    forceRefresh,
+  })
+}
+
+async function sendApiRequest(
+  url: string,
+  options: ApiRequestOptions,
+  accessToken: string | null,
+) {
   const headers = new Headers()
   let body: BodyInit | undefined
 
   for (const [key, value] of Object.entries(options.headers ?? {})) {
     headers.set(key, value)
   }
-  if (options.accessToken) {
-    headers.set('Authorization', `Bearer ${options.accessToken}`)
+  if (accessToken) {
+    headers.set('Authorization', `Bearer ${accessToken}`)
   }
   if (options.ifMatchRevision !== undefined) {
     headers.set('If-Match', `"${options.ifMatchRevision}"`)
@@ -701,25 +760,11 @@ async function requestJsonResponse<T>(
     body = options.urlEncoded
   }
 
-  const response = await fetch(url, {
+  return fetch(url, {
     method: options.method ?? 'GET',
     headers,
     body,
   })
-
-  if (!response.ok) {
-    throw await buildApiError(response)
-  }
-
-  if (response.status === 204) {
-    return { data: undefined as T, response }
-  }
-
-  const text = await response.text()
-  return {
-    data: (text ? JSON.parse(text) : undefined) as T,
-    response,
-  }
 }
 
 function buildApiUrl(path: string, query?: Record<string, QueryValue>): string {
