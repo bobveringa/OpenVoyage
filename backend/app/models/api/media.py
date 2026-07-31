@@ -1,7 +1,7 @@
 import typing
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic import BaseModel
 from models.database.media import MediaStatus, MediaType
@@ -9,16 +9,6 @@ from utils.media.url_util import build_media_urls
 
 if typing.TYPE_CHECKING:
     from models.database.media import Media
-
-
-class MediaUploadResponse(BaseModel):
-    id: uuid.UUID
-
-    @classmethod
-    def from_model(cls, media: 'Media') -> 'MediaUploadResponse':
-        return cls(
-            id=media.id,
-        )
 
 
 class MediaUrls(BaseModel):
@@ -58,7 +48,7 @@ class MediaResponse(BaseModel):
         media_base_url: str = '',
         *,
         media_token: str | None = None,
-    ) -> 'MediaResponse':
+    ) -> Self:
         content_url, thumbnail_url = build_media_urls(
             media_base_url,
             media.id,
@@ -137,3 +127,7 @@ class MediaResponse(BaseModel):
             metadata=metadata,
             technical_info=technical_info,
         )
+
+
+class MediaUploadResponse(MediaResponse):
+    pass

@@ -22,10 +22,11 @@ router = APIRouter(prefix='/media', tags=['media'])
     status_code=status.HTTP_201_CREATED,
 )
 def upload_media(
+    request: Request,
     media_service: MediaServiceDep,
     user: CurrentUser,
     file: UploadFile,
-):
+) -> MediaUploadResponse:
     try:
         media = media_service.upload_media(file, user)
     except (MediaTooLargeError, UnsupportedMediaTypeError) as e:
@@ -34,7 +35,12 @@ def upload_media(
             detail=str(e),
         )
 
-    return MediaUploadResponse.from_model(media)
+    media_base_url = str(request.base_url).rstrip('/')
+    return MediaUploadResponse.from_model(
+        media,
+        media_base_url=media_base_url,
+        media_token=security.create_media_url_token(media.id),
+    )
 
 
 def iter_file(

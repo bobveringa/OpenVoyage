@@ -2,6 +2,7 @@ import 'leaflet/dist/leaflet.css'
 
 import * as L from 'leaflet'
 import {
+  AlertCircle,
   Archive,
   ArrowLeft,
   ArrowRight,
@@ -19,6 +20,7 @@ import {
   Globe2,
   ImagePlus,
   Link2,
+  Loader2,
   Lock,
   Mail,
   MapPin,
@@ -92,7 +94,7 @@ import {
   updatePost,
   updateTrip,
   updateTripMember,
-  uploadMedia,
+  uploadMediaWithProgress,
   type GeoJsonLineString,
   type Itinerary,
   type ItineraryStopCreatePayload,
@@ -104,6 +106,7 @@ import {
   type Post,
   type PostCreatePayload,
   type PostUpdatePayload,
+  type MediaUploadProgress,
   type Trip,
   type TripMember,
   type TripShareLink,
@@ -222,6 +225,27 @@ type PostMedia = {
   type?: 'image' | 'video'
 }
 
+type DraftMediaUploadStatus =
+  | 'existing'
+  | 'queued'
+  | 'uploading'
+  | 'uploaded'
+  | 'failed'
+
+type DraftMediaUploadState = {
+  error: string | null
+  loadedBytes: number | null
+  mediaId: string | null
+  progress: number | null
+  status: DraftMediaUploadStatus
+  totalBytes: number | null
+}
+
+type DraftPostMedia = PostMedia & {
+  clientId: string
+  upload: DraftMediaUploadState
+}
+
 type TravelPost = {
   comments: number
   coordinates: L.LatLngTuple
@@ -306,6 +330,13 @@ type PostSubmitDraft = {
   publish: boolean
   story: string
   title: string
+}
+
+type PostSubmitIntent = 'draft' | 'publish' | 'save'
+
+type PendingPostSubmit = {
+  draft: Omit<PostSubmitDraft, 'media'>
+  intent: PostSubmitIntent
 }
 
 type TripSettingsDraft = {
@@ -1537,7 +1568,7 @@ export function TripDetailPage({
       }
 
       void runMutation(postId ? 'Saving post' : 'Creating post', async () => {
-        const mediaIds = await uploadPostDraftMedia(draft.media, accessToken)
+        const mediaIds = getPostDraftMediaIds(draft.media)
         if (postId) {
           const updatedPost = await updatePost({
             accessToken,
@@ -1835,13 +1866,15 @@ export function TripDetailPage({
               <TripModeDock mode={mode} onModeChange={handleModeChange} />
             ) : null}
             <TripSidebar
-              mode={visibleMode}
+              accessToken={accessToken}
               canMutate={canMutate}
               draftPostLocation={draftPostLocation}
               draftStopLocation={draftStopLocation}
               focusedPostId={focusedPostId}
               isMutating={isMutating}
+              isApiBacked={isApiBacked}
               mapPointTarget={mapPointTarget}
+              mode={visibleMode}
               mutationError={mutationError}
               onMapPointTargetChange={handleMapPointTargetChange}
               onCreateStop={handleCreateStop}
@@ -2851,11 +2884,13 @@ function MobileMapPointPicker({
 }
 
 function TripSidebar({
+  accessToken,
   canMutate,
   draftPostLocation,
   draftStopLocation,
   editingPostId,
   focusedPostId,
+  isApiBacked,
   isMutating,
   mapPointTarget,
   mutationError,
@@ -2883,11 +2918,13 @@ function TripSidebar({
   travelPosts,
   travelingView,
 }: {
+  accessToken?: string | null
   canMutate: boolean
   draftPostLocation: DraftPostLocation | null
   draftStopLocation: DraftPostLocation | null
   editingPostId: string | null
   focusedPostId: string | null
+  isApiBacked: boolean
   isMutating: boolean
   mapPointTarget: MapPointTarget | null
   mutationError: string | null
@@ -3013,7 +3050,9 @@ function TripSidebar({
           />
         ) : travelingView === 'create-post' ? (
           <PostFormPanel
+            accessToken={accessToken}
             draftLocation={draftPostLocation}
+            isApiBacked={isApiBacked}
             isSubmitting={isMutating}
             mapPointActive={mapPointTarget === 'post'}
             mode="create"
@@ -3023,7 +3062,9 @@ function TripSidebar({
           />
         ) : travelingView === 'edit-post' && editingPost ? (
           <PostFormPanel
+            accessToken={accessToken}
             draftLocation={draftPostLocation}
+            isApiBacked={isApiBacked}
             isSubmitting={isMutating}
             mapPointActive={mapPointTarget === 'post'}
             mode="edit"
@@ -3638,6 +3679,10 @@ function CreateStopPanel({
   }
 
   function handleSearchValueChange(value: string) {
+    if (isSubmitting) {
+      return
+    }
+
     selectSearchLocation()
     setSearchValue(value)
     setSelectedSearchPlace(null)
@@ -3645,6 +3690,10 @@ function CreateStopPanel({
   }
 
   function handlePlaceSelect(place: Place) {
+    if (isSubmitting) {
+      return
+    }
+
     selectSearchLocation()
     setSelectedSearchPlace(place)
     setSearchValue(getPlaceSearchInput(place))
@@ -4034,7 +4083,9 @@ function TravelingPanel({
 }
 
 function PostFormPanel({
+  accessToken,
   draftLocation,
+  isApiBacked,
   isSubmitting,
   mapPointActive,
   mode,
@@ -4043,7 +4094,9 @@ function PostFormPanel({
   onSubmit,
   post = null,
 }: {
+  accessToken?: string | null
   draftLocation: DraftPostLocation | null
+  isApiBacked: boolean
   isSubmitting: boolean
   mapPointActive: boolean
   mode: 'create' | 'edit'
@@ -4057,16 +4110,20 @@ function PostFormPanel({
     mapPointActive ? 'map' : 'search',
   )
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const uploadControllersRef = useRef<Map<string, AbortController>>(new Map())
   const uploadedMediaUrlsRef = useRef<string[]>([])
   const keepUploadedMediaUrlsRef = useRef(false)
-  const [draftMedia, setDraftMedia] = useState<PostMedia[]>(() =>
-    editingPost ? [...editingPost.media] : [],
+  const [draftMedia, setDraftMedia] = useState<DraftPostMedia[]>(() =>
+    editingPost ? editingPost.media.map(createExistingDraftPostMedia) : [],
   )
   const [activeDraftMediaIndex, setActiveDraftMediaIndex] = useState<
     number | null
   >(null)
   const [mediaNotice, setMediaNotice] = useState<string | null>(null)
   const [mediaToolsOpen, setMediaToolsOpen] = useState(false)
+  const [pendingSubmit, setPendingSubmit] = useState<PendingPostSubmit | null>(
+    null,
+  )
   const [occurredAt, setOccurredAt] = useState(() =>
     editingPost
       ? formatDateTimeInputValue(parseDateTime(editingPost.occurred_at))
@@ -4100,9 +4157,11 @@ function PostFormPanel({
     (selectedSearchPlace
       ? selectedSearchLabel
       : editingPost?.location ?? selectedSearchLabel)
+  const isFinishingUploads = pendingSubmit !== null
+  const formDisabled = isSubmitting || isFinishingUploads
   const placeSearch = usePlaceSearch(
     searchValue,
-    locationSource === 'search' && !isSubmitting,
+    locationSource === 'search' && !formDisabled,
   )
   const hasLocation =
     selectedLocationLabel.length > 0 &&
@@ -4115,20 +4174,142 @@ function PostFormPanel({
     story.trim().length > 0 &&
     occurredAt.trim().length > 0 &&
     draftMedia.length > 0
+  const uploadSummary = getDraftMediaUploadSummary(draftMedia)
+  const mediaDescription = getDraftMediaSectionDescription(
+    draftMedia.length,
+    uploadSummary,
+    isApiBacked,
+  )
+  const editSubmitLabel =
+    pendingSubmit?.intent === 'save'
+      ? 'Finishing uploads...'
+      : isSubmitting
+        ? 'Saving'
+        : 'Save post'
+  const draftSubmitLabel =
+    pendingSubmit?.intent === 'draft'
+      ? 'Finishing uploads...'
+      : isSubmitting
+        ? 'Saving'
+        : 'Save draft'
+  const publishSubmitLabel =
+    pendingSubmit?.intent === 'publish'
+      ? 'Finishing uploads...'
+      : isSubmitting
+        ? 'Publishing'
+        : 'Publish post'
+
+  const abortDraftMediaUploads = useCallback(() => {
+    for (const controller of uploadControllersRef.current.values()) {
+      controller.abort()
+    }
+    uploadControllersRef.current.clear()
+  }, [])
+
+  const startDraftMediaUpload = useCallback(
+    (media: DraftPostMedia, token: string) => {
+      if (!media.file || uploadControllersRef.current.has(media.clientId)) {
+        return
+      }
+
+      const controller = new AbortController()
+      uploadControllersRef.current.set(media.clientId, controller)
+      setDraftMedia((currentMedia) =>
+        updateDraftMediaUpload(currentMedia, media.clientId, {
+          error: null,
+          loadedBytes: null,
+          progress: null,
+          status: 'uploading',
+          totalBytes: null,
+        }),
+      )
+
+      void uploadMediaWithProgress({
+        accessToken: token,
+        file: media.file,
+        onProgress: (progress) => {
+          setDraftMedia((currentMedia) =>
+            updateDraftMediaUpload(
+              currentMedia,
+              media.clientId,
+              toDraftMediaProgressUpdate(progress),
+            ),
+          )
+        },
+        signal: controller.signal,
+      })
+        .then((uploadedMedia) => {
+          setDraftMedia((currentMedia) =>
+            updateDraftMediaUpload(currentMedia, media.clientId, {
+              error: null,
+              loadedBytes: media.file?.size ?? null,
+              mediaId: uploadedMedia.id,
+              progress: 1,
+              status: 'uploaded',
+              totalBytes: media.file?.size ?? null,
+            }).map((item) =>
+              item.clientId === media.clientId
+                ? { ...item, media_id: uploadedMedia.id }
+                : item,
+            ),
+          )
+        })
+        .catch((uploadError: unknown) => {
+          if (isAbortError(uploadError)) {
+            return
+          }
+
+          setDraftMedia((currentMedia) =>
+            updateDraftMediaUpload(currentMedia, media.clientId, {
+              error: getErrorMessage(uploadError),
+              status: 'failed',
+            }),
+          )
+        })
+        .finally(() => {
+          uploadControllersRef.current.delete(media.clientId)
+        })
+    },
+    [],
+  )
+
+  const finishPostSubmit = useCallback(
+    (submit: PendingPostSubmit) => {
+      const media = draftMedia.map(toPostMediaFromDraft)
+      if (media.length === 0) {
+        setMediaNotice('Add at least one media item before publishing.')
+        return
+      }
+
+      if (isApiBacked && media.some((item) => !item.media_id)) {
+        setMediaNotice('Wait for media uploads to finish before publishing.')
+        return
+      }
+
+      keepUploadedMediaUrlsRef.current = !isApiBacked
+      onSubmit({
+        ...submit.draft,
+        media,
+      })
+    },
+    [draftMedia, isApiBacked, onSubmit],
+  )
 
   useEffect(() => {
     keepUploadedMediaUrlsRef.current = false
+    abortDraftMediaUploads()
     for (const objectUrl of uploadedMediaUrlsRef.current) {
       URL.revokeObjectURL(objectUrl)
     }
     uploadedMediaUrlsRef.current = []
     setActiveDraftMediaIndex(null)
-    setDraftMedia(editingPost ? [...editingPost.media] : [])
+    setDraftMedia(editingPost ? editingPost.media.map(createExistingDraftPostMedia) : [])
     setLocationSource('search')
     setSelectedSearchPlace(null)
     setPlaceResultsOpen(false)
     setMediaNotice(null)
     setMediaToolsOpen(false)
+    setPendingSubmit(null)
     setOccurredAt(
       editingPost
         ? formatDateTimeInputValue(parseDateTime(editingPost.occurred_at))
@@ -4137,7 +4318,7 @@ function PostFormPanel({
     setSearchValue(editingPost?.location ?? '')
     setStory(editingPost?.excerpt ?? '')
     setTitle(editingPost?.title ?? '')
-  }, [editingPost, mode])
+  }, [abortDraftMediaUploads, editingPost, mode])
 
   useEffect(() => {
     if (mapPointActive) {
@@ -4152,6 +4333,7 @@ function PostFormPanel({
 
   useEffect(
     () => () => {
+      abortDraftMediaUploads()
       if (keepUploadedMediaUrlsRef.current) {
         return
       }
@@ -4160,16 +4342,56 @@ function PostFormPanel({
         URL.revokeObjectURL(objectUrl)
       }
     },
-    [],
+    [abortDraftMediaUploads],
   )
 
+  useEffect(() => {
+    if (!isApiBacked || !accessToken) {
+      return
+    }
+
+    for (const media of draftMedia) {
+      if (media.upload.status === 'queued' && media.file) {
+        startDraftMediaUpload(media, accessToken)
+      }
+    }
+  }, [accessToken, draftMedia, isApiBacked, startDraftMediaUpload])
+
+  useEffect(() => {
+    if (!pendingSubmit || isSubmitting) {
+      return
+    }
+
+    const currentSummary = getDraftMediaUploadSummary(draftMedia)
+    if (currentSummary.failed > 0 || currentSummary.pending > 0) {
+      return
+    }
+
+    if (draftMedia.length === 0) {
+      setMediaNotice('Add at least one media item before publishing.')
+      setPendingSubmit(null)
+      return
+    }
+
+    setPendingSubmit(null)
+    finishPostSubmit(pendingSubmit)
+  }, [draftMedia, finishPostSubmit, isSubmitting, pendingSubmit])
+
   function selectSearchLocation() {
+    if (formDisabled) {
+      return
+    }
+
     setLocationSource('search')
     onMapPointTargetChange(null)
     setPlaceResultsOpen(true)
   }
 
   function selectMapLocation() {
+    if (formDisabled) {
+      return
+    }
+
     setLocationSource('map')
     onMapPointTargetChange('post')
   }
@@ -4189,6 +4411,10 @@ function PostFormPanel({
   }
 
   function handleUploadFiles(files: FileList | null) {
+    if (formDisabled) {
+      return
+    }
+
     const mediaFiles = Array.from(files ?? []).filter((file) =>
       isSupportedMediaFile(file),
     )
@@ -4202,12 +4428,7 @@ function PostFormPanel({
       const objectUrl = URL.createObjectURL(file)
       uploadedMediaUrlsRef.current.push(objectUrl)
 
-      return {
-        alt: file.name,
-        file,
-        type: getPostMediaType(file),
-        src: objectUrl,
-      }
+      return createNewDraftPostMedia(file, objectUrl, isApiBacked)
     })
 
     setDraftMedia((currentMedia) => [...currentMedia, ...uploadedMedia])
@@ -4217,6 +4438,10 @@ function PostFormPanel({
   }
 
   function moveDraftMedia(index: number, direction: -1 | 1) {
+    if (formDisabled) {
+      return
+    }
+
     setDraftMedia((currentMedia) => {
       const nextIndex = index + direction
       if (nextIndex < 0 || nextIndex >= currentMedia.length) {
@@ -4236,13 +4461,43 @@ function PostFormPanel({
     })
   }
 
-  function removeDraftMedia(media: PostMedia) {
+  function removeDraftMedia(media: DraftPostMedia) {
+    uploadControllersRef.current.get(media.clientId)?.abort()
+    uploadControllersRef.current.delete(media.clientId)
     revokeUploadedMediaUrl(media.src)
     setActiveDraftMediaIndex(null)
     setDraftMedia((currentMedia) =>
-      currentMedia.filter((item) => item.src !== media.src),
+      currentMedia.filter((item) => item.clientId !== media.clientId),
     )
     setMediaNotice(`${media.alt} removed.`)
+  }
+
+  function retryDraftMedia(media: DraftPostMedia) {
+    if (!media.file || isSubmitting) {
+      return
+    }
+
+    uploadControllersRef.current.get(media.clientId)?.abort()
+    uploadControllersRef.current.delete(media.clientId)
+    setDraftMedia((currentMedia) =>
+      updateDraftMediaUpload(currentMedia, media.clientId, {
+        error: null,
+        loadedBytes: null,
+        progress: null,
+        status: 'queued',
+        totalBytes: null,
+      }),
+    )
+    setMediaNotice(`${media.alt} queued for retry.`)
+  }
+
+  function retryFailedDraftMedia() {
+    const failedMedia = draftMedia.filter(
+      (media) => media.upload.status === 'failed',
+    )
+    for (const media of failedMedia) {
+      retryDraftMedia(media)
+    }
   }
 
   function revokeUploadedMediaUrl(src: string) {
@@ -4265,29 +4520,60 @@ function PostFormPanel({
 
   function handleCancel() {
     keepUploadedMediaUrlsRef.current = false
+    setPendingSubmit(null)
+    abortDraftMediaUploads()
     discardUploadedMediaUrls()
     onCancel()
   }
 
-  function handleSaveEdit() {
-    if (!canSubmit) {
-      return
-    }
-
-    keepUploadedMediaUrlsRef.current = true
-    onSubmit({
+  function createPostSubmitDraft(publish: boolean): Omit<PostSubmitDraft, 'media'> {
+    return {
       coordinates: selectedPostCoordinates,
       locationLabel: selectedLocationLabel,
-      media: draftMedia,
       occurredAt: toPostOccurredAtValue(occurredAt),
       placeId:
         locationSource === 'search' && selectedSearchPlace
           ? selectedSearchPlace.id
           : null,
-      publish: mode === 'create',
+      publish,
       story: story.trim(),
       title: title.trim(),
-    })
+    }
+  }
+
+  function submitPost(intent: PostSubmitIntent) {
+    if (!canSubmit) {
+      return
+    }
+
+    const submit = {
+      draft: createPostSubmitDraft(intent === 'publish'),
+      intent,
+    }
+
+    if (!isApiBacked) {
+      finishPostSubmit(submit)
+      return
+    }
+
+    if (!accessToken) {
+      setMediaNotice('Sign in to upload media before publishing.')
+      return
+    }
+
+    const currentSummary = getDraftMediaUploadSummary(draftMedia)
+    if (currentSummary.failed > 0) {
+      setMediaNotice('Retry or remove failed uploads before publishing.')
+      return
+    }
+
+    if (currentSummary.pending > 0) {
+      setMediaNotice(null)
+      setPendingSubmit(submit)
+      return
+    }
+
+    finishPostSubmit(submit)
   }
 
   return (
@@ -4337,7 +4623,7 @@ function PostFormPanel({
             />
             <Input
               className="pl-9"
-              disabled={isSubmitting}
+              disabled={formDisabled}
               onChange={(event) => {
                 handleSearchValueChange(event.target.value)
               }}
@@ -4348,7 +4634,7 @@ function PostFormPanel({
           </span>
         </label>
         <PlaceSearchDropdown
-          disabled={isSubmitting}
+          disabled={formDisabled}
           error={placeSearch.error}
           onSelect={handlePlaceSelect}
           open={
@@ -4404,7 +4690,7 @@ function PostFormPanel({
         <label className="grid gap-2 text-sm font-medium text-foreground">
           Title
           <Input
-            disabled={isSubmitting}
+            disabled={formDisabled}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="Post title"
             value={title}
@@ -4415,7 +4701,7 @@ function PostFormPanel({
           Story
           <Textarea
             className="min-h-36 resize-none"
-            disabled={isSubmitting}
+            disabled={formDisabled}
             onChange={(event) => setStory(event.target.value)}
             placeholder="Write the story"
             value={story}
@@ -4425,7 +4711,7 @@ function PostFormPanel({
         <label className="grid gap-2 text-sm font-medium text-foreground">
           Occurred at
           <DateTimePicker
-            disabled={isSubmitting}
+            disabled={formDisabled}
             onValueChange={setOccurredAt}
             value={occurredAt}
           />
@@ -4437,13 +4723,11 @@ function PostFormPanel({
           <div>
             <h3 className="font-semibold text-foreground">Media</h3>
             <p className="text-sm text-muted-foreground">
-              {draftMedia.length === 0
-                ? 'Add photos or videos to build the post gallery.'
-                : `${draftMedia.length} ${draftMedia.length === 1 ? 'media item' : 'media items'} · first visual becomes the map bubble.`}
+              {mediaDescription}
             </p>
           </div>
           <Button
-            disabled={isSubmitting}
+            disabled={formDisabled}
             onClick={() => setMediaToolsOpen((current) => !current)}
             size="sm"
             type="button"
@@ -4463,6 +4747,7 @@ function PostFormPanel({
                 'grid w-[76vw] max-w-80 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary sm:w-80',
                 mediaStripHeightClassName,
               )}
+              disabled={formDisabled}
               onClick={() => setMediaToolsOpen(true)}
               type="button"
             >
@@ -4476,16 +4761,23 @@ function PostFormPanel({
           {draftMedia.map((media, index) => (
             <MediaStripCard
               badge={index === 0 ? 'Map bubble media' : null}
-              key={media.src}
+              key={media.clientId}
               media={media}
               onOpen={() => setActiveDraftMediaIndex(index)}
             >
+              {isApiBacked ? (
+                <DraftMediaUploadStatusBadge
+                  media={media}
+                  onRetry={() => retryDraftMedia(media)}
+                  retryDisabled={isSubmitting}
+                />
+              ) : null}
               <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 rounded-2xl bg-white/90 p-1.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 <div className="flex gap-1">
                   <Button
                     aria-label={`Move ${media.alt} left`}
                     className="size-8 rounded-xl"
-                    disabled={index === 0}
+                    disabled={formDisabled || index === 0}
                     onClick={() => moveDraftMedia(index, -1)}
                     size="icon"
                     title={`Move ${media.alt} left`}
@@ -4497,7 +4789,7 @@ function PostFormPanel({
                   <Button
                     aria-label={`Move ${media.alt} right`}
                     className="size-8 rounded-xl"
-                    disabled={index === draftMedia.length - 1}
+                    disabled={formDisabled || index === draftMedia.length - 1}
                     onClick={() => moveDraftMedia(index, 1)}
                     size="icon"
                     title={`Move ${media.alt} right`}
@@ -4510,6 +4802,10 @@ function PostFormPanel({
                 <Button
                   aria-label={`Remove ${media.alt}`}
                   className="size-8 rounded-xl"
+                  disabled={
+                    isSubmitting ||
+                    (isFinishingUploads && media.upload.status !== 'failed')
+                  }
                   onClick={() => removeDraftMedia(media)}
                   size="icon"
                   title={`Remove ${media.alt}`}
@@ -4527,6 +4823,7 @@ function PostFormPanel({
               'grid w-[52vw] max-w-52 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary sm:w-52',
               mediaStripHeightClassName,
             )}
+            disabled={formDisabled}
             onClick={() => setMediaToolsOpen(true)}
             type="button"
           >
@@ -4541,7 +4838,7 @@ function PostFormPanel({
           <div className="space-y-3 rounded-[1.25rem] border border-emerald-100 bg-emerald-50/70 p-3">
             <div className="grid gap-2 sm:grid-cols-2">
               <Button
-                disabled={isSubmitting}
+                disabled={formDisabled}
                 onClick={() => fileInputRef.current?.click()}
                 type="button"
                 variant="outline"
@@ -4550,7 +4847,7 @@ function PostFormPanel({
                 Upload files
               </Button>
               <Button
-                disabled={isSubmitting}
+                disabled={formDisabled}
                 onClick={() => fileInputRef.current?.click()}
                 type="button"
                 variant="outline"
@@ -4564,7 +4861,7 @@ function PostFormPanel({
               accept="image/*,video/*"
               className="sr-only"
               multiple
-              disabled={isSubmitting}
+              disabled={formDisabled}
               onChange={(event) => {
                 handleUploadFiles(event.currentTarget.files)
                 event.currentTarget.value = ''
@@ -4582,49 +4879,122 @@ function PostFormPanel({
       </section>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button disabled={isSubmitting} onClick={handleCancel} type="button" variant="outline">
+        <Button
+          disabled={isSubmitting}
+          onClick={handleCancel}
+          type="button"
+          variant="outline"
+        >
           Cancel
         </Button>
         {mode === 'edit' ? (
-          <Button disabled={!canSubmit || isSubmitting} onClick={handleSaveEdit} type="button">
+          <Button
+            disabled={!canSubmit || isSubmitting || isFinishingUploads}
+            onClick={() => submitPost('save')}
+            type="button"
+          >
             <Check className="size-4" aria-hidden="true" />
-            {isSubmitting ? 'Saving' : 'Save post'}
+            {editSubmitLabel}
           </Button>
         ) : (
           <>
             <Button
-              disabled={!canSubmit || isSubmitting}
-              onClick={() => {
-                keepUploadedMediaUrlsRef.current = true
-                onSubmit({
-                  coordinates: selectedPostCoordinates,
-                  locationLabel: selectedLocationLabel,
-                  media: draftMedia,
-                  occurredAt: toPostOccurredAtValue(occurredAt),
-                  placeId:
-                    locationSource === 'search' && selectedSearchPlace
-                      ? selectedSearchPlace.id
-                      : null,
-                  publish: false,
-                  story: story.trim(),
-                  title: title.trim(),
-                })
-              }}
+              disabled={!canSubmit || isSubmitting || isFinishingUploads}
+              onClick={() => submitPost('draft')}
               type="button"
               variant="outline"
             >
-              Save draft
+              {draftSubmitLabel}
             </Button>
             <Button
-              disabled={!canSubmit || isSubmitting}
-              onClick={handleSaveEdit}
+              disabled={!canSubmit || isSubmitting || isFinishingUploads}
+              onClick={() => submitPost('publish')}
               type="button"
             >
-              {isSubmitting ? 'Publishing' : 'Publish post'}
+              {publishSubmitLabel}
             </Button>
           </>
         )}
       </div>
+
+      <Modal
+        description={getFinishingUploadsModalDescription(pendingSubmit?.intent)}
+        onClose={() => setPendingSubmit(null)}
+        open={pendingSubmit !== null}
+        title="Finishing uploads"
+      >
+        <div className="space-y-4">
+          <div className="rounded-[1.1rem] border border-emerald-100 bg-emerald-50/70 px-3 py-3">
+            <p className="text-sm font-semibold text-foreground">
+              {getDraftMediaUploadSummaryLabel(uploadSummary)}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {uploadSummary.failed > 0
+                ? 'Retry the failed uploads before the post can be saved.'
+                : 'The post will continue automatically when every media item is uploaded.'}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            {draftMedia
+              .filter((media) => isDraftMediaUploadBlocking(media))
+              .map((media) => (
+                <div
+                  className="flex items-center justify-between gap-3 rounded-[1.1rem] border border-emerald-100 px-3 py-2"
+                  key={media.clientId}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {media.alt}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {getDraftMediaUploadStatusText(media)}
+                    </p>
+                  </div>
+                  {media.upload.status === 'failed' ? (
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        onClick={() => retryDraftMedia(media)}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        <RefreshCw className="size-4" aria-hidden="true" />
+                        Retry
+                      </Button>
+                      <Button
+                        aria-label={`Remove ${media.alt}`}
+                        onClick={() => removeDraftMedia(media)}
+                        size="sm"
+                        title={`Remove ${media.alt}`}
+                        type="button"
+                        variant="ghost"
+                      >
+                        <Trash2 className="size-4" aria-hidden="true" />
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+          </div>
+
+          <div className="flex justify-end gap-2">
+            {uploadSummary.failed > 0 ? (
+              <Button
+                onClick={retryFailedDraftMedia}
+                type="button"
+                variant="outline"
+              >
+                <RefreshCw className="size-4" aria-hidden="true" />
+                Retry failed
+              </Button>
+            ) : null}
+            <Button onClick={() => setPendingSubmit(null)} type="button">
+              Keep editing
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {activeDraftMediaIndex !== null ? (
         <MediaLightbox
@@ -4949,6 +5319,74 @@ function MediaStripCard({
 
       {children}
     </article>
+  )
+}
+
+function DraftMediaUploadStatusBadge({
+  media,
+  onRetry,
+  retryDisabled,
+}: {
+  media: DraftPostMedia
+  onRetry: () => void
+  retryDisabled: boolean
+}) {
+  const status = media.upload.status
+  const progressPercent =
+    media.upload.progress === null
+      ? null
+      : Math.max(0, Math.min(100, Math.round(media.upload.progress * 100)))
+
+  if (status === 'failed') {
+    return (
+      <div className="absolute inset-x-2 top-2 space-y-2 rounded-[1rem] border border-destructive/30 bg-white/95 p-2 text-destructive shadow-sm">
+        <div className="flex items-start gap-1.5">
+          <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <p className="min-w-0 text-xs font-medium">
+            {media.upload.error ?? 'Upload failed'}
+          </p>
+        </div>
+        <Button
+          className="h-8 w-full rounded-xl"
+          disabled={retryDisabled}
+          onClick={onRetry}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          <RefreshCw className="size-3.5" aria-hidden="true" />
+          Retry
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <span
+        className={cn(
+          'absolute right-2 top-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full px-2 py-1 text-[0.68rem] font-semibold shadow-sm',
+          status === 'uploaded' || status === 'existing'
+            ? 'bg-white/90 text-primary'
+            : 'bg-slate-950/70 text-white',
+        )}
+      >
+        {status === 'uploaded' || status === 'existing' ? (
+          <Check className="size-3" aria-hidden="true" />
+        ) : (
+          <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+        )}
+        {getDraftMediaUploadStatusText(media)}
+      </span>
+      {status === 'uploading' && progressPercent !== null ? (
+        <span className="absolute inset-x-3 bottom-14 h-1.5 overflow-hidden rounded-full bg-white/70">
+          <span
+            className="block h-full rounded-full bg-primary"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </span>
+      ) : null}
+    </>
   )
 }
 
@@ -6731,6 +7169,183 @@ function getPostMediaType(file: File): NonNullable<PostMedia['type']> {
   return file.type.startsWith('video/') ? 'video' : 'image'
 }
 
+function createExistingDraftPostMedia(media: PostMedia): DraftPostMedia {
+  return {
+    ...media,
+    clientId: createClientId('draft-media'),
+    upload: {
+      error: null,
+      loadedBytes: null,
+      mediaId: media.media_id ?? null,
+      progress: null,
+      status: media.media_id ? 'existing' : 'uploaded',
+      totalBytes: null,
+    },
+  }
+}
+
+function createNewDraftPostMedia(
+  file: File,
+  src: string,
+  isApiBacked: boolean,
+): DraftPostMedia {
+  return {
+    alt: file.name,
+    clientId: createClientId('draft-media'),
+    file,
+    src,
+    type: getPostMediaType(file),
+    upload: {
+      error: null,
+      loadedBytes: null,
+      mediaId: null,
+      progress: isApiBacked ? null : 1,
+      status: isApiBacked ? 'queued' : 'uploaded',
+      totalBytes: file.size,
+    },
+  }
+}
+
+function toPostMediaFromDraft(media: DraftPostMedia): PostMedia {
+  return {
+    alt: media.alt,
+    file: media.file,
+    media_id: media.media_id ?? media.upload.mediaId ?? undefined,
+    poster: media.poster,
+    src: media.src,
+    type: media.type,
+  }
+}
+
+function updateDraftMediaUpload(
+  media: readonly DraftPostMedia[],
+  clientId: string,
+  updates: Partial<DraftMediaUploadState>,
+): DraftPostMedia[] {
+  return media.map((item) =>
+    item.clientId === clientId
+      ? {
+          ...item,
+          upload: {
+            ...item.upload,
+            ...updates,
+          },
+        }
+      : item,
+  )
+}
+
+function toDraftMediaProgressUpdate(
+  progress: MediaUploadProgress,
+): Partial<DraftMediaUploadState> {
+  return {
+    loadedBytes: progress.loaded,
+    progress: progress.progress,
+    totalBytes: progress.total,
+  }
+}
+
+function getDraftMediaUploadSummary(media: readonly DraftPostMedia[]) {
+  return media.reduce(
+    (summary, item) => {
+      summary.total += 1
+      if (isDraftMediaUploadReady(item)) {
+        summary.ready += 1
+      }
+      if (item.upload.status === 'queued' || item.upload.status === 'uploading') {
+        summary.pending += 1
+      }
+      if (item.upload.status === 'uploading') {
+        summary.uploading += 1
+      }
+      if (item.upload.status === 'failed') {
+        summary.failed += 1
+      }
+      return summary
+    },
+    {
+      failed: 0,
+      pending: 0,
+      ready: 0,
+      total: 0,
+      uploading: 0,
+    },
+  )
+}
+
+function getDraftMediaSectionDescription(
+  mediaCount: number,
+  uploadSummary: ReturnType<typeof getDraftMediaUploadSummary>,
+  isApiBacked: boolean,
+) {
+  if (mediaCount === 0) {
+    return 'Add photos or videos to build the post gallery.'
+  }
+  if (isApiBacked && uploadSummary.failed > 0) {
+    return `${uploadSummary.failed} ${uploadSummary.failed === 1 ? 'upload needs' : 'uploads need'} attention.`
+  }
+  if (isApiBacked && uploadSummary.pending > 0) {
+    return `Uploading ${uploadSummary.ready} of ${uploadSummary.total}.`
+  }
+  return `${mediaCount} ${mediaCount === 1 ? 'media item' : 'media items'} · first visual becomes the map bubble.`
+}
+
+function getDraftMediaUploadSummaryLabel(
+  uploadSummary: ReturnType<typeof getDraftMediaUploadSummary>,
+) {
+  if (uploadSummary.failed > 0) {
+    return `${uploadSummary.failed} ${uploadSummary.failed === 1 ? 'upload failed' : 'uploads failed'}`
+  }
+  if (uploadSummary.pending > 0) {
+    return `Uploading ${uploadSummary.ready} of ${uploadSummary.total}`
+  }
+  return 'Uploads complete'
+}
+
+function getFinishingUploadsModalDescription(intent?: PostSubmitIntent) {
+  if (intent === 'draft') {
+    return 'The draft will be saved once the remaining media is uploaded.'
+  }
+  if (intent === 'save') {
+    return 'The post will be saved once the remaining media is uploaded.'
+  }
+  return 'The post will publish once the remaining media is uploaded.'
+}
+
+function getDraftMediaUploadStatusText(media: DraftPostMedia) {
+  if (media.upload.status === 'existing') {
+    return 'Uploaded'
+  }
+  if (media.upload.status === 'queued') {
+    return 'Queued'
+  }
+  if (media.upload.status === 'uploading') {
+    return media.upload.progress === null
+      ? 'Uploading'
+      : `Uploading ${Math.round(media.upload.progress * 100)}%`
+  }
+  if (media.upload.status === 'uploaded') {
+    return 'Uploaded'
+  }
+  return 'Failed'
+}
+
+function isDraftMediaUploadReady(media: DraftPostMedia) {
+  return media.upload.status === 'existing' || media.upload.status === 'uploaded'
+}
+
+function isDraftMediaUploadBlocking(media: DraftPostMedia) {
+  return (
+    media.upload.status === 'queued' ||
+    media.upload.status === 'uploading' ||
+    media.upload.status === 'failed'
+  )
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
 function toPostOccurredAtValue(value: string) {
   const date = parseDateTime(value)
   return date ? date.toISOString() : value
@@ -7261,23 +7876,10 @@ function toLocationCoordinatesInput([latitude, longitude]: L.LatLngTuple) {
   return { latitude, longitude }
 }
 
-async function uploadPostDraftMedia(
-  media: readonly PostMedia[],
-  accessToken: string,
-) {
-  const mediaIds = await Promise.all(
-    media.map(async (item) => {
-      if (item.media_id) {
-        return item.media_id
-      }
-      if (item.file) {
-        return uploadMedia(item.file, accessToken)
-      }
-      return null
-    }),
-  )
-
-  return mediaIds.filter((mediaId): mediaId is string => Boolean(mediaId))
+function getPostDraftMediaIds(media: readonly PostMedia[]) {
+  return media
+    .map((item) => item.media_id ?? null)
+    .filter((mediaId): mediaId is string => Boolean(mediaId))
 }
 
 function toTravelPostUpdates(draft: PostSubmitDraft): Partial<TravelPost> {

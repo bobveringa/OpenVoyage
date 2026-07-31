@@ -60,7 +60,20 @@ def test_upload_media_success(
 
     assert response.status_code == 201
     payload = response.json()
+    assert payload['media_type'] == 'IMAGE'
+    assert payload['status'] == 'UPLOADED'
+    assert payload['metadata']['caption'] == ''
+    assert payload['technical_info'] == {'width': 640, 'height': 480}
+    assert payload['urls']['thumbnail'] is None
+
+    content_url = payload['urls']['content']
+    query = parse_qs(urlsplit(content_url).query)
     assert 'id' in payload
+    assert 'media_token' in query
+
+    content_response = client.get(_path_and_query(content_url))
+    assert content_response.status_code == 200
+    assert content_response.content == b'not-a-real-jpeg-but-good-enough-for-test'
 
 
 @pytest.mark.integration

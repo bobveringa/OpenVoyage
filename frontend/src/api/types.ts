@@ -878,6 +878,20 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Media Type
+             * @enum {string}
+             */
+            media_type: "IMAGE" | "VIDEO";
+            metadata: components["schemas"]["MediaMetadata"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "UPLOADED" | "READY" | "FAILED";
+            /** Technical Info */
+            technical_info: components["schemas"]["ImageTechnicalInfo"] | components["schemas"]["VideoTechnicalInfo"] | null;
+            urls: components["schemas"]["MediaUrls"];
         };
         /** MediaUrls */
         MediaUrls: {

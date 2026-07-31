@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from models.api.media import MediaResponse
+from models.api.media import MediaResponse, MediaUploadResponse
 from models.database.media import Media, MediaStatus, MediaStorageBackend, MediaType
 
 
@@ -105,3 +105,43 @@ def test_media_response_from_model_uploaded_media_allows_missing_thumbnail() -> 
     assert response.urls.thumbnail is None
     assert response.technical_info is not None
     assert response.technical_info.width == 1920
+
+
+@pytest.mark.unit
+def test_media_upload_response_from_model_includes_signed_content_url() -> None:
+    media_id = uuid.uuid4()
+    media = Media(
+        id=media_id,
+        storage_path='media/upload.jpg',
+        thumbnail_storage_path=None,
+        media_type=MediaType.IMAGE,
+        content_type='image/jpeg',
+        thumbnail_content_type=None,
+        caption='',
+        status=MediaStatus.UPLOADED,
+        storage_backend=MediaStorageBackend.LOCAL,
+        width=640,
+        height=480,
+        duration=None,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+        created_by=None,
+    )
+
+    response = MediaUploadResponse.from_model(
+        media,
+        media_base_url='https://example.test',
+        media_token='signed-token',
+    )
+
+    assert response.id == media_id
+    assert response.media_type == 'IMAGE'
+    assert response.status == 'UPLOADED'
+    assert (
+        response.urls.content
+        == f'https://example.test/api/v1/media/{media_id}/content?media_token=signed-token'
+    )
+    assert response.urls.thumbnail is None
+    assert response.technical_info is not None
+    assert response.technical_info.width == 640
+    assert response.technical_info.height == 480

@@ -36,6 +36,13 @@ export type ItineraryStopUpdatePayload =
 export type ItineraryTravelReplacePayload =
   components['schemas']['ItineraryTravelReplaceRequest']
 export type Media = components['schemas']['MediaResponse']
+export type MediaUploadResponse = components['schemas']['MediaUploadResponse']
+export type MediaUploadProgress = {
+  lengthComputable: boolean
+  loaded: number
+  progress: number | null
+  total: number | null
+}
 export type PlaceImportDataset =
   components['schemas']['PlaceImportRequest']['dataset']
 export type PlaceImportPayload = components['schemas']['PlaceImportRequest']
@@ -269,19 +276,34 @@ export async function uploadMedia(
   file: File,
   accessToken: string,
 ): Promise<string> {
-  const formData = new FormData()
-  formData.set('file', file)
-
-  const response = await requestJson<components['schemas']['MediaUploadResponse']>(
-    `${API_V1_PREFIX}/media`,
-    {
-      method: 'POST',
-      accessToken,
-      formData,
-    },
-  )
-
+  const response = await uploadMediaWithProgress({ accessToken, file })
   return response.id
+}
+
+export async function uploadMediaWithProgress(options: {
+  accessToken: string
+  file: File
+  onProgress?: (progress: MediaUploadProgress) => void
+  signal?: AbortSignal
+}): Promise<MediaUploadResponse> {
+  const requestedAccessToken = options.accessToken
+  let accessToken = await resolveAccessToken(requestedAccessToken, false)
+
+  try {
+    return await sendMediaUploadRequest(options, accessToken)
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 401) {
+      throw error
+    }
+
+    const refreshedAccessToken = await resolveAccessToken(accessToken, true)
+    if (!refreshedAccessToken || refreshedAccessToken === accessToken) {
+      throw error
+    }
+
+    accessToken = refreshedAccessToken
+    return sendMediaUploadRequest(options, accessToken)
+  }
 }
 
 export async function createTrip(
@@ -767,6 +789,81 @@ async function sendApiRequest(
   })
 }
 
+function sendMediaUploadRequest(
+  options: {
+    file: File
+    onProgress?: (progress: MediaUploadProgress) => void
+    signal?: AbortSignal
+  },
+  accessToken: string | null,
+): Promise<MediaUploadResponse> {
+  if (options.signal?.aborted) {
+    return Promise.reject(createAbortError())
+  }
+
+  return new Promise((resolve, reject) => {
+    const formData = new FormData()
+    formData.set('file', options.file)
+
+    const xhr = new XMLHttpRequest()
+
+    function cleanup() {
+      options.signal?.removeEventListener('abort', abortUpload)
+    }
+
+    function rejectWith(error: unknown) {
+      cleanup()
+      reject(error)
+    }
+
+    function abortUpload() {
+      xhr.abort()
+    }
+
+    options.signal?.addEventListener('abort', abortUpload, { once: true })
+
+    xhr.upload.onprogress = (event) => {
+      const total = event.lengthComputable && event.total > 0 ? event.total : null
+      options.onProgress?.({
+        lengthComputable: event.lengthComputable,
+        loaded: event.loaded,
+        progress: total === null ? null : event.loaded / total,
+        total,
+      })
+    }
+
+    xhr.onload = () => {
+      cleanup()
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const detail = readXhrDetail(xhr)
+        reject(new ApiError(xhr.status, detailToMessage(detail), detail))
+        return
+      }
+
+      try {
+        resolve(JSON.parse(xhr.responseText) as MediaUploadResponse)
+      } catch {
+        reject(
+          new ApiError(
+            xhr.status,
+            'Invalid response from server',
+            xhr.responseText,
+          ),
+        )
+      }
+    }
+
+    xhr.onerror = () => rejectWith(new TypeError('Network request failed'))
+    xhr.onabort = () => rejectWith(createAbortError())
+
+    xhr.open('POST', buildApiUrl(`${API_V1_PREFIX}/media`))
+    if (accessToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`)
+    }
+    xhr.send(formData)
+  })
+}
+
 function buildApiUrl(path: string, query?: Record<string, QueryValue>): string {
   const url = new URL(`${API_ROOT}${path}`)
   for (const [key, value] of Object.entries(query ?? {})) {
@@ -812,6 +909,28 @@ function detailToMessage(detail: unknown): string {
     }
   }
   return 'Request failed'
+}
+
+function readXhrDetail(xhr: XMLHttpRequest): unknown {
+  if (!xhr.responseText) {
+    return xhr.statusText
+  }
+
+  try {
+    return JSON.parse(xhr.responseText)
+  } catch {
+    return xhr.responseText
+  }
+}
+
+function createAbortError(): Error {
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException('Upload aborted', 'AbortError')
+  }
+
+  const error = new Error('Upload aborted')
+  error.name = 'AbortError'
+  return error
 }
 
 function readEtagRevision(response: Response) {

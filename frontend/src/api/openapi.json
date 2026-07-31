@@ -886,10 +886,52 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "media_type": {
+            "enum": [
+              "IMAGE",
+              "VIDEO"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/MediaMetadata"
+          },
+          "status": {
+            "enum": [
+              "UPLOADED",
+              "READY",
+              "FAILED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "technical_info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImageTechnicalInfo"
+              },
+              {
+                "$ref": "#/components/schemas/VideoTechnicalInfo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Technical Info"
+          },
+          "urls": {
+            "$ref": "#/components/schemas/MediaUrls"
           }
         },
         "required": [
-          "id"
+          "id",
+          "media_type",
+          "status",
+          "urls",
+          "metadata",
+          "technical_info"
         ],
         "title": "MediaUploadResponse",
         "type": "object"
