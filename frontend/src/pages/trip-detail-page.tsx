@@ -272,6 +272,23 @@ type RouteSegment = {
   routeType: ItineraryRouteType
 }
 
+type FocusedPostNeighbor = {
+  distanceMeters: number
+  post: TravelPost
+}
+
+type FocusedPostViewPlan =
+  | {
+      coordinates: L.LatLngTuple
+      kind: 'center'
+      zoom: number
+    }
+  | {
+      bounds: L.LatLngBounds
+      kind: 'bounds'
+      maxZoom: number
+    }
+
 type TripDetailHistoryAction = 'push' | 'replace'
 
 type TripDetailUrlState = {
@@ -363,6 +380,27 @@ const earthRadiusKilometers = 6371
 const geodesicSegmentKilometers = 125
 const defaultMapCenter: L.LatLngTuple = [42.5, -3.5]
 const defaultMapZoom = 4
+const focusedPostDistanceThresholdsMeters = {
+  cityCluster: 8_000,
+  metroContext: 35_000,
+  samePlace: 100,
+  walkableCluster: 1_500,
+} as const
+const focusedPostCityOutlierRatio = 4
+const focusedPostMetroOutlierRatio = 8
+const focusedPostComparableFarRatio = 2.5
+const focusedPostZoomDetailBias = 1
+const focusedPostMinZoom = 4
+const focusedPostAnimationOptions = {
+  animate: true,
+  duration: 0.7,
+  easeLinearity: 0.25,
+} satisfies L.ZoomPanOptions
+const routeOverviewAnimationOptions = {
+  animate: true,
+  duration: 1.15,
+  easeLinearity: 0.2,
+} satisfies L.ZoomPanOptions
 
 const mockTrip: MockTrip = {
   description:
@@ -6332,6 +6370,7 @@ function TripLeafletMap({
     const map = L.map(container, {
       attributionControl: true,
       center: defaultMapCenter,
+      minZoom: 3,
       scrollWheelZoom: true,
       zoom: defaultMapZoom,
       zoomControl: false,
@@ -6437,24 +6476,34 @@ function TripLeafletMap({
         travelLegsRef.current,
         travelPostsRef.current,
         fitMode,
+        { animate: true },
       )
       return
     }
 
-    const focusedPost =
-      travelPostsRef.current.find((post) => post.id === focusedPostId) ?? null
-    if (!focusedPost) {
+    const focusedPostView = getFocusedPostViewPlan(
+      map,
+      focusedPostId,
+      travelPostsRef.current,
+      fitMode,
+    )
+    if (!focusedPostView) {
+      return
+    }
+
+    if (focusedPostView.kind === 'bounds') {
+      map.flyToBounds(focusedPostView.bounds, {
+        ...getFocusedPostFitOptions(fitMode),
+        ...focusedPostAnimationOptions,
+        maxZoom: focusedPostView.maxZoom,
+      })
       return
     }
 
     map.flyTo(
-      focusedPost.coordinates,
-      getFocusedPostZoom(map.getZoom(), fitMode),
-      {
-        animate: true,
-        duration: 0.7,
-        easeLinearity: 0.25,
-      },
+      focusedPostView.coordinates,
+      focusedPostView.zoom,
+      focusedPostAnimationOptions,
     )
   }, [fitMode, focusedPostId, routeKey, routeMode])
 
@@ -6497,6 +6546,7 @@ function TripLeafletMap({
       travelLegsRef.current,
       travelPostsRef.current,
       fitMode,
+      { animate: true },
     )
   }, [fitMode, resetNonce, routeMode])
 
@@ -6603,6 +6653,7 @@ function fitRouteBounds(
   travelLegs: readonly TravelLeg[],
   travelPosts: readonly TravelPost[],
   fitMode: RouteFitMode,
+  options: { animate?: boolean } = {},
 ) {
   const routeCoordinates = getRouteBoundsCoordinates(
     routeMode,
@@ -6612,18 +6663,28 @@ function fitRouteBounds(
   )
   if (routeCoordinates.length === 0) {
     map.setView(defaultMapCenter, defaultMapZoom, {
-      animate: false,
+      ...(options.animate ? routeOverviewAnimationOptions : { animate: false }),
     })
     return
   }
 
-  map.fitBounds(L.latLngBounds(routeCoordinates), getRouteFitOptions(fitMode))
+  const routeBounds = L.latLngBounds(routeCoordinates)
+  const routeFitOptions = getRouteFitOptions(fitMode)
+  if (options.animate) {
+    map.flyToBounds(routeBounds, {
+      ...routeFitOptions,
+      ...routeOverviewAnimationOptions,
+    })
+    return
+  }
+
+  map.fitBounds(routeBounds, routeFitOptions)
 }
 
 function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
   if (fitMode === 'mobile-picker') {
     return {
-      maxZoom: 4,
+      maxZoom: 7,
       paddingBottomRight: [32, 260],
       paddingTopLeft: [32, 96],
     }
@@ -6631,7 +6692,7 @@ function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
 
   if (fitMode === 'mobile-travel') {
     return {
-      maxZoom: 4,
+      maxZoom: 8,
       paddingBottomRight: [36, 280],
       paddingTopLeft: [36, 96],
     }
@@ -6643,15 +6704,194 @@ function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
   }
 }
 
-function getFocusedPostZoom(currentZoom: number, fitMode: RouteFitMode) {
-  const maxFocusedZoom = fitMode === 'mobile-travel' ? 6 : 7
-  const minFocusedZoom = fitMode === 'mobile-travel' ? 5 : 6
-  const focusedZoom = Math.min(
-    Math.max(currentZoom + 1, minFocusedZoom),
-    maxFocusedZoom,
+function getFocusedPostViewPlan(
+  map: L.Map,
+  focusedPostId: string,
+  travelPosts: readonly TravelPost[],
+  fitMode: RouteFitMode,
+): FocusedPostViewPlan | null {
+  const focusedPostContext = getFocusedPostContext(focusedPostId, travelPosts)
+  if (!focusedPostContext) {
+    return null
+  }
+
+  const selectedNeighbors = selectFocusedPostZoomNeighbors(
+    focusedPostContext.neighbors,
+  )
+  if (selectedNeighbors.length === 0) {
+    return {
+      coordinates: focusedPostContext.focusedPost.coordinates,
+      kind: 'center',
+      zoom: getSingleFocusedPostZoom(fitMode),
+    }
+  }
+
+  const selectedCoordinates = [
+    focusedPostContext.focusedPost.coordinates,
+    ...selectedNeighbors.map((neighbor) => neighbor.post.coordinates),
+  ]
+  const bounds = L.latLngBounds(selectedCoordinates)
+  const boundsZoom = map.getBoundsZoom(
+    bounds,
+    false,
+    getFocusedPostZoomPadding(fitMode),
   )
 
-  return Math.max(currentZoom, focusedZoom)
+  return {
+    bounds,
+    kind: 'bounds',
+    maxZoom: clampFocusedPostZoom(
+      boundsZoom + focusedPostZoomDetailBias,
+      fitMode,
+    ),
+  }
+}
+
+function getFocusedPostContext(
+  focusedPostId: string,
+  travelPosts: readonly TravelPost[],
+) {
+  const postsInRouteOrder = getTravelPostsInRouteOrder(travelPosts)
+  const focusedPostIndex = postsInRouteOrder.findIndex(
+    (post) => post.id === focusedPostId,
+  )
+  const focusedPost = postsInRouteOrder[focusedPostIndex]
+  if (focusedPostIndex < 0 || !focusedPost) {
+    return null
+  }
+
+  const neighbors: FocusedPostNeighbor[] = []
+  const previousPost = postsInRouteOrder[focusedPostIndex - 1] ?? null
+  const nextPost = postsInRouteOrder[focusedPostIndex + 1] ?? null
+
+  if (previousPost) {
+    neighbors.push({
+      distanceMeters: getCoordinateDistanceMeters(
+        focusedPost.coordinates,
+        previousPost.coordinates,
+      ),
+      post: previousPost,
+    })
+  }
+
+  if (nextPost) {
+    neighbors.push({
+      distanceMeters: getCoordinateDistanceMeters(
+        focusedPost.coordinates,
+        nextPost.coordinates,
+      ),
+      post: nextPost,
+    })
+  }
+
+  return {
+    focusedPost,
+    neighbors,
+  }
+}
+
+function selectFocusedPostZoomNeighbors(
+  neighbors: readonly FocusedPostNeighbor[],
+) {
+  if (neighbors.length <= 1) {
+    return [...neighbors]
+  }
+
+  const neighborsByDistance = [...neighbors].sort(
+    (leftNeighbor, rightNeighbor) =>
+      leftNeighbor.distanceMeters - rightNeighbor.distanceMeters,
+  )
+  const nearestNeighbor = neighborsByDistance[0]
+  const farthestNeighbor = neighborsByDistance[neighborsByDistance.length - 1]
+  if (!nearestNeighbor || !farthestNeighbor) {
+    return []
+  }
+
+  const distanceRatio =
+    farthestNeighbor.distanceMeters /
+    Math.max(nearestNeighbor.distanceMeters, 1)
+
+  if (
+    nearestNeighbor.distanceMeters <=
+      focusedPostDistanceThresholdsMeters.cityCluster &&
+    distanceRatio >= focusedPostCityOutlierRatio
+  ) {
+    return [nearestNeighbor]
+  }
+
+  if (
+    nearestNeighbor.distanceMeters <=
+      focusedPostDistanceThresholdsMeters.metroContext &&
+    distanceRatio >= focusedPostMetroOutlierRatio
+  ) {
+    return [nearestNeighbor]
+  }
+
+  if (
+    nearestNeighbor.distanceMeters >
+      focusedPostDistanceThresholdsMeters.metroContext &&
+    distanceRatio > focusedPostComparableFarRatio
+  ) {
+    return [nearestNeighbor]
+  }
+
+  return [...neighbors]
+}
+
+function getFocusedPostFitOptions(
+  fitMode: RouteFitMode,
+): L.FitBoundsOptions {
+  if (fitMode === 'mobile-picker') {
+    return {
+      paddingBottomRight: [44, 280],
+      paddingTopLeft: [44, 108],
+    }
+  }
+
+  if (fitMode === 'mobile-travel') {
+    return {
+      paddingBottomRight: [48, 320],
+      paddingTopLeft: [48, 112],
+    }
+  }
+
+  return {
+    paddingBottomRight: [104, 104],
+    paddingTopLeft: [400, 176],
+  }
+}
+
+function getFocusedPostZoomPadding(fitMode: RouteFitMode): L.Point {
+  if (fitMode === 'mobile-picker') {
+    return L.point(52, 150)
+  }
+
+  if (fitMode === 'mobile-travel') {
+    return L.point(56, 170)
+  }
+
+  return L.point(220, 130)
+}
+
+function clampFocusedPostZoom(zoom: number, fitMode: RouteFitMode) {
+  return Math.round(
+    Math.min(Math.max(zoom, focusedPostMinZoom), getMaxFocusedPostZoom(fitMode)),
+  )
+}
+
+function getSingleFocusedPostZoom(fitMode: RouteFitMode) {
+  return fitMode === 'mobile-travel' ? 12 : 13
+}
+
+function getMaxFocusedPostZoom(fitMode: RouteFitMode) {
+  return fitMode === 'mobile-travel' ? 14 : 15
+}
+
+function getCoordinateDistanceMeters(
+  start: L.LatLngTuple,
+  end: L.LatLngTuple,
+) {
+  return getCentralAngle(start, end) * earthRadiusKilometers * 1000
 }
 
 function createRouteKey(
