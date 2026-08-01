@@ -95,6 +95,7 @@ import {
   updateTrip,
   updateTripMember,
   uploadMediaWithProgress,
+  type CurrentUser,
   type GeoJsonLineString,
   type Itinerary,
   type ItineraryStopCreatePayload,
@@ -302,6 +303,7 @@ type TripDetailUrlState = {
 type TripDetailPageProps = {
   accessToken?: string | null
   authStatus?: AuthStatus
+  currentUser?: CurrentUser | null
   tripId?: string
 }
 
@@ -784,16 +786,19 @@ const initialTravelPosts: readonly TravelPost[] = [
 export function TripDetailPage({
   accessToken = null,
   authStatus = 'unauthenticated',
+  currentUser = null,
   tripId,
 }: TripDetailPageProps = {}) {
   const shouldUseMobileMapPicker = useMediaQuery('(max-width: 1023px)')
   const isApiBacked = Boolean(tripId)
-  const canSwitchModes = true
+  const initialCanUseMemberUi = !isApiBacked || authStatus === 'authenticated'
   const sourceStops = isApiBacked ? [] : initialStops
   const sourceTravelLegs = isApiBacked ? [] : initialTravelLegs
   const sourceTravelPosts = isApiBacked ? [] : initialTravelPosts
   const initialUrlState = readTripDetailUrlState({
-    canSwitchModes,
+    canEditTravelPosts: initialCanUseMemberUi,
+    canOpenManagementDialogs: initialCanUseMemberUi,
+    canSwitchModes: initialCanUseMemberUi,
     travelPosts: sourceTravelPosts,
   })
   const [mode, setMode] = useState<TripMode>(initialUrlState.mode)
@@ -848,7 +853,22 @@ export function TripDetailPage({
     useState<DraftPostLocation | null>(null)
   const urlStateRef = useRef<TripDetailUrlState>(initialUrlState)
   const shareToken = useMemo(readShareTokenFromUrl, [])
-  const canMutate = !isApiBacked || Boolean(accessToken)
+  const currentUserId = currentUser?.id ?? null
+  const currentTripMembership = useMemo(() => {
+    if (!isApiBacked) {
+      return mockTripMembers[0] ?? null
+    }
+    if (!currentUserId) {
+      return null
+    }
+
+    return (
+      tripMembers.find((member) => member.userId === currentUserId) ?? null
+    )
+  }, [currentUserId, isApiBacked, tripMembers])
+  const canMutate = !isApiBacked || currentTripMembership !== null
+  const canManageTrip = !isApiBacked || currentTripMembership?.role === 'OWNER'
+  const canSwitchModes = canMutate
   const isMutating = pendingAction !== null
 
   const applyItinerary = useCallback((itinerary: Itinerary) => {
@@ -866,8 +886,7 @@ export function TripDetailPage({
         return
       }
 
-      const [members, viewers, shareLinks] = await Promise.all([
-        listTripMembers({ accessToken, tripId }),
+      const [viewers, shareLinks] = await Promise.all([
         listTripViewers({ accessToken, tripId }),
         listTripShareLinks({ accessToken, tripId }),
       ])
@@ -876,7 +895,6 @@ export function TripDetailPage({
         return
       }
 
-      setTripMembers(members.map(toTripMemberViewModel))
       setTripViewers(viewers.map(toTripViewerViewModel))
       setTripShareLinks(shareLinks.map(toShareLinkViewModel))
     },
@@ -893,35 +911,49 @@ export function TripDetailPage({
       setMutationError(null)
 
       try {
-        const [loadedTrip, loadedItinerary, loadedPosts] = await Promise.all([
-          getTrip({ accessToken, shareToken, tripId }),
-          getItinerary({ accessToken, shareToken, tripId }),
-          listPosts({
-            accessToken,
-            pageSize: 100,
-            shareToken,
-            sortBy: 'occurred_at',
-            sortOrder: 'asc',
-            status: accessToken ? 'all' : 'published',
-            tripId,
-          }),
-        ])
+        const [loadedTrip, loadedItinerary, loadedPosts, loadedMembers] =
+          await Promise.all([
+            getTrip({ accessToken, shareToken, tripId }),
+            getItinerary({ accessToken, shareToken, tripId }),
+            listPosts({
+              accessToken,
+              pageSize: 100,
+              shareToken,
+              sortBy: 'occurred_at',
+              sortOrder: 'asc',
+              status: accessToken ? 'all' : 'published',
+              tripId,
+            }),
+            listTripMembers({ accessToken, shareToken, tripId }),
+          ])
 
         if (!options.isCurrent()) {
           return
         }
 
+        const loadedTripMembers = loadedMembers.map(toTripMemberViewModel)
+        const loadedCurrentMembership =
+          currentUserId === null
+            ? null
+            : loadedTripMembers.find(
+                (member) => member.userId === currentUserId,
+              ) ?? null
+
         setTrip(toTripViewModel(loadedTrip))
         applyItinerary(loadedItinerary)
+        setTripMembers(loadedTripMembers)
         setTravelPosts(loadedPosts.items.map(toTravelPostViewModel))
         setLoadState({ error: null, status: 'success' })
 
-        if (accessToken) {
+        if (accessToken && loadedCurrentMembership?.role === 'OWNER') {
           void loadTripManagement(options).catch((managementError) => {
             if (options.isCurrent()) {
               setMutationError(getErrorMessage(managementError))
             }
           })
+        } else {
+          setTripViewers([])
+          setTripShareLinks([])
         }
       } catch (loadError) {
         if (!options.isCurrent()) {
@@ -934,7 +966,14 @@ export function TripDetailPage({
         })
       }
     },
-    [accessToken, applyItinerary, loadTripManagement, shareToken, tripId],
+    [
+      accessToken,
+      applyItinerary,
+      currentUserId,
+      loadTripManagement,
+      shareToken,
+      tripId,
+    ],
   )
 
   useEffect(() => {
@@ -1037,6 +1076,8 @@ export function TripDetailPage({
           ...updates,
         },
         {
+          canEditTravelPosts: canMutate,
+          canOpenManagementDialogs: canManageTrip,
           canSwitchModes,
           travelPosts,
         },
@@ -1045,12 +1086,22 @@ export function TripDetailPage({
       applyTripDetailUrlState(nextState)
       writeTripDetailUrlState(nextState, historyAction)
     },
-    [applyTripDetailUrlState, canSwitchModes, travelPosts],
+    [
+      applyTripDetailUrlState,
+      canManageTrip,
+      canMutate,
+      canSwitchModes,
+      travelPosts,
+    ],
   )
 
   const openDialog = useCallback((dialog: TripDialog) => {
+    if (!canManageTrip) {
+      return
+    }
+
     navigateTripDetailUrlState({ activeDialog: dialog })
-  }, [navigateTripDetailUrlState])
+  }, [canManageTrip, navigateTripDetailUrlState])
 
   const closeDialog = useCallback(() => {
     navigateTripDetailUrlState({ activeDialog: null }, 'replace')
@@ -1799,21 +1850,30 @@ export function TripDetailPage({
   }, [])
 
   useEffect(() => {
-    urlStateRef.current = normalizeTripDetailUrlState(
-      {
-        activeDialog,
-        editingPostId,
-        mode,
-        planningView,
-        travelingView,
-      },
-      {
-        canSwitchModes,
-        travelPosts,
-      },
-    )
+    const currentState = {
+      activeDialog,
+      editingPostId,
+      mode,
+      planningView,
+      travelingView,
+    }
+    const normalizedState = normalizeTripDetailUrlState(currentState, {
+      canEditTravelPosts: canMutate,
+      canOpenManagementDialogs: canManageTrip,
+      canSwitchModes,
+      travelPosts,
+    })
+
+    urlStateRef.current = normalizedState
+    if (!areTripDetailUrlStatesEqual(normalizedState, currentState)) {
+      applyTripDetailUrlState(normalizedState)
+      writeTripDetailUrlState(normalizedState, 'replace')
+    }
   }, [
     activeDialog,
+    applyTripDetailUrlState,
+    canManageTrip,
+    canMutate,
     canSwitchModes,
     editingPostId,
     mode,
@@ -1826,6 +1886,8 @@ export function TripDetailPage({
     function handlePopState() {
       applyTripDetailUrlState(
         readTripDetailUrlState({
+          canEditTravelPosts: canMutate,
+          canOpenManagementDialogs: canManageTrip,
           canSwitchModes,
           travelPosts,
         }),
@@ -1834,7 +1896,13 @@ export function TripDetailPage({
 
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [applyTripDetailUrlState, canSwitchModes, travelPosts])
+  }, [
+    applyTripDetailUrlState,
+    canManageTrip,
+    canMutate,
+    canSwitchModes,
+    travelPosts,
+  ])
 
   const activeDraftMapLocation =
     mapPointTarget === 'post'
@@ -1893,7 +1961,14 @@ export function TripDetailPage({
   return (
     <div className="relative z-0 min-h-[calc(100dvh-4rem-1px)] w-full overflow-x-hidden py-3 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-hidden lg:px-6">
       <div className="min-h-0 w-full lg:h-full">
-        <div className="grid min-h-0 gap-4 lg:h-full lg:grid-cols-[minmax(28rem,45%)_minmax(0,1fr)]">
+        <div
+          className={cn(
+            'grid min-h-0 gap-4 lg:h-full',
+            canSwitchModes
+              ? 'lg:grid-cols-[minmax(28rem,45%)_minmax(0,1fr)]'
+              : 'lg:grid-cols-[minmax(28rem,42%)_minmax(0,1fr)]',
+          )}
+        >
           <div
             className={cn(
               'min-h-0 min-w-0',
@@ -1906,6 +1981,7 @@ export function TripDetailPage({
             ) : null}
             <TripSidebar
               accessToken={accessToken}
+              canManageTrip={canManageTrip}
               canMutate={canMutate}
               draftPostLocation={draftPostLocation}
               draftStopLocation={draftStopLocation}
@@ -1955,40 +2031,44 @@ export function TripDetailPage({
         </div>
       </div>
 
-      <TripSettingsDialog
-        canMutate={canMutate}
-        isSaving={isMutating}
-        onClose={closeDialog}
-        onSave={handleTripSettingsSave}
-        open={activeDialog === 'settings'}
-        trip={trip}
-      />
-      <ShareManagementDialog
-        canMutate={canMutate}
-        isSaving={isMutating}
-        onClose={closeDialog}
-        onCreateLink={handleShareLinkCreate}
-        onInviteViewer={handleViewerAdd}
-        onRemoveViewer={handleViewerRemove}
-        onRevokeLink={handleShareLinkRevoke}
-        open={activeDialog === 'share'}
-        shareLinks={tripShareLinks}
-        viewers={tripViewers}
-      />
-      <TripMembersDialog
-        canMutate={canMutate}
-        isSaving={isMutating}
-        members={tripMembers}
-        onClose={closeDialog}
-        onInviteMember={handleMemberAdd}
-        onRemoveMember={handleMemberRemove}
-        onUpdateMemberRole={handleMemberRoleChange}
-        open={activeDialog === 'members'}
-      />
-      <TripActionsDialog
-        onClose={closeDialog}
-        open={activeDialog === 'actions'}
-      />
+      {canManageTrip ? (
+        <>
+          <TripSettingsDialog
+            canMutate={canManageTrip}
+            isSaving={isMutating}
+            onClose={closeDialog}
+            onSave={handleTripSettingsSave}
+            open={activeDialog === 'settings'}
+            trip={trip}
+          />
+          <ShareManagementDialog
+            canMutate={canManageTrip}
+            isSaving={isMutating}
+            onClose={closeDialog}
+            onCreateLink={handleShareLinkCreate}
+            onInviteViewer={handleViewerAdd}
+            onRemoveViewer={handleViewerRemove}
+            onRevokeLink={handleShareLinkRevoke}
+            open={activeDialog === 'share'}
+            shareLinks={tripShareLinks}
+            viewers={tripViewers}
+          />
+          <TripMembersDialog
+            canMutate={canManageTrip}
+            isSaving={isMutating}
+            members={tripMembers}
+            onClose={closeDialog}
+            onInviteMember={handleMemberAdd}
+            onRemoveMember={handleMemberRemove}
+            onUpdateMemberRole={handleMemberRoleChange}
+            open={activeDialog === 'members'}
+          />
+          <TripActionsDialog
+            onClose={closeDialog}
+            open={activeDialog === 'actions'}
+          />
+        </>
+      ) : null}
       <MobileMapPointPicker
         initialLocation={mobileMapPickerLocation}
         onCancel={() => {
@@ -2022,9 +2102,11 @@ export function TripDetailPage({
 }
 
 function TripSidebarHeader({
+  canManageTrip,
   onOpenDialog,
   trip,
 }: {
+  canManageTrip: boolean
   onOpenDialog: (dialog: TripDialog) => void
   trip: MockTrip
 }) {
@@ -2043,28 +2125,30 @@ function TripSidebarHeader({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
-          <TripActionButton
-            icon={Settings}
-            label="Trip settings"
-            onClick={() => onOpenDialog('settings')}
-          />
-          <TripActionButton
-            icon={Share2}
-            label="Share management"
-            onClick={() => onOpenDialog('share')}
-          />
-          <TripActionButton
-            icon={Users}
-            label="Members"
-            onClick={() => onOpenDialog('members')}
-          />
-          <TripActionButton
-            icon={MoreHorizontal}
-            label="More actions"
-            onClick={() => onOpenDialog('actions')}
-          />
-        </div>
+        {canManageTrip ? (
+          <div className="flex shrink-0 items-center gap-1">
+            <TripActionButton
+              icon={Settings}
+              label="Trip settings"
+              onClick={() => onOpenDialog('settings')}
+            />
+            <TripActionButton
+              icon={Share2}
+              label="Share management"
+              onClick={() => onOpenDialog('share')}
+            />
+            <TripActionButton
+              icon={Users}
+              label="Members"
+              onClick={() => onOpenDialog('members')}
+            />
+            <TripActionButton
+              icon={MoreHorizontal}
+              label="More actions"
+              onClick={() => onOpenDialog('actions')}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -2924,6 +3008,7 @@ function MobileMapPointPicker({
 
 function TripSidebar({
   accessToken,
+  canManageTrip,
   canMutate,
   draftPostLocation,
   draftStopLocation,
@@ -2958,6 +3043,7 @@ function TripSidebar({
   travelingView,
 }: {
   accessToken?: string | null
+  canManageTrip: boolean
   canMutate: boolean
   draftPostLocation: DraftPostLocation | null
   draftStopLocation: DraftPostLocation | null
@@ -3036,7 +3122,11 @@ function TripSidebar({
         isMobileTravelPosts && `${mobileTravelMapHeight} lg:h-full`,
       )}
     >
-      <TripSidebarHeader onOpenDialog={onOpenDialog} trip={trip} />
+      <TripSidebarHeader
+        canManageTrip={canManageTrip}
+        onOpenDialog={onOpenDialog}
+        trip={trip}
+      />
       {mutationError ? (
         <p
           className="mx-4 mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
@@ -3059,7 +3149,7 @@ function TripSidebar({
         )}
         ref={sidebarScrollRef}
       >
-        {mode === 'planning' && planningView === 'create-stop' ? (
+        {mode === 'planning' && planningView === 'create-stop' && canMutate ? (
           <CreateStopPanel
             draftLocation={draftStopLocation}
             isSubmitting={isMutating}
@@ -3087,7 +3177,7 @@ function TripSidebar({
             tripStartDate={trip.startDate}
             travelLegs={travelLegs}
           />
-        ) : travelingView === 'create-post' ? (
+        ) : travelingView === 'create-post' && canMutate ? (
           <PostFormPanel
             accessToken={accessToken}
             draftLocation={draftPostLocation}
@@ -3099,7 +3189,7 @@ function TripSidebar({
             onMapPointTargetChange={onMapPointTargetChange}
             onSubmit={(draft) => onPostSubmit(null, draft)}
           />
-        ) : travelingView === 'edit-post' && editingPost ? (
+        ) : travelingView === 'edit-post' && editingPost && canMutate ? (
           <PostFormPanel
             accessToken={accessToken}
             draftLocation={draftPostLocation}
@@ -3114,6 +3204,7 @@ function TripSidebar({
           />
         ) : (
           <TravelingPanel
+            canMutate={canMutate}
             focusedPostId={focusedPostId}
             onEditPost={editPost}
             onFocusedPostChange={onFocusedPostChange}
@@ -3965,6 +4056,7 @@ function MobileTravelMap({
 }
 
 function TravelingPanel({
+  canMutate,
   focusedPostId,
   onFocusedPostChange,
   onEditPost,
@@ -3975,6 +4067,7 @@ function TravelingPanel({
   travelLegs,
   travelPosts,
 }: {
+  canMutate: boolean
   focusedPostId: string | null
   onFocusedPostChange: (postId: string | null) => void
   onEditPost: (postId: string) => void
@@ -4033,7 +4126,7 @@ function TravelingPanel({
           {activePost ? (
             <MobilePostDetailCard
               onBack={() => setActivePostId(null)}
-              onEdit={() => onEditPost(activePost.id)}
+              onEdit={canMutate ? () => onEditPost(activePost.id) : undefined}
               post={activePost}
             />
           ) : (
@@ -4045,17 +4138,19 @@ function TravelingPanel({
                 travelPosts={travelPosts}
               />
 
-              <div className="pointer-events-none absolute left-3 top-3 z-[500]">
-                <Button
-                  className="pointer-events-auto shadow-xl shadow-emerald-950/10"
-                  onClick={onNewPost}
-                  size="sm"
-                  type="button"
-                >
-                  <Camera className="size-4" aria-hidden="true" />
-                  New post
-                </Button>
-              </div>
+              {canMutate ? (
+                <div className="pointer-events-none absolute left-3 top-3 z-[500]">
+                  <Button
+                    className="pointer-events-auto shadow-xl shadow-emerald-950/10"
+                    onClick={onNewPost}
+                    size="sm"
+                    type="button"
+                  >
+                    <Camera className="size-4" aria-hidden="true" />
+                    New post
+                  </Button>
+                </div>
+              ) : null}
 
               <div className="absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-white/90 via-white/45 to-transparent pb-3 pt-10">
                 <div
@@ -4097,10 +4192,12 @@ function TravelingPanel({
               {displayedPosts.length} posts
             </p>
           </div>
-          <Button onClick={onNewPost} size="sm" type="button">
-            <Camera className="size-4" aria-hidden="true" />
-            New post
-          </Button>
+          {canMutate ? (
+            <Button onClick={onNewPost} size="sm" type="button">
+              <Camera className="size-4" aria-hidden="true" />
+              New post
+            </Button>
+          ) : null}
         </div>
 
         <div className="space-y-5">
@@ -4108,7 +4205,7 @@ function TravelingPanel({
             <TravelPostCard
               active={focusedPostId === post.id}
               key={post.id}
-              onEdit={() => onEditPost(post.id)}
+              onEdit={canMutate ? () => onEditPost(post.id) : undefined}
               post={post}
               postRef={(element) =>
                 setPostScrollElement(desktopPostElementsRef, post.id, element)
@@ -5055,7 +5152,7 @@ function TravelPostCard({
   postRef,
 }: {
   active?: boolean
-  onEdit: () => void
+  onEdit?: () => void
   post: TravelPost
   postRef?: (element: HTMLElement | null) => void
 }) {
@@ -5076,17 +5173,19 @@ function TravelPostCard({
               {post.title}
             </h3>
           </div>
-          <Button
-            aria-label={`Edit ${post.title}`}
-            className="size-8 shrink-0 rounded-xl"
-            onClick={onEdit}
-            size="icon"
-            title={`Edit ${post.title}`}
-            type="button"
-            variant="outline"
-          >
-            <PenLine className="size-3.5" aria-hidden="true" />
-          </Button>
+          {onEdit ? (
+            <Button
+              aria-label={`Edit ${post.title}`}
+              className="size-8 shrink-0 rounded-xl"
+              onClick={onEdit}
+              size="icon"
+              title={`Edit ${post.title}`}
+              type="button"
+              variant="outline"
+            >
+              <PenLine className="size-3.5" aria-hidden="true" />
+            </Button>
+          ) : null}
         </div>
 
         <p className="text-sm leading-6 text-muted-foreground">{post.excerpt}</p>
@@ -5200,7 +5299,7 @@ function MobilePostDetailCard({
   post,
 }: {
   onBack: () => void
-  onEdit: () => void
+  onEdit?: () => void
   post: TravelPost
 }) {
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
@@ -5235,17 +5334,19 @@ function MobilePostDetailCard({
             <span>{post.comments} comments</span>
           </div>
         </div>
-        <Button
-          aria-label={`Edit ${post.title}`}
-          className="size-9 shrink-0 rounded-full"
-          onClick={onEdit}
-          size="icon"
-          title={`Edit ${post.title}`}
-          type="button"
-          variant="outline"
-        >
-          <PenLine className="size-4" aria-hidden="true" />
-        </Button>
+        {onEdit ? (
+          <Button
+            aria-label={`Edit ${post.title}`}
+            className="size-9 shrink-0 rounded-full"
+            onClick={onEdit}
+            size="icon"
+            title={`Edit ${post.title}`}
+            type="button"
+            variant="outline"
+          >
+            <PenLine className="size-4" aria-hidden="true" />
+          </Button>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 p-4">
@@ -8698,9 +8799,13 @@ function getNearestScrollAncestor(
 }
 
 function readTripDetailUrlState({
+  canEditTravelPosts,
+  canOpenManagementDialogs,
   canSwitchModes,
   travelPosts,
 }: {
+  canEditTravelPosts: boolean
+  canOpenManagementDialogs: boolean
   canSwitchModes: boolean
   travelPosts: readonly TravelPost[]
 }): TripDetailUrlState {
@@ -8735,6 +8840,8 @@ function readTripDetailUrlState({
             : 'posts',
     },
     {
+      canEditTravelPosts,
+      canOpenManagementDialogs,
       canSwitchModes,
       travelPosts,
     },
@@ -8756,18 +8863,23 @@ function createDefaultTripDetailUrlState(
 function normalizeTripDetailUrlState(
   state: TripDetailUrlState,
   {
+    canEditTravelPosts,
+    canOpenManagementDialogs,
     canSwitchModes,
     travelPosts,
   }: {
+    canEditTravelPosts: boolean
+    canOpenManagementDialogs: boolean
     canSwitchModes: boolean
     travelPosts: readonly TravelPost[]
   },
 ): TripDetailUrlState {
   const mode = canSwitchModes ? state.mode : 'traveling'
   const planningView = mode === 'planning' ? state.planningView : 'stops'
-  let travelingView = mode === 'traveling' ? state.travelingView : 'posts'
+  let travelingView =
+    mode === 'traveling' && canEditTravelPosts ? state.travelingView : 'posts'
   let editingPostId =
-    mode === 'traveling' && travelingView === 'edit-post'
+    mode === 'traveling' && canEditTravelPosts && travelingView === 'edit-post'
       ? state.editingPostId
       : null
 
@@ -8780,7 +8892,7 @@ function normalizeTripDetailUrlState(
   }
 
   return {
-    activeDialog: state.activeDialog,
+    activeDialog: canOpenManagementDialogs ? state.activeDialog : null,
     editingPostId,
     mode,
     planningView,
@@ -8835,6 +8947,19 @@ function writeTripDetailUrlState(
   }
 
   window.history.pushState(null, '', nextUrl)
+}
+
+function areTripDetailUrlStatesEqual(
+  leftState: TripDetailUrlState,
+  rightState: TripDetailUrlState,
+) {
+  return (
+    leftState.activeDialog === rightState.activeDialog &&
+    leftState.editingPostId === rightState.editingPostId &&
+    leftState.mode === rightState.mode &&
+    leftState.planningView === rightState.planningView &&
+    leftState.travelingView === rightState.travelingView
+  )
 }
 
 function parseTripDialogParam(value: string | null): TripDialog | null {

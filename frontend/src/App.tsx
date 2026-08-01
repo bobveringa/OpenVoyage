@@ -119,6 +119,7 @@ function renderRoute(route: Route, context: RouteRenderContext) {
         <TripDetailPage
           accessToken={context.accessToken}
           authStatus={context.status}
+          currentUser={context.currentUser}
           tripId={route.tripId}
         />
       )
