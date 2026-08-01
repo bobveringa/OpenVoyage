@@ -1643,6 +1643,7 @@ export function TripDetailPage({
               ? 'edit-post'
               : 'create-post',
         })
+        setMapPointTarget(selectedTarget)
       } else {
         setDraftStopLocation(draftLocation)
       }
