@@ -223,6 +223,7 @@ type PostMedia = {
   media_id?: string
   poster?: string
   src: string
+  thumbnail?: string
   type?: 'image' | 'video'
 }
 
@@ -5251,6 +5252,7 @@ function TravelPostPreviewCard({
           <MediaPreview
             className="size-full object-cover"
             media={primaryMedia}
+            source="thumbnail"
           />
           <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
           {isVideo ? (
@@ -5391,6 +5393,7 @@ function MobilePostDetailMediaCard({
         <MediaPreview
           className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.025]"
           media={media}
+          source="thumbnail"
         />
         <span className="sr-only">Open {media.alt}</span>
         {isVideo ? (
@@ -5430,7 +5433,7 @@ function MediaStripCard({
         onClick={onOpen}
         type="button"
       >
-        <MediaPreview
+        <MediaThumbnailPreview
           className="h-full w-auto transition-transform duration-300 group-hover:scale-[1.025]"
           media={media}
         />
@@ -5684,11 +5687,7 @@ function MediaLightbox({
         onTouchEnd={handleTouchEnd}
         onTouchStart={handleTouchStart}
       >
-        <MediaPreview
-          className="max-h-[calc(100dvh-10rem)] max-w-[calc(100dvw-2rem)] rounded-[1.35rem] object-contain shadow-2xl shadow-black/35 sm:max-w-[calc(100dvw-10rem)]"
-          controls
-          media={activeMedia}
-        />
+        <LightboxMediaPreview media={activeMedia} />
       </div>
 
       <div className="absolute inset-x-4 bottom-4 z-20 flex items-center justify-between gap-3 sm:justify-center">
@@ -5729,16 +5728,86 @@ function MediaLightbox({
   )
 }
 
+function LightboxMediaPreview({ media }: { media: PostMedia }) {
+  const [loadState, setLoadState] = useState<'error' | 'loading' | 'ready'>(
+    'loading',
+  )
+  const mediaKey = `${getMediaType(media)}:${media.src}:${media.poster ?? ''}`
+  const mediaClassName =
+    'max-h-[calc(100dvh-10rem)] max-w-[calc(100dvw-2rem)] rounded-[1.35rem] object-contain shadow-2xl shadow-black/35 sm:max-w-[calc(100dvw-10rem)]'
+
+  useEffect(() => {
+    setLoadState('loading')
+  }, [mediaKey])
+
+  return (
+    <div className="relative grid min-h-48 min-w-48 place-items-center">
+      {getMediaType(media) === 'video' ? (
+        <video
+          aria-label={media.alt}
+          className={cn('bg-black', mediaClassName)}
+          controls
+          onError={() => setLoadState('error')}
+          onLoadedData={() => setLoadState('ready')}
+          playsInline
+          poster={media.poster ?? media.thumbnail}
+          preload="metadata"
+          src={media.src}
+        />
+      ) : (
+        <img
+          alt={media.alt}
+          className={mediaClassName}
+          onError={() => setLoadState('error')}
+          onLoad={() => setLoadState('ready')}
+          src={media.src}
+        />
+      )}
+
+      {loadState !== 'ready' ? (
+        <div className="absolute inset-0 grid place-items-center rounded-[1.35rem] bg-slate-950/45 text-white backdrop-blur-sm">
+          <div className="grid justify-items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold shadow-xl shadow-black/25">
+            {loadState === 'loading' ? (
+              <Loader2 className="size-5 animate-spin" aria-hidden="true" />
+            ) : (
+              <AlertCircle className="size-5" aria-hidden="true" />
+            )}
+            {loadState === 'loading'
+              ? 'Loading full resolution'
+              : 'Unable to load media'}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function MediaPreview({
   className,
   controls = false,
   media,
+  source = 'content',
 }: {
   className?: string
   controls?: boolean
   media: PostMedia
+  source?: 'content' | 'thumbnail'
 }) {
+  const previewSrc =
+    source === 'thumbnail' ? getMediaThumbnailSrc(media) : media.src
+
   if (getMediaType(media) === 'video') {
+    if (source === 'thumbnail' && previewSrc !== media.src) {
+      return (
+        <img
+          alt={media.alt}
+          className={cn('object-cover', className)}
+          loading="lazy"
+          src={previewSrc}
+        />
+      )
+    }
+
     return (
       <video
         aria-label={media.alt}
@@ -5746,7 +5815,7 @@ function MediaPreview({
         controls={controls}
         muted={!controls}
         playsInline
-        poster={media.poster}
+        poster={media.poster ?? media.thumbnail}
         preload="metadata"
         src={media.src}
       />
@@ -5758,7 +5827,23 @@ function MediaPreview({
       alt={media.alt}
       className={cn('object-cover', className)}
       loading="lazy"
-      src={media.src}
+      src={previewSrc}
+    />
+  )
+}
+
+function MediaThumbnailPreview({
+  className,
+  media,
+}: {
+  className?: string
+  media: PostMedia
+}) {
+  return (
+    <MediaPreview
+      className={className}
+      media={media}
+      source="thumbnail"
     />
   )
 }
@@ -7490,9 +7575,7 @@ function getMediaType(media: PostMedia): NonNullable<PostMedia['type']> {
 }
 
 function getMediaThumbnailSrc(media: PostMedia) {
-  return getMediaType(media) === 'video'
-    ? media.poster ?? media.src
-    : media.src
+  return media.thumbnail ?? media.poster ?? media.src
 }
 
 const mediaStripHeightClassName = 'h-56 sm:h-64 lg:h-72 xl:h-80'
@@ -7549,6 +7632,7 @@ function toPostMediaFromDraft(media: DraftPostMedia): PostMedia {
     media_id: media.media_id ?? media.upload.mediaId ?? undefined,
     poster: media.poster,
     src: media.src,
+    thumbnail: media.thumbnail,
     type: media.type,
   }
 }
@@ -8120,6 +8204,7 @@ function toPostMediaViewModel(media: Post['media'][number]): PostMedia {
     media_id: media.id,
     poster: media.media_type === 'VIDEO' ? media.urls.thumbnail ?? undefined : undefined,
     src: media.urls.content,
+    thumbnail: media.urls.thumbnail ?? undefined,
     type: media.media_type === 'VIDEO' ? 'video' : 'image',
   }
 }
