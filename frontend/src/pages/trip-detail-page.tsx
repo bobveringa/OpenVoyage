@@ -3135,12 +3135,6 @@ function TripSidebar({
           {mutationError}
         </p>
       ) : null}
-      {!canMutate ? (
-        <p className="mx-4 mt-3 rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-sm text-muted-foreground">
-          Sign in as a trip member to make changes.
-        </p>
-      ) : null}
-
       <div
         className={cn(
           'scrollbar-subtle min-w-0 flex-1 lg:min-h-0 lg:overflow-auto lg:pb-0',
