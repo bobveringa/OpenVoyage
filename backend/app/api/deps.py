@@ -15,10 +15,8 @@ from core.db import get_engine
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from models.api.token import TokenPayload
 from models.database.user import User
-from services.itinerary_route_service import (
-    ItineraryRouteService,
-    build_configured_route_provider,
-)
+from services.itinerary_route_service import ItineraryRouteService
+from services.route_providers import RouteProviderFactory
 from services.location_service import LocationService
 from services.media_service import MediaService
 from services.itinerary_service import ItineraryService
@@ -158,18 +156,21 @@ def get_post_service(
     )
 
 
+def get_route_provider_factory() -> RouteProviderFactory:
+    return RouteProviderFactory(settings)
+
+
 def get_itinerary_route_service(
     session: SessionDep,
     background_tasks: BackgroundTasks,
+    route_provider_factory: Annotated[
+        RouteProviderFactory, Depends(get_route_provider_factory)
+    ],
 ):
-    provider_name, route_provider = build_configured_route_provider(
-        settings.ROUTING_PROVIDER
-    )
     return ItineraryRouteService(
         db=session,
+        route_provider_factory=route_provider_factory,
         background_tasks=background_tasks,
-        provider_name=provider_name,
-        route_provider=route_provider,
     )
 
 

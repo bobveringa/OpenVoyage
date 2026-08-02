@@ -6,7 +6,6 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from core.config import settings
 from models.database.itinerary import TravelMode
 from services.route_providers.route_provider import (
     RouteProviderBase,
@@ -117,11 +116,12 @@ def _graphhopper_point(coordinates: tuple[float, float]) -> str:
 
 
 def _build_route_url(
-        *,
+    *,
     coordinates_from: tuple[float, float],
     coordinates_to: tuple[float, float],
     profile: str,
     api_key: str,
+    base_url: str,
 ) -> str:
     query = urlencode(
         [
@@ -132,7 +132,7 @@ def _build_route_url(
             ('key', api_key),
         ]
     )
-    return f'{settings.GRAPHHOPPER_BASE_URL.rstrip("/")}/route?{query}'
+    return f'{base_url.rstrip("/")}/route?{query}'
 
 
 class GraphHopperRouteProvider(RouteProviderBase):
@@ -149,9 +149,19 @@ class GraphHopperRouteProvider(RouteProviderBase):
         TravelMode.BIKE: 'bike',
         TravelMode.CAR: 'car',
     }
+    name = 'graphhopper'
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+    ) -> None:
+        self.api_key = api_key
+        self.base_url = base_url
 
     def is_configured(self) -> bool:
-        return bool(settings.GRAPHHOPPER_API_KEY.strip())
+        return bool(self.api_key.strip())
 
     def get_route(
         self,
@@ -166,7 +176,7 @@ class GraphHopperRouteProvider(RouteProviderBase):
                 f'GraphHopper does not support travel mode: {travel_mode.value}'
             )
 
-        api_key = settings.GRAPHHOPPER_API_KEY.strip()
+        api_key = self.api_key.strip()
         if not api_key:
             raise RouteProviderConfigurationError('GraphHopper API key is missing')
 
@@ -176,6 +186,7 @@ class GraphHopperRouteProvider(RouteProviderBase):
                 coordinates_to=coordinates_to,
                 profile=profile,
                 api_key=api_key,
+                base_url=self.base_url,
             ),
             headers={'User-Agent': 'openvoyage-backend'},
         )

@@ -7,7 +7,6 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from core.config import settings
 from models.database.itinerary import TravelMode
 from services.route_providers import (
     GraphHopperRouteProvider,
@@ -35,9 +34,15 @@ class FakeResponse:
         return self.content
 
 
+def _provider(
+    *,
+    api_key: str = 'test-key',
+    base_url: str = 'https://example.test/api/1',
+) -> GraphHopperRouteProvider:
+    return GraphHopperRouteProvider(api_key=api_key, base_url=base_url)
+
+
 def test_get_route_calls_graphhopper_and_parses_response(monkeypatch) -> None:
-    monkeypatch.setattr(settings, 'GRAPHHOPPER_API_KEY', 'test-key')
-    monkeypatch.setattr(settings, 'GRAPHHOPPER_BASE_URL', 'https://example.test/api/1')
     captured: dict[str, object] = {}
 
     def fake_urlopen(request, *, timeout: int):
@@ -64,7 +69,7 @@ def test_get_route_calls_graphhopper_and_parses_response(monkeypatch) -> None:
 
     monkeypatch.setattr(graphhopper_route_provider, 'urlopen', fake_urlopen)
 
-    result = GraphHopperRouteProvider().get_route(
+    result = _provider().get_route(
         coordinates_from=(5.4697, 51.4416),
         coordinates_to=(5.1214, 52.0907),
         travel_mode=TravelMode.CAR,
@@ -89,22 +94,18 @@ def test_get_route_calls_graphhopper_and_parses_response(monkeypatch) -> None:
     assert result.duration_seconds == 99
 
 
-def test_get_route_rejects_unsupported_travel_mode(monkeypatch) -> None:
-    monkeypatch.setattr(settings, 'GRAPHHOPPER_API_KEY', 'test-key')
-
+def test_get_route_rejects_unsupported_travel_mode() -> None:
     with pytest.raises(RouteProviderConfigurationError):
-        GraphHopperRouteProvider().get_route(
+        _provider().get_route(
             coordinates_from=(5.4697, 51.4416),
             coordinates_to=(5.1214, 52.0907),
             travel_mode=TravelMode.TRAIN,
         )
 
 
-def test_get_route_requires_api_key(monkeypatch) -> None:
-    monkeypatch.setattr(settings, 'GRAPHHOPPER_API_KEY', '')
-
+def test_get_route_requires_api_key() -> None:
     with pytest.raises(RouteProviderConfigurationError):
-        GraphHopperRouteProvider().get_route(
+        _provider(api_key='').get_route(
             coordinates_from=(5.4697, 51.4416),
             coordinates_to=(5.1214, 52.0907),
             travel_mode=TravelMode.CAR,
@@ -112,7 +113,6 @@ def test_get_route_requires_api_key(monkeypatch) -> None:
 
 
 def test_get_route_rejects_malformed_graphhopper_response(monkeypatch) -> None:
-    monkeypatch.setattr(settings, 'GRAPHHOPPER_API_KEY', 'test-key')
     monkeypatch.setattr(
         graphhopper_route_provider,
         'urlopen',
@@ -120,7 +120,7 @@ def test_get_route_rejects_malformed_graphhopper_response(monkeypatch) -> None:
     )
 
     with pytest.raises(RouteProviderResponseError):
-        GraphHopperRouteProvider().get_route(
+        _provider().get_route(
             coordinates_from=(5.4697, 51.4416),
             coordinates_to=(5.1214, 52.0907),
             travel_mode=TravelMode.CAR,
@@ -128,8 +128,6 @@ def test_get_route_rejects_malformed_graphhopper_response(monkeypatch) -> None:
 
 
 def test_get_route_wraps_graphhopper_http_errors(monkeypatch) -> None:
-    monkeypatch.setattr(settings, 'GRAPHHOPPER_API_KEY', 'test-key')
-
     def fake_urlopen(*_args, **_kwargs):
         raise HTTPError(
             url='https://example.test/api/1/route',
@@ -142,7 +140,7 @@ def test_get_route_wraps_graphhopper_http_errors(monkeypatch) -> None:
     monkeypatch.setattr(graphhopper_route_provider, 'urlopen', fake_urlopen)
 
     with pytest.raises(RouteProviderError, match='rate limit exceeded'):
-        GraphHopperRouteProvider().get_route(
+        _provider().get_route(
             coordinates_from=(5.4697, 51.4416),
             coordinates_to=(5.1214, 52.0907),
             travel_mode=TravelMode.CAR,

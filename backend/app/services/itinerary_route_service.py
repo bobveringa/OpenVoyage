@@ -23,8 +23,8 @@ from models.database.itinerary import (
     TravelMode,
 )
 from services.route_providers import (
-    GraphHopperRouteProvider,
     RouteProviderBase,
+    RouteProviderFactory,
     RouteProviderConfigurationError,
     RouteProviderError,
     RouteProviderResponseError,
@@ -41,14 +41,13 @@ class ItineraryRouteService:
         self,
         *,
         db: Session,
+        route_provider_factory: RouteProviderFactory,
         background_tasks: BackgroundTasks | None = None,
-        provider_name: str | None = None,
-        route_provider: RouteProviderBase | None = None,
     ) -> None:
         self.db = db
+        self.route_provider_factory = route_provider_factory
+        self._routing_provider = route_provider_factory.create_routing_provider()
         self.background_tasks = background_tasks
-        self.provider_name = provider_name
-        self.route_provider = route_provider
 
     def get_route_response(
         self,
@@ -67,14 +66,18 @@ class ItineraryRouteService:
 
     def sync_leg_route_after_change(self, leg: ItineraryTravelLeg) -> None:
         self._delete_route_row(leg_id=leg.id)
-        if not self._can_start_provider_route(leg):
+        routing_provider = self._routing_provider
+        if routing_provider is None or not self._can_start_provider_route(
+            leg,
+            routing_provider,
+        ):
             return
 
         self.db.add(
             ItineraryTravelLegRoute(
                 id=leg.id,
                 status=ItineraryTravelRouteStatus.PENDING,
-                provider=self.provider_name or '',
+                provider=routing_provider.name,
                 attempt_count=0,
             )
         )
@@ -93,7 +96,8 @@ class ItineraryRouteService:
         ):
             return
 
-        if self.route_provider is None or self.provider_name is None:
+        routing_provider = self._routing_provider
+        if routing_provider is None:
             self._mark_failed(
                 route=route,
                 leg=leg,
@@ -103,7 +107,7 @@ class ItineraryRouteService:
             return
 
         try:
-            provider_response = self.route_provider.get_route(
+            provider_response = routing_provider.get_route(
                 coordinates_from=self._coordinates_for_stop(leg.from_stop),
                 coordinates_to=self._coordinates_for_stop(leg.to_stop),
                 travel_mode=TravelMode(leg.travel_mode),
@@ -142,12 +146,12 @@ class ItineraryRouteService:
         self.db.delete(route)
         self.db.flush()
 
-    def _can_start_provider_route(self, leg: ItineraryTravelLeg) -> bool:
-        if (
-            self.provider_name is None
-            or self.route_provider is None
-            or not self.route_provider.can_route(leg)
-        ):
+    def _can_start_provider_route(
+        self,
+        leg: ItineraryTravelLeg,
+        routing_provider: RouteProviderBase,
+    ) -> bool:
+        if not routing_provider.can_route(leg):
             return False
 
         self._coordinates_for_stop(leg.from_stop)
@@ -155,9 +159,6 @@ class ItineraryRouteService:
         return True
 
     def _schedule_generation(self, leg_id: uuid.UUID) -> None:
-        if self.route_provider is None or self.provider_name is None:
-            return
-
         if self.background_tasks is None:
             return
 
@@ -170,8 +171,7 @@ class ItineraryRouteService:
             _generate_pending_route,
             bind,
             leg_id,
-            self.provider_name,
-            self.route_provider,
+            self.route_provider_factory,
         )
 
     def _load_leg_for_generation(
@@ -264,26 +264,13 @@ class ItineraryRouteService:
         return (stop.location.longitude, stop.location.latitude)
 
 
-def build_configured_route_provider(
-    provider_name: str,
-) -> tuple[str | None, RouteProviderBase | None]:
-    provider_name = provider_name.strip().lower()
-    if provider_name in ('', 'none'):
-        return None, None
-    if provider_name == 'graphhopper':
-        return 'graphhopper', GraphHopperRouteProvider()
-    return None, None
-
-
 def _generate_pending_route(
     bind: Engine,
     leg_id: uuid.UUID,
-    provider_name: str,
-    route_provider: RouteProviderBase,
+    route_provider_factory: RouteProviderFactory,
 ) -> None:
     with Session(bind=bind) as db:
         ItineraryRouteService(
             db=db,
-            provider_name=provider_name,
-            route_provider=route_provider,
+            route_provider_factory=route_provider_factory,
         ).generate_pending_route(leg_id)

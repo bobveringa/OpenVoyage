@@ -25,6 +25,7 @@ class RouteProviderResponseError(RouteProviderError):
 
 
 class RouteProviderBase:
+    name: str
     supported_travel_modes: frozenset[TravelMode] = frozenset()
 
     def can_route(self, leg: ItineraryTravelLeg) -> bool:
