@@ -12,12 +12,12 @@ from models.database.itinerary import (
     ItineraryTravelLegRoute,
     ItineraryTravelRouteStatus,
 )
-from services.itinerary_routes.generator import (
+from services.itinerary_routes.lifecycle import (
     ItineraryRouteGenerator,
+    ItineraryRoutePlanner,
+    MAX_ROUTE_ATTEMPTS,
     RouteGenerationStatus,
 )
-from services.itinerary_routes.planner import ItineraryRoutePlanner
-from services.itinerary_routes.state import MAX_ROUTE_ATTEMPTS
 from services.route_providers import RouteProviderBase
 
 

@@ -7,16 +7,18 @@ from sqlalchemy.orm import Session
 
 from models.api.itinerary import ItineraryTravelRouteResponse
 from models.database.itinerary import ItineraryTravelLeg
-from services.itinerary_routes.generator import ItineraryRouteGenerator
+from services.itinerary_routes.lifecycle import (
+    ItineraryRouteGenerationScheduler,
+    ItineraryRouteGenerator,
+    ItineraryRoutePlanner,
+)
 from services.itinerary_routes.maintenance import (
     ItineraryRouteGenerationSummary,
     ItineraryRouteMaintenance,
     ItineraryRouteMaintenanceSummary,
     ItineraryRouteQueueSummary,
 )
-from services.itinerary_routes.planner import ItineraryRoutePlanner
 from services.itinerary_routes.resolver import ItineraryRouteResolver
-from services.itinerary_routes.scheduler import ItineraryRouteGenerationScheduler
 from services.route_providers import RouteProviderFactory
 
 
