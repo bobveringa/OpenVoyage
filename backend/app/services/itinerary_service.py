@@ -15,7 +15,7 @@ from models.api.itinerary import (
 from models.database.itinerary import ItineraryStop, ItineraryTravelLeg, TravelMode
 from models.database.trips import Trip, TripMember
 from models.database.user import User
-from services.itinerary_route_service import ItineraryRouteService
+from services.itinerary_routes import ItineraryRouteService
 from services.location_service import LocationService
 from services.trip_access import get_membership, get_trip_read_access
 from services.trip_authorization import TripPermission, role_has_permission
@@ -382,7 +382,7 @@ class ItineraryService:
             )
 
         self._replace_travel(leg=leg, payload=payload)
-        self.route_service.sync_leg_route_after_change(leg)
+        self.route_service.reset_queue_and_schedule_leg_route(leg)
         self._increment_revision(trip)
         self.db.commit()
         return ItineraryTravelLegDetail(
@@ -407,7 +407,7 @@ class ItineraryService:
                 f'Itinerary travel leg not found: {leg_id}'
             )
 
-        self.route_service.refresh_leg_route(leg)
+        self.route_service.reset_queue_and_schedule_leg_route(leg)
         self.db.commit()
         return ItineraryTravelLegDetail(
             leg=self._get_leg_or_raise(trip_id=trip_id, leg_id=leg_id),
@@ -741,7 +741,7 @@ class ItineraryService:
             leg = legs_by_pair[pair]
             if leg.id in synced_leg_ids:
                 continue
-            self.route_service.sync_leg_route_after_change(leg)
+            self.route_service.reset_queue_and_schedule_leg_route(leg)
             synced_leg_ids.add(leg.id)
 
     def _sync_bridge_route_after_stop_delete(
@@ -761,7 +761,7 @@ class ItineraryService:
         bridge_pair = (incoming_pair[0], outgoing_pair[1])
         bridge_leg = legs_by_pair.get(bridge_pair)
         if bridge_leg is not None:
-            self.route_service.sync_leg_route_after_change(bridge_leg)
+            self.route_service.reset_queue_and_schedule_leg_route(bridge_leg)
 
     def _reset_travel(self, leg: ItineraryTravelLeg) -> None:
         leg.travel_mode = TravelMode.UNKNOWN

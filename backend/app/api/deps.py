@@ -15,7 +15,7 @@ from core.db import get_engine
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from models.api.token import TokenPayload
 from models.database.user import User
-from services.itinerary_route_service import ItineraryRouteService
+from services.itinerary_routes import ItineraryRouteService
 from services.route_providers import RouteProviderFactory
 from services.location_service import LocationService
 from services.media_service import MediaService

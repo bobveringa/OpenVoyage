@@ -101,7 +101,7 @@ def get_itinerary(
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
         legs=snapshot.legs,
-        route_resolver=itinerary_service.route_service.get_route_response,
+        route_resolver=itinerary_service.route_service.resolve_route_response,
     )
 
 
@@ -134,7 +134,7 @@ def create_stop(
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
         legs=snapshot.legs,
-        route_resolver=itinerary_service.route_service.get_route_response,
+        route_resolver=itinerary_service.route_service.resolve_route_response,
     )
 
 
@@ -165,7 +165,7 @@ def get_stop(
         stop=detail.stop,
         incoming_leg=detail.incoming_leg,
         outgoing_leg=detail.outgoing_leg,
-        route_resolver=itinerary_service.route_service.get_route_response,
+        route_resolver=itinerary_service.route_service.resolve_route_response,
     )
 
 
@@ -199,7 +199,7 @@ def update_stop(
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
         legs=snapshot.legs,
-        route_resolver=itinerary_service.route_service.get_route_response,
+        route_resolver=itinerary_service.route_service.resolve_route_response,
     )
 
 
@@ -231,7 +231,7 @@ def delete_stop(
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
         legs=snapshot.legs,
-        route_resolver=itinerary_service.route_service.get_route_response,
+        route_resolver=itinerary_service.route_service.resolve_route_response,
     )
 
 
@@ -260,7 +260,7 @@ def get_leg(
     response.headers['ETag'] = _etag(detail.itinerary_revision)
     return ItineraryTravelLegResponse.from_model(
         detail.leg,
-        route=itinerary_service.route_service.get_route_response(detail.leg),
+        route=itinerary_service.route_service.resolve_route_response(detail.leg),
     )
 
 
@@ -291,7 +291,7 @@ def replace_leg(
     response.headers['ETag'] = _etag(detail.itinerary_revision)
     return ItineraryTravelLegResponse.from_model(
         detail.leg,
-        route=itinerary_service.route_service.get_route_response(detail.leg),
+        route=itinerary_service.route_service.resolve_route_response(detail.leg),
     )
 
 
@@ -318,5 +318,5 @@ def refresh_leg_route(
     response.headers['ETag'] = _etag(detail.itinerary_revision)
     return ItineraryTravelLegResponse.from_model(
         detail.leg,
-        route=itinerary_service.route_service.get_route_response(detail.leg),
+        route=itinerary_service.route_service.resolve_route_response(detail.leg),
     )
