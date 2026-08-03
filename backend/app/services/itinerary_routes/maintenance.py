@@ -12,7 +12,10 @@ from models.database.itinerary import (
     ItineraryTravelLegRoute,
     ItineraryTravelRouteStatus,
 )
-from services.itinerary_routes.generator import ItineraryRouteGenerator
+from services.itinerary_routes.generator import (
+    ItineraryRouteGenerator,
+    RouteGenerationStatus,
+)
 from services.itinerary_routes.planner import ItineraryRoutePlanner
 from services.itinerary_routes.state import MAX_ROUTE_ATTEMPTS
 from services.route_providers import RouteProviderBase
@@ -106,10 +109,10 @@ class ItineraryRouteMaintenance:
         failed = 0
         skipped = 0
         for leg_id in leg_ids:
-            result = self.generator.generate_pending_route(leg_id)
-            if result.ready:
+            status = self.generator.generate_pending_route(leg_id)
+            if status == RouteGenerationStatus.READY:
                 ready += 1
-            elif result.failed:
+            elif status == RouteGenerationStatus.FAILED:
                 failed += 1
             else:
                 skipped += 1

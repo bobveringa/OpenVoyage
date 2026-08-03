@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from enum import Enum
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -28,16 +28,10 @@ from services.route_providers import (
 )
 
 
-@dataclass(frozen=True)
-class RouteGenerationResult:
-    ready: bool = False
-    failed: bool = False
-    skipped: bool = False
-
-
-ROUTE_GENERATION_READY = RouteGenerationResult(ready=True)
-ROUTE_GENERATION_FAILED = RouteGenerationResult(failed=True)
-ROUTE_GENERATION_SKIPPED = RouteGenerationResult(skipped=True)
+class RouteGenerationStatus(str, Enum):
+    READY = 'READY'
+    FAILED = 'FAILED'
+    SKIPPED = 'SKIPPED'
 
 
 class ItineraryRouteGenerator:
@@ -52,16 +46,16 @@ class ItineraryRouteGenerator:
         self.db = db
         self.route_provider = route_provider
 
-    def generate_pending_route(self, leg_id: uuid.UUID) -> RouteGenerationResult:
+    def generate_pending_route(self, leg_id: uuid.UUID) -> RouteGenerationStatus:
         leg = self._load_leg_for_generation(leg_id)
         if leg is None:
-            return ROUTE_GENERATION_SKIPPED
+            return RouteGenerationStatus.SKIPPED
 
         route = self.db.get(ItineraryTravelLegRoute, leg_id)
         if route is None or ItineraryTravelRouteStatus(route.status) != (
             ItineraryTravelRouteStatus.PENDING
         ):
-            return ROUTE_GENERATION_SKIPPED
+            return RouteGenerationStatus.SKIPPED
 
         if self.route_provider is None:
             mark_route_failed(
@@ -70,7 +64,7 @@ class ItineraryRouteGenerator:
                 error_code=ROUTE_ERROR_CONFIGURATION,
             )
             self.db.commit()
-            return ROUTE_GENERATION_FAILED
+            return RouteGenerationStatus.FAILED
 
         try:
             provider_response = self.route_provider.get_route(
@@ -103,10 +97,10 @@ class ItineraryRouteGenerator:
                 provider_response=provider_response,
             )
             self.db.commit()
-            return ROUTE_GENERATION_READY
+            return RouteGenerationStatus.READY
 
         self.db.commit()
-        return ROUTE_GENERATION_FAILED
+        return RouteGenerationStatus.FAILED
 
     def _load_leg_for_generation(
         self,
