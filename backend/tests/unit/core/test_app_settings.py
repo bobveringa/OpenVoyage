@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from cryptography.fernet import Fernet
 
 from core.app_settings import (
     AppSettingRegistryError,
@@ -64,14 +63,23 @@ def test_registry_rejects_secret_default() -> None:
         AppSettingsRegistry((definition,))
 
 
-def test_fernet_encryption_round_trip_uses_versioned_envelope() -> None:
-    encryption = AppSettingsEncryption(Fernet.generate_key().decode('ascii'))
+@pytest.mark.parametrize(
+    'key',
+    [
+        'a-very-secret-key-change-this-in-production',
+        'caf\u00e9 \U0001f5fa\ufe0f',
+        ' ',
+    ],
+)
+def test_text_key_encryption_round_trip_uses_versioned_envelope(key: str) -> None:
+    encryption = AppSettingsEncryption(key)
 
     ciphertext = encryption.encrypt('top-secret')
 
     assert ciphertext.startswith('v1:')
     assert 'top-secret' not in ciphertext
     assert encryption.decrypt(ciphertext) == 'top-secret'
+    assert AppSettingsEncryption(key).decrypt(ciphertext) == 'top-secret'
 
 
 @pytest.mark.parametrize(
@@ -83,16 +91,16 @@ def test_fernet_encryption_round_trip_uses_versioned_envelope() -> None:
         'v1:not-a-fernet-token',
     ],
 )
-def test_fernet_encryption_rejects_malformed_ciphertext(ciphertext: str) -> None:
-    encryption = AppSettingsEncryption(Fernet.generate_key().decode('ascii'))
+def test_text_key_encryption_rejects_malformed_ciphertext(ciphertext: str) -> None:
+    encryption = AppSettingsEncryption('app-settings-passphrase')
 
     with pytest.raises(AppSettingsEncryptionError):
         encryption.decrypt(ciphertext)
 
 
-def test_fernet_encryption_rejects_tampering_and_wrong_key() -> None:
-    encryption = AppSettingsEncryption(Fernet.generate_key().decode('ascii'))
-    other_encryption = AppSettingsEncryption(Fernet.generate_key().decode('ascii'))
+def test_text_key_encryption_rejects_tampering_and_wrong_key() -> None:
+    encryption = AppSettingsEncryption('first app-settings passphrase')
+    other_encryption = AppSettingsEncryption('second app-settings passphrase')
     ciphertext = encryption.encrypt('top-secret')
     tampered = ciphertext[:-1] + ('A' if ciphertext[-1] != 'A' else 'B')
 
@@ -102,8 +110,8 @@ def test_fernet_encryption_rejects_tampering_and_wrong_key() -> None:
         other_encryption.decrypt(ciphertext)
 
 
-@pytest.mark.parametrize('key', [None, '', 'not-a-fernet-key'])
-def test_missing_or_invalid_key_fails_only_crypto_operations(key: str | None) -> None:
+@pytest.mark.parametrize('key', [None, ''])
+def test_missing_key_fails_only_crypto_operations(key: str | None) -> None:
     encryption = AppSettingsEncryption(key)
 
     with pytest.raises(AppSettingsEncryptionError):

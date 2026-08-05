@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         # Use top level .env file (one level above ./backend/)
         env_file=PROJECT_ROOT / '.env',
+        env_file_encoding='utf-8',
         env_ignore_empty=True,
         extra='ignore',
     )

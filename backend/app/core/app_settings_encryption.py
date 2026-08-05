@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+
 from cryptography.fernet import Fernet, InvalidToken
 
 
@@ -8,14 +11,20 @@ class AppSettingsEncryptionError(RuntimeError):
 
 
 class AppSettingsEncryption:
+    """Encrypt secret settings with a deterministic text-derived key."""
+
     envelope_version = 'v1'
 
     def __init__(self, key: str | None) -> None:
         self._key = key
 
     def encrypt(self, plaintext: str) -> str:
-        fernet = self._fernet()
-        token = fernet.encrypt(plaintext.encode('utf-8')).decode('ascii')
+        try:
+            token = self._fernet().encrypt(plaintext.encode('utf-8')).decode('ascii')
+        except UnicodeEncodeError as exc:
+            raise AppSettingsEncryptionError(
+                'App settings encryption is not configured'
+            ) from exc
         return f'{self.envelope_version}:{token}'
 
     def decrypt(self, ciphertext: str) -> str:
@@ -34,13 +43,19 @@ class AppSettingsEncryption:
             ) from exc
 
     def _fernet(self) -> Fernet:
-        if not self._key:
+        derived_key = base64.urlsafe_b64encode(
+            hashlib.sha256(self._key_bytes()).digest()
+        )
+        return Fernet(derived_key)
+
+    def _key_bytes(self) -> bytes:
+        if self._key is None or self._key == '':
             raise AppSettingsEncryptionError(
                 'App settings encryption is not configured'
             )
         try:
-            return Fernet(self._key.encode('ascii'))
-        except (ValueError, UnicodeEncodeError) as exc:
+            return self._key.encode('utf-8')
+        except UnicodeEncodeError as exc:
             raise AppSettingsEncryptionError(
                 'App settings encryption is not configured'
             ) from exc

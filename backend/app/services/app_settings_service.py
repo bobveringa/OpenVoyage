@@ -66,7 +66,18 @@ class _CacheEntry:
 
 
 class AppSettingsCache:
-    """Small process-local cache that never retains a database session."""
+    """Small process-local cache that never retains a database session.
+
+    Each cached setting has a generation counter. ``read`` returns the
+    generation that was current when it checked the cache. A caller that has
+    to load a missing value from the database can then use
+    ``set_if_generation`` to cache it only if the setting was not invalidated
+    meanwhile. This prevents an in-flight read of an old database value from
+    repopulating the cache after an admin update, reset, or delete.
+
+    Generations protect only this process; they do not coordinate cache state
+    between separate backend processes.
+    """
 
     def __init__(self, ttl_seconds: float = 60.0) -> None:
         self.ttl_seconds = ttl_seconds
@@ -75,6 +86,11 @@ class AppSettingsCache:
         self._lock = threading.Lock()
 
     def read(self, scope: int, key: str) -> tuple[bool, Any, int]:
+        """Return ``(cache_hit, value, generation)`` for a setting.
+
+        On a miss, callers should retain the returned generation and pass it
+        to ``set_if_generation`` after resolving the value outside the lock.
+        """
         cache_key = (scope, key)
         now = time.monotonic()
         with self._lock:
@@ -94,6 +110,13 @@ class AppSettingsCache:
         value: Any,
         generation: int,
     ) -> bool:
+        """Cache a resolved value unless invalidation occurred after ``read``.
+
+        Database access intentionally happens outside the cache lock. If a
+        concurrent settings mutation invalidates this key while that access is
+        in progress, its generation changes and this method returns ``False``
+        rather than caching the stale result.
+        """
         cache_key = (scope, key)
         with self._lock:
             if self._generations.get(cache_key, 0) != generation:
@@ -105,12 +128,14 @@ class AppSettingsCache:
             return True
 
     def invalidate(self, scope: int, key: str) -> None:
+        """Remove a setting and advance its generation for in-flight readers."""
         cache_key = (scope, key)
         with self._lock:
             self._values.pop(cache_key, None)
             self._generations[cache_key] = self._generations.get(cache_key, 0) + 1
 
     def clear(self) -> None:
+        """Remove all values and invalidate any in-flight cache fills."""
         with self._lock:
             cache_keys = self._values.keys() | self._generations.keys()
             for cache_key in cache_keys:

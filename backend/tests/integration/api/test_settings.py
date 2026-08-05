@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from cryptography.fernet import Fernet
 import pytest
 
 from core import security
@@ -97,7 +96,7 @@ def test_admin_can_update_normal_and_secret_settings(
     client, db_session, api_prefix, monkeypatch
 ) -> None:
     admin = _admin(db_session)
-    encryption_key = Fernet.generate_key().decode('ascii')
+    encryption_key = 'a-very-secret-key-change-this-in-production'
     monkeypatch.setattr(settings, 'APP_SETTINGS_ENCRYPTION_KEY', encryption_key)
     headers = _auth_headers(admin)
 
