@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 import uuid
+from unittest.mock import Mock
 
 import pytest
 from fastapi import UploadFile
@@ -14,6 +15,13 @@ from services.media_service import (
     copy_upload_file,
     detect_content_type,
 )
+from services.app_settings_service import AppSettingsService
+
+
+def _app_settings_service(max_upload_size_mb: int = 1):
+    service = Mock(spec=AppSettingsService)
+    service.get_value.return_value = max_upload_size_mb
+    return service
 
 
 @pytest.mark.unit
@@ -41,18 +49,20 @@ def test_upload_media_rejects_large_file(
     fake_db, fake_background_tasks, monkeypatch
 ) -> None:
     upload = UploadFile(filename='huge.jpg', file=BytesIO(b'data'))
-    upload.size = 999
+    upload.size = 2_000_000
 
-    from core.config import settings
-
-    monkeypatch.setattr(settings, 'MAX_MEDIA_SIZE', 100)
-
-    service = MediaService(db=fake_db, background_tasks=fake_background_tasks)
+    app_settings = _app_settings_service(max_upload_size_mb=1)
+    service = MediaService(
+        db=fake_db,
+        background_tasks=fake_background_tasks,
+        app_settings_service=app_settings,
+    )
 
     with pytest.raises(MediaTooLargeError):
         service.upload_media(
             upload, User(id=uuid.uuid4(), email='u@example.com', password_hash='x')
         )
+    app_settings.get_value.assert_called_once_with('media.max_upload_size_mb')
 
 
 @pytest.mark.unit
@@ -70,10 +80,8 @@ def test_upload_media_success_schedules_thumbnail(
     upload = UploadFile(filename='photo.jpg', file=BytesIO(b'test-bytes'))
     upload.size = 9
 
-    from core.config import settings
     import services.media_service as media_service_module
 
-    monkeypatch.setattr(settings, 'MAX_MEDIA_SIZE', 100)
     monkeypatch.setattr(
         media_service_module, 'detect_content_type', lambda _f: 'image/jpeg'
     )
@@ -89,7 +97,11 @@ def test_upload_media_success_schedules_thumbnail(
         lambda _media_id: str(tmp_path / 'aa' / 'bb' / _media_id.hex),
     )
 
-    service = MediaService(db=fake_db, background_tasks=fake_background_tasks)
+    service = MediaService(
+        db=fake_db,
+        background_tasks=fake_background_tasks,
+        app_settings_service=_app_settings_service(),
+    )
     user = User(id=uuid.uuid4(), email='u@example.com', password_hash='x')
 
     media = service.upload_media(upload, user)

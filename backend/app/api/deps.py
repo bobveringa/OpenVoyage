@@ -10,13 +10,15 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from core import security
+from core.app_settings_encryption import AppSettingsEncryption
 from core.config import settings
 from core.db import get_engine
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from models.api.token import TokenPayload
 from models.database.user import User
 from services.itinerary_routes import ItineraryRouteService
-from services.route_providers import RouteProviderFactory
+from services.app_settings_service import AppSettingsService
+from services.route_providers import RouteProviderBase, RouteProviderFactory
 from services.location_service import LocationService
 from services.media_service import MediaService
 from services.itinerary_service import ItineraryService
@@ -76,7 +78,7 @@ def _get_user_from_token(session: Session, token: str) -> User:
     try:
         payload = security.decode_token(token, expected_type=security.TOKEN_TYPE_ACCESS)
         token_data = TokenPayload(**payload)
-    except (InvalidTokenError, ValidationError):
+    except InvalidTokenError, ValidationError:
         raise _credentials_exception()
 
     try:
@@ -120,13 +122,28 @@ def get_current_admin_user(
     return user
 
 
+def get_app_settings_service(session: SessionDep) -> AppSettingsService:
+    return AppSettingsService(
+        db=session,
+        encryption=AppSettingsEncryption(settings.APP_SETTINGS_ENCRYPTION_KEY),
+    )
+
+
+AppSettingsServiceDep = Annotated[
+    AppSettingsService,
+    Depends(get_app_settings_service),
+]
+
+
 def get_media_service(
     session: SessionDep,
     background_tasks: BackgroundTasks,
+    app_settings_service: AppSettingsServiceDep,
 ):
     media_service = MediaService(
         db=session,
         background_tasks=background_tasks,
+        app_settings_service=app_settings_service,
     )
     return media_service
 
@@ -156,20 +173,28 @@ def get_post_service(
     )
 
 
+route_provider_factory = RouteProviderFactory()
+
+
 def get_route_provider_factory() -> RouteProviderFactory:
-    return RouteProviderFactory(settings)
+    return route_provider_factory
+
+
+def get_route_provider(
+    app_settings_service: AppSettingsServiceDep,
+    factory: Annotated[RouteProviderFactory, Depends(get_route_provider_factory)],
+) -> RouteProviderBase | None:
+    return factory.create_routing_provider(app_settings_service)
 
 
 def get_itinerary_route_service(
     session: SessionDep,
     background_tasks: BackgroundTasks,
-    route_provider_factory: Annotated[
-        RouteProviderFactory, Depends(get_route_provider_factory)
-    ],
+    route_provider: Annotated[RouteProviderBase | None, Depends(get_route_provider)],
 ):
     return ItineraryRouteService(
         db=session,
-        route_provider_factory=route_provider_factory,
+        route_provider=route_provider,
         background_tasks=background_tasks,
     )
 

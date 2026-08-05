@@ -4,8 +4,10 @@ import uuid
 from datetime import date, timedelta
 
 import pytest
+from cryptography.fernet import Fernet
 
 from core import security
+from core.app_settings_encryption import AppSettingsEncryption
 from core.config import settings
 from factories.places import create_place
 from factories.trips import add_trip_viewer, create_trip
@@ -14,6 +16,7 @@ from models.database.itinerary import (
     ItineraryTravelLegRoute,
     ItineraryTravelRouteStatus,
 )
+from models.database.settings import AppSetting
 from models.database.trips import TripVisibility
 from services.route_providers import (
     GraphHopperRouteProvider,
@@ -41,12 +44,23 @@ PROVIDER_GEOMETRY = {
 
 
 def _enable_graphhopper(
+    db_session,
     monkeypatch: pytest.MonkeyPatch,
     *,
     route_error: RouteProviderError | None = None,
 ) -> None:
-    monkeypatch.setattr(settings, 'ROUTING_PROVIDER', 'graphhopper')
-    monkeypatch.setattr(settings, 'GRAPHHOPPER_API_KEY', 'test-key')
+    encryption_key = Fernet.generate_key().decode('ascii')
+    monkeypatch.setattr(settings, 'APP_SETTINGS_ENCRYPTION_KEY', encryption_key)
+    db_session.add_all(
+        [
+            AppSetting(key='routing.provider', value='graphhopper'),
+            AppSetting(
+                key='routing.graphhopper_api_key',
+                secret_value=AppSettingsEncryption(encryption_key).encrypt('test-key'),
+            ),
+        ]
+    )
+    db_session.commit()
     if route_error is not None:
         def fail_route(*_args: object, **_kwargs: object) -> RouteResponse:
             raise route_error
@@ -270,9 +284,7 @@ def test_itinerary_returns_simple_route_without_provider(
     client,
     db_session,
     api_prefix,
-    monkeypatch,
 ) -> None:
-    monkeypatch.setattr(settings, 'ROUTING_PROVIDER', 'none')
     owner = create_user(db_session, password='ItineraryPass123!')
     trip = create_trip(db_session, owner_id=owner.id)
     first_place = create_place(
@@ -309,7 +321,7 @@ def test_itinerary_generates_provider_route_for_supported_provider_mode(
     api_prefix,
     monkeypatch,
 ) -> None:
-    _enable_graphhopper(monkeypatch)
+    _enable_graphhopper(db_session, monkeypatch)
     owner = create_user(db_session, password='ItineraryPass123!')
     trip = create_trip(db_session, owner_id=owner.id)
     first_place = create_place(db_session, latitude=51.4416, longitude=5.4697)
@@ -343,7 +355,11 @@ def test_provider_generation_failure_keeps_simple_route(
     api_prefix,
     monkeypatch,
 ) -> None:
-    _enable_graphhopper(monkeypatch, route_error=RouteProviderError('boom'))
+    _enable_graphhopper(
+        db_session,
+        monkeypatch,
+        route_error=RouteProviderError('boom'),
+    )
     owner = create_user(db_session, password='ItineraryPass123!')
     trip = create_trip(db_session, owner_id=owner.id)
     first_place = create_place(db_session, latitude=51.4416, longitude=5.4697)
@@ -375,9 +391,7 @@ def test_itinerary_returns_ready_provider_backed_route(
     client,
     db_session,
     api_prefix,
-    monkeypatch,
 ) -> None:
-    monkeypatch.setattr(settings, 'ROUTING_PROVIDER', 'none')
     owner = create_user(db_session, password='ItineraryPass123!')
     trip = create_trip(db_session, owner_id=owner.id)
     first_place = create_place(db_session)
@@ -471,7 +485,7 @@ def test_failed_route_row_returns_simple_and_refresh_regenerates_route(
     api_prefix,
     monkeypatch,
 ) -> None:
-    _enable_graphhopper(monkeypatch)
+    _enable_graphhopper(db_session, monkeypatch)
     owner = create_user(db_session, password='ItineraryPass123!')
     trip = create_trip(db_session, owner_id=owner.id)
     first_place = create_place(db_session, latitude=51.4416, longitude=5.4697)
@@ -522,7 +536,7 @@ def test_travel_mode_change_deletes_ready_route_and_regenerates_replacement(
     api_prefix,
     monkeypatch,
 ) -> None:
-    _enable_graphhopper(monkeypatch)
+    _enable_graphhopper(db_session, monkeypatch)
     owner = create_user(db_session, password='ItineraryPass123!')
     trip = create_trip(db_session, owner_id=owner.id)
     first_place = create_place(db_session, latitude=51.4416, longitude=5.4697)

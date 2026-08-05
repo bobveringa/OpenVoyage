@@ -1,6 +1,129 @@
 {
   "components": {
     "schemas": {
+      "AdminSettingResponse": {
+        "properties": {
+          "default_value": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Value"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "is_configured": {
+            "title": "Is Configured",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "runtime_safe": {
+            "title": "Runtime Safe",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation"
+          },
+          "value": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "value_type": {
+            "$ref": "#/components/schemas/SettingValueType"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/SettingVisibility"
+          }
+        },
+        "required": [
+          "key",
+          "value_type",
+          "visibility",
+          "description",
+          "value",
+          "default_value",
+          "runtime_safe",
+          "validation",
+          "is_configured",
+          "updated_at"
+        ],
+        "title": "AdminSettingResponse",
+        "type": "object"
+      },
+      "AdminSettingsListResponse": {
+        "properties": {
+          "settings": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSettingResponse"
+            },
+            "title": "Settings",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "settings",
+          "updated_at"
+        ],
+        "title": "AdminSettingsListResponse",
+        "type": "object"
+      },
+      "AppSettingUpdateRequest": {
+        "properties": {
+          "value": {
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "AppSettingUpdateRequest",
+        "type": "object"
+      },
       "Body_login_access_token_api_v1_login_access_token_post": {
         "properties": {
           "client_id": {
@@ -1386,6 +1509,33 @@
         "title": "PostUpdateRequest",
         "type": "object"
       },
+      "PublicSettingsResponse": {
+        "properties": {
+          "settings": {
+            "additionalProperties": true,
+            "title": "Settings",
+            "type": "object"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "settings",
+          "updated_at"
+        ],
+        "title": "PublicSettingsResponse",
+        "type": "object"
+      },
       "RefreshTokenRequest": {
         "properties": {
           "refresh_token": {
@@ -1415,6 +1565,27 @@
         ],
         "title": "ReverseGeocodeResponse",
         "type": "object"
+      },
+      "SettingValueType": {
+        "enum": [
+          "enum",
+          "string",
+          "secret",
+          "boolean",
+          "integer",
+          "object"
+        ],
+        "title": "SettingValueType",
+        "type": "string"
+      },
+      "SettingVisibility": {
+        "enum": [
+          "public",
+          "admin",
+          "internal"
+        ],
+        "title": "SettingVisibility",
+        "type": "string"
       },
       "SortDirection": {
         "enum": [
@@ -2406,6 +2577,181 @@
         ]
       }
     },
+    "/api/v1/admin/settings": {
+      "get": {
+        "operationId": "list_admin_settings_api_v1_admin_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSettingsListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Admin Settings",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/settings/{setting_key}": {
+      "get": {
+        "operationId": "get_admin_setting_api_v1_admin_settings__setting_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "setting_key",
+            "required": true,
+            "schema": {
+              "title": "Setting Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSettingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Admin Setting",
+        "tags": [
+          "admin"
+        ]
+      },
+      "patch": {
+        "operationId": "update_admin_setting_api_v1_admin_settings__setting_key__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "setting_key",
+            "required": true,
+            "schema": {
+              "title": "Setting Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppSettingUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSettingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Admin Setting",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/settings/{setting_key}/reset": {
+      "post": {
+        "operationId": "reset_admin_setting_api_v1_admin_settings__setting_key__reset_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "setting_key",
+            "required": true,
+            "schema": {
+              "title": "Setting Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSettingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Reset Admin Setting",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/v1/login/access-token": {
       "post": {
         "description": "OAuth2 compatible token login, get an access token for future requests",
@@ -2770,6 +3116,27 @@
         "summary": "Reverse Geocode Places",
         "tags": [
           "places"
+        ]
+      }
+    },
+    "/api/v1/settings/public": {
+      "get": {
+        "operationId": "get_public_settings_api_v1_settings_public_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Public Settings",
+        "tags": [
+          "settings"
         ]
       }
     },

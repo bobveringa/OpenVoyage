@@ -8,7 +8,6 @@ from pydantic import (
     BeforeValidator,
     PostgresDsn,
     computed_field,
-    ByteSize,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -41,13 +40,9 @@ class Settings(BaseSettings):
     JWT_AUDIENCE: str = 'openvoyage-api'
     FRONTEND_HOST: str = ''
 
-    MAX_MEDIA_SIZE: ByteSize = '512MB'
-
     MEDIA_DIRECTORY: str = ''
     GEONAMES_DOWNLOAD_BASE_URL: str = 'https://download.geonames.org/export/dump'
-    ROUTING_PROVIDER: str = 'none'
-    GRAPHHOPPER_API_KEY: str = ''
-    GRAPHHOPPER_BASE_URL: str = 'https://graphhopper.com/api/1'
+    APP_SETTINGS_ENCRYPTION_KEY: str | None = None
 
     @computed_field
     @property

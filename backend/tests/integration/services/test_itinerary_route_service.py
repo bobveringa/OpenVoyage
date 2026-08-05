@@ -44,14 +44,6 @@ class FakeRouteProvider(RouteProviderBase):
         )
 
 
-class FakeRouteProviderFactory:
-    def __init__(self, provider: RouteProviderBase | None) -> None:
-        self.provider = provider
-
-    def create_routing_provider(self) -> RouteProviderBase | None:
-        return self.provider
-
-
 def _create_travel_leg(
     db_session: Session,
     *,
@@ -120,7 +112,7 @@ def _route_service(
 ) -> ItineraryRouteService:
     return ItineraryRouteService(
         db=db_session,
-        route_provider_factory=FakeRouteProviderFactory(provider),
+        route_provider=provider,
     )
 
 

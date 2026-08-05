@@ -9,7 +9,18 @@ from sqlalchemy.engine import URL, Engine
 from sqlalchemy.orm import Session
 
 from api.deps import get_db
+from api.deps import route_provider_factory
 from main import app
+from services.app_settings_service import app_settings_cache
+
+
+@pytest.fixture(scope='function', autouse=True)
+def reset_process_settings_state() -> Generator[None, None, None]:
+    app_settings_cache.clear()
+    route_provider_factory.reset_cache()
+    yield
+    app_settings_cache.clear()
+    route_provider_factory.reset_cache()
 
 
 @pytest.fixture(scope='function')

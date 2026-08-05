@@ -12,6 +12,7 @@ from factories.trips import create_trip
 from factories.users import create_user
 from models.database.base import utcnow
 from models.database.media import MediaStatus, MediaType
+from models.database.settings import AppSetting
 from models.database.posts import Post, PostMedia
 from models.database.trips import TripVisibility
 from services.trip_access import SHARE_TOKEN_HEADER
@@ -74,6 +75,27 @@ def test_upload_media_success(
     content_response = client.get(_path_and_query(content_url))
     assert content_response.status_code == 200
     assert content_response.content == b'not-a-real-jpeg-but-good-enough-for-test'
+
+
+@pytest.mark.integration
+def test_upload_media_uses_runtime_size_limit(
+    client, db_session, api_prefix, tmp_path: Path
+) -> None:
+    user = create_user(db_session, password='MediaPass123!')
+    db_session.add(AppSetting(key='media.max_upload_size_mb', value=1))
+    db_session.commit()
+
+    from core.config import settings
+
+    settings.MEDIA_DIRECTORY = str(tmp_path)
+    response = client.post(
+        f'{api_prefix}/media',
+        headers=_auth_headers(user),
+        files={'file': ('large.jpg', b'x' * 1_000_001, 'image/jpeg')},
+    )
+
+    assert response.status_code == 400
+    assert '1000000 bytes' in response.json()['detail']
 
 
 @pytest.mark.integration

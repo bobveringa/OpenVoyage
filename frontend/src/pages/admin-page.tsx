@@ -1,23 +1,15 @@
-import { useState, type FormEvent } from 'react'
-import { Database, ShieldAlert } from 'lucide-react'
+import { Settings2, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 
-import {
-  getErrorMessage,
-  importPlaces,
-  type CurrentUser,
-  type PlaceImportDataset,
-} from '@/api/client'
+import type { CurrentUser } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
-import { Button } from '@/components/ui/button'
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+  AdminNavigation,
+  type AdminSectionId,
+} from '@/components/admin/admin-navigation'
+import { AdminSections } from '@/components/admin/admin-sections'
+import { Badge } from '@/components/ui/badge'
 import { LoadingState } from '@/components/ui/empty-state'
-import { Select, type SelectOption } from '@/components/ui/select'
 import { PlaceholderPage } from '@/pages/placeholder-page'
 
 type AdminPageProps = {
@@ -26,43 +18,12 @@ type AdminPageProps = {
   currentUser: CurrentUser | null
 }
 
-type ImportStatus =
-  | {
-      message: string
-      type: 'error'
-    }
-  | {
-      message: string
-      type: 'success'
-    }
-
-const placeDatasetOptions = [
-  {
-    label: 'Cities 500',
-    value: 'cities500',
-  },
-  {
-    label: 'All countries',
-    value: 'allCountries',
-  },
-] as const satisfies ReadonlyArray<SelectOption<PlaceImportDataset>>
-
-const placeDatasetDescriptions: Record<PlaceImportDataset, string> = {
-  allCountries: 'Full GeoNames place coverage.',
-  cities500: 'Cities and settlements with at least 500 residents.',
-}
-
-const numberFormatter = new Intl.NumberFormat()
-
 export function AdminPage({
   accessToken,
   authStatus,
   currentUser,
 }: AdminPageProps) {
-  const [dataset, setDataset] = useState<PlaceImportDataset>('cities500')
-  const [importStatus, setImportStatus] = useState<ImportStatus | null>(null)
-  const [isImporting, setIsImporting] = useState(false)
-  const [replaceExisting, setReplaceExisting] = useState(false)
+  const { activeSection, selectSection } = useAdminSectionHash()
 
   if (authStatus === 'loading') {
     return <LoadingState label="Checking access" />
@@ -78,141 +39,118 @@ export function AdminPage({
     )
   }
 
-  async function handleImportPlaces(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    if (!accessToken || isImporting) {
-      return
-    }
-
-    setIsImporting(true)
-    setImportStatus(null)
-
-    try {
-      const result = await importPlaces(
-        { dataset, replace_existing: replaceExisting },
-        accessToken,
-      )
-      const deletedMessage =
-        result.deleted > 0
-          ? ` Deleted ${numberFormatter.format(result.deleted)} existing places.`
-          : ''
-      setImportStatus({
-        message: `Processed ${numberFormatter.format(result.processed)} places from ${getPlaceDatasetLabel(result.dataset)}.${deletedMessage}`,
-        type: 'success',
-      })
-    } catch (error) {
-      setImportStatus({
-        message: getErrorMessage(error),
-        type: 'error',
-      })
-    } finally {
-      setIsImporting(false)
-    }
-  }
-
   return (
-    <div className="space-y-6 py-6 sm:py-8 lg:py-10">
-      <div className="space-y-2">
-        <p className="text-sm font-semibold uppercase tracking-wide text-primary">
-          Admin
-        </p>
-        <div className="space-y-1">
-          <h1 className="text-3xl font-semibold tracking-normal text-foreground">
-            Operations
-          </h1>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-            Run maintenance tasks for shared travel data.
-          </p>
-        </div>
-      </div>
-
-      <Card className="max-w-2xl">
-        <CardHeader>
-          <div className="flex items-start gap-4">
-            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-primary shadow-sm">
-              <Database className="size-5" aria-hidden="true" />
+    <div className="space-y-7 py-6 sm:py-8 lg:space-y-8 lg:py-10">
+      <header className="relative overflow-hidden rounded-3xl border border-emerald-100 bg-white px-5 py-6 shadow-sm sm:px-7 sm:py-7">
+        <div
+          aria-hidden="true"
+          className="absolute -right-16 -top-24 size-64 rounded-full bg-emerald-100/65 blur-3xl"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute -bottom-24 left-1/3 size-52 rounded-full bg-amber-100/55 blur-3xl"
+        />
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-4">
+            <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-sm">
+              <Settings2 aria-hidden="true" className="size-6" />
             </span>
-            <div className="space-y-1">
-              <CardTitle>Places import</CardTitle>
-              <CardDescription>
-                Refresh the place search dataset from GeoNames.
-              </CardDescription>
+            <div className="min-w-0 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+                  Administration
+                </p>
+                <Badge className="gap-1.5" variant="secondary">
+                  <ShieldCheck aria-hidden="true" className="size-3" />
+                  Admin only
+                </Badge>
+              </div>
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+                Application control centre
+              </h1>
+              <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                Manage public preferences, infrastructure settings, media
+                policy, and shared application data from one place.
+              </p>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <form className="grid gap-5" onSubmit={handleImportPlaces}>
-            <div className="grid gap-2">
-              <label
-                className="text-sm font-medium text-foreground"
-                htmlFor="admin-place-dataset"
-              >
-                Dataset
-              </label>
-              <Select
-                disabled={isImporting}
-                id="admin-place-dataset"
-                onValueChange={(nextDataset) => {
-                  setDataset(nextDataset)
-                  setImportStatus(null)
-                }}
-                options={placeDatasetOptions}
-                value={dataset}
-              />
-              <p className="text-xs leading-5 text-muted-foreground">
-                {placeDatasetDescriptions[dataset]}
-              </p>
-            </div>
+        </div>
+      </header>
 
-            <label className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-white px-3 py-2 text-sm text-foreground">
-              <input
-                checked={replaceExisting}
-                className="mt-1 size-4 accent-emerald-700"
-                disabled={isImporting}
-                onChange={(event) => {
-                  setReplaceExisting(event.target.checked)
-                  setImportStatus(null)
-                }}
-                type="checkbox"
-              />
-              <span>
-                <span className="block font-medium">Replace existing places</span>
-                <span className="block text-xs leading-5 text-muted-foreground">
-                  Deletes current place search rows before importing GeoNames.
-                </span>
-              </span>
-            </label>
-
-            {importStatus ? (
-              <p
-                className={
-                  importStatus.type === 'success'
-                    ? 'rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-primary'
-                    : 'rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'
-                }
-                role={importStatus.type === 'error' ? 'alert' : 'status'}
-              >
-                {importStatus.message}
-              </p>
-            ) : null}
-
-            <div className="flex justify-end">
-              <Button disabled={!accessToken || isImporting} type="submit">
-                <Database className="size-4" aria-hidden="true" />
-                {isImporting ? 'Importing' : 'Import places'}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+        <AdminNavigation
+          activeSection={activeSection}
+          onSectionChange={selectSection}
+        />
+        <div className="min-w-0">
+          <AdminSections
+            accessToken={accessToken}
+            activeSection={activeSection}
+          />
+        </div>
+      </div>
     </div>
   )
 }
 
-function getPlaceDatasetLabel(dataset: PlaceImportDataset) {
-  return (
-    placeDatasetOptions.find((option) => option.value === dataset)?.label ??
-    dataset
+const adminSectionIds: readonly AdminSectionId[] = [
+  'appearance',
+  'routing',
+  'media',
+  'data',
+]
+
+function useAdminSectionHash() {
+  const [activeSection, setActiveSection] = useState<AdminSectionId>(() =>
+    readAdminSectionHash(),
   )
+
+  useEffect(() => {
+    normalizeAdminSectionHash()
+
+    function handleHashChange() {
+      setActiveSection(readAdminSectionHash())
+      normalizeAdminSectionHash()
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
+
+  const selectSection = useCallback((section: AdminSectionId) => {
+    if (readAdminSectionHash() === section && isKnownAdminSectionHash()) {
+      return
+    }
+
+    setActiveSection(section)
+    window.location.hash = section
+  }, [])
+
+  return { activeSection, selectSection }
+}
+
+function readAdminSectionHash(): AdminSectionId {
+  if (typeof window === 'undefined') {
+    return 'appearance'
+  }
+
+  const section = window.location.hash.slice(1)
+  return adminSectionIds.includes(section as AdminSectionId)
+    ? (section as AdminSectionId)
+    : 'appearance'
+}
+
+function isKnownAdminSectionHash() {
+  return adminSectionIds.includes(
+    window.location.hash.slice(1) as AdminSectionId,
+  )
+}
+
+function normalizeAdminSectionHash() {
+  if (isKnownAdminSectionHash()) {
+    return
+  }
+
+  const nextUrl = `${window.location.pathname}${window.location.search}#appearance`
+  window.history.replaceState(window.history.state, '', nextUrl)
 }

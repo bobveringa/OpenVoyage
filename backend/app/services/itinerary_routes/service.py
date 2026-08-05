@@ -19,7 +19,7 @@ from services.itinerary_routes.maintenance import (
     ItineraryRouteQueueSummary,
 )
 from services.itinerary_routes.resolver import ItineraryRouteResolver
-from services.route_providers import RouteProviderFactory
+from services.route_providers import RouteProviderBase
 
 
 class ItineraryRouteService:
@@ -29,10 +29,9 @@ class ItineraryRouteService:
         self,
         *,
         db: Session,
-        route_provider_factory: RouteProviderFactory,
+        route_provider: RouteProviderBase | None,
         background_tasks: BackgroundTasks | None = None,
     ) -> None:
-        route_provider = route_provider_factory.create_routing_provider()
         self._resolver = ItineraryRouteResolver(db)
         self._generator = ItineraryRouteGenerator(
             db=db,
@@ -41,7 +40,7 @@ class ItineraryRouteService:
         scheduler = ItineraryRouteGenerationScheduler(
             db=db,
             background_tasks=background_tasks,
-            route_provider_factory=route_provider_factory,
+            route_provider=route_provider,
             generate_current_session_route=self._generator.generate_pending_route,
         )
         self._planner = ItineraryRoutePlanner(

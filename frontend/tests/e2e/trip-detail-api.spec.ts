@@ -43,6 +43,7 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     await page.goto(`/trips/${trip.id}`)
 
     await expect(page.getByRole('heading', { name: /E2E API trip/ })).toBeVisible()
+    await page.getByRole('button', { name: 'Plan' }).click()
     await expect(page.getByRole('heading', { name: 'Planning' })).toBeVisible()
     await expectMapTilesRequested(page)
 
@@ -266,10 +267,7 @@ function authHeaders(tokens: AuthTokens) {
 }
 
 function expectsProviderBackedRoutes() {
-  return (
-    process.env.ROUTING_PROVIDER?.toLowerCase() === 'graphhopper' &&
-    Boolean(process.env.GRAPHHOPPER_API_KEY)
-  )
+  return process.env.E2E_EXPECT_PROVIDER_ROUTES?.toLowerCase() === 'true'
 }
 
 function tinyPngBuffer() {

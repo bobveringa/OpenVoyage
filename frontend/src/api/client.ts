@@ -47,6 +47,14 @@ export type PlaceImportDataset =
   components['schemas']['PlaceImportRequest']['dataset']
 export type PlaceImportPayload = components['schemas']['PlaceImportRequest']
 export type PlaceImportResult = components['schemas']['PlaceImportResponse']
+export type AdminSetting = components['schemas']['AdminSettingResponse']
+export type AdminSettingsList =
+  components['schemas']['AdminSettingsListResponse']
+export type AdminSettingUpdatePayload =
+  components['schemas']['AppSettingUpdateRequest']
+export type SettingValidation = NonNullable<AdminSetting['validation']>
+export type SettingValueType = components['schemas']['SettingValueType']
+export type SettingVisibility = components['schemas']['SettingVisibility']
 export type Place = components['schemas']['PlaceResponse']
 export type ReverseGeocodeResult =
   components['schemas']['ReverseGeocodeResponse']
@@ -165,6 +173,42 @@ export async function importPlaces(
     accessToken,
     json: payload,
   })
+}
+
+export async function listAdminSettings(
+  accessToken: string,
+): Promise<AdminSettingsList> {
+  return requestJson<AdminSettingsList>(`${API_V1_PREFIX}/admin/settings`, {
+    accessToken,
+  })
+}
+
+export async function updateAdminSetting(options: {
+  accessToken: string
+  key: string
+  value: AdminSettingUpdatePayload['value']
+}): Promise<AdminSetting> {
+  return requestJson<AdminSetting>(
+    `${API_V1_PREFIX}/admin/settings/${encodeURIComponent(options.key)}`,
+    {
+      accessToken: options.accessToken,
+      json: { value: options.value },
+      method: 'PATCH',
+    },
+  )
+}
+
+export async function resetAdminSetting(options: {
+  accessToken: string
+  key: string
+}): Promise<AdminSetting> {
+  return requestJson<AdminSetting>(
+    `${API_V1_PREFIX}/admin/settings/${encodeURIComponent(options.key)}/reset`,
+    {
+      accessToken: options.accessToken,
+      method: 'POST',
+    },
+  )
 }
 
 export async function geocodePlaces(options: {

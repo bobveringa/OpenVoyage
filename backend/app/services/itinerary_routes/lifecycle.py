@@ -21,7 +21,6 @@ from services.route_providers import (
     RouteProviderBase,
     RouteProviderConfigurationError,
     RouteProviderError,
-    RouteProviderFactory,
     RouteProviderResponseError,
     RouteResponse,
 )
@@ -166,12 +165,12 @@ class ItineraryRouteGenerationScheduler:
         *,
         db: Session,
         background_tasks: BackgroundTasks | None,
-        route_provider_factory: RouteProviderFactory,
+        route_provider: RouteProviderBase | None,
         generate_current_session_route: Callable[[uuid.UUID], object],
     ) -> None:
         self.db = db
         self.background_tasks = background_tasks
-        self.route_provider_factory = route_provider_factory
+        self.route_provider = route_provider
         self.generate_current_session_route = generate_current_session_route
 
     def schedule(self, leg_id: uuid.UUID) -> None:
@@ -184,7 +183,7 @@ class ItineraryRouteGenerationScheduler:
                 generate_pending_route_task,
                 bind,
                 leg_id,
-                self.route_provider_factory,
+                self.route_provider,
             )
             return
 
@@ -259,12 +258,12 @@ class ItineraryRoutePlanner:
 def generate_pending_route_task(
     bind: Engine,
     leg_id: uuid.UUID,
-    route_provider_factory: RouteProviderFactory,
+    route_provider: RouteProviderBase | None,
 ) -> None:
     with Session(bind=bind) as db:
         ItineraryRouteGenerator(
             db=db,
-            route_provider=route_provider_factory.create_routing_provider(),
+            route_provider=route_provider,
         ).generate_pending_route(leg_id)
 
 

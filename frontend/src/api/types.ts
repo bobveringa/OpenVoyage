@@ -38,6 +38,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Admin Settings */
+        get: operations["list_admin_settings_api_v1_admin_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/settings/{setting_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Admin Setting */
+        get: operations["get_admin_setting_api_v1_admin_settings__setting_key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Admin Setting */
+        patch: operations["update_admin_setting_api_v1_admin_settings__setting_key__patch"];
+        trace?: never;
+    };
+    "/api/v1/admin/settings/{setting_key}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Admin Setting */
+        post: operations["reset_admin_setting_api_v1_admin_settings__setting_key__reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/login/access-token": {
         parameters: {
             query?: never;
@@ -135,6 +187,23 @@ export interface paths {
         };
         /** Reverse Geocode Places */
         get: operations["reverse_geocode_places_api_v1_places_reverse_geocode_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/public": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Public Settings */
+        get: operations["get_public_settings_api_v1_settings_public_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -536,6 +605,41 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdminSettingResponse */
+        AdminSettingResponse: {
+            /** Default Value */
+            default_value: unknown | null;
+            /** Description */
+            description: string;
+            /** Is Configured */
+            is_configured: boolean;
+            /** Key */
+            key: string;
+            /** Runtime Safe */
+            runtime_safe: boolean;
+            /** Updated At */
+            updated_at: string | null;
+            /** Validation */
+            validation: {
+                [key: string]: unknown;
+            } | null;
+            /** Value */
+            value: unknown | null;
+            value_type: components["schemas"]["SettingValueType"];
+            visibility: components["schemas"]["SettingVisibility"];
+        };
+        /** AdminSettingsListResponse */
+        AdminSettingsListResponse: {
+            /** Settings */
+            settings: components["schemas"]["AdminSettingResponse"][];
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /** AppSettingUpdateRequest */
+        AppSettingUpdateRequest: {
+            /** Value */
+            value: unknown;
+        };
         /** Body_login_access_token_api_v1_login_access_token_post */
         Body_login_access_token_api_v1_login_access_token_post: {
             /** Client Id */
@@ -1064,6 +1168,15 @@ export interface components {
             /** Title */
             title?: string | null;
         };
+        /** PublicSettingsResponse */
+        PublicSettingsResponse: {
+            /** Settings */
+            settings: {
+                [key: string]: unknown;
+            };
+            /** Updated At */
+            updated_at: string | null;
+        };
         /** RefreshTokenRequest */
         RefreshTokenRequest: {
             /** Refresh Token */
@@ -1075,6 +1188,16 @@ export interface components {
             distance_km: number;
             place: components["schemas"]["PlaceResponse"];
         };
+        /**
+         * SettingValueType
+         * @enum {string}
+         */
+        SettingValueType: "enum" | "string" | "secret" | "boolean" | "integer" | "object";
+        /**
+         * SettingVisibility
+         * @enum {string}
+         */
+        SettingVisibility: "public" | "admin" | "internal";
         /**
          * SortDirection
          * @enum {string}
@@ -1468,6 +1591,123 @@ export interface operations {
             };
         };
     };
+    list_admin_settings_api_v1_admin_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSettingsListResponse"];
+                };
+            };
+        };
+    };
+    get_admin_setting_api_v1_admin_settings__setting_key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                setting_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSettingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_admin_setting_api_v1_admin_settings__setting_key__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                setting_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppSettingUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSettingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_admin_setting_api_v1_admin_settings__setting_key__reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                setting_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSettingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     login_access_token_api_v1_login_access_token_post: {
         parameters: {
             query?: never;
@@ -1664,6 +1904,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_public_settings_api_v1_settings_public_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicSettingsResponse"];
                 };
             };
         };

@@ -2,6 +2,7 @@ import os
 import uuid
 
 import puremagic
+from core.app_settings import MEDIA_MAX_UPLOAD_SIZE_MB_KEY
 from core.config import settings
 from core.db import get_engine
 from fastapi import BackgroundTasks, UploadFile
@@ -10,6 +11,7 @@ from models.database.posts import Post, PostMedia
 from models.database.trips import Trip
 from models.database.user import User, UserProfile
 from services.trip_access import get_trip_read_access
+from services.app_settings_service import AppSettingsService
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from utils.media.image_util import generate_image_thumbnail, get_image_info
@@ -41,6 +43,8 @@ MIME_TYPE_EXTENSIONS: dict[str, str] = {
 }
 
 THUMBNAIL_CONTENT_TYPE = 'image/webp'
+
+
 def get_media_storage_path(media_id: uuid.UUID) -> str:
     """Return the local filesystem path prefix for a media object.
 
@@ -148,7 +152,12 @@ class MediaService:
         background_tasks: FastAPI background task queue for thumbnail jobs.
     """
 
-    def __init__(self, db: Session, background_tasks: BackgroundTasks) -> None:
+    def __init__(
+        self,
+        db: Session,
+        background_tasks: BackgroundTasks,
+        app_settings_service: AppSettingsService,
+    ) -> None:
         """Initialize the service.
 
         Args:
@@ -157,6 +166,7 @@ class MediaService:
         """
         self.db = db
         self.background_tasks = background_tasks
+        self.app_settings_service = app_settings_service
 
     def upload_media(self, file: UploadFile, user: User) -> Media:
         """Store an uploaded media file and queue thumbnail generation.
@@ -172,10 +182,12 @@ class MediaService:
             MediaTooLargeError: The upload exceeds the configured size limit.
             UnsupportedMediaTypeError: The upload MIME type is unsupported.
         """
-        if file.size is not None and file.size > settings.MAX_MEDIA_SIZE:
+        max_size_mb = self.app_settings_service.get_value(MEDIA_MAX_UPLOAD_SIZE_MB_KEY)
+        max_size = int(max_size_mb) * 1_000_000
+        if file.size is not None and file.size > max_size:
             raise MediaTooLargeError(
                 f'File size {file.size} exceeds the maximum allowed size of '
-                f'{settings.MAX_MEDIA_SIZE} bytes'
+                f'{max_size} bytes'
             )
 
         content_type = detect_content_type(file)
@@ -188,7 +200,7 @@ class MediaService:
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
         try:
-            copy_upload_file(file, path, int(settings.MAX_MEDIA_SIZE))
+            copy_upload_file(file, path, max_size)
             width, height, duration = _extract_media_info(path, media_type)
 
             media = Media(
