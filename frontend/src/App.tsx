@@ -11,6 +11,7 @@ import { ProfileSettingsPage } from '@/pages/profile-settings-page'
 import { SetupPage } from '@/pages/setup-page'
 import { TripDetailPage } from '@/pages/trip-detail-page'
 import { UserTripOverviewPage } from '@/pages/user-trip-overview-page'
+import { PublicSettingsProvider } from '@/settings/public-settings'
 
 type Route =
   | { name: 'admin' }
@@ -27,9 +28,11 @@ type NavigateOptions = {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
+    <PublicSettingsProvider>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </PublicSettingsProvider>
   )
 }
 

@@ -4,6 +4,7 @@ import {
   Eye,
   Image,
   KeyRound,
+  Map as MapIcon,
   Palette,
   RefreshCw,
   RotateCcw,
@@ -41,7 +42,9 @@ import {
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { MAP_TILE_PROVIDER_SETTING_KEY } from '@/lib/map-tile-providers'
 import { cn } from '@/lib/utils'
+import { usePublicSettings } from '@/settings/public-settings'
 
 type AdminSectionsProps = {
   accessToken: string | null
@@ -66,6 +69,7 @@ const SETTING_KEYS = {
   graphHopperApiKey: 'routing.graphhopper_api_key',
   graphHopperBaseUrl: 'routing.graphhopper_base_url',
   maxUploadSize: 'media.max_upload_size_mb',
+  mapTileProvider: MAP_TILE_PROVIDER_SETTING_KEY,
   routingProvider: 'routing.provider',
 } as const
 
@@ -78,6 +82,10 @@ const settingPresentations: Record<string, SettingPresentation> = {
       enabled: 'Dark',
       system: 'Use device setting',
     },
+  },
+  [SETTING_KEYS.mapTileProvider]: {
+    help: 'Set the tile URL template used as the base layer for every interactive trip map.',
+    label: 'Tile URL template',
   },
   [SETTING_KEYS.routingProvider]: {
     help: 'Choose the engine used to generate itinerary travel routes.',
@@ -113,6 +121,7 @@ export function AdminSections({
   accessToken,
   activeSection,
 }: AdminSectionsProps) {
+  const { refresh: refreshPublicSettings } = usePublicSettings()
   const [settings, setSettings] = useState<AdminSetting[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading')
@@ -161,6 +170,9 @@ export function AdminSections({
 
     const nextSetting = await updateAdminSetting({ accessToken, key, value })
     replaceSetting(nextSetting)
+    if (nextSetting.visibility === 'public') {
+      await refreshPublicSettings()
+    }
     return nextSetting
   }
 
@@ -171,6 +183,9 @@ export function AdminSections({
 
     const nextSetting = await resetAdminSetting({ accessToken, key })
     replaceSetting(nextSetting)
+    if (nextSetting.visibility === 'public') {
+      await refreshPublicSettings()
+    }
     return nextSetting
   }
 
@@ -224,6 +239,16 @@ export function AdminSections({
           onSave={handleSave}
           settings={pickSettings(settingsByKey, [SETTING_KEYS.darkMode])}
           title="Theme preference"
+        />
+        <SettingsGroup
+          description="Configure the public tile URL template used as the base layer. Routes, markers, and map controls remain unchanged."
+          icon={MapIcon}
+          onReset={handleReset}
+          onSave={handleSave}
+          settings={pickSettings(settingsByKey, [
+            SETTING_KEYS.mapTileProvider,
+          ])}
+          title="Map tiles"
         />
       </section>
     )

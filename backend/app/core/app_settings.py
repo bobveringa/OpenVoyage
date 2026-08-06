@@ -52,6 +52,8 @@ class SettingDefinition:
 
 
 THEME_DARKMODE_KEY = 'theme.darkmode'
+MAP_TILE_PROVIDER_KEY = 'map.tile_provider'
+DEFAULT_MAP_TILE_PROVIDER_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 ROUTING_PROVIDER_KEY = 'routing.provider'
 ROUTING_GRAPHHOPPER_BASE_URL_KEY = 'routing.graphhopper_base_url'
 ROUTING_GRAPHHOPPER_API_KEY = 'routing.graphhopper_api_key'
@@ -70,6 +72,20 @@ SETTING_DEFINITIONS = (
         description=(
             'Controls the public theme mode when public frontend settings are wired in.'
         ),
+    ),
+    SettingDefinition(
+        key=MAP_TILE_PROVIDER_KEY,
+        value_type=SettingValueType.STRING,
+        visibility=SettingVisibility.PUBLIC,
+        sensitive=False,
+        default_value=DEFAULT_MAP_TILE_PROVIDER_URL,
+        runtime_safe=True,
+        validation={
+            'format': 'http-url-template',
+            'max_length': 2048,
+            'min_length': 1,
+        },
+        description='Tile URL template used by interactive maps.',
     ),
     SettingDefinition(
         key=ROUTING_PROVIDER_KEY,
@@ -197,6 +213,19 @@ class AppSettingsRegistry:
                 raise AppSettingValidationError(
                     'Value must be a valid HTTP or HTTPS URL'
                 ) from exc
+        elif validation.get('format') == 'http-url-template':
+            lower_value = value.lower()
+            if not (
+                lower_value.startswith('http://')
+                or lower_value.startswith('https://')
+            ):
+                raise AppSettingValidationError(
+                    'Value must be an HTTP or HTTPS URL template'
+                )
+            if any(character.isspace() for character in value):
+                raise AppSettingValidationError(
+                    'Value must not contain whitespace'
+                )
 
         return value
 

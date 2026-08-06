@@ -6,6 +6,8 @@ from core.app_settings import (
     AppSettingRegistryError,
     AppSettingValidationError,
     AppSettingsRegistry,
+    DEFAULT_MAP_TILE_PROVIDER_URL,
+    MAP_TILE_PROVIDER_KEY,
     SettingDefinition,
     SettingValueType,
     SettingVisibility,
@@ -19,11 +21,44 @@ from core.app_settings_encryption import (
 
 def test_registry_contains_validated_defaults() -> None:
     darkmode = app_settings_registry.require('theme.darkmode')
+    tile_provider = app_settings_registry.require(MAP_TILE_PROVIDER_KEY)
     upload_size = app_settings_registry.require('media.max_upload_size_mb')
 
     assert darkmode.default_value == 'system'
+    assert tile_provider.default_value == DEFAULT_MAP_TILE_PROVIDER_URL
     assert upload_size.default_value == 512
     assert app_settings_registry.validate_value(darkmode, 'enabled') == 'enabled'
+
+
+@pytest.mark.parametrize(
+    'value',
+    [
+        'https://tiles.example.test/{z}/{x}/{y}.png',
+        'https://{s}.tiles.example.test/{z}/{x}/{y}.png?key={apiKey}',
+    ],
+)
+def test_tile_provider_setting_accepts_custom_url_template(value: str) -> None:
+    definition = app_settings_registry.require(MAP_TILE_PROVIDER_KEY)
+
+    assert app_settings_registry.validate_value(definition, value) == value
+
+
+@pytest.mark.parametrize(
+    'value',
+    [
+        '',
+        'unknown',
+        'ftp://tiles.example.test/{z}/{x}/{y}.png',
+        'https://tiles.example.test/{z}/{x}/{y}.png bad',
+        None,
+        True,
+    ],
+)
+def test_tile_provider_setting_rejects_invalid_url_template(value) -> None:
+    definition = app_settings_registry.require(MAP_TILE_PROVIDER_KEY)
+
+    with pytest.raises(AppSettingValidationError):
+        app_settings_registry.validate_value(definition, value)
 
 
 @pytest.mark.parametrize('value', [None, True, 0, 5121])

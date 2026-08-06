@@ -13,6 +13,9 @@ type MockSetting = {
   visibility: 'admin' | 'public'
 }
 
+const defaultTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+const customTileUrl = 'https://tiles.example.test/{z}/{x}/{y}.png'
+
 const initialSettings: MockSetting[] = [
   {
     default_value: 'system',
@@ -37,6 +40,18 @@ const initialSettings: MockSetting[] = [
     value: 'graphhopper',
     value_type: 'enum',
     visibility: 'admin',
+  },
+  {
+    default_value: defaultTileUrl,
+    description: 'Tile URL template used by interactive maps.',
+    is_configured: false,
+    key: 'map.tile_provider',
+    runtime_safe: true,
+    updated_at: null,
+    validation: { format: 'http-url-template', max_length: 2048, min_length: 1 },
+    value: defaultTileUrl,
+    value_type: 'string',
+    visibility: 'public',
   },
   {
     default_value: 'https://graphhopper.com/api/1',
@@ -227,6 +242,31 @@ test('normalizes missing or invalid admin section hashes', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Appearance' })).toBeVisible()
 })
 
+test('updates and resets the public map tile provider URL', async ({ page }) => {
+  const api = await mockAdminApi(page)
+
+  await page.goto('/admin#appearance')
+
+  const tileProviderForm = page
+    .locator('form')
+    .filter({ has: page.getByLabel('Tile URL template') })
+  await page.getByLabel('Tile URL template').fill(customTileUrl)
+  await tileProviderForm
+    .getByRole('button', { exact: true, name: 'Save' })
+    .click()
+
+  await expect(tileProviderForm.getByText('Setting saved.')).toBeVisible()
+  expect(api.updates).toContainEqual({
+    key: 'map.tile_provider',
+    value: customTileUrl,
+  })
+
+  await tileProviderForm.getByRole('button', { name: 'Reset' }).click()
+  await expect(tileProviderForm.getByText('Default restored.')).toBeVisible()
+  await expect(page.getByLabel('Tile URL template')).toHaveValue(defaultTileUrl)
+  expect(api.resets).toContain('map.tile_provider')
+})
+
 async function mockAdminApi(page: Page) {
   const settings = initialSettings.map((setting) => ({ ...setting }))
   const updates: Array<{ key: string; value: unknown }> = []
@@ -259,6 +299,17 @@ async function mockAdminApi(page: Page) {
     await fulfillJson(route, {
       settings,
       updated_at: '2026-08-05T09:00:00Z',
+    })
+  })
+
+  await page.route('**/api/v1/settings/public', async (route) => {
+    await fulfillJson(route, {
+      settings: Object.fromEntries(
+        settings
+          .filter((setting) => setting.visibility === 'public')
+          .map((setting) => [setting.key, setting.value]),
+      ),
+      updated_at: null,
     })
   })
 

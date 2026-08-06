@@ -52,6 +52,7 @@ export type AdminSettingsList =
   components['schemas']['AdminSettingsListResponse']
 export type AdminSettingUpdatePayload =
   components['schemas']['AppSettingUpdateRequest']
+export type PublicSettings = components['schemas']['PublicSettingsResponse']
 export type SettingValidation = NonNullable<AdminSetting['validation']>
 export type SettingValueType = components['schemas']['SettingValueType']
 export type SettingVisibility = components['schemas']['SettingVisibility']
@@ -181,6 +182,10 @@ export async function listAdminSettings(
   return requestJson<AdminSettingsList>(`${API_V1_PREFIX}/admin/settings`, {
     accessToken,
   })
+}
+
+export async function getPublicSettings(): Promise<PublicSettings> {
+  return requestJson<PublicSettings>(`${API_V1_PREFIX}/settings/public`)
 }
 
 export async function updateAdminSetting(options: {

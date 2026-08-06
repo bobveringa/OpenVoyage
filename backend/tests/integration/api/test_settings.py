@@ -4,6 +4,8 @@ import pytest
 
 from core import security
 from core.app_settings import (
+    DEFAULT_MAP_TILE_PROVIDER_URL,
+    MAP_TILE_PROVIDER_KEY,
     MEDIA_MAX_UPLOAD_SIZE_MB_KEY,
     ROUTING_GRAPHHOPPER_API_KEY,
     ROUTING_PROVIDER_KEY,
@@ -39,7 +41,10 @@ def test_public_settings_returns_only_public_defaults(client, db_session, api_pr
 
     assert response.status_code == 200
     assert response.json() == {
-        'settings': {THEME_DARKMODE_KEY: 'system'},
+        'settings': {
+            THEME_DARKMODE_KEY: 'system',
+            MAP_TILE_PROVIDER_KEY: DEFAULT_MAP_TILE_PROVIDER_URL,
+        },
         'updated_at': None,
     }
 
@@ -80,6 +85,7 @@ def test_admin_list_includes_redacted_secret_metadata(
     )
     assert keys == {
         'theme.darkmode',
+        'map.tile_provider',
         'routing.provider',
         'routing.graphhopper_base_url',
         'routing.graphhopper_api_key',
@@ -135,6 +141,7 @@ def test_admin_can_update_normal_and_secret_settings(
     ('setting_key', 'value'),
     [
         (THEME_DARKMODE_KEY, 'automatic'),
+        (MAP_TILE_PROVIDER_KEY, 'ftp://tiles.example.test/{z}/{x}/{y}.png'),
         (ROUTING_PROVIDER_KEY, 'unknown'),
         ('routing.graphhopper_base_url', 'ftp://example.test'),
         (MEDIA_MAX_UPLOAD_SIZE_MB_KEY, True),
@@ -221,6 +228,50 @@ def test_reset_restores_non_secret_default(client, db_session, api_prefix) -> No
     assert response.json()['value'] == 512
     assert response.json()['is_configured'] is False
     assert response.json()['updated_at'] is None
+
+
+@pytest.mark.integration
+def test_admin_can_update_and_reset_public_tile_provider(
+    client, db_session, api_prefix
+) -> None:
+    admin = _admin(db_session)
+    headers = _auth_headers(admin)
+    setting_url = f'{api_prefix}/admin/settings/{MAP_TILE_PROVIDER_KEY}'
+    custom_tile_url = 'https://tiles.example.test/{z}/{x}/{y}.png'
+
+    update_response = client.patch(
+        setting_url,
+        headers=headers,
+        json={'value': custom_tile_url},
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()['value'] == custom_tile_url
+    assert update_response.json()['is_configured'] is True
+    row = db_session.get(AppSetting, MAP_TILE_PROVIDER_KEY)
+    assert row is not None
+    assert row.value == custom_tile_url
+    assert row.secret_value is None
+
+    public_response = client.get(f'{api_prefix}/settings/public')
+    assert public_response.status_code == 200
+    assert (
+        public_response.json()['settings'][MAP_TILE_PROVIDER_KEY]
+        == custom_tile_url
+    )
+
+    reset_response = client.post(f'{setting_url}/reset', headers=headers)
+
+    assert reset_response.status_code == 200
+    assert reset_response.json()['value'] == DEFAULT_MAP_TILE_PROVIDER_URL
+    assert reset_response.json()['is_configured'] is False
+    assert db_session.get(AppSetting, MAP_TILE_PROVIDER_KEY) is None
+    reset_public_response = client.get(f'{api_prefix}/settings/public')
+    assert reset_public_response.status_code == 200
+    assert (
+        reset_public_response.json()['settings'][MAP_TILE_PROVIDER_KEY]
+        == DEFAULT_MAP_TILE_PROVIDER_URL
+    )
 
 
 @pytest.mark.integration

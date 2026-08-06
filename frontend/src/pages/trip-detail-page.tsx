@@ -69,6 +69,11 @@ import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  MAP_TILE_PROVIDER_SETTING_KEY,
+  resolveMapTileProvider,
+} from '@/lib/map-tile-providers'
+import { usePublicSetting } from '@/settings/public-settings'
+import {
   addTripMember,
   addTripViewer,
   createItineraryStop,
@@ -6510,6 +6515,11 @@ function TripLeafletMap({
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
 }) {
+  const tileProviderSetting = usePublicSetting(MAP_TILE_PROVIDER_SETTING_KEY)
+  const tileProvider = useMemo(
+    () => resolveMapTileProvider(tileProviderSetting),
+    [tileProviderSetting],
+  )
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const draftMarkerRef = useRef<L.Marker | null>(null)
   const latestLocationSelectRef = useRef(onDraftMapPointSelect)
@@ -6517,6 +6527,7 @@ function TripLeafletMap({
   const mapRef = useRef<L.Map | null>(null)
   const postMarkerLayerRef = useRef<L.LayerGroup | null>(null)
   const routeLayerRef = useRef<L.LayerGroup | null>(null)
+  const tileLayerRef = useRef<L.TileLayer | null>(null)
   const focusedPostIdRef = useRef<string | null>(focusedPostId)
   const travelPostsRef = useRef(travelPosts)
   const stopsRef = useRef(stops)
@@ -6556,11 +6567,6 @@ function TripLeafletMap({
       zoomControl: false,
     })
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(map)
-
     if (fitMode !== 'mobile-travel') {
       L.control.zoom({ position: 'bottomright' }).addTo(map)
     }
@@ -6591,8 +6597,26 @@ function TripLeafletMap({
       mapRef.current = null
       postMarkerLayerRef.current = null
       routeLayerRef.current = null
+      tileLayerRef.current = null
     }
   }, [fitMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) {
+      return undefined
+    }
+
+    const tileLayer = L.tileLayer(tileProvider.url, tileProvider.options).addTo(map)
+    tileLayerRef.current = tileLayer
+
+    return () => {
+      tileLayer.remove()
+      if (tileLayerRef.current === tileLayer) {
+        tileLayerRef.current = null
+      }
+    }
+  }, [fitMode, tileProvider])
 
   useEffect(() => {
     const postMarkerLayer = postMarkerLayerRef.current
@@ -6732,7 +6756,7 @@ function TripLeafletMap({
 
   return (
     <div
-        aria-label="OpenStreetMap route map"
+      aria-label="Interactive trip route map"
       className="trip-leaflet-map absolute inset-0"
       ref={mapContainerRef}
     />
