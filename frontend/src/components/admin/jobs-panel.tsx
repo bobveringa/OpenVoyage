@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, Clock3, Play, RefreshCw, RotateCcw } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Clock3, LoaderCircle, Play, RefreshCw, RotateCcw, XCircle } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 
 import {
@@ -8,6 +8,7 @@ import {
   resetJob,
   runJob,
   updateJob,
+  type JobExecution,
   type ScheduledJob,
 } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
@@ -84,34 +85,68 @@ function JobCard({ accessToken, job, onChange }: { accessToken: string; job: Sch
     pollingTimer.current = timer
   }
   const active = job.executions.active
+  const latest = active ?? job.executions.latest
+  const status = getExecutionStatus(latest?.status)
   return <Card>
-    <CardHeader className="gap-3 border-b border-emerald-100/80">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-xl font-semibold">{job.name}</h3><CardDescription>{job.description}</CardDescription></div><Badge variant={job.schedule.enabled ? 'secondary' : 'outline'}>{job.schedule.enabled ? 'Scheduled' : 'Schedule disabled'}</Badge></div>
-      <p className="text-sm text-muted-foreground">Next run: {job.schedule.next_run_at ? new Date(job.schedule.next_run_at).toLocaleString() : 'Not scheduled'} · Defaults: {job.defaults.cron} ({job.defaults.timezone})</p>
-    </CardHeader>
-    <CardContent className="space-y-4 pt-5">
-      <form className="grid gap-4 md:grid-cols-3" onSubmit={save}>
-        <div className="flex items-center gap-3 self-end pb-1">
-          <button
-            aria-checked={enabled}
-            aria-label={`Enable ${job.name} schedule`}
-            className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${enabled ? 'border-primary bg-primary' : 'border-emerald-200 bg-emerald-50'}`}
-            onClick={() => setEnabled((current) => !current)}
-            role="switch"
-            type="button"
-          >
-            <span className={`size-5 rounded-full bg-white shadow-sm transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} />
-          </button>
-          <span className="text-sm font-medium text-foreground">Enable schedule</span>
+    <CardHeader className="gap-4 border-b border-emerald-100/80 p-5 sm:p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2"><h3 className="text-xl font-semibold">{job.name}</h3><Badge variant={job.schedule.enabled ? 'secondary' : 'outline'}>{job.schedule.enabled ? 'Scheduled' : 'Schedule disabled'}</Badge></div>
+          <CardDescription className="mt-1">{job.description}</CardDescription>
         </div>
-        <label className="grid gap-1 text-sm font-medium">Cron<Input aria-label={`${job.name} cron`} onChange={(event) => setCron(event.target.value)} value={cron} /></label>
-        <label className="grid gap-1 text-sm font-medium">Timezone<Input aria-label={`${job.name} timezone`} onChange={(event) => setTimezone(event.target.value)} value={timezone} /></label>
-        <div className="flex flex-wrap gap-2 md:col-span-3"><Button disabled={busy} type="submit"><RefreshCw className="size-4" /> Save schedule</Button><Button disabled={busy} onClick={() => void restore()} type="button" variant="outline"><RotateCcw className="size-4" /> Restore defaults</Button><Button disabled={busy || !!active} onClick={() => void run()} type="button" variant="secondary"><Play className="size-4" /> Run now</Button></div>
-      </form>
-      <p className="text-xs text-muted-foreground">Use five cron fields. Weekdays use names such as mon–sun; schedules run in the selected IANA timezone.</p>
+        <Button disabled={busy || !!active} onClick={() => void run()} type="button" variant="secondary"><Play className="size-4" /> {active ? 'Run in progress' : 'Run now'}</Button>
+      </div>
+      <div className={`flex items-start gap-3 rounded-xl border px-3.5 py-3 ${status.className}`}>
+        <status.Icon aria-hidden="true" className={`mt-0.5 size-4 shrink-0 ${status.iconClassName}`} />
+        <div className="min-w-0 text-sm"><p className="font-semibold">{status.label}</p><p className="mt-0.5 text-muted-foreground">{latest ? `${formatExecutionTime(latest)} · ${formatTrigger(latest.trigger)}` : 'No execution has been recorded yet.'}</p></div>
+      </div>
+    </CardHeader>
+    <CardContent className="space-y-6 p-5 pt-5 sm:p-6 sm:pt-6">
+      <section aria-labelledby={`${job.key}-schedule`} className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h4 className="font-semibold" id={`${job.key}-schedule`}>Schedule</h4><p className="mt-0.5 text-sm text-muted-foreground">Next run: {job.schedule.next_run_at ? new Date(job.schedule.next_run_at).toLocaleString() : 'Not scheduled'}</p><p className="mt-1 text-xs text-muted-foreground">Default: {job.defaults.cron} · {job.defaults.timezone}</p></div>
+          <div className="flex items-center gap-3 sm:pt-1">
+            <span className="text-sm font-medium text-foreground">Enable schedule</span>
+            <button
+              aria-checked={enabled}
+              aria-label={`Enable ${job.name} schedule`}
+              className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${enabled ? 'border-primary bg-primary' : 'border-emerald-200 bg-emerald-50'}`}
+              onClick={() => setEnabled((current) => !current)}
+              role="switch"
+              type="button"
+            >
+              <span className={`size-5 rounded-full bg-white shadow-sm transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </div>
+        </div>
+        <form className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(10rem,0.55fr)]" onSubmit={save}>
+          <label className="grid gap-1.5 text-sm font-medium">Cron<Input aria-label={`${job.name} cron`} onChange={(event) => setCron(event.target.value)} value={cron} /></label>
+          <label className="grid gap-1.5 text-sm font-medium">Timezone<Input aria-label={`${job.name} timezone`} onChange={(event) => setTimezone(event.target.value)} value={timezone} /></label>
+          <div className="flex flex-wrap gap-2 md:col-span-2"><Button disabled={busy} type="submit"><RefreshCw className="size-4" /> Save schedule</Button><Button disabled={busy} onClick={() => void restore()} type="button" variant="outline"><RotateCcw className="size-4" /> Restore defaults</Button></div>
+        </form>
+        <p className="text-xs text-muted-foreground">Use five cron fields. Weekdays use names such as mon–sun; schedules run in the selected IANA timezone.</p>
+      </section>
       {message ? <p className={message.type === 'error' ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'} role={message.type === 'error' ? 'alert' : 'status'}>{message.text}</p> : null}
       {job.schedule.error ? <p className="text-sm text-destructive">{job.schedule.error}</p> : null}
-      {job.executions.latest ? <div className="rounded-lg bg-muted/45 p-3 text-sm"><div className="flex items-center gap-2 font-medium">{job.executions.latest.status === 'SUCCEEDED' ? <CheckCircle2 className="size-4 text-emerald-700" /> : <Clock3 className="size-4" />} Latest: {job.executions.latest.status} ({job.executions.latest.trigger})</div>{job.executions.latest.error_message ? <p className="mt-1 text-destructive">{job.executions.latest.error_message}</p> : null}{job.executions.latest.summary ? <pre className="mt-2 overflow-x-auto text-xs">{JSON.stringify(job.executions.latest.summary, null, 2)}</pre> : null}</div> : null}
+      {latest?.error_message || latest?.summary ? <details className="group rounded-xl border border-emerald-100 bg-muted/30 px-3.5 py-3"><summary className="cursor-pointer text-sm font-medium marker:text-muted-foreground">Execution details</summary><div className="mt-3 border-t border-emerald-100 pt-3 text-sm">{latest.error_message ? <p className="text-destructive">{latest.error_message}</p> : null}{latest.summary ? <pre className="mt-3 overflow-x-auto rounded-lg bg-white p-3 text-xs leading-5 text-foreground">{JSON.stringify(latest.summary, null, 2)}</pre> : null}</div></details> : null}
     </CardContent>
   </Card>
+}
+
+function getExecutionStatus(status: JobExecution['status'] | undefined) {
+  if (status === 'SUCCEEDED') return { label: 'Latest run succeeded', Icon: CheckCircle2, className: 'border-emerald-200 bg-emerald-50/70', iconClassName: 'text-emerald-700' }
+  if (status === 'FAILED') return { label: 'Latest run failed', Icon: XCircle, className: 'border-red-200 bg-red-50/70', iconClassName: 'text-destructive' }
+  if (status === 'RUNNING') return { label: 'Run in progress', Icon: LoaderCircle, className: 'border-amber-200 bg-amber-50/70', iconClassName: 'animate-spin text-amber-700' }
+  if (status === 'QUEUED') return { label: 'Run queued', Icon: Clock3, className: 'border-amber-200 bg-amber-50/70', iconClassName: 'text-amber-700' }
+  if (status === 'SKIPPED') return { label: 'Latest run skipped', Icon: Clock3, className: 'border-emerald-100 bg-muted/40', iconClassName: 'text-muted-foreground' }
+  return { label: 'No runs yet', Icon: Clock3, className: 'border-emerald-100 bg-muted/40', iconClassName: 'text-muted-foreground' }
+}
+
+function formatExecutionTime(execution: JobExecution) {
+  const timestamp = execution.finished_at ?? execution.started_at ?? execution.created_at
+  if (execution.status === 'QUEUED') return `Queued ${new Date(timestamp).toLocaleString()}`
+  return execution.status === 'RUNNING' ? `Started ${new Date(timestamp).toLocaleString()}` : `Finished ${new Date(timestamp).toLocaleString()}`
+}
+
+function formatTrigger(trigger: JobExecution['trigger']) {
+  return trigger.charAt(0) + trigger.slice(1).toLowerCase()
 }
