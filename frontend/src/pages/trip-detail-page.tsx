@@ -8570,6 +8570,7 @@ function formatDateTimeLabel(value: string) {
 
   return new Intl.DateTimeFormat(undefined, {
     day: 'numeric',
+    hour12: false,
     hour: '2-digit',
     minute: '2-digit',
     month: 'short',

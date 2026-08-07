@@ -103,7 +103,7 @@ function JobCard({ accessToken, job, onChange }: { accessToken: string; job: Sch
     </CardHeader>
     <CardContent className="space-y-6 p-5 pt-5 sm:p-6 sm:pt-6">
       <section aria-labelledby={`${job.key}-schedule`} className="space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h4 className="font-semibold" id={`${job.key}-schedule`}>Schedule</h4><p className="mt-0.5 text-sm text-muted-foreground">Next run: {job.schedule.next_run_at ? new Date(job.schedule.next_run_at).toLocaleString() : 'Not scheduled'}</p><p className="mt-1 text-xs text-muted-foreground">Default: {job.defaults.cron} · {job.defaults.timezone}</p></div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h4 className="font-semibold" id={`${job.key}-schedule`}>Schedule</h4><p className="mt-0.5 text-sm text-muted-foreground">Next run: {job.schedule.next_run_at ? formatDateTime(job.schedule.next_run_at) : 'Not scheduled'}</p><p className="mt-1 text-xs text-muted-foreground">Default: {job.defaults.cron} · {job.defaults.timezone}</p></div>
           <div className="flex items-center gap-3 sm:pt-1">
             <span className="text-sm font-medium text-foreground">Enable schedule</span>
             <button
@@ -143,8 +143,12 @@ function getExecutionStatus(status: JobExecution['status'] | undefined) {
 
 function formatExecutionTime(execution: JobExecution) {
   const timestamp = execution.finished_at ?? execution.started_at ?? execution.created_at
-  if (execution.status === 'QUEUED') return `Queued ${new Date(timestamp).toLocaleString()}`
-  return execution.status === 'RUNNING' ? `Started ${new Date(timestamp).toLocaleString()}` : `Finished ${new Date(timestamp).toLocaleString()}`
+  if (execution.status === 'QUEUED') return `Queued ${formatDateTime(timestamp)}`
+  return execution.status === 'RUNNING' ? `Started ${formatDateTime(timestamp)}` : `Finished ${formatDateTime(timestamp)}`
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString(undefined, { hour12: false })
 }
 
 function formatTrigger(trigger: JobExecution['trigger']) {

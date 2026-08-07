@@ -7,7 +7,9 @@ import pytest
 from sqlalchemy.orm import Session
 
 from core.app_settings import (
+    PLACES_GEONAMES_DATASET_KEY,
     AppSettingsRegistry,
+    app_settings_registry,
     SettingDefinition,
     SettingValueType,
     SettingVisibility,
@@ -55,6 +57,20 @@ def test_non_secret_default_and_missing_secret_do_not_need_encryption_key() -> N
 
     assert service.get_value('theme.darkmode') == 'system'
     assert service.get_value('routing.graphhopper_api_key') is None
+
+
+def test_geonames_dataset_setting_includes_city_dump_options() -> None:
+    definition = app_settings_registry.require(PLACES_GEONAMES_DATASET_KEY)
+
+    assert definition.validation == {
+        'allowed_values': [
+            'cities500',
+            'cities1000',
+            'cities5000',
+            'cities15000',
+            'allCountries',
+        ]
+    }
 
 
 def test_admin_secret_metadata_does_not_decrypt_ciphertext() -> None:

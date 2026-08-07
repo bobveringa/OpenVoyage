@@ -135,7 +135,15 @@ SETTING_DEFINITIONS = (
         sensitive=False,
         default_value='cities500',
         runtime_safe=True,
-        validation={'allowed_values': ['cities500', 'allCountries']},
+        validation={
+            'allowed_values': [
+                'cities500',
+                'cities1000',
+                'cities5000',
+                'cities15000',
+                'allCountries',
+            ]
+        },
         description='GeoNames dataset used by the scheduled places import.',
     ),
     SettingDefinition(

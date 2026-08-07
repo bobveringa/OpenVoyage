@@ -120,12 +120,19 @@ const settingPresentations: Record<string, SettingPresentation> = {
   [SETTING_KEYS.geonamesDataset]: {
     help: 'The next GeoNames job execution downloads this supported dataset.',
     label: 'GeoNames dataset',
-    optionLabels: { cities500: 'Cities with 500+ people', allCountries: 'All countries' },
+    optionLabels: {
+      cities500: 'Cities with 500+ people',
+      cities1000: 'Cities with 1,000+ people',
+      cities5000: 'Cities with 5,000+ people',
+      cities15000: 'Cities with 15,000+ people or capitals',
+      allCountries: 'All countries',
+    },
   },
 }
 
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
+  hour12: false,
   timeStyle: 'short',
 })
 

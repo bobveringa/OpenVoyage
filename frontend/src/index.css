@@ -9,6 +9,7 @@
   html {
     background: var(--background);
     max-width: 100%;
+    scrollbar-gutter: stable;
   }
 
   body {

@@ -37,6 +37,9 @@ class GeoNamesDataset(str, enum.Enum):
     """GeoNames dump files supported by the places importer."""
 
     CITIES_500 = 'cities500'
+    CITIES_1000 = 'cities1000'
+    CITIES_5000 = 'cities5000'
+    CITIES_15000 = 'cities15000'
     ALL_COUNTRIES = 'allCountries'
 
 

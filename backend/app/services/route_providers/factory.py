@@ -18,7 +18,7 @@ from services.route_providers.route_provider import RouteProviderBase
 logger = logging.getLogger(__name__)
 
 
-class AppSettingsReader(Protocol):
+class  AppSettingsReader(Protocol):
     def get_value(self, key: str) -> object: ...
 
 
