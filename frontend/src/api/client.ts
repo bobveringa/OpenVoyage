@@ -43,10 +43,6 @@ export type MediaUploadProgress = {
   progress: number | null
   total: number | null
 }
-export type PlaceImportDataset =
-  components['schemas']['PlaceImportRequest']['dataset']
-export type PlaceImportPayload = components['schemas']['PlaceImportRequest']
-export type PlaceImportResult = components['schemas']['PlaceImportResponse']
 export type AdminSetting = components['schemas']['AdminSettingResponse']
 export type AdminSettingsList =
   components['schemas']['AdminSettingsListResponse']
@@ -165,15 +161,94 @@ export async function readCurrentUser(accessToken: string): Promise<CurrentUser>
   })
 }
 
-export async function importPlaces(
-  payload: PlaceImportPayload,
-  accessToken: string,
-): Promise<PlaceImportResult> {
-  return requestJson<PlaceImportResult>(`${API_V1_PREFIX}/admin/places/import`, {
-    method: 'POST',
-    accessToken,
-    json: payload,
-  })
+export type JobExecution = {
+  id: string
+  job_key: string
+  trigger: 'SCHEDULED' | 'STARTUP' | 'MANUAL'
+  status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'SKIPPED'
+  requested_by: string | null
+  summary: Record<string, unknown> | null
+  error_message: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export type ScheduledJob = {
+  key: string
+  name: string
+  description: string
+  enabled: boolean
+  cron: string
+  timezone: string
+  default_enabled: boolean
+  default_cron: string
+  default_timezone: string
+  next_run_at: string | null
+  schedule_error: string | null
+  updated_by: string | null
+  updated_at: string
+  active_execution: JobExecution | null
+  latest_execution: JobExecution | null
+}
+
+export async function listJobs(accessToken: string): Promise<ScheduledJob[]> {
+  const response = await requestJson<{ jobs: ScheduledJob[] }>(
+    `${API_V1_PREFIX}/admin/jobs`,
+    { accessToken },
+  )
+  return response.jobs
+}
+
+export async function updateJob(options: {
+  accessToken: string
+  key: string
+  enabled: boolean
+  cron: string
+  timezone: string
+}): Promise<ScheduledJob> {
+  return requestJson<ScheduledJob>(
+    `${API_V1_PREFIX}/admin/jobs/${encodeURIComponent(options.key)}`,
+    {
+      method: 'PATCH',
+      accessToken: options.accessToken,
+      json: {
+        enabled: options.enabled,
+        cron: options.cron,
+        timezone: options.timezone,
+      },
+    },
+  )
+}
+
+export async function resetJob(options: {
+  accessToken: string
+  key: string
+}): Promise<ScheduledJob> {
+  return requestJson<ScheduledJob>(
+    `${API_V1_PREFIX}/admin/jobs/${encodeURIComponent(options.key)}/reset`,
+    { method: 'POST', accessToken: options.accessToken },
+  )
+}
+
+export async function runJob(options: {
+  accessToken: string
+  key: string
+}): Promise<JobExecution> {
+  return requestJson<JobExecution>(
+    `${API_V1_PREFIX}/admin/jobs/${encodeURIComponent(options.key)}/executions`,
+    { method: 'POST', accessToken: options.accessToken },
+  )
+}
+
+export async function getJobExecution(options: {
+  accessToken: string
+  executionId: string
+}): Promise<JobExecution> {
+  return requestJson<JobExecution>(
+    `${API_V1_PREFIX}/admin/job-executions/${encodeURIComponent(options.executionId)}`,
+    { accessToken: options.accessToken },
+  )
 }
 
 export async function listAdminSettings(

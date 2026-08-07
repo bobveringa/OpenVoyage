@@ -21,6 +21,7 @@ from core.app_settings import (
     app_settings_registry,
 )
 from core.app_settings_encryption import AppSettingsEncryption
+from core.config import settings
 from models.database.base import utcnow
 from models.database.settings import AppSetting
 
@@ -150,13 +151,17 @@ class AppSettingsService:
     def __init__(
         self,
         db: Session,
-        encryption: AppSettingsEncryption,
+        encryption: AppSettingsEncryption | None = None,
         *,
         registry: AppSettingsRegistry = app_settings_registry,
         cache: AppSettingsCache = app_settings_cache,
     ) -> None:
         self.db = db
-        self.encryption = encryption
+        self.encryption = (
+            encryption
+            if encryption is not None
+            else AppSettingsEncryption(settings.APP_SETTINGS_ENCRYPTION_KEY)
+        )
         self.registry = registry
         self.cache = cache
         self._cache_scope = self._resolve_cache_scope()

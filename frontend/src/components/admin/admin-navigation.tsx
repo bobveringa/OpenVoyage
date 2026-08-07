@@ -1,6 +1,7 @@
 import {
   Database,
   Image,
+  Clock3,
   Palette,
   Route,
   type LucideIcon,
@@ -13,6 +14,7 @@ export type AdminSectionId =
   | 'appearance'
   | 'data'
   | 'media'
+  | 'jobs'
   | 'routing'
 
 type AdminNavigationItem = {
@@ -51,6 +53,12 @@ const adminNavigationItems: readonly AdminNavigationItem[] = [
     icon: Database,
     id: 'data',
     label: 'Data tools',
+  },
+  {
+    description: 'Schedules and execution history',
+    icon: Clock3,
+    id: 'jobs',
+    label: 'Jobs',
   },
 ]
 

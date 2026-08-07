@@ -13,6 +13,7 @@ from core.app_settings import (
     SettingVisibility,
 )
 from core.app_settings_encryption import AppSettingsEncryption
+from core.config import settings
 from models.database.settings import AppSetting
 from services.app_settings_service import (
     AppSettingsCache,
@@ -28,6 +29,23 @@ def _service(db: Mock, *, encryption=None, cache=None) -> AppSettingsService:
         encryption=encryption or AppSettingsEncryption(None),
         cache=cache or AppSettingsCache(),
     )
+
+
+def test_default_encryption_uses_application_configuration(
+    fake_db: Mock,
+    monkeypatch,
+) -> None:
+    encryption = Mock(spec=AppSettingsEncryption)
+    encryption_type = Mock(return_value=encryption)
+    monkeypatch.setattr(
+        'services.app_settings_service.AppSettingsEncryption',
+        encryption_type,
+    )
+
+    service = AppSettingsService(fake_db)
+
+    encryption_type.assert_called_once_with(settings.APP_SETTINGS_ENCRYPTION_KEY)
+    assert service.encryption is encryption
 
 
 def test_non_secret_default_and_missing_secret_do_not_need_encryption_key() -> None:

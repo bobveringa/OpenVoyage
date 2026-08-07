@@ -840,6 +840,211 @@
         "title": "ItineraryTravelRouteResponse",
         "type": "object"
       },
+      "JobExecutionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobExecutionResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "JobExecutionListResponse",
+        "type": "object"
+      },
+      "JobExecutionResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_key": {
+            "title": "Job Key",
+            "type": "string"
+          },
+          "requested_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobExecutionStatus"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/JobExecutionTrigger"
+          }
+        },
+        "required": [
+          "id",
+          "job_key",
+          "trigger",
+          "status",
+          "requested_by",
+          "summary",
+          "error_message",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "JobExecutionResponse",
+        "type": "object"
+      },
+      "JobExecutionStatus": {
+        "enum": [
+          "QUEUED",
+          "RUNNING",
+          "SUCCEEDED",
+          "FAILED",
+          "SKIPPED"
+        ],
+        "title": "JobExecutionStatus",
+        "type": "string"
+      },
+      "JobExecutionTrigger": {
+        "enum": [
+          "SCHEDULED",
+          "STARTUP",
+          "MANUAL"
+        ],
+        "title": "JobExecutionTrigger",
+        "type": "string"
+      },
+      "JobListResponse": {
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduledJobResponse"
+            },
+            "title": "Jobs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs"
+        ],
+        "title": "JobListResponse",
+        "type": "object"
+      },
+      "JobUpdateRequest": {
+        "properties": {
+          "cron": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cron"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          }
+        },
+        "title": "JobUpdateRequest",
+        "type": "object"
+      },
       "LocationCoordinatesInput": {
         "additionalProperties": false,
         "properties": {
@@ -1186,55 +1391,6 @@
         "title": "PaginatedResponse[UserSummaryResponse]",
         "type": "object"
       },
-      "PlaceImportRequest": {
-        "properties": {
-          "dataset": {
-            "enum": [
-              "cities500",
-              "allCountries"
-            ],
-            "title": "Dataset",
-            "type": "string"
-          },
-          "replace_existing": {
-            "default": false,
-            "title": "Replace Existing",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "dataset"
-        ],
-        "title": "PlaceImportRequest",
-        "type": "object"
-      },
-      "PlaceImportResponse": {
-        "properties": {
-          "dataset": {
-            "enum": [
-              "cities500",
-              "allCountries"
-            ],
-            "title": "Dataset",
-            "type": "string"
-          },
-          "deleted": {
-            "title": "Deleted",
-            "type": "integer"
-          },
-          "processed": {
-            "title": "Processed",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "dataset",
-          "processed",
-          "deleted"
-        ],
-        "title": "PlaceImportResponse",
-        "type": "object"
-      },
       "PlaceResponse": {
         "properties": {
           "country_code": {
@@ -1564,6 +1720,125 @@
           "place"
         ],
         "title": "ReverseGeocodeResponse",
+        "type": "object"
+      },
+      "ScheduledJobResponse": {
+        "properties": {
+          "active_execution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobExecutionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cron": {
+            "title": "Cron",
+            "type": "string"
+          },
+          "default_cron": {
+            "title": "Default Cron",
+            "type": "string"
+          },
+          "default_enabled": {
+            "title": "Default Enabled",
+            "type": "boolean"
+          },
+          "default_timezone": {
+            "title": "Default Timezone",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "latest_execution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobExecutionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "schedule_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Error"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "description",
+          "enabled",
+          "cron",
+          "timezone",
+          "default_enabled",
+          "default_cron",
+          "default_timezone",
+          "next_run_at",
+          "schedule_error",
+          "updated_by",
+          "updated_at",
+          "active_execution",
+          "latest_execution"
+        ],
+        "title": "ScheduledJobResponse",
         "type": "object"
       },
       "SettingValueType": {
@@ -2531,25 +2806,56 @@
         ]
       }
     },
-    "/api/v1/admin/places/import": {
-      "post": {
-        "operationId": "import_places_api_v1_admin_places_import_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PlaceImportRequest"
-              }
+    "/api/v1/admin/job-executions": {
+      "get": {
+        "operationId": "list_executions_api_v1_admin_job_executions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "job_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Key"
             }
           },
-          "required": true
-        },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PlaceImportResponse"
+                  "$ref": "#/components/schemas/JobExecutionListResponse"
                 }
               }
             },
@@ -2571,7 +2877,276 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Import Places",
+        "summary": "List Executions",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/job-executions/{execution_id}": {
+      "get": {
+        "operationId": "get_execution_api_v1_admin_job_executions__execution_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "execution_id",
+            "required": true,
+            "schema": {
+              "title": "Execution Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobExecutionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Execution",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/jobs": {
+      "get": {
+        "operationId": "list_jobs_api_v1_admin_jobs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Jobs",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/jobs/{job_key}": {
+      "get": {
+        "operationId": "get_job_api_v1_admin_jobs__job_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_key",
+            "required": true,
+            "schema": {
+              "title": "Job Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Job",
+        "tags": [
+          "admin"
+        ]
+      },
+      "patch": {
+        "operationId": "update_job_api_v1_admin_jobs__job_key__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_key",
+            "required": true,
+            "schema": {
+              "title": "Job Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Job",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/jobs/{job_key}/executions": {
+      "post": {
+        "operationId": "run_job_api_v1_admin_jobs__job_key__executions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_key",
+            "required": true,
+            "schema": {
+              "title": "Job Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobExecutionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Run Job",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/jobs/{job_key}/reset": {
+      "post": {
+        "operationId": "reset_job_api_v1_admin_jobs__job_key__reset_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_key",
+            "required": true,
+            "schema": {
+              "title": "Job Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Reset Job",
         "tags": [
           "admin"
         ]

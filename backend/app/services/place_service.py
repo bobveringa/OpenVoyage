@@ -126,7 +126,7 @@ def _parse_geonames_population(value: str) -> int:
 
 def _download_geonames_url(url: str, suffix: str) -> Path:
     """Download a GeoNames URL to a temporary file."""
-    with urlopen(url) as response:
+    with urlopen(url, timeout=30) as response:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             copyfileobj(response, tmp)
             return Path(tmp.name)
@@ -448,9 +448,10 @@ class PlaceService:
         """
         deleted = 0
         if replace_existing:
-            result = self.db.execute(delete(Place))
+            result = self.db.execute(
+                delete(Place).where(Place.external_source == GEONAMES_SOURCE)
+            )
             deleted = result.rowcount or 0
-
         processed = 0
         batch: list[dict[str, object]] = []
         for row in _iter_geonames_rows(path=path):
@@ -467,10 +468,17 @@ class PlaceService:
                 self._upsert_places(batch)
                 batch = []
 
-        if batch:
-            self._upsert_places(batch)
+        if processed == 0 and replace_existing:
+            self.db.rollback()
+            raise ValueError('GeoNames import did not contain valid places')
 
-        self.db.commit()
+        try:
+            if batch:
+                self._upsert_places(batch)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
         return PlaceImportResult(
             dataset=dataset,
             deleted=deleted,

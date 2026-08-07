@@ -3,14 +3,13 @@ from dataclasses import dataclass
 from typing import Annotated, cast
 import uuid
 
-from fastapi import BackgroundTasks, Depends, Header, HTTPException, Query, status
+from fastapi import BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import InvalidTokenError
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from core import security
-from core.app_settings_encryption import AppSettingsEncryption
 from core.config import settings
 from core.db import get_engine
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -40,6 +39,10 @@ optional_oauth2 = OAuth2PasswordBearer(
 def get_db() -> Generator[Session, None, None]:
     with Session(get_engine()) as session:
         yield session
+
+
+def get_job_runtime(request: Request):
+    return request.app.state.job_runtime
 
 
 @dataclass(frozen=True)
@@ -78,7 +81,7 @@ def _get_user_from_token(session: Session, token: str) -> User:
     try:
         payload = security.decode_token(token, expected_type=security.TOKEN_TYPE_ACCESS)
         token_data = TokenPayload(**payload)
-    except InvalidTokenError, ValidationError:
+    except (InvalidTokenError, ValidationError):
         raise _credentials_exception()
 
     try:
@@ -123,10 +126,7 @@ def get_current_admin_user(
 
 
 def get_app_settings_service(session: SessionDep) -> AppSettingsService:
-    return AppSettingsService(
-        db=session,
-        encryption=AppSettingsEncryption(settings.APP_SETTINGS_ENCRYPTION_KEY),
-    )
+    return AppSettingsService(db=session)
 
 
 AppSettingsServiceDep = Annotated[
@@ -220,6 +220,7 @@ def get_user_service(session: SessionDep):
 CurrentUser = Annotated[User, Depends(get_current_user)]
 OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 CurrentAdmin = Annotated[User, Depends(get_current_admin_user)]
+JobRuntimeDep = Annotated[object, Depends(get_job_runtime)]
 MediaServiceDep = Annotated[MediaService, Depends(get_media_service)]
 LocationServiceDep = Annotated[LocationService, Depends(get_location_service)]
 ItineraryRouteServiceDep = Annotated[

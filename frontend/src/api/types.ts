@@ -21,7 +21,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/places/import": {
+    "/api/v1/admin/job-executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Executions */
+        get: operations["list_executions_api_v1_admin_job_executions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/job-executions/{execution_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Execution */
+        get: operations["get_execution_api_v1_admin_job_executions__execution_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Jobs */
+        get: operations["list_jobs_api_v1_admin_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/jobs/{job_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Job */
+        get: operations["get_job_api_v1_admin_jobs__job_key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Job */
+        patch: operations["update_job_api_v1_admin_jobs__job_key__patch"];
+        trace?: never;
+    };
+    "/api/v1/admin/jobs/{job_key}/executions": {
         parameters: {
             query?: never;
             header?: never;
@@ -30,8 +99,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Import Places */
-        post: operations["import_places_api_v1_admin_places_import_post"];
+        /** Run Job */
+        post: operations["run_job_api_v1_admin_jobs__job_key__executions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/jobs/{job_key}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Job */
+        post: operations["reset_job_api_v1_admin_jobs__job_key__reset_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -903,6 +989,70 @@ export interface components {
             geometry: components["schemas"]["GeoJsonLineString"];
             type: components["schemas"]["ItineraryRouteType"];
         };
+        /** JobExecutionListResponse */
+        JobExecutionListResponse: {
+            /** Items */
+            items: components["schemas"]["JobExecutionResponse"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+        };
+        /** JobExecutionResponse */
+        JobExecutionResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error Message */
+            error_message: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Job Key */
+            job_key: string;
+            /** Requested By */
+            requested_by: string | null;
+            /** Started At */
+            started_at: string | null;
+            status: components["schemas"]["JobExecutionStatus"];
+            /** Summary */
+            summary: {
+                [key: string]: unknown;
+            } | null;
+            trigger: components["schemas"]["JobExecutionTrigger"];
+        };
+        /**
+         * JobExecutionStatus
+         * @enum {string}
+         */
+        JobExecutionStatus: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED";
+        /**
+         * JobExecutionTrigger
+         * @enum {string}
+         */
+        JobExecutionTrigger: "SCHEDULED" | "STARTUP" | "MANUAL";
+        /** JobListResponse */
+        JobListResponse: {
+            /** Jobs */
+            jobs: components["schemas"]["ScheduledJobResponse"][];
+        };
+        /** JobUpdateRequest */
+        JobUpdateRequest: {
+            /** Cron */
+            cron?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Timezone */
+            timezone?: string | null;
+        };
         /** LocationCoordinatesInput */
         LocationCoordinatesInput: {
             /** Latitude */
@@ -1037,31 +1187,6 @@ export interface components {
             /** Total */
             total: number;
         };
-        /** PlaceImportRequest */
-        PlaceImportRequest: {
-            /**
-             * Dataset
-             * @enum {string}
-             */
-            dataset: "cities500" | "allCountries";
-            /**
-             * Replace Existing
-             * @default false
-             */
-            replace_existing: boolean;
-        };
-        /** PlaceImportResponse */
-        PlaceImportResponse: {
-            /**
-             * Dataset
-             * @enum {string}
-             */
-            dataset: "cities500" | "allCountries";
-            /** Deleted */
-            deleted: number;
-            /** Processed */
-            processed: number;
-        };
         /** PlaceResponse */
         PlaceResponse: {
             /** Country Code */
@@ -1187,6 +1312,40 @@ export interface components {
             /** Distance Km */
             distance_km: number;
             place: components["schemas"]["PlaceResponse"];
+        };
+        /** ScheduledJobResponse */
+        ScheduledJobResponse: {
+            active_execution: components["schemas"]["JobExecutionResponse"] | null;
+            /** Cron */
+            cron: string;
+            /** Default Cron */
+            default_cron: string;
+            /** Default Enabled */
+            default_enabled: boolean;
+            /** Default Timezone */
+            default_timezone: string;
+            /** Description */
+            description: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Key */
+            key: string;
+            latest_execution: components["schemas"]["JobExecutionResponse"] | null;
+            /** Name */
+            name: string;
+            /** Next Run At */
+            next_run_at: string | null;
+            /** Schedule Error */
+            schedule_error: string | null;
+            /** Timezone */
+            timezone: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Updated By */
+            updated_by: string | null;
         };
         /**
          * SettingValueType
@@ -1558,16 +1717,133 @@ export interface operations {
             };
         };
     };
-    import_places_api_v1_admin_places_import_post: {
+    list_executions_api_v1_admin_job_executions_get: {
+        parameters: {
+            query?: {
+                job_key?: string | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobExecutionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_execution_api_v1_admin_job_executions__execution_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                execution_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobExecutionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_jobs_api_v1_admin_jobs_get: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobListResponse"];
+                };
+            };
+        };
+    };
+    get_job_api_v1_admin_jobs__job_key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_job_api_v1_admin_jobs__job_key__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_key: string;
+            };
+            cookie?: never;
+        };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PlaceImportRequest"];
+                "application/json": components["schemas"]["JobUpdateRequest"];
             };
         };
         responses: {
@@ -1577,7 +1853,69 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PlaceImportResponse"];
+                    "application/json": components["schemas"]["ScheduledJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_job_api_v1_admin_jobs__job_key__executions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobExecutionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_job_api_v1_admin_jobs__job_key__reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledJobResponse"];
                 };
             };
             /** @description Validation Error */

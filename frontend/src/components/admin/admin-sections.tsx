@@ -30,7 +30,7 @@ import {
   type SettingValidation,
 } from '@/api/client'
 import type { AdminSectionId } from '@/components/admin/admin-navigation'
-import { PlaceImportPanel } from '@/components/admin/place-import-panel'
+import { JobsPanel } from '@/components/admin/jobs-panel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -69,6 +69,8 @@ const SETTING_KEYS = {
   graphHopperApiKey: 'routing.graphhopper_api_key',
   graphHopperBaseUrl: 'routing.graphhopper_base_url',
   maxUploadSize: 'media.max_upload_size_mb',
+  orphanRetentionDays: 'media.orphan_retention_days',
+  geonamesDataset: 'places.geonames_dataset',
   mapTileProvider: MAP_TILE_PROVIDER_SETTING_KEY,
   routingProvider: 'routing.provider',
 } as const
@@ -109,6 +111,16 @@ const settingPresentations: Record<string, SettingPresentation> = {
     help: 'Maximum accepted size for a single uploaded media file.',
     label: 'Maximum upload size',
     placeholder: '512',
+  },
+  [SETTING_KEYS.orphanRetentionDays]: {
+    help: 'Media must remain unattached for this many whole days before cleanup.',
+    label: 'Orphan retention (days)',
+    placeholder: '1',
+  },
+  [SETTING_KEYS.geonamesDataset]: {
+    help: 'The next GeoNames job execution downloads this supported dataset.',
+    label: 'GeoNames dataset',
+    optionLabels: { cities500: 'Cities with 500+ people', allCountries: 'All countries' },
   },
 }
 
@@ -203,7 +215,27 @@ export function AdminSections({
           eyebrow="Administration"
           title="Data tools"
         />
-        <PlaceImportPanel accessToken={accessToken} />
+        <SettingsGroup
+          description="Choose which supported GeoNames dataset the scheduled import replaces."
+          icon={MapIcon}
+          onReset={handleReset}
+          onSave={handleSave}
+          settings={pickSettings(settingsByKey, [SETTING_KEYS.geonamesDataset])}
+          title="GeoNames import"
+        />
+      </section>
+    )
+  }
+
+  if (activeSection === 'jobs') {
+    return (
+      <section {...panelProps} className="space-y-6">
+        <SectionHeading
+          description="Configure recurring maintenance and inspect recent attempts."
+          eyebrow="Operations"
+          title="Scheduled jobs"
+        />
+        <JobsPanel accessToken={accessToken} />
       </section>
     )
   }
@@ -301,7 +333,10 @@ export function AdminSections({
         icon={Image}
         onReset={handleReset}
         onSave={handleSave}
-        settings={pickSettings(settingsByKey, [SETTING_KEYS.maxUploadSize])}
+        settings={pickSettings(settingsByKey, [
+          SETTING_KEYS.maxUploadSize,
+          SETTING_KEYS.orphanRetentionDays,
+        ])}
         title="Upload policy"
       />
     </section>

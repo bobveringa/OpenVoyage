@@ -58,6 +58,8 @@ ROUTING_PROVIDER_KEY = 'routing.provider'
 ROUTING_GRAPHHOPPER_BASE_URL_KEY = 'routing.graphhopper_base_url'
 ROUTING_GRAPHHOPPER_API_KEY = 'routing.graphhopper_api_key'
 MEDIA_MAX_UPLOAD_SIZE_MB_KEY = 'media.max_upload_size_mb'
+PLACES_GEONAMES_DATASET_KEY = 'places.geonames_dataset'
+MEDIA_ORPHAN_RETENTION_DAYS_KEY = 'media.orphan_retention_days'
 
 
 SETTING_DEFINITIONS = (
@@ -125,6 +127,26 @@ SETTING_DEFINITIONS = (
         runtime_safe=True,
         validation={'min': 1, 'max': 5120, 'unit': 'MB'},
         description='Maximum accepted media upload size in megabytes.',
+    ),
+    SettingDefinition(
+        key=PLACES_GEONAMES_DATASET_KEY,
+        value_type=SettingValueType.ENUM,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        default_value='cities500',
+        runtime_safe=True,
+        validation={'allowed_values': ['cities500', 'allCountries']},
+        description='GeoNames dataset used by the scheduled places import.',
+    ),
+    SettingDefinition(
+        key=MEDIA_ORPHAN_RETENTION_DAYS_KEY,
+        value_type=SettingValueType.INTEGER,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        default_value=1,
+        runtime_safe=True,
+        validation={'min': 1, 'unit': 'days'},
+        description='Minimum age before unattached media is eligible for cleanup.',
     ),
 )
 

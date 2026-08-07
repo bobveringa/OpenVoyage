@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from api.routers import (
     admin,
     itinerary,
+    jobs,
     login,
     media,
     places,
@@ -17,6 +18,7 @@ api_router = APIRouter()
 api_router.include_router(login.router)
 api_router.include_router(users.router)
 api_router.include_router(admin.router)
+api_router.include_router(jobs.router)
 api_router.include_router(settings.public_router)
 api_router.include_router(settings.admin_router)
 api_router.include_router(media.router)

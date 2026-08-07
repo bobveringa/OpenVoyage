@@ -1,5 +1,4 @@
 import uuid
-from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -29,13 +28,3 @@ class FirstUserCreateResponse(BaseModel):
     id: uuid.UUID
     email: EmailStr
 
-
-class PlaceImportRequest(BaseModel):
-    dataset: Literal['cities500', 'allCountries']
-    replace_existing: bool = False
-
-
-class PlaceImportResponse(BaseModel):
-    dataset: Literal['cities500', 'allCountries']
-    processed: int
-    deleted: int

@@ -98,6 +98,7 @@ const adminSectionIds: readonly AdminSectionId[] = [
   'routing',
   'media',
   'data',
+  'jobs',
 ]
 
 function useAdminSectionHash() {
