@@ -64,6 +64,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DatePicker, DateTimePicker } from '@/components/ui/date-time-picker'
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
+import { ImageUploadDropzone } from '@/components/media/image-upload-dropzone'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
@@ -99,6 +100,7 @@ import {
   updatePost,
   updateTrip,
   updateTripMember,
+  uploadMedia,
   uploadMediaWithProgress,
   type CurrentUser,
   type GeoJsonLineString,
@@ -365,6 +367,7 @@ type PendingPostSubmit = {
 }
 
 type TripSettingsDraft = {
+  coverFile: File | null
   description: string
   endDate: string | null
   name: string
@@ -1149,9 +1152,12 @@ export function TripDetailPage({
       }
 
       void runMutation('Saving trip settings', async () => {
+        const mediaId = draft.coverFile
+          ? await uploadMedia(draft.coverFile, accessToken)
+          : undefined
         const updatedTrip = await updateTrip({
           accessToken,
-          payload: toTripUpdatePayload(draft),
+          payload: toTripUpdatePayload(draft, mediaId),
           tripId,
         })
         setTrip(toTripViewModel(updatedTrip))
@@ -2200,6 +2206,7 @@ function TripSettingsDialog({
   trip: MockTrip
 }) {
   const [description, setDescription] = useState(trip.description)
+  const [coverFile, setCoverFile] = useState<File | null>(null)
   const [endDate, setEndDate] = useState(trip.endDate)
   const [name, setName] = useState(trip.name)
   const [startDate, setStartDate] = useState(trip.startDate)
@@ -2213,6 +2220,7 @@ function TripSettingsDialog({
     }
 
     setDescription(trip.description)
+    setCoverFile(null)
     setEndDate(trip.endDate)
     setName(trip.name)
     setStartDate(trip.startDate)
@@ -2229,6 +2237,7 @@ function TripSettingsDialog({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     onSave({
+      coverFile,
       description: description.trim(),
       endDate: endDate || null,
       name: name.trim(),
@@ -2245,6 +2254,16 @@ function TripSettingsDialog({
       title="Trip settings"
     >
       <form className="grid gap-5" onSubmit={handleSubmit}>
+        <ImageUploadDropzone
+          buttonLabel="Choose a new cover"
+          description="PNG, JPG, or WebP work best. Leave this unchanged to keep the current cover."
+          disabled={!canMutate || isSaving}
+          dropzoneClassName="min-h-44"
+          file={coverFile}
+          onFileChange={setCoverFile}
+          title="Drop a new cover image here"
+        />
+
         <label className="grid gap-2 text-sm font-medium text-foreground">
           Trip title
           <Input
@@ -8136,10 +8155,14 @@ function toTripViewModel(trip: Trip): MockTrip {
   }
 }
 
-function toTripUpdatePayload(draft: TripSettingsDraft): TripUpdatePayload {
+function toTripUpdatePayload(
+  draft: TripSettingsDraft,
+  mediaId?: string,
+): TripUpdatePayload {
   return {
     description: draft.description,
     end_date: draft.endDate,
+    ...(mediaId ? { media_id: mediaId } : {}),
     name: draft.name,
     start_date: draft.startDate,
     visibility: draft.visibility,
