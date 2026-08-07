@@ -23,7 +23,9 @@ class JobRunner:
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        self._thread = threading.Thread(target=self._run_loop, name='job-runner', daemon=True)
+        self._thread = threading.Thread(
+            target=self._run_loop, name='job-runner', daemon=True
+        )
         self._thread.start()
 
     def wake(self) -> None:
@@ -63,15 +65,40 @@ class JobRunner:
         try:
             definition = JOB_DEFINITIONS_BY_KEY[job_key]
             with self._session_factory() as db:
-                summary = definition.job_type(db).run().summary
+                job = definition.factory(db)
+                if job.key != definition.key:
+                    raise RuntimeError('Job factory returned the wrong job type')
+                result = job.run()
+                summary = result.summary
             self._finish(execution_id, JobExecutionStatus.SUCCEEDED, summary=summary)
-            logger.info('job_succeeded', extra={'job_key': job_key, 'execution_id': str(execution_id), 'duration_seconds': (utcnow() - started).total_seconds()})
+            logger.info(
+                'job_succeeded',
+                extra={
+                    'job_key': job_key,
+                    'execution_id': str(execution_id),
+                    'duration_seconds': (utcnow() - started).total_seconds(),
+                },
+            )
         except Exception:
-            logger.exception('job_failed', extra={'job_key': job_key, 'execution_id': str(execution_id)})
-            self._finish(execution_id, JobExecutionStatus.FAILED, error_message='Job execution failed')
+            logger.exception(
+                'job_failed',
+                extra={'job_key': job_key, 'execution_id': str(execution_id)},
+            )
+            self._finish(
+                execution_id,
+                JobExecutionStatus.FAILED,
+                error_message='Job execution failed',
+            )
         return True
 
-    def _finish(self, execution_id, status: JobExecutionStatus, *, summary: dict | None = None, error_message: str | None = None) -> None:
+    def _finish(
+        self,
+        execution_id,
+        status: JobExecutionStatus,
+        *,
+        summary: dict | None = None,
+        error_message: str | None = None,
+    ) -> None:
         with self._session_factory() as db:
             execution = db.get(JobExecution, execution_id)
             if execution is None:

@@ -94,8 +94,7 @@ class ItineraryRouteMaintenance:
             self.db.execute(
                 select(ItineraryTravelLegRoute.id)
                 .where(
-                    ItineraryTravelLegRoute.status
-                    == ItineraryTravelRouteStatus.PENDING
+                    ItineraryTravelLegRoute.status == ItineraryTravelRouteStatus.PENDING
                 )
                 .order_by(
                     ItineraryTravelLegRoute.created_at,
@@ -184,8 +183,7 @@ class ItineraryRouteMaintenance:
                     .joinedload(ItineraryStop.location),
                 )
                 .where(
-                    ItineraryTravelLegRoute.status
-                    == ItineraryTravelRouteStatus.FAILED,
+                    ItineraryTravelLegRoute.status == ItineraryTravelRouteStatus.FAILED,
                     ItineraryTravelLegRoute.next_retry_at <= now,
                 )
                 .order_by(

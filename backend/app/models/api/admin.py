@@ -27,4 +27,3 @@ class FirstUserCreateRequest(BaseModel):
 class FirstUserCreateResponse(BaseModel):
     id: uuid.UUID
     email: EmailStr
-

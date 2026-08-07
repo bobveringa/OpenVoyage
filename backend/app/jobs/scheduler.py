@@ -32,7 +32,9 @@ class JobScheduler:
             if self._scheduler.get_job(job_id):
                 self._scheduler.remove_job(job_id)
             return
-        cron_trigger = trigger or CronTrigger.from_crontab(job.cron, timezone=job.timezone)
+        cron_trigger = trigger or CronTrigger.from_crontab(
+            job.cron, timezone=job.timezone
+        )
         self._scheduler.add_job(
             self._callback,
             trigger=cron_trigger,

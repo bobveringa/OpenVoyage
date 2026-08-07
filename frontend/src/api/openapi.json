@@ -840,6 +840,56 @@
         "title": "ItineraryTravelRouteResponse",
         "type": "object"
       },
+      "JobAuditResponse": {
+        "properties": {
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "required": [
+          "updated_by",
+          "updated_at"
+        ],
+        "title": "JobAuditResponse",
+        "type": "object"
+      },
+      "JobDefaultsResponse": {
+        "properties": {
+          "cron": {
+            "title": "Cron",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "cron",
+          "timezone"
+        ],
+        "title": "JobDefaultsResponse",
+        "type": "object"
+      },
       "JobExecutionListResponse": {
         "properties": {
           "items": {
@@ -988,6 +1038,36 @@
         "title": "JobExecutionTrigger",
         "type": "string"
       },
+      "JobExecutionsResponse": {
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobExecutionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobExecutionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "active",
+          "latest"
+        ],
+        "title": "JobExecutionsResponse",
+        "type": "object"
+      },
       "JobListResponse": {
         "properties": {
           "jobs": {
@@ -1002,6 +1082,54 @@
           "jobs"
         ],
         "title": "JobListResponse",
+        "type": "object"
+      },
+      "JobScheduleResponse": {
+        "properties": {
+          "cron": {
+            "title": "Cron",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "cron",
+          "timezone",
+          "next_run_at",
+          "error"
+        ],
+        "title": "JobScheduleResponse",
         "type": "object"
       },
       "JobUpdateRequest": {
@@ -1724,119 +1852,39 @@
       },
       "ScheduledJobResponse": {
         "properties": {
-          "active_execution": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/JobExecutionResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "audit": {
+            "$ref": "#/components/schemas/JobAuditResponse"
           },
-          "cron": {
-            "title": "Cron",
-            "type": "string"
-          },
-          "default_cron": {
-            "title": "Default Cron",
-            "type": "string"
-          },
-          "default_enabled": {
-            "title": "Default Enabled",
-            "type": "boolean"
-          },
-          "default_timezone": {
-            "title": "Default Timezone",
-            "type": "string"
+          "defaults": {
+            "$ref": "#/components/schemas/JobDefaultsResponse"
           },
           "description": {
             "title": "Description",
             "type": "string"
           },
-          "enabled": {
-            "title": "Enabled",
-            "type": "boolean"
+          "executions": {
+            "$ref": "#/components/schemas/JobExecutionsResponse"
           },
           "key": {
             "title": "Key",
             "type": "string"
           },
-          "latest_execution": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/JobExecutionResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "name": {
             "title": "Name",
             "type": "string"
           },
-          "next_run_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Run At"
-          },
-          "schedule_error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Schedule Error"
-          },
-          "timezone": {
-            "title": "Timezone",
-            "type": "string"
-          },
-          "updated_at": {
-            "format": "date-time",
-            "title": "Updated At",
-            "type": "string"
-          },
-          "updated_by": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Updated By"
+          "schedule": {
+            "$ref": "#/components/schemas/JobScheduleResponse"
           }
         },
         "required": [
           "key",
           "name",
           "description",
-          "enabled",
-          "cron",
-          "timezone",
-          "default_enabled",
-          "default_cron",
-          "default_timezone",
-          "next_run_at",
-          "schedule_error",
-          "updated_by",
-          "updated_at",
-          "active_execution",
-          "latest_execution"
+          "schedule",
+          "defaults",
+          "executions",
+          "audit"
         ],
         "title": "ScheduledJobResponse",
         "type": "object"

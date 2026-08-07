@@ -12,9 +12,11 @@ from sqlalchemy.orm import Session
 from core import security
 from core.config import settings
 from core.db import get_engine
+from jobs.runtime import JobRuntime
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from models.api.token import TokenPayload
 from models.database.user import User
+from services.job_service import JobService
 from services.itinerary_routes import ItineraryRouteService
 from services.app_settings_service import AppSettingsService
 from services.route_providers import RouteProviderBase, RouteProviderFactory
@@ -41,7 +43,7 @@ def get_db() -> Generator[Session, None, None]:
         yield session
 
 
-def get_job_runtime(request: Request):
+def get_job_runtime(request: Request) -> JobRuntime:
     return request.app.state.job_runtime
 
 
@@ -63,6 +65,7 @@ def get_pagination_params(
 
 
 SessionDep = Annotated[Session, Depends(get_db)]
+JobRuntimeDep = Annotated[JobRuntime, Depends(get_job_runtime)]
 PaginationDep = Annotated[PaginationParams, Depends(get_pagination_params)]
 TokenDep = Annotated[str, Depends(reusable_oauth2)]
 OptionalTokenDep = Annotated[str | None, Depends(optional_oauth2)]
@@ -127,6 +130,17 @@ def get_current_admin_user(
 
 def get_app_settings_service(session: SessionDep) -> AppSettingsService:
     return AppSettingsService(db=session)
+
+
+def get_job_service(
+    session: SessionDep,
+    runtime: JobRuntimeDep,
+) -> JobService:
+    return JobService(
+        db=session,
+        scheduler=runtime.scheduler,
+        wake_runner=runtime.runner.wake,
+    )
 
 
 AppSettingsServiceDep = Annotated[
@@ -220,7 +234,7 @@ def get_user_service(session: SessionDep):
 CurrentUser = Annotated[User, Depends(get_current_user)]
 OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 CurrentAdmin = Annotated[User, Depends(get_current_admin_user)]
-JobRuntimeDep = Annotated[object, Depends(get_job_runtime)]
+JobServiceDep = Annotated[JobService, Depends(get_job_service)]
 MediaServiceDep = Annotated[MediaService, Depends(get_media_service)]
 LocationServiceDep = Annotated[LocationService, Depends(get_location_service)]
 ItineraryRouteServiceDep = Annotated[

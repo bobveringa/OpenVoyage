@@ -48,7 +48,7 @@ def _parse_geometry(geometry: object) -> dict:
 
 
 def _parse_optional_nonnegative_int(
-        value: object,
+    value: object,
     *,
     field_name: str,
 ) -> int | None:
@@ -197,7 +197,9 @@ class GraphHopperRouteProvider(RouteProviderBase):
         except HTTPError as exc:
             raise RouteProviderError(_http_error_message(exc)) from exc
         except URLError as exc:
-            raise RouteProviderError(f'GraphHopper request failed: {exc.reason}') from exc
+            raise RouteProviderError(
+                f'GraphHopper request failed: {exc.reason}'
+            ) from exc
         except JSONDecodeError as exc:
             raise RouteProviderResponseError(
                 'GraphHopper response was not valid JSON'

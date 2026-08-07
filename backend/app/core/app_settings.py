@@ -238,16 +238,13 @@ class AppSettingsRegistry:
         elif validation.get('format') == 'http-url-template':
             lower_value = value.lower()
             if not (
-                lower_value.startswith('http://')
-                or lower_value.startswith('https://')
+                lower_value.startswith('http://') or lower_value.startswith('https://')
             ):
                 raise AppSettingValidationError(
                     'Value must be an HTTP or HTTPS URL template'
                 )
             if any(character.isspace() for character in value):
-                raise AppSettingValidationError(
-                    'Value must not contain whitespace'
-                )
+                raise AppSettingValidationError('Value must not contain whitespace')
 
         return value
 

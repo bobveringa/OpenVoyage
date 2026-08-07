@@ -37,34 +37,39 @@ export function JobsPanel({ accessToken }: { accessToken: string | null }) {
 }
 
 function JobCard({ accessToken, job, onChange }: { accessToken: string; job: ScheduledJob; onChange: (job: ScheduledJob) => void }) {
-  const [enabled, setEnabled] = useState(job.enabled)
-  const [cron, setCron] = useState(job.cron)
-  const [timezone, setTimezone] = useState(job.timezone)
+  const [enabled, setEnabled] = useState(job.schedule.enabled)
+  const [cron, setCron] = useState(job.schedule.cron)
+  const [timezone, setTimezone] = useState(job.schedule.timezone)
   const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
+  const [message, setMessage] = useState<{ text: string; type: 'error' | 'success' } | null>(null)
   const pollingTimer = useRef<number | null>(null)
-  useEffect(() => { setEnabled(job.enabled); setCron(job.cron); setTimezone(job.timezone) }, [job])
+  useEffect(() => { setEnabled(job.schedule.enabled); setCron(job.schedule.cron); setTimezone(job.schedule.timezone) }, [job])
   useEffect(() => () => {
     if (pollingTimer.current !== null) window.clearInterval(pollingTimer.current)
   }, [])
 
   async function save(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage(null)
-    try { onChange(await updateJob({ accessToken, key: job.key, enabled, cron, timezone })); setMessage('Schedule saved.') }
-    catch (cause) { setMessage(getErrorMessage(cause)) } finally { setBusy(false) }
+    event.preventDefault()
+    setBusy(true); setMessage(null)
+    try {
+      onChange(await updateJob({ accessToken, key: job.key, enabled, cron, timezone }))
+      setMessage({ text: 'Schedule saved.', type: 'success' })
+    } catch (cause) {
+      setMessage({ text: `Schedule was not saved: ${getErrorMessage(cause)}`, type: 'error' })
+    } finally { setBusy(false) }
   }
   async function restore() {
     setBusy(true); setMessage(null)
-    try { onChange(await resetJob({ accessToken, key: job.key })); setMessage('Defaults restored.') }
-    catch (cause) { setMessage(getErrorMessage(cause)) } finally { setBusy(false) }
+    try { onChange(await resetJob({ accessToken, key: job.key })); setMessage({ text: 'Defaults restored.', type: 'success' }) }
+    catch (cause) { setMessage({ text: getErrorMessage(cause), type: 'error' }) } finally { setBusy(false) }
   }
   async function run() {
     setBusy(true); setMessage(null)
     try {
       const execution = await runJob({ accessToken, key: job.key })
-      onChange({ ...job, active_execution: execution, latest_execution: execution })
+      onChange({ ...job, executions: { active: execution, latest: execution } })
       poll(execution.id)
-    } catch (cause) { setMessage(getErrorMessage(cause)) } finally { setBusy(false) }
+    } catch (cause) { setMessage({ text: getErrorMessage(cause), type: 'error' }) } finally { setBusy(false) }
   }
   function poll(executionId: string) {
     if (pollingTimer.current !== null) window.clearInterval(pollingTimer.current)
@@ -73,16 +78,16 @@ function JobCard({ accessToken, job, onChange }: { accessToken: string; job: Sch
         const execution = await getJobExecution({ accessToken, executionId })
         if (execution.status === 'QUEUED' || execution.status === 'RUNNING') return
         window.clearInterval(timer); pollingTimer.current = null
-        onChange({ ...job, active_execution: null, latest_execution: execution })
+        onChange({ ...job, executions: { active: null, latest: execution } })
       } catch { window.clearInterval(timer); pollingTimer.current = null }
     }, 2000)
     pollingTimer.current = timer
   }
-  const active = job.active_execution
+  const active = job.executions.active
   return <Card>
     <CardHeader className="gap-3 border-b border-emerald-100/80">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-xl font-semibold">{job.name}</h3><CardDescription>{job.description}</CardDescription></div><Badge variant={job.enabled ? 'secondary' : 'outline'}>{job.enabled ? 'Scheduled' : 'Schedule disabled'}</Badge></div>
-      <p className="text-sm text-muted-foreground">Next run: {job.next_run_at ? new Date(job.next_run_at).toLocaleString() : 'Not scheduled'} · Defaults: {job.default_cron} ({job.default_timezone})</p>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-xl font-semibold">{job.name}</h3><CardDescription>{job.description}</CardDescription></div><Badge variant={job.schedule.enabled ? 'secondary' : 'outline'}>{job.schedule.enabled ? 'Scheduled' : 'Schedule disabled'}</Badge></div>
+      <p className="text-sm text-muted-foreground">Next run: {job.schedule.next_run_at ? new Date(job.schedule.next_run_at).toLocaleString() : 'Not scheduled'} · Defaults: {job.defaults.cron} ({job.defaults.timezone})</p>
     </CardHeader>
     <CardContent className="space-y-4 pt-5">
       <form className="grid gap-4 md:grid-cols-3" onSubmit={save}>
@@ -104,9 +109,9 @@ function JobCard({ accessToken, job, onChange }: { accessToken: string; job: Sch
         <div className="flex flex-wrap gap-2 md:col-span-3"><Button disabled={busy} type="submit"><RefreshCw className="size-4" /> Save schedule</Button><Button disabled={busy} onClick={() => void restore()} type="button" variant="outline"><RotateCcw className="size-4" /> Restore defaults</Button><Button disabled={busy || !!active} onClick={() => void run()} type="button" variant="secondary"><Play className="size-4" /> Run now</Button></div>
       </form>
       <p className="text-xs text-muted-foreground">Use five cron fields. Weekdays use names such as mon–sun; schedules run in the selected IANA timezone.</p>
-      {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
-      {job.schedule_error ? <p className="text-sm text-destructive">{job.schedule_error}</p> : null}
-      {job.latest_execution ? <div className="rounded-lg bg-muted/45 p-3 text-sm"><div className="flex items-center gap-2 font-medium">{job.latest_execution.status === 'SUCCEEDED' ? <CheckCircle2 className="size-4 text-emerald-700" /> : <Clock3 className="size-4" />} Latest: {job.latest_execution.status} ({job.latest_execution.trigger})</div>{job.latest_execution.error_message ? <p className="mt-1 text-destructive">{job.latest_execution.error_message}</p> : null}{job.latest_execution.summary ? <pre className="mt-2 overflow-x-auto text-xs">{JSON.stringify(job.latest_execution.summary, null, 2)}</pre> : null}</div> : null}
+      {message ? <p className={message.type === 'error' ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'} role={message.type === 'error' ? 'alert' : 'status'}>{message.text}</p> : null}
+      {job.schedule.error ? <p className="text-sm text-destructive">{job.schedule.error}</p> : null}
+      {job.executions.latest ? <div className="rounded-lg bg-muted/45 p-3 text-sm"><div className="flex items-center gap-2 font-medium">{job.executions.latest.status === 'SUCCEEDED' ? <CheckCircle2 className="size-4 text-emerald-700" /> : <Clock3 className="size-4" />} Latest: {job.executions.latest.status} ({job.executions.latest.trigger})</div>{job.executions.latest.error_message ? <p className="mt-1 text-destructive">{job.executions.latest.error_message}</p> : null}{job.executions.latest.summary ? <pre className="mt-2 overflow-x-auto text-xs">{JSON.stringify(job.executions.latest.summary, null, 2)}</pre> : null}</div> : null}
     </CardContent>
   </Card>
 }

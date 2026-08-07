@@ -62,6 +62,7 @@ def _enable_graphhopper(
     )
     db_session.commit()
     if route_error is not None:
+
         def fail_route(*_args: object, **_kwargs: object) -> RouteResponse:
             raise route_error
 
@@ -470,8 +471,7 @@ def test_itinerary_stop_visited_is_derived_from_departure_date(
     assert current_response.status_code == 201
     assert next_response.status_code == 201
     assert [
-        (stop['title'], stop['visited'])
-        for stop in next_response.json()['stops']
+        (stop['title'], stop['visited']) for stop in next_response.json()['stops']
     ] == [
         ('Current stop', True),
         ('Next stop', False),
@@ -705,9 +705,7 @@ def test_share_link_can_read_private_trip_itinerary(
     assert create_stop_response.status_code == 201
     assert link_response.status_code == 201
     assert read_response.status_code == 200
-    assert [stop['title'] for stop in read_response.json()['stops']] == [
-        'Shared stop'
-    ]
+    assert [stop['title'] for stop in read_response.json()['stops']] == ['Shared stop']
     assert mutate_response.status_code == 401
 
 

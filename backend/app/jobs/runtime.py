@@ -19,13 +19,17 @@ class JobRuntime:
 
     def start(self) -> None:
         with Session(get_engine()) as db:
-            service = JobService(db, scheduler=self.scheduler, wake_runner=self.runner.wake)
+            service = JobService(
+                db, scheduler=self.scheduler, wake_runner=self.runner.wake
+            )
             service.bootstrap()
             service.recover_interrupted()
         self.runner.start()
         self.scheduler.start()
         with Session(get_engine()) as db:
-            service = JobService(db, scheduler=self.scheduler, wake_runner=self.runner.wake)
+            service = JobService(
+                db, scheduler=self.scheduler, wake_runner=self.runner.wake
+            )
             for record in service.list_records():
                 if record.schedule_error is None:
                     self.scheduler.apply(record.job)
@@ -37,6 +41,6 @@ class JobRuntime:
 
     def enqueue_scheduled(self, job_key: str) -> None:
         with Session(get_engine()) as db:
-            JobService(db, scheduler=self.scheduler, wake_runner=self.runner.wake).enqueue(
-                job_key, trigger=JobExecutionTrigger.SCHEDULED
-            )
+            JobService(
+                db, scheduler=self.scheduler, wake_runner=self.runner.wake
+            ).enqueue(job_key, trigger=JobExecutionTrigger.SCHEDULED)

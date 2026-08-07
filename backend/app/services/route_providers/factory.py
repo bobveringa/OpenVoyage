@@ -56,7 +56,7 @@ class RouteProviderFactory:
     ) -> RouteProviderBase | None:
         try:
             provider_value = app_settings.get_value(ROUTING_PROVIDER_KEY)
-        except (AppSettingsEncryptionError, StoredAppSettingError):
+        except AppSettingsEncryptionError, StoredAppSettingError:
             logger.error(
                 'Routing is unavailable because a stored app setting could not be read'
             )
@@ -75,7 +75,7 @@ class RouteProviderFactory:
         try:
             base_url = app_settings.get_value(ROUTING_GRAPHHOPPER_BASE_URL_KEY)
             api_key = app_settings.get_value(ROUTING_GRAPHHOPPER_API_KEY)
-        except (AppSettingsEncryptionError, StoredAppSettingError):
+        except AppSettingsEncryptionError, StoredAppSettingError:
             logger.error(
                 'Routing is unavailable because a stored app setting could not be read'
             )

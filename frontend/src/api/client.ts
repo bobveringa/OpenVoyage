@@ -178,18 +178,26 @@ export type ScheduledJob = {
   key: string
   name: string
   description: string
-  enabled: boolean
-  cron: string
-  timezone: string
-  default_enabled: boolean
-  default_cron: string
-  default_timezone: string
-  next_run_at: string | null
-  schedule_error: string | null
-  updated_by: string | null
-  updated_at: string
-  active_execution: JobExecution | null
-  latest_execution: JobExecution | null
+  schedule: {
+    enabled: boolean
+    cron: string
+    timezone: string
+    next_run_at: string | null
+    error: string | null
+  }
+  defaults: {
+    enabled: boolean
+    cron: string
+    timezone: string
+  }
+  executions: {
+    active: JobExecution | null
+    latest: JobExecution | null
+  }
+  audit: {
+    updated_by: string | null
+    updated_at: string
+  }
 }
 
 export async function listJobs(accessToken: string): Promise<ScheduledJob[]> {

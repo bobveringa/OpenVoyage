@@ -989,6 +989,25 @@ export interface components {
             geometry: components["schemas"]["GeoJsonLineString"];
             type: components["schemas"]["ItineraryRouteType"];
         };
+        /** JobAuditResponse */
+        JobAuditResponse: {
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Updated By */
+            updated_by: string | null;
+        };
+        /** JobDefaultsResponse */
+        JobDefaultsResponse: {
+            /** Cron */
+            cron: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Timezone */
+            timezone: string;
+        };
         /** JobExecutionListResponse */
         JobExecutionListResponse: {
             /** Items */
@@ -1039,10 +1058,28 @@ export interface components {
          * @enum {string}
          */
         JobExecutionTrigger: "SCHEDULED" | "STARTUP" | "MANUAL";
+        /** JobExecutionsResponse */
+        JobExecutionsResponse: {
+            active: components["schemas"]["JobExecutionResponse"] | null;
+            latest: components["schemas"]["JobExecutionResponse"] | null;
+        };
         /** JobListResponse */
         JobListResponse: {
             /** Jobs */
             jobs: components["schemas"]["ScheduledJobResponse"][];
+        };
+        /** JobScheduleResponse */
+        JobScheduleResponse: {
+            /** Cron */
+            cron: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Error */
+            error: string | null;
+            /** Next Run At */
+            next_run_at: string | null;
+            /** Timezone */
+            timezone: string;
         };
         /** JobUpdateRequest */
         JobUpdateRequest: {
@@ -1315,37 +1352,16 @@ export interface components {
         };
         /** ScheduledJobResponse */
         ScheduledJobResponse: {
-            active_execution: components["schemas"]["JobExecutionResponse"] | null;
-            /** Cron */
-            cron: string;
-            /** Default Cron */
-            default_cron: string;
-            /** Default Enabled */
-            default_enabled: boolean;
-            /** Default Timezone */
-            default_timezone: string;
+            audit: components["schemas"]["JobAuditResponse"];
+            defaults: components["schemas"]["JobDefaultsResponse"];
             /** Description */
             description: string;
-            /** Enabled */
-            enabled: boolean;
+            executions: components["schemas"]["JobExecutionsResponse"];
             /** Key */
             key: string;
-            latest_execution: components["schemas"]["JobExecutionResponse"] | null;
             /** Name */
             name: string;
-            /** Next Run At */
-            next_run_at: string | null;
-            /** Schedule Error */
-            schedule_error: string | null;
-            /** Timezone */
-            timezone: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-            /** Updated By */
-            updated_by: string | null;
+            schedule: components["schemas"]["JobScheduleResponse"];
         };
         /**
          * SettingValueType

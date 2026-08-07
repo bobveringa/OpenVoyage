@@ -10,7 +10,9 @@ from models.database.itinerary import ItineraryTravelRouteStatus
 from services.itinerary_routes.resolver import ItineraryRouteResolver
 
 
-def test_invalid_provider_geometry_logs_warning_and_returns_simple_route(caplog) -> None:
+def test_invalid_provider_geometry_logs_warning_and_returns_simple_route(
+    caplog,
+) -> None:
     leg_id = uuid.uuid4()
     from_location = SimpleNamespace(longitude=5.4697, latitude=51.4416)
     to_location = SimpleNamespace(longitude=5.1214, latitude=52.0907)

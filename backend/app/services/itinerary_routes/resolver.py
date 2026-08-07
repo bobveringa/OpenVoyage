@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def _provider_backed_response(
-        route: ItineraryTravelLegRoute,
+    route: ItineraryTravelLegRoute,
 ) -> ItineraryTravelRouteResponse | None:
     if ItineraryTravelRouteStatus(route.status) != ItineraryTravelRouteStatus.READY:
         return None
@@ -47,7 +47,7 @@ def _provider_backed_response(
 
 
 def _simple_route_response(
-        leg: ItineraryTravelLeg,
+    leg: ItineraryTravelLeg,
 ) -> ItineraryTravelRouteResponse:
     return ItineraryTravelRouteResponse(
         type=ItineraryRouteType.SIMPLE,

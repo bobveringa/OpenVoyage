@@ -255,10 +255,7 @@ def test_admin_can_update_and_reset_public_tile_provider(
 
     public_response = client.get(f'{api_prefix}/settings/public')
     assert public_response.status_code == 200
-    assert (
-        public_response.json()['settings'][MAP_TILE_PROVIDER_KEY]
-        == custom_tile_url
-    )
+    assert public_response.json()['settings'][MAP_TILE_PROVIDER_KEY] == custom_tile_url
 
     reset_response = client.post(f'{setting_url}/reset', headers=headers)
 

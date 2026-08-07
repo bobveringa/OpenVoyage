@@ -149,7 +149,7 @@ def get_media_content(
                 start, end = parse_range_header(range_header, file_size)
                 length = end - start + 1
 
-            except (ValueError, IndexError):
+            except ValueError, IndexError:
                 raise HTTPException(
                     status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
                     detail='Invalid or unsatisfiable Range header.',
@@ -190,7 +190,7 @@ def _has_signed_media_access(media_id: uuid.UUID, media_token: str | None) -> bo
 
     try:
         token_media_id = security.decode_media_url_token(media_token)
-    except (InvalidTokenError, KeyError, ValueError):
+    except InvalidTokenError, KeyError, ValueError:
         return False
 
     return token_media_id == media_id

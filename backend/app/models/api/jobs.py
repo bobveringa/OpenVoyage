@@ -23,22 +23,38 @@ class JobExecutionResponse(BaseModel):
     finished_at: datetime | None
 
 
+class JobScheduleResponse(BaseModel):
+    enabled: bool
+    cron: str
+    timezone: str
+    next_run_at: datetime | None
+    error: str | None
+
+
+class JobDefaultsResponse(BaseModel):
+    enabled: bool
+    cron: str
+    timezone: str
+
+
+class JobExecutionsResponse(BaseModel):
+    active: JobExecutionResponse | None
+    latest: JobExecutionResponse | None
+
+
+class JobAuditResponse(BaseModel):
+    updated_by: uuid.UUID | None
+    updated_at: datetime
+
+
 class ScheduledJobResponse(BaseModel):
     key: str
     name: str
     description: str
-    enabled: bool
-    cron: str
-    timezone: str
-    default_enabled: bool
-    default_cron: str
-    default_timezone: str
-    next_run_at: datetime | None
-    schedule_error: str | None
-    updated_by: uuid.UUID | None
-    updated_at: datetime
-    active_execution: JobExecutionResponse | None
-    latest_execution: JobExecutionResponse | None
+    schedule: JobScheduleResponse
+    defaults: JobDefaultsResponse
+    executions: JobExecutionsResponse
+    audit: JobAuditResponse
 
 
 class JobUpdateRequest(BaseModel):

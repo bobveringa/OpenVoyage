@@ -41,7 +41,9 @@ def _post_response(
     user=None,
     share_token: str | None = None,
 ) -> PostResponse:
-    media_token_factory = security.create_media_url_token if user or share_token else None
+    media_token_factory = (
+        security.create_media_url_token if user or share_token else None
+    )
     return PostResponse.from_model(
         post,
         media_base_url=media_base_url,

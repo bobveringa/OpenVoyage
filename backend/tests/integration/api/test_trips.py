@@ -752,9 +752,7 @@ def test_trip_owner_can_manage_members(client, db_session, api_prefix) -> None:
 
 
 @pytest.mark.integration
-def test_trip_owner_can_manage_direct_viewers(
-    client, db_session, api_prefix
-) -> None:
+def test_trip_owner_can_manage_direct_viewers(client, db_session, api_prefix) -> None:
     owner = create_user(db_session, password='TripsPass123!')
     viewer = create_user(db_session, password='TripsPass123!')
     member = create_user(db_session, password='TripsPass123!')
@@ -1069,9 +1067,7 @@ def test_share_link_allows_private_trip_read_and_member_list(
     assert read_trip_response.status_code == 200
     assert read_trip_response.json()['id'] == trip_id
     assert list_members_response.status_code == 200
-    assert [item['user_id'] for item in list_members_response.json()] == [
-        str(owner.id)
-    ]
+    assert [item['user_id'] for item in list_members_response.json()] == [str(owner.id)]
     assert revoke_response.status_code == 204
     assert read_after_revoke_response.status_code == 404
 
