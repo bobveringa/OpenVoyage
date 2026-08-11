@@ -31,6 +31,7 @@ import {
 } from '@/api/client'
 import type { AdminSectionId } from '@/components/admin/admin-navigation'
 import { JobsPanel } from '@/components/admin/jobs-panel'
+import { UsersPanel } from '@/components/admin/users-panel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -137,6 +138,17 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
 })
 
 export function AdminSections({
+  accessToken,
+  activeSection,
+}: AdminSectionsProps) {
+  if (activeSection === 'users') {
+    return <UsersPanel accessToken={accessToken} />
+  }
+
+  return <SettingsAdminSections accessToken={accessToken} activeSection={activeSection} />
+}
+
+function SettingsAdminSections({
   accessToken,
   activeSection,
 }: AdminSectionsProps) {

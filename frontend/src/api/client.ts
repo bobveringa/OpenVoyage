@@ -48,6 +48,14 @@ export type AdminSettingsList =
   components['schemas']['AdminSettingsListResponse']
 export type AdminSettingUpdatePayload =
   components['schemas']['AppSettingUpdateRequest']
+export type AdminUser = components['schemas']['AdminUserResponse']
+export type AdminUserCreatePayload =
+  components['schemas']['AdminUserCreateRequest']
+export type AdminUserDeleteResult =
+  components['schemas']['AdminUserDeleteResponse']
+export type AdminUserUpdatePayload =
+  components['schemas']['AdminUserUpdateRequest']
+export type AdminUsersList = components['schemas']['AdminUsersListResponse']
 export type PublicSettings = components['schemas']['PublicSettingsResponse']
 export type SettingValidation = NonNullable<AdminSetting['validation']>
 export type SettingValueType = components['schemas']['SettingValueType']
@@ -265,6 +273,63 @@ export async function listAdminSettings(
   return requestJson<AdminSettingsList>(`${API_V1_PREFIX}/admin/settings`, {
     accessToken,
   })
+}
+
+export async function listAdminUsers(options: {
+  accessToken: string
+  page?: number
+  pageSize?: number
+  query?: string
+  role?: 'ADMIN' | 'USER'
+}): Promise<AdminUsersList> {
+  return requestJson<AdminUsersList>(`${API_V1_PREFIX}/admin/users`, {
+    accessToken: options.accessToken,
+    query: {
+      page: options.page ?? 1,
+      page_size: options.pageSize ?? 20,
+      query: options.query || undefined,
+      role: options.role,
+    },
+  })
+}
+
+export async function createAdminUser(options: {
+  accessToken: string
+  payload: AdminUserCreatePayload
+}): Promise<AdminUser> {
+  return requestJson<AdminUser>(`${API_V1_PREFIX}/admin/users`, {
+    method: 'POST',
+    accessToken: options.accessToken,
+    json: options.payload,
+  })
+}
+
+export async function updateAdminUser(options: {
+  accessToken: string
+  payload: AdminUserUpdatePayload
+  userId: string
+}): Promise<AdminUser> {
+  return requestJson<AdminUser>(
+    `${API_V1_PREFIX}/admin/users/${encodeURIComponent(options.userId)}`,
+    {
+      method: 'PATCH',
+      accessToken: options.accessToken,
+      json: options.payload,
+    },
+  )
+}
+
+export async function deleteAdminUser(options: {
+  accessToken: string
+  userId: string
+}): Promise<AdminUserDeleteResult> {
+  return requestJson<AdminUserDeleteResult>(
+    `${API_V1_PREFIX}/admin/users/${encodeURIComponent(options.userId)}`,
+    {
+      method: 'DELETE',
+      accessToken: options.accessToken,
+    },
+  )
 }
 
 export async function getPublicSettings(): Promise<PublicSettings> {

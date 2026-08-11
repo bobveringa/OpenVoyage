@@ -4,6 +4,7 @@ import {
   Clock3,
   Palette,
   Route,
+  Users,
   type LucideIcon,
 } from 'lucide-react'
 import { useRef, type KeyboardEvent } from 'react'
@@ -16,6 +17,7 @@ export type AdminSectionId =
   | 'media'
   | 'jobs'
   | 'routing'
+  | 'users'
 
 type AdminNavigationItem = {
   description: string
@@ -53,6 +55,12 @@ const adminNavigationItems: readonly AdminNavigationItem[] = [
     icon: Database,
     id: 'data',
     label: 'Data tools',
+  },
+  {
+    description: 'Accounts and access',
+    icon: Users,
+    id: 'users',
+    label: 'Users',
   },
   {
     description: 'Schedules and execution history',

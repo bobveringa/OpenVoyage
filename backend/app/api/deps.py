@@ -3,7 +3,15 @@ from dataclasses import dataclass
 from typing import Annotated, cast
 import uuid
 
-from fastapi import BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from fastapi.security import OAuth2PasswordBearer
 from jwt import InvalidTokenError
 from pydantic import ValidationError
@@ -27,6 +35,7 @@ from services.place_service import PlaceService
 from services.post_service import PostService
 from services.trip_service import TripService
 from services.user_service import UserService
+from services.admin_user_service import AdminUserService
 from services.trip_access import SHARE_TOKEN_HEADER
 
 reusable_oauth2 = OAuth2PasswordBearer(
@@ -84,7 +93,7 @@ def _get_user_from_token(session: Session, token: str) -> User:
     try:
         payload = security.decode_token(token, expected_type=security.TOKEN_TYPE_ACCESS)
         token_data = TokenPayload(**payload)
-    except (InvalidTokenError, ValidationError):
+    except InvalidTokenError, ValidationError:
         raise _credentials_exception()
 
     try:
@@ -231,6 +240,10 @@ def get_user_service(session: SessionDep):
     return UserService(db=session)
 
 
+def get_admin_user_service(session: SessionDep):
+    return AdminUserService(db=session)
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 CurrentAdmin = Annotated[User, Depends(get_current_admin_user)]
@@ -245,3 +258,4 @@ PlaceServiceDep = Annotated[PlaceService, Depends(get_place_service)]
 PostServiceDep = Annotated[PostService, Depends(get_post_service)]
 TripServiceDep = Annotated[TripService, Depends(get_trip_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
+AdminUserServiceDep = Annotated[AdminUserService, Depends(get_admin_user_service)]

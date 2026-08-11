@@ -19,6 +19,7 @@ export type SelectOption<TValue extends string = string> = {
 }
 
 type SelectProps<TValue extends string = string> = {
+  ariaLabel?: string
   className?: string
   disabled?: boolean
   id?: string
@@ -57,6 +58,7 @@ const selectOptionVariants = cva(
 )
 
 export function Select<TValue extends string = string>({
+  ariaLabel,
   className,
   disabled = false,
   id,
@@ -234,6 +236,7 @@ export function Select<TValue extends string = string>({
         aria-controls={listboxId}
         aria-expanded={open}
         aria-haspopup="listbox"
+        aria-label={ariaLabel}
         className={selectTriggerVariants()}
         disabled={disabled}
         id={buttonId}
