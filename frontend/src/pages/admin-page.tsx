@@ -77,7 +77,7 @@ export function AdminPage({
         </div>
       </header>
 
-      <div className="grid min-w-0 gap-6 lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start lg:gap-8 min-[1680px]:-ml-[16.5rem] min-[1680px]:w-[calc(100%+16.5rem)]">
         <AdminNavigation
           activeSection={activeSection}
           onSectionChange={selectSection}

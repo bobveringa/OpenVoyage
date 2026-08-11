@@ -242,6 +242,35 @@ test('normalizes missing or invalid admin section hashes', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Appearance' })).toBeVisible()
 })
 
+test('moves the admin navigation outside the content column when space allows', async ({
+  page,
+}) => {
+  await mockAdminApi(page)
+  await page.setViewportSize({ height: 1000, width: 1920 })
+
+  await page.goto('/admin#routing')
+
+  const navigation = page.getByRole('tablist', { name: 'Admin sections' })
+  const header = page.getByRole('heading', {
+    name: 'Application control centre',
+  })
+  const contentHeading = page.getByRole('heading', {
+    exact: true,
+    name: 'Routing',
+  })
+  const navigationBounds = await navigation.boundingBox()
+  const headerBounds = await header.boundingBox()
+  const contentBounds = await contentHeading.boundingBox()
+
+  expect(navigationBounds).not.toBeNull()
+  expect(headerBounds).not.toBeNull()
+  expect(contentBounds).not.toBeNull()
+  expect(navigationBounds?.x ?? Infinity).toBeLessThan(headerBounds?.x ?? 0)
+  expect((navigationBounds?.x ?? 0) + (navigationBounds?.width ?? 0)).toBeLessThan(
+    contentBounds?.x ?? 0,
+  )
+})
+
 test('updates and resets the public map tile provider URL', async ({ page }) => {
   const api = await mockAdminApi(page)
 
