@@ -6,6 +6,7 @@ type AdminUser = {
   first_name: string
   id: string
   last_name: string
+  password_change_required: boolean
   role: 'ADMIN' | 'USER'
   updated_at: string
   username: string
@@ -26,7 +27,10 @@ test('creates and manages users from the admin area', async ({ page }) => {
   await dialog.getByLabel('First name').fill('Henk')
   await dialog.getByLabel('Last name').fill('Traveler')
   await dialog.getByLabel('Username').fill('henk-travels')
-  await dialog.getByLabel('Password').fill('HenkSecurePass123!')
+  await dialog.locator('input[type="password"]').fill('HenkSecurePass123!')
+  await expect(
+    dialog.getByLabel('Require password change at next sign-in'),
+  ).toBeChecked()
   await dialog.getByRole('button', { exact: true, name: 'Create user' }).click()
 
   await expect(dialog).toBeHidden()
@@ -35,6 +39,7 @@ test('creates and manages users from the admin area', async ({ page }) => {
     email: 'henk@example.com',
     first_name: 'Henk',
     last_name: 'Traveler',
+    require_password_change: true,
     role: 'USER',
     username: 'henk-travels',
   })
@@ -45,13 +50,30 @@ test('creates and manages users from the admin area', async ({ page }) => {
   await henkRow.getByRole('button', { name: 'Edit' }).click()
   const editDialog = page.getByRole('dialog')
   await editDialog.getByLabel('First name').fill('Henri')
-  await editDialog.getByLabel('New password').fill('ReplacementPass123!')
   await editDialog.getByRole('button', { name: 'Save changes' }).click()
 
   await expect(page.getByText('Henri Traveler')).toBeVisible()
   expect(api.updatedUser).toMatchObject({
     first_name: 'Henri',
+  })
+
+  const henriPasswordRow = page
+    .locator('.divide-y > div')
+    .filter({ hasText: 'henk@example.com' })
+  await henriPasswordRow.getByRole('button', { name: 'Set password' }).click()
+  const passwordDialog = page.getByRole('dialog')
+  await passwordDialog
+    .locator('input[type="password"]')
+    .fill('ReplacementPass123!')
+  await passwordDialog
+    .getByLabel('Require password change at next sign-in')
+    .uncheck()
+  await passwordDialog.getByRole('button', { name: 'Set password' }).click()
+  await expect(passwordDialog).toBeHidden()
+
+  expect(api.passwordAssignment).toEqual({
     password: 'ReplacementPass123!',
+    require_password_change: false,
   })
 
   const henriRow = page
@@ -72,6 +94,7 @@ async function mockAdminUsersApi(page: Page) {
       first_name: 'Maya',
       id: '40000000-0000-4000-8000-000000000001',
       last_name: 'Chen',
+      password_change_required: false,
       role: 'USER',
       updated_at: '2026-08-11T18:00:00Z',
       username: 'maya-travels',
@@ -80,6 +103,7 @@ async function mockAdminUsersApi(page: Page) {
   let createdUser: Record<string, unknown> | null = null
   let updatedUser: Record<string, unknown> | null = null
   let deletedUserId: string | null = null
+  let passwordAssignment: Record<string, unknown> | null = null
   const tokenPayload = Buffer.from(
     JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 60 * 60 }),
   ).toString('base64url')
@@ -97,7 +121,7 @@ async function mockAdminUsersApi(page: Page) {
   }, `test.${tokenPayload}.signature`)
 
   await page.route('**/api/v1/users/me', (route) => fulfillJson(route, {
-    id: '10000000-0000-4000-8000-000000000001', profile: null, role: 'ADMIN',
+    id: '10000000-0000-4000-8000-000000000001', password_change_required: false, profile: null, role: 'ADMIN',
   }))
   await page.route('**/api/v1/settings/public', (route) => fulfillJson(route, {
     settings: {}, updated_at: null,
@@ -114,21 +138,41 @@ async function mockAdminUsersApi(page: Page) {
       return
     }
 
-    const payload = request.postDataJSON() as Omit<AdminUser, 'id' | 'created_at' | 'updated_at'> & {
+    const payload = request.postDataJSON() as Omit<AdminUser, 'id' | 'created_at' | 'updated_at' | 'password_change_required'> & {
       password: string
+      require_password_change: boolean
     }
     createdUser = payload
     users.push({
-      ...payload,
       created_at: '2026-08-11T18:10:00Z',
+      email: payload.email,
+      first_name: payload.first_name,
       id: '40000000-0000-4000-8000-000000000002',
+      last_name: payload.last_name,
+      password_change_required: payload.require_password_change,
+      role: payload.role,
       updated_at: '2026-08-11T18:10:00Z',
+      username: payload.username,
     })
     await fulfillJson(route, users[users.length - 1])
   })
-  await page.route('**/api/v1/admin/users/*', async (route) => {
+  await page.route(/\/api\/v1\/admin\/users\/.+$/, async (route) => {
     const request = route.request()
-    const userId = request.url().split('/').pop() ?? ''
+    const pathParts = new URL(request.url()).pathname.split('/')
+    if (request.method() === 'PUT' && pathParts.at(-1) === 'password') {
+      passwordAssignment = request.postDataJSON() as Record<string, unknown>
+      const passwordUserId = pathParts.at(-2) ?? ''
+      const passwordUser = users.find((user) => user.id === passwordUserId)
+      if (passwordUser) {
+        passwordUser.password_change_required = Boolean(
+          passwordAssignment.require_password_change,
+        )
+      }
+      await route.fulfill({ status: 204 })
+      return
+    }
+
+    const userId = pathParts.at(-1) ?? ''
     const index = users.findIndex((user) => user.id === userId)
 
     if (request.method() === 'PATCH') {
@@ -156,6 +200,9 @@ async function mockAdminUsersApi(page: Page) {
     },
     get deletedUserId() {
       return deletedUserId
+    },
+    get passwordAssignment() {
+      return passwordAssignment
     },
     get updatedUser() {
       return updatedUser

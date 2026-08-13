@@ -1,4 +1,11 @@
-import { ChevronDown, LogOut, Shield, UserCog, UserRound } from 'lucide-react'
+import {
+  ChevronDown,
+  KeyRound,
+  LogOut,
+  Shield,
+  UserCog,
+  UserRound,
+} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import type { CurrentUser } from '@/api/client'
@@ -89,6 +96,12 @@ export function UserMenu({
             icon={UserCog}
             label="Profile details"
             onClick={() => navigate('/settings/profile')}
+          />
+
+          <MenuButton
+            icon={KeyRound}
+            label="Account security"
+            onClick={() => navigate('/settings/security')}
           />
 
           {currentUser.role === 'ADMIN' ? (

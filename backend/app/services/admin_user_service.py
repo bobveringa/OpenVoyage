@@ -5,7 +5,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, contains_eager, joinedload
 
 from core import security
-from models.api.admin import AdminUserCreateRequest, AdminUserUpdateRequest
+from models.api.admin import (
+    AdminUserCreateRequest,
+    AdminUserPasswordSetRequest,
+    AdminUserUpdateRequest,
+)
 from models.api.users import canonicalize_username
 from models.database.user import (
     User,
@@ -41,6 +45,7 @@ class AdminUserService:
         user = User(
             email=email,
             password_hash=security.get_password_hash(payload.password),
+            password_change_required=payload.require_password_change,
             role=payload.role,
         )
         user.profile = UserProfile(
@@ -130,8 +135,6 @@ class AdminUserService:
             if self._email_exists(email, exclude_user_id=user.id):
                 raise AdminUserAlreadyExistsError('Email already exists')
             user.email = email
-        if 'password' in payload.model_fields_set:
-            user.password_hash = security.get_password_hash(payload.password or '')
         if 'username' in payload.model_fields_set:
             username = payload.username or ''
             if self._username_exists(username, exclude_user_id=user.id):
@@ -146,6 +149,32 @@ class AdminUserService:
 
         self._commit_or_raise_duplicate()
         return self._get_user_for_response(user.id)
+
+    def set_password(
+        self,
+        *,
+        user_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        payload: AdminUserPasswordSetRequest,
+    ) -> None:
+        if user_id == actor_id:
+            raise AdminUserProtectedActionError(
+                'Use account security to change your own password'
+            )
+
+        user = self.db.execute(
+            select(User)
+            .where(User.id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if user is None:
+            raise AdminUserNotFoundError('User not found')
+
+        user.password_hash = security.get_password_hash(payload.password)
+        user.password_change_required = payload.require_password_change
+        user.auth_version += 1
+        self.db.commit()
 
     def delete_user(self, *, user_id: uuid.UUID, actor_id: uuid.UUID) -> None:
         user = self._get_user_for_response(user_id)

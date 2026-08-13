@@ -2,7 +2,7 @@ import re
 import uuid
 from typing import TYPE_CHECKING, Self
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from models.api.media import MediaResponse
 from models.database.user import UserRole
@@ -67,6 +67,13 @@ class UserProfileUpdateRequest(BaseModel):
         return validate_username(username)
 
 
+class PasswordChangeRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    current_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class UsernameAvailabilityResponse(BaseModel):
     username: str
     available: bool
@@ -77,7 +84,6 @@ class UserProfileResponse(BaseModel):
     first_name: str
     last_name: str
     biography: str
-    profile_picture_media_id: uuid.UUID | None
     profile_picture: MediaResponse | None
 
     @classmethod
@@ -91,7 +97,6 @@ class UserProfileResponse(BaseModel):
             first_name=profile.first_name,
             last_name=profile.last_name,
             biography=profile.biography,
-            profile_picture_media_id=profile.profile_picture_media_id,
             profile_picture=(
                 MediaResponse.from_model(
                     profile.profile_picture,
@@ -123,6 +128,7 @@ class UserResponse(BaseModel):
 
 class CurrentUserResponse(UserResponse):
     role: UserRole
+    password_change_required: bool
 
     @classmethod
     def from_model(cls, user: 'User', media_base_url: str = '') -> Self:
@@ -130,6 +136,7 @@ class CurrentUserResponse(UserResponse):
         return cls(
             **user_response.model_dump(),
             role=user.role,
+            password_change_required=user.password_change_required,
         )
 
 

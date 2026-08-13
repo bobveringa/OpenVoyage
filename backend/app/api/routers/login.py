@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from jwt import InvalidTokenError
 from pydantic import ValidationError
@@ -39,7 +39,9 @@ def _authenticate_user(
 
 @router.post('/access-token')
 def login_access_token(
-    session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
+    response: Response,
+    session: SessionDep,
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
 ) -> Token:
     """
     OAuth2 compatible token login, get an access token for future requests
@@ -56,12 +58,21 @@ def login_access_token(
             headers={'WWW-Authenticate': 'Bearer'},
         )
 
-    tokens = security.create_auth_tokens(subject=user.id, email=user.email)
+    tokens = security.create_auth_tokens(
+        subject=user.id,
+        email=user.email,
+        auth_version=user.auth_version,
+    )
+    response.headers['Cache-Control'] = 'no-store'
     return Token(**tokens)
 
 
 @router.post('/refresh-token')
-def refresh_tokens(session: SessionDep, payload: RefreshTokenRequest) -> Token:
+def refresh_tokens(
+    response: Response,
+    session: SessionDep,
+    payload: RefreshTokenRequest,
+) -> Token:
     try:
         decoded = security.decode_token(
             payload.refresh_token,
@@ -79,7 +90,7 @@ def refresh_tokens(session: SessionDep, payload: RefreshTokenRequest) -> Token:
 
     statement = select(User).where(User.id == token_data.sub)
     user = session.execute(statement).scalar_one_or_none()
-    if not user:
+    if not user or token_data.ver != user.auth_version:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail='Invalid refresh token',
@@ -88,5 +99,10 @@ def refresh_tokens(session: SessionDep, payload: RefreshTokenRequest) -> Token:
             },
         )
 
-    tokens = security.create_auth_tokens(subject=user.id, email=user.email)
+    tokens = security.create_auth_tokens(
+        subject=user.id,
+        email=user.email,
+        auth_version=user.auth_version,
+    )
+    response.headers['Cache-Control'] = 'no-store'
     return Token(**tokens)

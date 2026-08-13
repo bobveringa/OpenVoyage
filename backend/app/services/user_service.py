@@ -4,7 +4,12 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, contains_eager, joinedload
 
-from models.api.users import UserProfileUpdateRequest, canonicalize_username
+from core import security
+from models.api.users import (
+    PasswordChangeRequest,
+    UserProfileUpdateRequest,
+    canonicalize_username,
+)
 from models.database.media import Media, MediaType
 from models.database.user import User, UserProfile, canonical_username_expression
 
@@ -27,6 +32,14 @@ class UserNotFoundError(Exception):
 
 class UsernameAlreadyExistsError(Exception):
     """Raised when a profile username is already used by another user."""
+
+
+class CurrentPasswordIncorrectError(Exception):
+    """Raised when a password change supplies the wrong current password."""
+
+
+class NewPasswordMatchesCurrentError(Exception):
+    """Raised when a password change would keep the existing password."""
 
 
 class UserService:
@@ -239,6 +252,52 @@ class UserService:
         if updated_user is None:
             raise UserNotFoundError(f'User not found: {user.id}')
         return updated_user
+
+    def change_password(
+        self,
+        *,
+        user_id: uuid.UUID,
+        payload: PasswordChangeRequest,
+    ) -> User:
+        user = self._lock_user(user_id)
+        current_is_valid, _ = security.verify_password(
+            payload.current_password,
+            user.password_hash,
+        )
+        if not current_is_valid:
+            raise CurrentPasswordIncorrectError('Current password is incorrect')
+
+        new_matches_current, _ = security.verify_password(
+            payload.new_password,
+            user.password_hash,
+        )
+        if new_matches_current:
+            raise NewPasswordMatchesCurrentError(
+                'New password must be different from current password'
+            )
+
+        user.password_hash = security.get_password_hash(payload.new_password)
+        user.password_change_required = False
+        user.auth_version += 1
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def sign_out_all(self, *, user_id: uuid.UUID) -> None:
+        user = self._lock_user(user_id)
+        user.auth_version += 1
+        self.db.commit()
+
+    def _lock_user(self, user_id: uuid.UUID) -> User:
+        user = self.db.execute(
+            select(User)
+            .where(User.id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if user is None:
+            raise UserNotFoundError(f'User not found: {user_id}')
+        return user
 
     def _validate_profile_picture(
         self,

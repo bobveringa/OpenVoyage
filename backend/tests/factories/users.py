@@ -13,6 +13,8 @@ def create_user(
     email: str | None = None,
     password: str = 'password123',
     role: UserRole = UserRole.USER,
+    password_change_required: bool = False,
+    auth_version: int = 0,
     username: str | None = None,
     first_name: str | None = None,
     last_name: str | None = None,
@@ -22,6 +24,8 @@ def create_user(
         id=user_id,
         email=(email or f'user-{uuid.uuid4().hex[:8]}@example.com').lower(),
         password_hash=get_password_hash(password),
+        password_change_required=password_change_required,
+        auth_version=auth_version,
         role=role.value,
     )
     db_session.add(user)

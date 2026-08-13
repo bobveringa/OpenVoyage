@@ -5,6 +5,7 @@ import { useAuth } from '@/auth/use-auth'
 import { AppShell } from '@/components/layout/app-shell'
 import { getUserUsername } from '@/lib/users'
 import { AdminPage } from '@/pages/admin-page'
+import { AccountSecurityPage } from '@/pages/account-security-page'
 import { LoginPage } from '@/pages/login-page'
 import { PlaceholderPage } from '@/pages/placeholder-page'
 import { ProfileSettingsPage } from '@/pages/profile-settings-page'
@@ -18,6 +19,7 @@ type Route =
   | { name: 'login' }
   | { name: 'not-found' }
   | { name: 'profile-settings' }
+  | { name: 'security-settings' }
   | { name: 'setup' }
   | { name: 'trip-detail'; tripId: string }
   | { name: 'user-overview'; username: string }
@@ -43,7 +45,18 @@ function AppRoutes() {
   const currentUsername = getUserUsername(currentUser)
 
   useEffect(() => {
-    if (status !== 'authenticated' || route.name !== 'login') {
+    if (status !== 'authenticated') {
+      return
+    }
+
+    if (currentUser?.password_change_required) {
+      if (route.name !== 'security-settings') {
+        navigate('/settings/security', { replace: true })
+      }
+      return
+    }
+
+    if (route.name !== 'login') {
       return
     }
 
@@ -51,9 +64,13 @@ function AppRoutes() {
       currentUsername ? `/users/${encodeURIComponent(currentUsername)}` : '/setup',
       { replace: true },
     )
-  }, [currentUsername, navigate, route.name, status])
+  }, [currentUser?.password_change_required, currentUsername, navigate, route.name, status])
 
   function handleAuthenticated(user: NonNullable<typeof currentUser>) {
+    if (user.password_change_required) {
+      navigate('/settings/security', { replace: true })
+      return
+    }
     const username = getUserUsername(user)
     navigate(username ? `/users/${encodeURIComponent(username)}` : '/setup', {
       replace: true,
@@ -69,14 +86,22 @@ function AppRoutes() {
     return <LoginPage onAuthenticated={handleAuthenticated} />
   }
 
+  const renderedRoute =
+    status === 'authenticated' &&
+    currentUser?.password_change_required &&
+    route.name !== 'security-settings'
+      ? ({ name: 'security-settings' } as const)
+      : route
+
   return (
     <AppShell
       authStatus={status}
       currentUser={currentUser}
       onLogout={handleLogout}
       onNavigate={navigate}
+      passwordChangeRequired={currentUser?.password_change_required ?? false}
     >
-      {renderRoute(route, {
+      {renderRoute(renderedRoute, {
         accessToken,
         currentUser,
         onNavigate: navigate,
@@ -115,6 +140,14 @@ function renderRoute(route: Route, context: RouteRenderContext) {
           currentUser={context.currentUser}
           onNavigate={context.onNavigate}
           onProfileUpdated={context.onProfileUpdated}
+        />
+      )
+    case 'security-settings':
+      return (
+        <AccountSecurityPage
+          authStatus={context.status}
+          currentUser={context.currentUser}
+          onNavigate={context.onNavigate}
         />
       )
     case 'trip-detail':
@@ -212,6 +245,10 @@ function parseRoute(location: string): Route {
 
   if (pathname === '/settings/profile') {
     return { name: 'profile-settings' }
+  }
+
+  if (pathname === '/settings/security') {
+    return { name: 'security-settings' }
   }
 
   return { name: 'not-found' }

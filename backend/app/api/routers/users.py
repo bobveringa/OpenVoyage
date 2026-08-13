@@ -1,14 +1,22 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, HTTPException, Path, Query, Response
 from starlette import status
 from starlette.requests import Request
 
-from api.deps import CurrentUser, OptionalCurrentUser, PaginationDep, UserServiceDep
+from api.deps import (
+    AuthenticatedUser,
+    CurrentUser,
+    OptionalCurrentUser,
+    PaginationDep,
+    UserServiceDep,
+)
+from core import security
 from models.api.pagination import PaginatedResponse
 from models.api.users import (
     CurrentUserResponse,
+    PasswordChangeRequest,
     USERNAME_MAX_LENGTH,
     USERNAME_MIN_LENGTH,
     UserProfileUpdateRequest,
@@ -23,7 +31,10 @@ from services.user_service import (
     ProfilePictureOwnershipError,
     UsernameAlreadyExistsError,
     UserNotFoundError,
+    CurrentPasswordIncorrectError,
+    NewPasswordMatchesCurrentError,
 )
+from models.api.token import Token
 
 router = APIRouter(prefix='/users', tags=['users'])
 
@@ -52,9 +63,44 @@ def search_users(
 
 
 @router.get('/me', response_model=CurrentUserResponse)
-def read_user(request: Request, user: CurrentUser) -> CurrentUserResponse:
+def read_user(request: Request, user: AuthenticatedUser) -> CurrentUserResponse:
     media_base_url = str(request.base_url).rstrip('/')
     return CurrentUserResponse.from_model(user, media_base_url=media_base_url)
+
+
+@router.put('/me/password', response_model=Token)
+def change_password(
+    response: Response,
+    payload: PasswordChangeRequest,
+    user: AuthenticatedUser,
+    user_service: UserServiceDep,
+) -> Token:
+    try:
+        updated_user = user_service.change_password(
+            user_id=user.id,
+            payload=payload,
+        )
+    except (CurrentPasswordIncorrectError, NewPasswordMatchesCurrentError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    tokens = security.create_auth_tokens(
+        subject=updated_user.id,
+        email=updated_user.email,
+        auth_version=updated_user.auth_version,
+    )
+    response.headers['Cache-Control'] = 'no-store'
+    return Token(**tokens)
+
+
+@router.post('/me/sign-out-all', status_code=status.HTTP_204_NO_CONTENT)
+def sign_out_all(
+    user: CurrentUser,
+    user_service: UserServiceDep,
+) -> None:
+    user_service.sign_out_all(user_id=user.id)
 
 
 @router.patch('/me', response_model=CurrentUserResponse)

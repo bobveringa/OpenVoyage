@@ -137,6 +137,11 @@
             "title": "Password",
             "type": "string"
           },
+          "require_password_change": {
+            "default": true,
+            "title": "Require Password Change",
+            "type": "boolean"
+          },
           "role": {
             "$ref": "#/components/schemas/UserRole",
             "default": "USER"
@@ -177,6 +182,27 @@
         "title": "AdminUserDeleteResponse",
         "type": "object"
       },
+      "AdminUserPasswordSetRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password",
+            "type": "string"
+          },
+          "require_password_change": {
+            "default": true,
+            "title": "Require Password Change",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "AdminUserPasswordSetRequest",
+        "type": "object"
+      },
       "AdminUserResponse": {
         "properties": {
           "created_at": {
@@ -202,6 +228,10 @@
             "title": "Last Name",
             "type": "string"
           },
+          "password_change_required": {
+            "title": "Password Change Required",
+            "type": "boolean"
+          },
           "role": {
             "$ref": "#/components/schemas/UserRole"
           },
@@ -222,6 +252,7 @@
           "first_name",
           "last_name",
           "role",
+          "password_change_required",
           "created_at",
           "updated_at"
         ],
@@ -229,6 +260,7 @@
         "type": "object"
       },
       "AdminUserUpdateRequest": {
+        "additionalProperties": false,
         "properties": {
           "email": {
             "anyOf": [
@@ -265,19 +297,6 @@
               }
             ],
             "title": "Last Name"
-          },
-          "password": {
-            "anyOf": [
-              {
-                "maxLength": 128,
-                "minLength": 8,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Password"
           },
           "role": {
             "anyOf": [
@@ -432,6 +451,10 @@
             "title": "Id",
             "type": "string"
           },
+          "password_change_required": {
+            "title": "Password Change Required",
+            "type": "boolean"
+          },
           "profile": {
             "anyOf": [
               {
@@ -449,7 +472,8 @@
         "required": [
           "id",
           "profile",
-          "role"
+          "role",
+          "password_change_required"
         ],
         "title": "CurrentUserResponse",
         "type": "object"
@@ -1747,6 +1771,29 @@
         "title": "PaginatedResponse[UserSummaryResponse]",
         "type": "object"
       },
+      "PasswordChangeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "current_password": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Current Password",
+            "type": "string"
+          },
+          "new_password": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "New Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "PasswordChangeRequest",
+        "type": "object"
+      },
       "PlaceResponse": {
         "properties": {
           "country_code": {
@@ -2770,18 +2817,6 @@
               }
             ]
           },
-          "profile_picture_media_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Profile Picture Media Id"
-          },
           "username": {
             "title": "Username",
             "type": "string"
@@ -2792,7 +2827,6 @@
           "first_name",
           "last_name",
           "biography",
-          "profile_picture_media_id",
           "profile_picture"
         ],
         "title": "UserProfileResponse",
@@ -3887,6 +3921,57 @@
           }
         ],
         "summary": "Update Admin User",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{user_id}/password": {
+      "put": {
+        "operationId": "set_admin_user_password_api_v1_admin_users__user_id__password_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUserPasswordSetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Set Admin User Password",
         "tags": [
           "admin"
         ]
@@ -6453,6 +6538,71 @@
           }
         ],
         "summary": "Update User Profile",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/password": {
+      "put": {
+        "operationId": "change_password_api_v1_users_me_password_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Change Password",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/sign-out-all": {
+      "post": {
+        "operationId": "sign_out_all_api_v1_users_me_sign_out_all_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Sign Out All",
         "tags": [
           "users"
         ]

@@ -8,11 +8,14 @@ import {
 } from 'react'
 
 import {
+  changeOwnPassword,
   configureAuthTokenRefresh,
+  configurePasswordChangeRequired,
   getErrorMessage,
   login as loginRequest,
   readCurrentUser,
   refreshAuthTokens,
+  signOutAllDevices,
   type AuthTokens,
   type CurrentUser,
 } from '@/api/client'
@@ -125,6 +128,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [refreshSession])
 
   useEffect(() => {
+    configurePasswordChangeRequired(() => {
+      setCurrentUser((user) =>
+        user ? { ...user, password_change_required: true } : user,
+      )
+    })
+
+    return () => configurePasswordChangeRequired(null)
+  }, [])
+
+  useEffect(() => {
     let isCurrent = true
 
     async function restoreSession() {
@@ -227,18 +240,70 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [clearSession, storeSession],
   )
 
+  const changePassword = useCallback(
+    async ({
+      currentPassword,
+      newPassword,
+    }: {
+      currentPassword: string
+      newPassword: string
+    }) => {
+      const currentTokens = tokensRef.current
+      if (!currentTokens) {
+        throw new Error('An authenticated session is required.')
+      }
+
+      const nextTokens = await changeOwnPassword(
+        {
+          current_password: currentPassword,
+          new_password: newPassword,
+        },
+        currentTokens.access_token,
+      )
+      storeSession(nextTokens)
+      setCurrentUser((user) =>
+        user ? { ...user, password_change_required: false } : user,
+      )
+      setError(null)
+    },
+    [storeSession],
+  )
+
+  const signOutAll = useCallback(async () => {
+    const currentTokens = tokensRef.current
+    if (!currentTokens) {
+      clearSession()
+      return
+    }
+
+    await signOutAllDevices(currentTokens.access_token)
+    clearSession()
+  }, [clearSession])
+
   const value = useMemo<AuthContextValue>(
     () => ({
       accessToken: tokens?.access_token ?? null,
+      changePassword,
       currentUser,
       error,
       signIn,
       signOut: clearSession,
+      signOutAll,
       status,
       tokens,
       updateCurrentUser,
     }),
-    [clearSession, currentUser, error, signIn, status, tokens, updateCurrentUser],
+    [
+      changePassword,
+      clearSession,
+      currentUser,
+      error,
+      signIn,
+      signOutAll,
+      status,
+      tokens,
+      updateCurrentUser,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -102,17 +102,28 @@ def _get_user_from_token(session: Session, token: str) -> User:
         raise _credentials_exception()
 
     user = session.get(User, user_id)
-    if not user:
+    if not user or token_data.ver != user.auth_version:
         raise _credentials_exception()
 
     return cast(User, user)
 
 
-def get_current_user(
+def get_authenticated_user(
     session: SessionDep,
     token: TokenDep,
 ) -> User:
     return _get_user_from_token(session=session, token=token)
+
+
+def get_current_user(
+    user: Annotated[User, Depends(get_authenticated_user)],
+) -> User:
+    if user.password_change_required:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Password change required',
+        )
+    return user
 
 
 def get_optional_current_user(
@@ -121,14 +132,18 @@ def get_optional_current_user(
 ) -> User | None:
     if token is None:
         return None
-    return _get_user_from_token(session=session, token=token)
+    user = _get_user_from_token(session=session, token=token)
+    if user.password_change_required:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Password change required',
+        )
+    return user
 
 
 def get_current_admin_user(
-    session: SessionDep,
-    token: TokenDep,
+    user: Annotated[User, Depends(get_current_user)],
 ) -> User:
-    user = get_current_user(session=session, token=token)
     if user.role != 'ADMIN':
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -245,6 +260,7 @@ def get_admin_user_service(session: SessionDep):
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+AuthenticatedUser = Annotated[User, Depends(get_authenticated_user)]
 OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 CurrentAdmin = Annotated[User, Depends(get_current_admin_user)]
 JobServiceDep = Annotated[JobService, Depends(get_job_service)]

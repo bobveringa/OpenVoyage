@@ -1,9 +1,10 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TokenPayload(BaseModel):
     sub: str
     typ: str
+    ver: int = Field(strict=True, ge=0)
     jti: str | None = None
     exp: int | None = None
 

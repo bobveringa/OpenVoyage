@@ -9,12 +9,19 @@ export type SignInInput = {
   password: string
 }
 
+export type ChangePasswordInput = {
+  currentPassword: string
+  newPassword: string
+}
+
 export type AuthContextValue = {
   accessToken: string | null
   currentUser: CurrentUser | null
+  changePassword: (input: ChangePasswordInput) => Promise<void>
   error: string | null
   signIn: (input: SignInInput) => Promise<CurrentUser>
   signOut: () => void
+  signOutAll: () => Promise<void>
   status: AuthStatus
   tokens: AuthTokens | null
   updateCurrentUser: (user: CurrentUser) => void

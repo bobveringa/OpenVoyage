@@ -64,22 +64,29 @@ def decode_token(token: str, expected_type: str) -> dict[str, Any]:
     return payload
 
 
-def create_auth_tokens(subject: str | Any, email: str) -> dict[str, str]:
+def create_auth_tokens(
+    subject: str | Any,
+    email: str,
+    auth_version: int = 0,
+) -> dict[str, str]:
+    version_claim = {'ver': auth_version}
     access_token = create_token(
         subject=subject,
         token_type=TOKEN_TYPE_ACCESS,
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        extra_claims=version_claim,
     )
     id_token = create_token(
         subject=subject,
         token_type=TOKEN_TYPE_ID,
         expires_delta=timedelta(minutes=settings.ID_TOKEN_EXPIRE_MINUTES),
-        extra_claims={'email': email},
+        extra_claims={'email': email, **version_claim},
     )
     refresh_token = create_token(
         subject=subject,
         token_type=TOKEN_TYPE_REFRESH,
         expires_delta=timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES),
+        extra_claims=version_claim,
     )
     return {
         'access_token': access_token,

@@ -55,6 +55,8 @@ export type AdminUserDeleteResult =
   components['schemas']['AdminUserDeleteResponse']
 export type AdminUserUpdatePayload =
   components['schemas']['AdminUserUpdateRequest']
+export type AdminUserPasswordSetPayload =
+  components['schemas']['AdminUserPasswordSetRequest']
 export type AdminUsersList = components['schemas']['AdminUsersListResponse']
 export type PublicSettings = components['schemas']['PublicSettingsResponse']
 export type SettingValidation = NonNullable<AdminSetting['validation']>
@@ -68,6 +70,7 @@ export type PostCreatePayload = components['schemas']['PostCreateRequest']
 export type PostUpdatePayload = components['schemas']['PostUpdateRequest']
 export type UserProfileUpdatePayload =
   components['schemas']['UserProfileUpdateRequest']
+export type PasswordChangePayload = components['schemas']['PasswordChangeRequest']
 export type UserSummary = components['schemas']['UserSummaryResponse']
 export type UsernameAvailability =
   components['schemas']['UsernameAvailabilityResponse']
@@ -111,7 +114,10 @@ type AuthTokenRefreshHandler = (options: {
   forceRefresh: boolean
 }) => Promise<string | null>
 
+type PasswordChangeRequiredHandler = () => void
+
 let authTokenRefreshHandler: AuthTokenRefreshHandler | null = null
+let passwordChangeRequiredHandler: PasswordChangeRequiredHandler | null = null
 
 export class ApiError extends Error {
   readonly status: number
@@ -129,6 +135,12 @@ export function configureAuthTokenRefresh(
   handler: AuthTokenRefreshHandler | null,
 ) {
   authTokenRefreshHandler = handler
+}
+
+export function configurePasswordChangeRequired(
+  handler: PasswordChangeRequiredHandler | null,
+) {
+  passwordChangeRequiredHandler = handler
 }
 
 export function getErrorMessage(error: unknown): string {
@@ -165,6 +177,24 @@ export async function refreshAuthTokens(
 
 export async function readCurrentUser(accessToken: string): Promise<CurrentUser> {
   return requestJson<CurrentUser>(`${API_V1_PREFIX}/users/me`, {
+    accessToken,
+  })
+}
+
+export async function changeOwnPassword(
+  payload: PasswordChangePayload,
+  accessToken: string,
+): Promise<AuthTokens> {
+  return requestJson<AuthTokens>(`${API_V1_PREFIX}/users/me/password`, {
+    method: 'PUT',
+    accessToken,
+    json: payload,
+  })
+}
+
+export async function signOutAllDevices(accessToken: string): Promise<void> {
+  return requestJson<void>(`${API_V1_PREFIX}/users/me/sign-out-all`, {
+    method: 'POST',
     accessToken,
   })
 }
@@ -313,6 +343,21 @@ export async function updateAdminUser(options: {
     `${API_V1_PREFIX}/admin/users/${encodeURIComponent(options.userId)}`,
     {
       method: 'PATCH',
+      accessToken: options.accessToken,
+      json: options.payload,
+    },
+  )
+}
+
+export async function setAdminUserPassword(options: {
+  accessToken: string
+  payload: AdminUserPasswordSetPayload
+  userId: string
+}): Promise<void> {
+  return requestJson<void>(
+    `${API_V1_PREFIX}/admin/users/${encodeURIComponent(options.userId)}/password`,
+    {
+      method: 'PUT',
       accessToken: options.accessToken,
       json: options.payload,
     },
@@ -919,7 +964,14 @@ async function requestJsonResponse<T>(
   }
 
   if (!response.ok) {
-    throw await buildApiError(response)
+    const error = await buildApiError(response)
+    if (
+      response.status === 403 &&
+      error.message === 'Password change required'
+    ) {
+      passwordChangeRequiredHandler?.()
+    }
+    throw error
   }
 
   if (response.status === 204) {

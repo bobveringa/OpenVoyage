@@ -339,7 +339,7 @@ def test_update_current_user_profile_and_avatar(client, db_session, api_prefix) 
     assert payload['profile']['first_name'] == 'Bob'
     assert payload['profile']['last_name'] == 'Voyager'
     assert payload['profile']['biography'] == 'Writing notes from the road.'
-    assert payload['profile']['profile_picture_media_id'] == str(avatar.id)
+    assert 'profile_picture_media_id' not in payload['profile']
     assert payload['profile']['profile_picture']['id'] == str(avatar.id)
 
 
@@ -368,7 +368,7 @@ def test_update_current_user_can_remove_avatar(client, db_session, api_prefix) -
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload['profile']['profile_picture_media_id'] is None
+    assert 'profile_picture_media_id' not in payload['profile']
     assert payload['profile']['profile_picture'] is None
 
 

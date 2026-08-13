@@ -213,6 +213,23 @@ export interface paths {
         patch: operations["update_admin_user_api_v1_admin_users__user_id__patch"];
         trace?: never;
     };
+    "/api/v1/admin/users/{user_id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Admin User Password */
+        put: operations["set_admin_user_password_api_v1_admin_users__user_id__password_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/login/access-token": {
         parameters: {
             query?: never;
@@ -690,6 +707,40 @@ export interface paths {
         patch: operations["update_user_profile_api_v1_users_me_patch"];
         trace?: never;
     };
+    "/api/v1/users/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Change Password */
+        put: operations["change_password_api_v1_users_me_password_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/sign-out-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sign Out All */
+        post: operations["sign_out_all_api_v1_users_me_sign_out_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/username-availability": {
         parameters: {
             query?: never;
@@ -771,6 +822,11 @@ export interface components {
             last_name: string;
             /** Password */
             password: string;
+            /**
+             * Require Password Change
+             * @default true
+             */
+            require_password_change: boolean;
             /** @default USER */
             role: components["schemas"]["UserRole"];
             /** Username */
@@ -788,6 +844,16 @@ export interface components {
              * Format: uuid
              */
             id: string;
+        };
+        /** AdminUserPasswordSetRequest */
+        AdminUserPasswordSetRequest: {
+            /** Password */
+            password: string;
+            /**
+             * Require Password Change
+             * @default true
+             */
+            require_password_change: boolean;
         };
         /** AdminUserResponse */
         AdminUserResponse: {
@@ -810,6 +876,8 @@ export interface components {
             id: string;
             /** Last Name */
             last_name: string;
+            /** Password Change Required */
+            password_change_required: boolean;
             role: components["schemas"]["UserRole"];
             /**
              * Updated At
@@ -827,8 +895,6 @@ export interface components {
             first_name?: string | null;
             /** Last Name */
             last_name?: string | null;
-            /** Password */
-            password?: string | null;
             role?: components["schemas"]["UserRole"] | null;
             /** Username */
             username?: string | null;
@@ -885,6 +951,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Password Change Required */
+            password_change_required: boolean;
             profile: components["schemas"]["UserProfileResponse"] | null;
             role: components["schemas"]["UserRole"];
         };
@@ -1347,6 +1415,13 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** PasswordChangeRequest */
+        PasswordChangeRequest: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
+        };
         /** PlaceResponse */
         PlaceResponse: {
             /** Country Code */
@@ -1739,8 +1814,6 @@ export interface components {
             /** Last Name */
             last_name: string;
             profile_picture: components["schemas"]["MediaResponse"] | null;
-            /** Profile Picture Media Id */
-            profile_picture_media_id: string | null;
             /** Username */
             username: string;
         };
@@ -2337,6 +2410,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AdminUserResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_admin_user_password_api_v1_admin_users__user_id__password_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminUserPasswordSetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -3730,6 +3836,57 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    change_password_api_v1_users_me_password_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Token"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sign_out_all_api_v1_users_me_sign_out_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

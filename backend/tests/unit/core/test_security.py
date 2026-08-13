@@ -50,7 +50,11 @@ def test_decode_token_raises_for_unexpected_type() -> None:
 
 @pytest.mark.unit
 def test_create_auth_tokens_creates_expected_token_types() -> None:
-    tokens = create_auth_tokens(subject='user-abc', email='abc@example.com')
+    tokens = create_auth_tokens(
+        subject='user-abc',
+        email='abc@example.com',
+        auth_version=7,
+    )
 
     assert set(tokens) == {'access_token', 'id_token', 'refresh_token'}
 
@@ -63,9 +67,12 @@ def test_create_auth_tokens_creates_expected_token_types() -> None:
     )
 
     assert access_payload['sub'] == 'user-abc'
+    assert access_payload['ver'] == 7
     assert id_payload['sub'] == 'user-abc'
     assert id_payload['email'] == 'abc@example.com'
+    assert id_payload['ver'] == 7
     assert refresh_payload['sub'] == 'user-abc'
+    assert refresh_payload['ver'] == 7
 
 
 @pytest.mark.unit

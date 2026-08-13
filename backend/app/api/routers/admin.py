@@ -10,6 +10,7 @@ from core import security
 from models.api.admin import (
     AdminUserCreateRequest,
     AdminUserDeleteResponse,
+    AdminUserPasswordSetRequest,
     AdminUserResponse,
     AdminUsersListResponse,
     AdminUserUpdateRequest,
@@ -150,6 +151,26 @@ def update_admin_user(
     ) as exc:
         _raise_admin_user_error(exc)
     return AdminUserResponse.from_model(user)
+
+
+@router.put(
+    '/users/{user_id}/password',
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def set_admin_user_password(
+    user_id: uuid.UUID,
+    payload: AdminUserPasswordSetRequest,
+    user_service: AdminUserServiceDep,
+    admin: CurrentAdmin,
+) -> None:
+    try:
+        user_service.set_password(
+            user_id=user_id,
+            actor_id=admin.id,
+            payload=payload,
+        )
+    except (AdminUserNotFoundError, AdminUserProtectedActionError) as exc:
+        _raise_admin_user_error(exc)
 
 
 @router.delete('/users/{user_id}', response_model=AdminUserDeleteResponse)

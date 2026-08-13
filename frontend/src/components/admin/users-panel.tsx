@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  KeyRound,
   Pencil,
   Plus,
   RefreshCw,
@@ -21,6 +22,7 @@ import {
   deleteAdminUser,
   getErrorMessage,
   listAdminUsers,
+  setAdminUserPassword,
   updateAdminUser,
   type AdminUser,
   type AdminUserCreatePayload,
@@ -58,6 +60,7 @@ export function UsersPanel({ accessToken }: UsersPanelProps) {
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading')
   const [loadError, setLoadError] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState>(null)
+  const [passwordTarget, setPasswordTarget] = useState<AdminUser | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
 
   const loadUsers = useCallback(
@@ -213,6 +216,7 @@ export function UsersPanel({ accessToken }: UsersPanelProps) {
                 key={user.id}
                 onDelete={() => setDeleteTarget(user)}
                 onEdit={() => setEditor({ mode: 'edit', user })}
+                onPassword={() => setPasswordTarget(user)}
                 user={user}
               />
             ))}
@@ -263,6 +267,15 @@ export function UsersPanel({ accessToken }: UsersPanelProps) {
         }}
         user={deleteTarget}
       />
+      <SetPasswordModal
+        accessToken={accessToken}
+        onClose={() => setPasswordTarget(null)}
+        onSaved={async () => {
+          setPasswordTarget(null)
+          await refreshAfterChange()
+        }}
+        user={passwordTarget}
+      />
     </section>
   )
 }
@@ -270,10 +283,12 @@ export function UsersPanel({ accessToken }: UsersPanelProps) {
 function UserRow({
   onDelete,
   onEdit,
+  onPassword,
   user,
 }: {
   onDelete: () => void
   onEdit: () => void
+  onPassword: () => void
   user: AdminUser
 }) {
   return (
@@ -286,11 +301,18 @@ function UserRow({
           <Badge variant={user.role === 'ADMIN' ? 'secondary' : 'outline'}>
             {user.role === 'ADMIN' ? 'Administrator' : 'User'}
           </Badge>
+          {user.password_change_required ? (
+            <Badge variant="outline">Password change required</Badge>
+          ) : null}
         </div>
         <p className="truncate text-sm text-muted-foreground">{user.email}</p>
         <p className="text-xs text-muted-foreground">@{user.username}</p>
       </div>
       <div className="flex shrink-0 gap-2">
+        <Button onClick={onPassword} size="sm" type="button" variant="outline">
+          <KeyRound aria-hidden="true" className="size-3.5" />
+          Set password
+        </Button>
         <Button onClick={onEdit} size="sm" type="button" variant="outline">
           <Pencil aria-hidden="true" className="size-3.5" />
           Edit
@@ -328,6 +350,7 @@ function UserEditorModal({
   const [lastName, setLastName] = useState('')
   const [role, setRole] = useState<'ADMIN' | 'USER'>('USER')
   const [password, setPassword] = useState('')
+  const [requirePasswordChange, setRequirePasswordChange] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -338,6 +361,7 @@ function UserEditorModal({
     setLastName(existingUser?.last_name ?? '')
     setRole(existingUser?.role ?? 'USER')
     setPassword('')
+    setRequirePasswordChange(true)
     setError(null)
   }, [existingUser, editor?.mode])
 
@@ -357,7 +381,6 @@ function UserEditorModal({
           last_name: lastName,
           role,
           username,
-          ...(password ? { password } : {}),
         }
         await updateAdminUser({
           accessToken,
@@ -370,6 +393,7 @@ function UserEditorModal({
           first_name: firstName,
           last_name: lastName,
           password,
+          require_password_change: requirePasswordChange,
           role,
           username,
         }
@@ -387,8 +411,8 @@ function UserEditorModal({
     <Modal
       description={
         existingUser
-          ? 'Update account details, access level, or set a replacement password.'
-          : 'Create a new traveller account with an initial password.'
+          ? 'Update account details and access level.'
+          : 'Create a new traveller account with an assigned password.'
       }
       onClose={onClose}
       open={editor !== null}
@@ -445,24 +469,24 @@ function UserEditorModal({
             value={role}
           />
         </FormField>
-        <FormField
-          hint={
-            existingUser
-              ? 'Leave empty to keep the current password.'
-              : 'Use at least 8 characters.'
-          }
-          label={existingUser ? 'New password' : 'Password'}
-          required={!existingUser}
-        >
-          <Input
-            autoComplete="new-password"
-            minLength={password ? 8 : undefined}
-            onChange={(event) => setPassword(event.target.value)}
-            required={!existingUser}
-            type="password"
-            value={password}
-          />
-        </FormField>
+        {!existingUser ? (
+          <>
+            <FormField hint="Use at least 8 characters." label="Password" required>
+              <Input
+                autoComplete="new-password"
+                minLength={8}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                type="password"
+                value={password}
+              />
+            </FormField>
+            <RequirementCheckbox
+              checked={requirePasswordChange}
+              onChange={setRequirePasswordChange}
+            />
+          </>
+        ) : null}
         {error ? (
           <p className="flex items-start gap-2 text-sm text-destructive" role="alert">
             <AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
@@ -480,6 +504,126 @@ function UserEditorModal({
         </div>
       </form>
     </Modal>
+  )
+}
+
+function SetPasswordModal({
+  accessToken,
+  onClose,
+  onSaved,
+  user,
+}: {
+  accessToken: string | null
+  onClose: () => void
+  onSaved: () => Promise<void>
+  user: AdminUser | null
+}) {
+  const [password, setPassword] = useState('')
+  const [requirePasswordChange, setRequirePasswordChange] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    setPassword('')
+    setRequirePasswordChange(true)
+    setError(null)
+    setIsSaving(false)
+  }, [user])
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!accessToken || !user || isSaving) {
+      return
+    }
+
+    setIsSaving(true)
+    setError(null)
+    try {
+      await setAdminUserPassword({
+        accessToken,
+        payload: {
+          password,
+          require_password_change: requirePasswordChange,
+        },
+        userId: user.id,
+      })
+      await onSaved()
+    } catch (saveError) {
+      setError(getErrorMessage(saveError))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      description="The user will be signed out everywhere as soon as this password is saved."
+      onClose={onClose}
+      open={user !== null}
+      title="Set password"
+    >
+      <form className="space-y-5 p-1" onSubmit={submit}>
+        {user ? (
+          <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-foreground">
+            {user.first_name} {user.last_name} ({user.email})
+          </p>
+        ) : null}
+        <FormField hint="Use at least 8 characters." label="Password" required>
+          <Input
+            autoComplete="new-password"
+            minLength={8}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            type="password"
+            value={password}
+          />
+        </FormField>
+        <RequirementCheckbox
+          checked={requirePasswordChange}
+          onChange={setRequirePasswordChange}
+        />
+        {error ? (
+          <p className="flex items-start gap-2 text-sm text-destructive" role="alert">
+            <AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            {error}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button disabled={isSaving} onClick={onClose} type="button" variant="ghost">
+            Cancel
+          </Button>
+          <Button disabled={isSaving} type="submit">
+            <KeyRound aria-hidden="true" className="size-4" />
+            {isSaving ? 'Saving…' : 'Set password'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function RequirementCheckbox({
+  checked,
+  onChange,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-sm text-foreground">
+      <input
+        checked={checked}
+        className="mt-0.5 size-4 rounded border-emerald-200 accent-emerald-600"
+        onChange={(event) => onChange(event.target.checked)}
+        type="checkbox"
+      />
+      <span>
+        <span className="block font-medium">Require password change at next sign-in</span>
+        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+          Clear this when assigning a normal password that does not need replacement.
+        </span>
+      </span>
+    </label>
   )
 }
 

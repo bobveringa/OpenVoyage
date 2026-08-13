@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Compass } from 'lucide-react'
+import { Compass, LogOut } from 'lucide-react'
 
 import type { CurrentUser } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
@@ -15,6 +15,7 @@ type AppShellProps = {
   currentUser?: CurrentUser | null
   onLogout?: () => void
   onNavigate?: (to: string) => void
+  passwordChangeRequired?: boolean
   showHeader?: boolean
 }
 
@@ -24,10 +25,15 @@ export function AppShell({
   currentUser,
   onLogout,
   onNavigate,
+  passwordChangeRequired = false,
   showHeader = true,
 }: AppShellProps) {
   const username = getUserUsername(currentUser)
-  const homePath = username ? `/users/${encodeURIComponent(username)}` : '/'
+  const homePath = passwordChangeRequired
+    ? '/settings/security'
+    : username
+      ? `/users/${encodeURIComponent(username)}`
+      : '/'
 
   function handleNavigate(to: string) {
     onNavigate?.(to)
@@ -50,7 +56,12 @@ export function AppShell({
               <span>OpenVoyage</span>
             </button>
 
-            {currentUser && onLogout && onNavigate ? (
+            {currentUser && onLogout && passwordChangeRequired ? (
+              <Button onClick={onLogout} size="sm" type="button" variant="outline">
+                <LogOut className="size-4" aria-hidden="true" />
+                Log out
+              </Button>
+            ) : currentUser && onLogout && onNavigate ? (
               <UserMenu
                 currentUser={currentUser}
                 onLogout={onLogout}

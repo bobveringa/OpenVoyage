@@ -11,7 +11,11 @@ from models.database.user import User, UserRole
 
 
 def _auth_headers(user: User) -> dict[str, str]:
-    tokens = security.create_auth_tokens(subject=user.id, email=user.email)
+    tokens = security.create_auth_tokens(
+        subject=user.id,
+        email=user.email,
+        auth_version=user.auth_version,
+    )
     return {'Authorization': f'Bearer {tokens["access_token"]}'}
 
 
@@ -52,11 +56,36 @@ def test_admin_can_create_user_with_flat_response(
     assert payload['email'] == 'maya@example.com'
     assert payload['username'] == 'maya-travels'
     assert payload['role'] == 'USER'
+    assert payload['password_change_required'] is True
     assert 'profile' not in payload
     assert 'password' not in payload
     created_user = db_session.get(User, uuid.UUID(payload['id']))
     assert created_user is not None
+    assert created_user.password_change_required is True
     assert security.verify_password('MayaSecurePass123!', created_user.password_hash)[0]
+
+
+@pytest.mark.integration
+def test_admin_can_create_user_with_normal_password(
+    client, db_session, api_prefix
+) -> None:
+    admin = create_user(
+        db_session,
+        email='admin@example.com',
+        role=UserRole.ADMIN,
+    )
+
+    response = client.post(
+        f'{api_prefix}/admin/users',
+        headers=_auth_headers(admin),
+        json=_create_payload(require_password_change=False),
+    )
+
+    assert response.status_code == 201
+    assert response.json()['password_change_required'] is False
+    created_user = db_session.get(User, uuid.UUID(response.json()['id']))
+    assert created_user is not None
+    assert created_user.password_change_required is False
 
 
 @pytest.mark.integration
@@ -121,7 +150,7 @@ def test_admin_can_list_filter_and_get_users(client, db_session, api_prefix) -> 
 
 
 @pytest.mark.integration
-def test_admin_can_update_user_and_reset_password(
+def test_admin_can_update_user_without_changing_password(
     client, db_session, api_prefix
 ) -> None:
     admin = create_user(
@@ -147,7 +176,6 @@ def test_admin_can_update_user_and_reset_password(
             'email': 'maya.chen@example.com',
             'first_name': 'May',
             'role': 'ADMIN',
-            'password': 'NewMayaPass123!',
         },
     )
 
@@ -158,7 +186,25 @@ def test_admin_can_update_user_and_reset_password(
     db_session.expire_all()
     updated_user = db_session.get(User, target.id)
     assert updated_user is not None
-    assert security.verify_password('NewMayaPass123!', updated_user.password_hash)[0]
+    assert security.verify_password('password123', updated_user.password_hash)[0]
+
+
+@pytest.mark.integration
+def test_admin_update_rejects_password_field(client, db_session, api_prefix) -> None:
+    admin = create_user(
+        db_session,
+        email='admin@example.com',
+        role=UserRole.ADMIN,
+    )
+    target = create_user(db_session, email='target@example.com')
+
+    response = client.patch(
+        f'{api_prefix}/admin/users/{target.id}',
+        headers=_auth_headers(admin),
+        json={'password': 'NewMayaPass123!'},
+    )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.integration

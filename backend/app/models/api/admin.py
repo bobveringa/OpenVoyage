@@ -2,7 +2,14 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Self
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from models.api.users import (
     USERNAME_MAX_LENGTH,
@@ -42,6 +49,7 @@ class AdminUserResponse(BaseModel):
     first_name: str
     last_name: str
     role: UserRole
+    password_change_required: bool
     created_at: datetime
     updated_at: datetime
 
@@ -57,6 +65,7 @@ class AdminUserResponse(BaseModel):
             first_name=profile.first_name,
             last_name=profile.last_name,
             role=user.role,
+            password_change_required=user.password_change_required,
             created_at=user.created_at,
             updated_at=user.updated_at,
         )
@@ -65,6 +74,7 @@ class AdminUserResponse(BaseModel):
 class AdminUserCreateRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+    require_password_change: bool = True
     username: str = Field(
         min_length=USERNAME_MIN_LENGTH, max_length=USERNAME_MAX_LENGTH
     )
@@ -79,8 +89,9 @@ class AdminUserCreateRequest(BaseModel):
 
 
 class AdminUserUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
     email: EmailStr | None = None
-    password: str | None = Field(default=None, min_length=8, max_length=128)
     username: str | None = Field(
         default=None,
         min_length=USERNAME_MIN_LENGTH,
@@ -105,6 +116,13 @@ class AdminUserUpdateRequest(BaseModel):
             if getattr(self, field_name) is None:
                 raise ValueError(f'{field_name} cannot be null')
         return self
+
+
+class AdminUserPasswordSetRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    password: str = Field(min_length=8, max_length=128)
+    require_password_change: bool = True
 
 
 class AdminUsersListResponse(BaseModel):
