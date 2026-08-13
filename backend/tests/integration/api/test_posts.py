@@ -26,6 +26,33 @@ def _place_location(place) -> dict[str, str]:
     return {'place_id': str(place.id)}
 
 
+def _create_post(
+    client,
+    api_prefix: str,
+    *,
+    trip_id: uuid.UUID,
+    user,
+    place,
+    title: str,
+    occurred_at: str,
+    publish: bool,
+) -> dict:
+    response = client.post(
+        f'{api_prefix}/trips/{trip_id}/posts',
+        headers=_auth_headers(user),
+        json={
+            'title': title,
+            'body': title,
+            'location': _place_location(place),
+            'occurred_at': occurred_at,
+            'media_ids': [],
+            'publish': publish,
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
 @pytest.mark.integration
 def test_create_post_derives_media_order_from_media_ids(
     client,
@@ -200,6 +227,347 @@ def test_list_posts_orders_by_occurred_at_by_default(
         'Morning train',
         'Previous day walk',
     ]
+
+
+@pytest.mark.integration
+def test_post_timeline_returns_backend_routes_in_chronological_order(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    user = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(
+        db_session,
+        owner_id=user.id,
+        visibility=TripVisibility.PUBLIC,
+    )
+    lisbon = create_place(
+        db_session,
+        name='Lisbon',
+        latitude=38.7223,
+        longitude=-9.1393,
+        country_code='PT',
+        region='Lisbon',
+        full_name='Lisbon, Portugal',
+    )
+    porto = create_place(
+        db_session,
+        name='Porto',
+        latitude=41.1579,
+        longitude=-8.6291,
+        country_code='PT',
+        region='Porto',
+        full_name='Porto, Portugal',
+    )
+    madrid = create_place(
+        db_session,
+        name='Madrid',
+        latitude=40.4168,
+        longitude=-3.7038,
+        country_code='ES',
+        region='Madrid',
+        full_name='Madrid, Spain',
+    )
+
+    _create_post(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=user,
+        place=porto,
+        title='Porto',
+        occurred_at='2026-08-13T10:42:00+00:00',
+        publish=True,
+    )
+    _create_post(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=user,
+        place=madrid,
+        title='Madrid',
+        occurred_at='2026-08-14T12:42:00+00:00',
+        publish=True,
+    )
+    _create_post(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=user,
+        place=lisbon,
+        title='Lisbon',
+        occurred_at='2026-08-13T08:10:00+00:00',
+        publish=True,
+    )
+
+    response = client.get(f'{api_prefix}/trips/{trip.id}/posts/timeline')
+
+    assert response.status_code == 200
+    timeline = response.json()
+    assert [entry['post']['title'] for entry in timeline] == [
+        'Lisbon',
+        'Porto',
+        'Madrid',
+    ]
+    assert timeline[0]['route_after'] == {
+        'duration_seconds': 9120,
+        'segments': [
+            {
+                'travel_mode': 'UNKNOWN',
+                'geometry': {
+                    'type': 'LineString',
+                    'coordinates': [[-9.1393, 38.7223], [-8.6291, 41.1579]],
+                },
+            }
+        ],
+    }
+    assert timeline[1]['route_after']['duration_seconds'] == 93600
+    assert timeline[1]['route_after']['segments'][0]['geometry']['coordinates'] == [
+        [-8.6291, 41.1579],
+        [-3.7038, 40.4168],
+    ]
+    assert timeline[2]['route_after'] is None
+
+
+@pytest.mark.integration
+def test_post_timeline_builds_routes_only_between_visible_posts(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    user = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(
+        db_session,
+        owner_id=user.id,
+        visibility=TripVisibility.PUBLIC,
+    )
+    first_place = create_place(
+        db_session,
+        name='First',
+        latitude=10,
+        longitude=20,
+    )
+    draft_place = create_place(
+        db_session,
+        name='Draft',
+        latitude=30,
+        longitude=40,
+    )
+    final_place = create_place(
+        db_session,
+        name='Final',
+        latitude=50,
+        longitude=60,
+    )
+    _create_post(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=user,
+        place=first_place,
+        title='Published first',
+        occurred_at='2026-08-13T08:00:00+00:00',
+        publish=True,
+    )
+    _create_post(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=user,
+        place=draft_place,
+        title='Hidden draft',
+        occurred_at='2026-08-13T09:00:00+00:00',
+        publish=False,
+    )
+    _create_post(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=user,
+        place=final_place,
+        title='Published final',
+        occurred_at='2026-08-13T10:00:00+00:00',
+        publish=True,
+    )
+
+    public_response = client.get(f'{api_prefix}/trips/{trip.id}/posts/timeline')
+    member_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/posts/timeline?status=all',
+        headers=_auth_headers(user),
+    )
+
+    assert public_response.status_code == 200
+    public_timeline = public_response.json()
+    assert [entry['post']['title'] for entry in public_timeline] == [
+        'Published first',
+        'Published final',
+    ]
+    assert public_timeline[0]['route_after']['duration_seconds'] == 7200
+    assert public_timeline[0]['route_after']['segments'][0]['geometry'][
+        'coordinates'
+    ] == [[20.0, 10.0], [60.0, 50.0]]
+
+    assert member_response.status_code == 200
+    member_timeline = member_response.json()
+    assert [entry['post']['title'] for entry in member_timeline] == [
+        'Published first',
+        'Hidden draft',
+        'Published final',
+    ]
+    assert [
+        entry['route_after']['duration_seconds'] for entry in member_timeline[:-1]
+    ] == [3600, 3600]
+
+
+@pytest.mark.integration
+def test_post_timeline_handles_empty_and_private_trips(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    user = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(
+        db_session,
+        owner_id=user.id,
+        visibility=TripVisibility.PRIVATE,
+    )
+
+    unauthorized_response = client.get(f'{api_prefix}/trips/{trip.id}/posts/timeline')
+    owner_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/posts/timeline?status=all',
+        headers=_auth_headers(user),
+    )
+
+    assert unauthorized_response.status_code == 404
+    assert owner_response.status_code == 200
+    assert owner_response.json() == []
+
+
+@pytest.mark.integration
+def test_post_timeline_recomputes_after_post_mutations(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    user = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(
+        db_session,
+        owner_id=user.id,
+        visibility=TripVisibility.PUBLIC,
+    )
+    first_place = create_place(
+        db_session,
+        name='First',
+        latitude=1,
+        longitude=2,
+    )
+    second_place = create_place(
+        db_session,
+        name='Second',
+        latitude=3,
+        longitude=4,
+    )
+    moved_place = create_place(
+        db_session,
+        name='Moved',
+        latitude=5,
+        longitude=6,
+    )
+    first_post = _create_post(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=user,
+        place=first_place,
+        title='First',
+        occurred_at='2026-08-13T08:00:00+00:00',
+        publish=True,
+    )
+    second_post = _create_post(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=user,
+        place=second_place,
+        title='Second',
+        occurred_at='2026-08-13T10:00:00+00:00',
+        publish=True,
+    )
+    headers = _auth_headers(user)
+
+    update_response = client.patch(
+        f'{api_prefix}/trips/{trip.id}/posts/{first_post["id"]}',
+        headers=headers,
+        json={
+            'location': _place_location(moved_place),
+            'occurred_at': '2026-08-13T12:00:00+00:00',
+        },
+    )
+    updated_timeline_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/posts/timeline'
+    )
+
+    assert update_response.status_code == 200
+    updated_timeline = updated_timeline_response.json()
+    assert [entry['post']['title'] for entry in updated_timeline] == [
+        'Second',
+        'First',
+    ]
+    assert updated_timeline[0]['route_after']['duration_seconds'] == 7200
+    assert updated_timeline[0]['route_after']['segments'][0]['geometry'][
+        'coordinates'
+    ] == [[4.0, 3.0], [6.0, 5.0]]
+
+    unpublish_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts/{first_post["id"]}/unpublish',
+        headers=headers,
+    )
+    published_timeline_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/posts/timeline'
+    )
+
+    assert unpublish_response.status_code == 200
+    assert [entry['post']['id'] for entry in published_timeline_response.json()] == [
+        second_post['id']
+    ]
+    assert published_timeline_response.json()[0]['route_after'] is None
+
+
+@pytest.mark.integration
+def test_post_timeline_uses_post_id_to_break_equal_timestamp_ties(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    user = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(
+        db_session,
+        owner_id=user.id,
+        visibility=TripVisibility.PUBLIC,
+    )
+    place = create_place(db_session)
+    posts = [
+        _create_post(
+            client,
+            api_prefix,
+            trip_id=trip.id,
+            user=user,
+            place=place,
+            title=title,
+            occurred_at='2026-08-13T08:00:00+00:00',
+            publish=True,
+        )
+        for title in ('Same time A', 'Same time B')
+    ]
+
+    response = client.get(f'{api_prefix}/trips/{trip.id}/posts/timeline')
+
+    assert response.status_code == 200
+    timeline = response.json()
+    assert [entry['post']['id'] for entry in timeline] == sorted(
+        post['id'] for post in posts
+    )
+    assert timeline[0]['route_after']['duration_seconds'] == 0
 
 
 @pytest.mark.integration

@@ -5,11 +5,8 @@ import logging
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from models.api.itinerary import (
-    GeoJsonLineString,
-    ItineraryRouteType,
-    ItineraryTravelRouteResponse,
-)
+from models.api.geojson import GeoJsonLineString
+from models.api.itinerary import ItineraryRouteType, ItineraryTravelRouteResponse
 from models.database.itinerary import (
     ItineraryStop,
     ItineraryTravelLeg,

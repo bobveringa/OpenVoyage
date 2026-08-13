@@ -531,6 +531,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/posts/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Post Timeline */
+        get: operations["get_post_timeline_api_v1_trips__trip_id__posts_timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/posts/{post_id}": {
         parameters: {
             query?: never;
@@ -1515,6 +1532,23 @@ export interface components {
          * @enum {string}
          */
         PostStatusFilter: "published" | "draft" | "all";
+        /** PostTimelineEntryResponse */
+        PostTimelineEntryResponse: {
+            post: components["schemas"]["PostResponse"];
+            route_after: components["schemas"]["PostTimelineRouteResponse"] | null;
+        };
+        /** PostTimelineRouteResponse */
+        PostTimelineRouteResponse: {
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            /** Segments */
+            segments: components["schemas"]["PostTimelineRouteSegmentResponse"][];
+        };
+        /** PostTimelineRouteSegmentResponse */
+        PostTimelineRouteSegmentResponse: {
+            geometry: components["schemas"]["GeoJsonLineString"];
+            travel_mode: components["schemas"]["TravelMode"];
+        };
         /** PostUpdateRequest */
         PostUpdateRequest: {
             /** Body */
@@ -3331,6 +3365,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PostResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_post_timeline_api_v1_trips__trip_id__posts_timeline_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["PostStatusFilter"];
+            };
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostTimelineEntryResponse"][];
                 };
             };
             /** @description Validation Error */

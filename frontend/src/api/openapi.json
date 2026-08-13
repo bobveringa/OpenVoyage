@@ -1996,6 +1996,75 @@
         "title": "PostStatusFilter",
         "type": "string"
       },
+      "PostTimelineEntryResponse": {
+        "properties": {
+          "post": {
+            "$ref": "#/components/schemas/PostResponse"
+          },
+          "route_after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PostTimelineRouteResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "post",
+          "route_after"
+        ],
+        "title": "PostTimelineEntryResponse",
+        "type": "object"
+      },
+      "PostTimelineRouteResponse": {
+        "properties": {
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/PostTimelineRouteSegmentResponse"
+            },
+            "minItems": 1,
+            "title": "Segments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "duration_seconds",
+          "segments"
+        ],
+        "title": "PostTimelineRouteResponse",
+        "type": "object"
+      },
+      "PostTimelineRouteSegmentResponse": {
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/GeoJsonLineString"
+          },
+          "travel_mode": {
+            "$ref": "#/components/schemas/TravelMode"
+          }
+        },
+        "required": [
+          "travel_mode",
+          "geometry"
+        ],
+        "title": "PostTimelineRouteSegmentResponse",
+        "type": "object"
+      },
       "PostUpdateRequest": {
         "properties": {
           "body": {
@@ -5714,6 +5783,82 @@
           }
         ],
         "summary": "Create Post",
+        "tags": [
+          "posts"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/posts/timeline": {
+      "get": {
+        "operationId": "get_post_timeline_api_v1_trips__trip_id__posts_timeline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/PostStatusFilter"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PostTimelineEntryResponse"
+                  },
+                  "title": "Response Get Post Timeline Api V1 Trips  Trip Id  Posts Timeline Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Post Timeline",
         "tags": [
           "posts"
         ]

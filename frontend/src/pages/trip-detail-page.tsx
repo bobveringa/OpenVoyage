@@ -87,11 +87,11 @@ import {
   geocodePlaces,
   getErrorMessage,
   getItinerary,
+  getPostTimeline,
   getTrip,
   listTripMembers,
   listTripShareLinks,
   listTripViewers,
-  listPosts,
   refreshItineraryTravelLegRoute,
   removeTripMember,
   removeTripViewer,
@@ -116,6 +116,8 @@ import {
   type Place,
   type Post,
   type PostCreatePayload,
+  type PostTimelineEntry,
+  type PostTimelineRoute,
   type PostUpdatePayload,
   type MediaUploadProgress,
   type Trip,
@@ -267,8 +269,19 @@ type TravelPost = {
   location: string
   media: readonly [PostMedia, ...PostMedia[]]
   occurred_at: string
+  routeAfter: TravelPostRoute | null
   time: string
   title: string
+}
+
+type TravelPostRoute = {
+  durationSeconds: number | null
+  segments: readonly TravelPostRouteSegment[]
+}
+
+type TravelPostRouteSegment = {
+  coordinates: L.LatLngTuple[]
+  travelMode: TravelMode
 }
 
 type DraftPostLocation = {
@@ -279,10 +292,16 @@ type DraftPostLocation = {
 type MapRouteMode = 'itinerary' | 'travel-timeline'
 type RouteSegmentKind = 'itinerary' | 'post-link' | 'post-to-stop'
 
+type PostScrollRequest = {
+  postId: string
+  sequence: number
+}
+
 type RouteSegment = {
   coordinates: L.LatLngTuple[]
   kind: RouteSegmentKind
   routeType: ItineraryRouteType
+  travelMode?: TravelMode
 }
 
 type FocusedPostNeighbor = {
@@ -716,33 +735,6 @@ const initialTravelLegs: readonly TravelLeg[] = [
 
 const initialTravelPosts: readonly TravelPost[] = [
   {
-    comments: 8,
-    coordinates: [41.1418, -8.6159],
-    excerpt: 'Blue tiles, steep alleys, and a dinner plan that turned into three snack stops.',
-    id: 'douro-evening',
-    location: 'Porto',
-    media: [
-      {
-        alt: 'Porto riverfront at dusk',
-        src: 'https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=520&q=80',
-      },
-      {
-        alt: 'Tiled facade in Porto',
-        src: 'https://plus.unsplash.com/premium_photo-1781636233496-0b8b7760f0cb?q=80&w=830&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
-      },
-      {
-        alt: 'Short clip from the riverside',
-        poster:
-          'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=780&q=80',
-        src: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
-        type: 'video',
-      },
-    ],
-    occurred_at: '2027-05-08T20:14:00Z',
-    time: 'Today, 20:14',
-    title: 'First evening above the Douro',
-  },
-  {
     comments: 3,
     coordinates: [38.7139, -9.13],
     excerpt: 'A slower morning after the train, saved as a practical note.',
@@ -767,8 +759,59 @@ const initialTravelPosts: readonly TravelPost[] = [
       },
     ],
     occurred_at: '2027-05-06T09:32:00Z',
+    routeAfter: {
+      durationSeconds: 211320,
+      segments: [
+        {
+          coordinates: [
+            [38.7139, -9.13],
+            [41.1418, -8.6159],
+          ],
+          travelMode: 'UNKNOWN',
+        },
+      ],
+    },
     time: 'Yesterday, 09:32',
     title: 'Packing lighter for rail days',
+  },
+  {
+    comments: 8,
+    coordinates: [41.1418, -8.6159],
+    excerpt: 'Blue tiles, steep alleys, and a dinner plan that turned into three snack stops.',
+    id: 'douro-evening',
+    location: 'Porto',
+    media: [
+      {
+        alt: 'Porto riverfront at dusk',
+        src: 'https://images.unsplash.com/photo-1555881400-74d7acaacd8b?auto=format&fit=crop&w=520&q=80',
+      },
+      {
+        alt: 'Tiled facade in Porto',
+        src: 'https://plus.unsplash.com/premium_photo-1781636233496-0b8b7760f0cb?q=80&w=830&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+      },
+      {
+        alt: 'Short clip from the riverside',
+        poster:
+          'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=780&q=80',
+        src: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+        type: 'video',
+      },
+    ],
+    occurred_at: '2027-05-08T20:14:00Z',
+    routeAfter: {
+      durationSeconds: 164040,
+      segments: [
+        {
+          coordinates: [
+            [41.1418, -8.6159],
+            [40.4218, -3.7057],
+          ],
+          travelMode: 'UNKNOWN',
+        },
+      ],
+    },
+    time: 'Today, 20:14',
+    title: 'First evening above the Douro',
   },
   {
     comments: 5,
@@ -791,6 +834,7 @@ const initialTravelPosts: readonly TravelPost[] = [
       },
     ],
     occurred_at: '2027-05-10T17:48:00Z',
+    routeAfter: null,
     time: '10 May, 17:48',
     title: 'A better transfer plan',
   },
@@ -852,6 +896,8 @@ export function TripDetailPage({
     initialUrlState.editingPostId,
   )
   const [focusedPostId, setFocusedPostId] = useState<string | null>(null)
+  const [postScrollRequest, setPostScrollRequest] =
+    useState<PostScrollRequest | null>(null)
   const [activeDialog, setActiveDialog] = useState<TripDialog | null>(
     initialUrlState.activeDialog,
   )
@@ -914,6 +960,20 @@ export function TripDetailPage({
     [accessToken, isApiBacked, tripId],
   )
 
+  const fetchTravelPosts = useCallback(async () => {
+    if (!tripId) {
+      return []
+    }
+
+    const timeline = await getPostTimeline({
+      accessToken,
+      shareToken,
+      status: accessToken ? 'all' : 'published',
+      tripId,
+    })
+    return timeline.map(toTravelTimelinePostViewModel)
+  }, [accessToken, shareToken, tripId])
+
   const loadTripDetail = useCallback(
     async (options: { isCurrent: () => boolean }) => {
       if (!tripId) {
@@ -928,15 +988,7 @@ export function TripDetailPage({
           await Promise.all([
             getTrip({ accessToken, shareToken, tripId }),
             getItinerary({ accessToken, shareToken, tripId }),
-            listPosts({
-              accessToken,
-              pageSize: 100,
-              shareToken,
-              sortBy: 'occurred_at',
-              sortOrder: 'asc',
-              status: accessToken ? 'all' : 'published',
-              tripId,
-            }),
+            fetchTravelPosts(),
             listTripMembers({ accessToken, shareToken, tripId }),
           ])
 
@@ -955,7 +1007,7 @@ export function TripDetailPage({
         setTrip(toTripViewModel(loadedTrip))
         applyItinerary(loadedItinerary)
         setTripMembers(loadedTripMembers)
-        setTravelPosts(loadedPosts.items.map(toTravelPostViewModel))
+        setTravelPosts(loadedPosts)
         setLoadState({ error: null, status: 'success' })
 
         if (accessToken && loadedCurrentMembership?.role === 'OWNER') {
@@ -983,6 +1035,7 @@ export function TripDetailPage({
       accessToken,
       applyItinerary,
       currentUserId,
+      fetchTravelPosts,
       loadTripManagement,
       shareToken,
       tripId,
@@ -1644,28 +1697,20 @@ export function TripDetailPage({
       void runMutation(postId ? 'Saving post' : 'Creating post', async () => {
         const mediaIds = getPostDraftMediaIds(draft.media)
         if (postId) {
-          const updatedPost = await updatePost({
+          await updatePost({
             accessToken,
             payload: toPostUpdatePayload(draft, mediaIds),
             postId,
             tripId,
           })
-          setTravelPosts((currentPosts) =>
-            currentPosts.map((post) =>
-              post.id === postId ? toTravelPostViewModel(updatedPost) : post,
-            ),
-          )
         } else {
-          const createdPost = await createPost({
+          await createPost({
             accessToken,
             payload: toPostCreatePayload(draft, mediaIds),
             tripId,
           })
-          setTravelPosts((currentPosts) => [
-            ...currentPosts,
-            toTravelPostViewModel(createdPost),
-          ])
         }
+        setTravelPosts(await fetchTravelPosts())
 
         setDraftPostLocation(null)
         navigateTripDetailUrlState(
@@ -1834,6 +1879,14 @@ export function TripDetailPage({
     )
   }, [])
 
+  const handleMapPostSelect = useCallback((postId: string) => {
+    setFocusedPostId(postId)
+    setPostScrollRequest((currentRequest) => ({
+      postId,
+      sequence: (currentRequest?.sequence ?? 0) + 1,
+    }))
+  }, [])
+
   useEffect(() => {
     const currentState = {
       activeDialog,
@@ -1977,6 +2030,7 @@ export function TripDetailPage({
               mode={visibleMode}
               mutationError={activeDialog === null ? mutationError : null}
               onMapPointTargetChange={handleMapPointTargetChange}
+              onPostMarkerSelect={handleMapPostSelect}
               onCreateStop={handleCreateStop}
               onFocusedPostChange={handleFocusedPostChange}
               onOpenDialog={openDialog}
@@ -1990,6 +2044,7 @@ export function TripDetailPage({
               onTravelLegSave={handleTravelLegSave}
               onTravelingViewChange={handleTravelingViewChange}
               pendingAction={pendingAction}
+              postScrollRequest={postScrollRequest}
               editingPostId={editingPostId}
               planningView={planningView}
               reserveMobileModeSwitchSpace={canSwitchModes}
@@ -2007,6 +2062,7 @@ export function TripDetailPage({
               mapPointEnabled={mapPointTarget !== null}
               focusedPostId={focusedPostId}
               onDraftMapPointSelect={handleDraftMapPointSelect}
+              onPostMarkerSelect={handleMapPostSelect}
               routeMode={mapRouteMode}
               stops={visibleStops}
               travelLegs={travelLegs}
@@ -3283,6 +3339,7 @@ function TripSidebar({
   onEditPost,
   onFocusedPostChange,
   onMapPointTargetChange,
+  onPostMarkerSelect,
   onOpenDialog,
   onPostSubmit,
   onPlanningViewChange,
@@ -3294,6 +3351,7 @@ function TripSidebar({
   onTravelingViewChange,
   pendingAction,
   planningView,
+  postScrollRequest,
   reserveMobileModeSwitchSpace,
   showMobileTravelMap,
   stops,
@@ -3318,6 +3376,7 @@ function TripSidebar({
   onEditPost: (postId: string) => void
   onFocusedPostChange: (postId: string | null) => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
+  onPostMarkerSelect: (postId: string) => void
   onOpenDialog: (dialog: TripDialog) => void
   onPostSubmit: (postId: string | null, draft: PostSubmitDraft) => void
   onPlanningViewChange: (view: PlanningView) => void
@@ -3329,6 +3388,7 @@ function TripSidebar({
   onTravelingViewChange: (view: TravelingView) => void
   pendingAction: string | null
   planningView: PlanningView
+  postScrollRequest: PostScrollRequest | null
   reserveMobileModeSwitchSpace: boolean
   showMobileTravelMap: boolean
   stops: readonly Stop[]
@@ -3462,12 +3522,14 @@ function TripSidebar({
             focusedPostId={focusedPostId}
             onEditPost={editPost}
             onFocusedPostChange={onFocusedPostChange}
+            onPostMarkerSelect={onPostMarkerSelect}
             onNewPost={() => {
               onMapPointTargetChange(null)
               onFocusedPostChange(null)
               onTravelingViewChange('create-post')
             }}
             scrollRootRef={sidebarScrollRef}
+            scrollRequest={postScrollRequest}
             showMobileMap={showMobileTravelMap}
             stops={stops}
             travelLegs={travelLegs}
@@ -4266,11 +4328,13 @@ function CreateStopPanel({
 
 function MobileTravelMap({
   focusedPostId,
+  onPostMarkerSelect,
   stops,
   travelLegs,
   travelPosts,
 }: {
   focusedPostId: string | null
+  onPostMarkerSelect: (postId: string) => void
   stops: readonly Stop[]
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
@@ -4284,6 +4348,7 @@ function MobileTravelMap({
         fitMode="mobile-travel"
         mapPointEnabled={false}
         onDraftMapPointSelect={() => undefined}
+        onPostMarkerSelect={onPostMarkerSelect}
         resetNonce={resetNonce}
         routeMode="travel-timeline"
         focusedPostId={focusedPostId}
@@ -4315,7 +4380,9 @@ function TravelingPanel({
   onFocusedPostChange,
   onEditPost,
   onNewPost,
+  onPostMarkerSelect,
   scrollRootRef,
+  scrollRequest,
   showMobileMap,
   stops,
   travelLegs,
@@ -4326,7 +4393,9 @@ function TravelingPanel({
   onFocusedPostChange: (postId: string | null) => void
   onEditPost: (postId: string) => void
   onNewPost: () => void
+  onPostMarkerSelect: (postId: string) => void
   scrollRootRef: PostScrollRootRef
+  scrollRequest: PostScrollRequest | null
   showMobileMap: boolean
   stops: readonly Stop[]
   travelLegs: readonly TravelLeg[]
@@ -4347,12 +4416,21 @@ function TravelingPanel({
   const desktopPostElementsRef = useRef(new Map<string, HTMLElement>())
   const mobilePostElementsRef = useRef(new Map<string, HTMLElement>())
   const mobileCarouselRef = useRef<HTMLDivElement | null>(null)
+  const suppressScrollFocusRef = useRef(false)
+  const handleScrollFocusedPostChange = useCallback(
+    (postId: string | null) => {
+      if (!suppressScrollFocusRef.current) {
+        onFocusedPostChange(postId)
+      }
+    },
+    [onFocusedPostChange],
+  )
 
   usePostScrollFocus({
     axis: 'y',
     enabled: !showMobileMap,
     firstPostId,
-    onFocusedPostChange,
+    onFocusedPostChange: handleScrollFocusedPostChange,
     postElementsRef: desktopPostElementsRef,
     postIds: displayedPostIds,
     rootRef: scrollRootRef,
@@ -4361,11 +4439,41 @@ function TravelingPanel({
     axis: 'x',
     enabled: showMobileMap && !activePost,
     firstPostId,
-    onFocusedPostChange,
+    onFocusedPostChange: handleScrollFocusedPostChange,
     postElementsRef: mobilePostElementsRef,
     postIds: displayedPostIds,
     rootRef: mobileCarouselRef,
   })
+
+  useEffect(() => {
+    if (!scrollRequest) {
+      return undefined
+    }
+
+    const postElementsRef = showMobileMap
+      ? mobilePostElementsRef
+      : desktopPostElementsRef
+    const postElement = postElementsRef.current.get(scrollRequest.postId)
+    if (!postElement) {
+      return undefined
+    }
+
+    suppressScrollFocusRef.current = true
+    postElement.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+      inline: 'center',
+    })
+
+    const releaseTimeout = window.setTimeout(() => {
+      suppressScrollFocusRef.current = false
+    }, 1_000)
+
+    return () => {
+      window.clearTimeout(releaseTimeout)
+      suppressScrollFocusRef.current = false
+    }
+  }, [scrollRequest, showMobileMap])
 
   return (
     <div
@@ -4387,6 +4495,7 @@ function TravelingPanel({
             <>
               <MobileTravelMap
                 focusedPostId={focusedPostId}
+                onPostMarkerSelect={onPostMarkerSelect}
                 stops={stops}
                 travelLegs={travelLegs}
                 travelPosts={travelPosts}
@@ -4411,25 +4520,34 @@ function TravelingPanel({
                   className="trip-mobile-post-carousel scrollbar-subtle flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1"
                   ref={mobileCarouselRef}
                 >
-                  {displayedPosts.map((post) => (
-                    <TravelPostPreviewCard
-                      active={focusedPostId === post.id}
-                      key={post.id}
-                      onOpen={() => {
-                        onFocusedPostChange(
-                          getMapFocusedPostId(post.id, travelPosts),
-                        )
-                        setActivePostId(post.id)
-                      }}
-                      post={post}
-                      postRef={(element) =>
-                        setPostScrollElement(
-                          mobilePostElementsRef,
-                          post.id,
-                          element,
-                        )
-                      }
-                    />
+                  {displayedPosts.map((post, index) => (
+                    <Fragment key={post.id}>
+                      <TravelPostPreviewCard
+                        active={focusedPostId === post.id}
+                        onOpen={() => {
+                          onFocusedPostChange(
+                            getMapFocusedPostId(post.id, travelPosts),
+                          )
+                          setActivePostId(post.id)
+                        }}
+                        post={post}
+                        postRef={(element) =>
+                          setPostScrollElement(
+                            mobilePostElementsRef,
+                            post.id,
+                            element,
+                          )
+                        }
+                      />
+                      {index < displayedPosts.length - 1 &&
+                      post.routeAfter?.durationSeconds !== null &&
+                      post.routeAfter?.durationSeconds !== undefined ? (
+                        <PostRouteDuration
+                          compact
+                          route={post.routeAfter}
+                        />
+                      ) : null}
+                    </Fragment>
                   ))}
                 </div>
               </div>
@@ -4455,16 +4573,24 @@ function TravelingPanel({
         </div>
 
         <div className="space-y-5">
-          {displayedPosts.map((post) => (
-            <TravelPostCard
-              active={focusedPostId === post.id}
-              key={post.id}
-              onEdit={canMutate ? () => onEditPost(post.id) : undefined}
-              post={post}
-              postRef={(element) =>
-                setPostScrollElement(desktopPostElementsRef, post.id, element)
-              }
-            />
+          {displayedPosts.map((post, index) => (
+            <Fragment key={post.id}>
+              <TravelPostCard
+                active={focusedPostId === post.id}
+                onEdit={canMutate ? () => onEditPost(post.id) : undefined}
+                post={post}
+                postRef={(element) =>
+                  setPostScrollElement(desktopPostElementsRef, post.id, element)
+                }
+              />
+              {index < displayedPosts.length - 1 &&
+              post.routeAfter?.durationSeconds !== null &&
+              post.routeAfter?.durationSeconds !== undefined ? (
+                <PostRouteDuration
+                  route={post.routeAfter}
+                />
+              ) : null}
+            </Fragment>
           ))}
         </div>
       </div>
@@ -5442,7 +5568,9 @@ function TravelPostCard({
           ) : null}
         </div>
 
-        <p className="text-sm leading-6 text-muted-foreground">{post.excerpt}</p>
+        <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+          {post.excerpt}
+        </p>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
@@ -5476,6 +5604,59 @@ function TravelPostCard({
         />
       ) : null}
     </article>
+  )
+}
+
+function PostRouteDuration({
+  compact = false,
+  route,
+}: {
+  compact?: boolean
+  route: TravelPostRoute
+}) {
+  const label = formatPostRouteDuration(route.durationSeconds ?? 0)
+  const travelMode = getPostRouteTravelMode(route)
+  const ModeIcon = getTravelModeIcon(travelMode)
+
+  if (compact) {
+    return (
+      <div
+        aria-label={`${label} until the next post`}
+        className="flex shrink-0 snap-none items-center gap-2 self-center rounded-[1.1rem] border border-emerald-100 bg-white/90 px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm"
+      >
+        <span className="grid size-6 place-items-center rounded-lg bg-emerald-50 text-primary">
+          <ModeIcon className="size-3.5" aria-hidden="true" />
+        </span>
+        <span>Traveled for {label}</span>
+        <ArrowRight className="size-3.5 text-primary" aria-hidden="true" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-[3.25rem_1fr] gap-3 px-1 py-0.5">
+      <div className="flex justify-center" aria-hidden="true">
+        <div className="flex w-0 flex-col items-center">
+          <span className="h-2 w-px bg-emerald-100" />
+          <span className="grid size-8 shrink-0 place-items-center rounded-2xl border border-emerald-100 bg-white text-primary shadow-sm">
+            <ModeIcon className="size-4" />
+          </span>
+          <span className="h-2 w-px bg-emerald-100" />
+        </div>
+      </div>
+      <div
+        aria-label={`Traveled for ${label} until the next post`}
+        className="flex min-h-10 items-center gap-2 rounded-[1.1rem] border border-emerald-100 bg-white/85 px-3 py-2 text-sm shadow-sm"
+      >
+        <span className="text-muted-foreground">
+          Traveled for
+        </span>
+        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-foreground">
+          <Clock className="size-3" aria-hidden="true" />
+          {label}
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -5605,7 +5786,7 @@ function MobilePostDetailCard({
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 p-4">
-        <p className="line-clamp-4 text-sm leading-6 text-muted-foreground">
+        <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
           {post.excerpt}
         </p>
 
@@ -6700,6 +6881,7 @@ function MapWorkspace({
   focusedPostId,
   mapPointEnabled,
   onDraftMapPointSelect,
+  onPostMarkerSelect,
   routeMode,
   stops,
   travelLegs,
@@ -6709,6 +6891,7 @@ function MapWorkspace({
   focusedPostId: string | null
   mapPointEnabled: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
+  onPostMarkerSelect: (postId: string) => void
   routeMode: MapRouteMode
   stops: readonly Stop[]
   travelLegs: readonly TravelLeg[]
@@ -6723,6 +6906,7 @@ function MapWorkspace({
         focusedPostId={focusedPostId}
         mapPointEnabled={mapPointEnabled}
         onDraftMapPointSelect={onDraftMapPointSelect}
+        onPostMarkerSelect={onPostMarkerSelect}
         resetNonce={resetNonce}
         routeMode={routeMode}
         stops={stops}
@@ -6752,6 +6936,7 @@ function TripLeafletMap({
   focusedPostId = null,
   mapPointEnabled,
   onDraftMapPointSelect,
+  onPostMarkerSelect,
   resetNonce,
   routeMode = 'itinerary',
   stops,
@@ -6763,6 +6948,7 @@ function TripLeafletMap({
   focusedPostId?: string | null
   mapPointEnabled: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
+  onPostMarkerSelect?: (postId: string) => void
   resetNonce: number
   routeMode?: MapRouteMode
   stops: readonly Stop[]
@@ -6777,6 +6963,7 @@ function TripLeafletMap({
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const draftMarkerRef = useRef<L.Marker | null>(null)
   const latestLocationSelectRef = useRef(onDraftMapPointSelect)
+  const latestPostMarkerSelectRef = useRef(onPostMarkerSelect)
   const mapPointEnabledRef = useRef(mapPointEnabled)
   const mapRef = useRef<L.Map | null>(null)
   const postMarkerLayerRef = useRef<L.LayerGroup | null>(null)
@@ -6796,6 +6983,10 @@ function TripLeafletMap({
   useEffect(() => {
     latestLocationSelectRef.current = onDraftMapPointSelect
   }, [onDraftMapPointSelect])
+
+  useEffect(() => {
+    latestPostMarkerSelectRef.current = onPostMarkerSelect
+  }, [onPostMarkerSelect])
 
   useEffect(() => {
     mapPointEnabledRef.current = mapPointEnabled
@@ -6884,6 +7075,7 @@ function TripLeafletMap({
         postMarkerLayer,
         travelPostsRef.current,
         focusedPostId,
+        (postId) => latestPostMarkerSelectRef.current?.(postId),
       )
     }
   }, [focusedPostId, routeMode, routeKey])
@@ -7035,10 +7227,21 @@ function renderRouteLayer(
       continue
     }
 
-    L.polyline(
+    const polyline = L.polyline(
       segment.coordinates,
       getRouteSegmentPathOptions(segment, routeMode),
     ).addTo(routeLayer)
+
+    if (
+      segment.kind === 'post-link' &&
+      segment.travelMode &&
+      segment.travelMode !== 'UNKNOWN'
+    ) {
+      polyline.bindTooltip(getTravelModeLabel(segment.travelMode), {
+        direction: 'top',
+        sticky: true,
+      })
+    }
 
     if (
       routeMode === 'itinerary' ||
@@ -7079,6 +7282,7 @@ function renderPostMarkerLayer(
   postMarkerLayer: L.LayerGroup,
   travelPosts: readonly TravelPost[],
   focusedPostId: string | null,
+  onPostMarkerSelect: (postId: string) => void,
 ) {
   const orderedPosts = [
     ...travelPosts.filter((post) => post.id !== focusedPostId),
@@ -7088,7 +7292,7 @@ function renderPostMarkerLayer(
   for (const post of orderedPosts) {
     const isFocused = post.id === focusedPostId
 
-    L.marker(post.coordinates, {
+    const marker = L.marker(post.coordinates, {
       icon: L.divIcon({
         className: 'trip-map-div-icon',
         html: createPostBubbleHtml(post, isFocused),
@@ -7096,11 +7300,9 @@ function renderPostMarkerLayer(
         iconSize: [44, 44],
       }),
       zIndexOffset: isFocused ? 1000 : 500,
-    })
-      .addTo(postMarkerLayer)
-      .bindPopup(
-        `<strong>${escapeHtml(post.title)}</strong><br>${escapeHtml(post.excerpt)}`,
-      )
+    }).addTo(postMarkerLayer)
+
+    marker.on('click', () => onPostMarkerSelect(post.id))
   }
 }
 
@@ -7390,6 +7592,15 @@ function createRouteKey(
               post.coordinates[0],
               post.coordinates[1],
               post.occurred_at,
+              post.routeAfter?.durationSeconds ?? 'open',
+              post.routeAfter?.segments
+                .map((segment) =>
+                  [
+                    segment.travelMode,
+                    ...segment.coordinates.flat(),
+                  ].join(','),
+                )
+                .join(';') ?? 'no-route',
               getPrimaryPostMedia(post).src,
             ].join(':'),
           )
@@ -7404,12 +7615,7 @@ function getUpcomingStops(stops: readonly Stop[]) {
 }
 
 function getTravelPostsInRouteOrder(travelPosts: readonly TravelPost[]) {
-  return [...travelPosts].sort((leftPost, rightPost) => {
-    const timeDelta =
-      getPostRouteTime(leftPost) - getPostRouteTime(rightPost)
-
-    return timeDelta || leftPost.id.localeCompare(rightPost.id)
-  })
+  return [...travelPosts]
 }
 
 function getMapFocusedPostId(
@@ -7419,11 +7625,6 @@ function getMapFocusedPostId(
   const firstPost = getTravelPostsInRouteOrder(travelPosts)[0] ?? null
 
   return firstPost?.id === postId ? null : postId
-}
-
-function getPostRouteTime(post: TravelPost) {
-  const time = Date.parse(post.occurred_at)
-  return Number.isFinite(time) ? time : 0
 }
 
 function getMapRouteSegments(
@@ -7481,7 +7682,7 @@ function getTravelTimelineRouteSegments(
   travelPosts: readonly TravelPost[],
 ): RouteSegment[] {
   const postsInRouteOrder = getTravelPostsInRouteOrder(travelPosts)
-  const segments = getTravelPostRouteSegments(postsInRouteOrder)
+  const segments = getBackendTravelPostRouteSegments(postsInRouteOrder)
   const finalPost = postsInRouteOrder[postsInRouteOrder.length - 1] ?? null
   const upcomingStop = stops[0] ?? null
 
@@ -7500,29 +7701,17 @@ function getTravelTimelineRouteSegments(
   return segments
 }
 
-function getTravelPostRouteSegments(
+function getBackendTravelPostRouteSegments(
   postsInRouteOrder: readonly TravelPost[],
 ): RouteSegment[] {
-  const segments: RouteSegment[] = []
-
-  for (let index = 0; index < postsInRouteOrder.length - 1; index += 1) {
-    const fromPost = postsInRouteOrder[index]
-    const toPost = postsInRouteOrder[index + 1]
-    if (!fromPost || !toPost) {
-      continue
-    }
-
-    segments.push({
-      coordinates: getPointToPointRouteCoordinates(
-        fromPost.coordinates,
-        toPost.coordinates,
-      ),
-      kind: 'post-link',
-      routeType: 'SIMPLE',
-    })
-  }
-
-  return segments
+  return postsInRouteOrder.flatMap((post) =>
+    (post.routeAfter?.segments ?? []).map((segment) => ({
+      coordinates: segment.coordinates,
+      kind: 'post-link' as const,
+      routeType: 'SIMPLE' as const,
+      travelMode: segment.travelMode,
+    })),
+  )
 }
 
 function getRouteSegmentPathOptions(
@@ -7530,13 +7719,7 @@ function getRouteSegmentPathOptions(
   routeMode: MapRouteMode,
 ): L.PolylineOptions {
   if (segment.kind === 'post-link') {
-    return {
-      color: '#334155',
-      lineCap: 'round',
-      lineJoin: 'round',
-      opacity: 0.52,
-      weight: 3,
-    }
+    return getPostRouteSegmentPathOptions(segment.travelMode ?? 'UNKNOWN')
   }
 
   if (segment.kind === 'post-to-stop') {
@@ -7566,6 +7749,33 @@ function getRouteSegmentPathOptions(
     lineCap: 'round',
     lineJoin: 'round',
     opacity: segment.routeType === 'SIMPLE' ? 0.62 : 0.86,
+    weight: 4,
+  }
+}
+
+function getPostRouteSegmentPathOptions(
+  travelMode: TravelMode,
+): L.PolylineOptions {
+  const styles: Record<
+    TravelMode,
+    Pick<L.PolylineOptions, 'color' | 'dashArray'>
+  > = {
+    BIKE: { color: '#16a34a' },
+    BUS: { color: '#ea580c', dashArray: '10 7' },
+    CAR: { color: '#475569' },
+    FERRY: { color: '#0891b2', dashArray: '4 7' },
+    FLIGHT: { color: '#2563eb', dashArray: '2 9' },
+    OTHER: { color: '#78716c', dashArray: '7 7' },
+    TRAIN: { color: '#7c3aed', dashArray: '14 6' },
+    UNKNOWN: { color: '#334155', dashArray: '7 8' },
+    WALK: { color: '#0f766e', dashArray: '2 6' },
+  }
+
+  return {
+    ...styles[travelMode],
+    lineCap: 'round',
+    lineJoin: 'round',
+    opacity: 0.78,
     weight: 4,
   }
 }
@@ -7609,24 +7819,30 @@ function getPointToPointRouteCoordinates(
 function getRouteCoordinates(
   route: ItineraryTravelRoute,
 ): L.LatLngTuple[] | null {
-  if (
-    route.geometry.type !== 'LineString' ||
-    route.geometry.coordinates.length < 2
-  ) {
+  const coordinates = getGeoJsonLineStringCoordinates(route.geometry)
+  if (!coordinates) {
+    return null
+  }
+
+  return route.type === 'SIMPLE'
+    ? createGeodesicRoute(coordinates)
+    : coordinates
+}
+
+function getGeoJsonLineStringCoordinates(
+  geometry: GeoJsonLineString,
+): L.LatLngTuple[] | null {
+  if (geometry.type !== 'LineString' || geometry.coordinates.length < 2) {
     return null
   }
 
   const coordinates: L.LatLngTuple[] = []
-  for (const position of route.geometry.coordinates) {
+  for (const position of geometry.coordinates) {
     const coordinate = getLeafletCoordinate(position)
     if (!coordinate) {
       return null
     }
     coordinates.push(coordinate)
-  }
-
-  if (route.type === 'SIMPLE') {
-    return createGeodesicRoute(coordinates)
   }
 
   return unwrapRouteLongitudes(coordinates)
@@ -8458,7 +8674,17 @@ function upsertById<TItem extends { id: string }>(
     : [item, ...items]
 }
 
-function toTravelPostViewModel(post: Post): TravelPost {
+function toTravelTimelinePostViewModel(entry: PostTimelineEntry): TravelPost {
+  return toTravelPostViewModel(
+    entry.post,
+    toTravelPostRouteViewModel(entry.route_after),
+  )
+}
+
+function toTravelPostViewModel(
+  post: Post,
+  routeAfter: TravelPostRoute | null,
+): TravelPost {
   const coordinates: L.LatLngTuple = [
     post.location.latitude,
     post.location.longitude,
@@ -8475,9 +8701,32 @@ function toTravelPostViewModel(post: Post): TravelPost {
       media.length > 0 ? media : [createFallbackPostMedia(post.title)],
     ),
     occurred_at: post.occurred_at,
+    routeAfter,
     time: formatDateTimeLabel(post.occurred_at),
     title: post.title,
   }
+}
+
+function toTravelPostRouteViewModel(
+  route: PostTimelineRoute | null,
+): TravelPostRoute | null {
+  if (!route) {
+    return null
+  }
+
+  const segments = route.segments.flatMap((segment) => {
+    const coordinates = getGeoJsonLineStringCoordinates(segment.geometry)
+    return coordinates
+      ? [{ coordinates, travelMode: segment.travel_mode }]
+      : []
+  })
+
+  return segments.length > 0
+    ? {
+        durationSeconds: route.duration_seconds,
+        segments,
+      }
+    : null
 }
 
 function toPostMediaViewModel(media: Post['media'][number]): PostMedia {
@@ -8606,6 +8855,7 @@ function createMockPostFromDraft(draft: PostSubmitDraft): TravelPost {
     location: draft.locationLabel,
     media: toPostMediaTuple(draft.media),
     occurred_at: draft.occurredAt,
+    routeAfter: null,
     time: formatDateTimeLabel(draft.occurredAt),
     title: draft.title,
   }
@@ -8772,6 +9022,34 @@ function formatDuration(durationSeconds: number) {
     return `${hours} hr +`
   }
   return `${hours} hr ${minutes} min +`
+}
+
+function formatPostRouteDuration(durationSeconds: number) {
+  const totalMinutes = Math.max(0, Math.floor(durationSeconds / 60))
+  const totalHours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  const days = Math.floor(totalHours / 24)
+  const hours = totalHours % 24
+  const parts: string[] = []
+
+  if (days > 0) {
+    parts.push(`${days} ${days === 1 ? 'day' : 'days'}`)
+  }
+  if (hours > 0) {
+    parts.push(`${hours} hr`)
+  }
+  if (minutes > 0 && days === 0) {
+    parts.push(`${minutes} min`)
+  }
+
+  return parts.length > 0 ? parts.join(' ') : '0 min'
+}
+
+function getPostRouteTravelMode(route: TravelPostRoute): TravelMode {
+  return (
+    route.segments.find((segment) => segment.travelMode !== 'UNKNOWN')
+      ?.travelMode ?? route.segments[0]?.travelMode ?? 'UNKNOWN'
+  )
 }
 
 function canUseProviderRoute(travelMode: TravelMode) {

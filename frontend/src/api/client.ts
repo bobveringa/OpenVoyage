@@ -67,6 +67,10 @@ export type ReverseGeocodeResult =
   components['schemas']['ReverseGeocodeResponse']
 export type Post = components['schemas']['PostResponse']
 export type PostCreatePayload = components['schemas']['PostCreateRequest']
+export type PostTimelineEntry =
+  components['schemas']['PostTimelineEntryResponse']
+export type PostTimelineRoute =
+  components['schemas']['PostTimelineRouteResponse']
 export type PostUpdatePayload = components['schemas']['PostUpdateRequest']
 export type UserProfileUpdatePayload =
   components['schemas']['UserProfileUpdateRequest']
@@ -872,6 +876,24 @@ export async function listPosts(options: {
         page_size: options.pageSize ?? 50,
         sort_by: options.sortBy,
         sort_order: options.sortOrder,
+        status: options.status,
+      },
+    },
+  )
+}
+
+export async function getPostTimeline(options: {
+  tripId: string
+  accessToken?: string | null
+  shareToken?: string | null
+  status?: components['schemas']['PostStatusFilter']
+}): Promise<PostTimelineEntry[]> {
+  return requestJson<PostTimelineEntry[]>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts/timeline`,
+    {
+      accessToken: options.accessToken,
+      shareToken: options.shareToken,
+      query: {
         status: options.status,
       },
     },

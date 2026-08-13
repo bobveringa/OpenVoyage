@@ -33,6 +33,7 @@ from services.media_service import MediaService
 from services.itinerary_service import ItineraryService
 from services.place_service import PlaceService
 from services.post_service import PostService
+from services.post_timeline_service import PostTimelineService
 from services.trip_service import TripService
 from services.user_service import UserService
 from services.admin_user_service import AdminUserService
@@ -211,6 +212,10 @@ def get_post_service(
     )
 
 
+def get_post_timeline_service(session: SessionDep):
+    return PostTimelineService(db=session)
+
+
 route_provider_factory = RouteProviderFactory()
 
 
@@ -272,6 +277,10 @@ ItineraryRouteServiceDep = Annotated[
 ItineraryServiceDep = Annotated[ItineraryService, Depends(get_itinerary_service)]
 PlaceServiceDep = Annotated[PlaceService, Depends(get_place_service)]
 PostServiceDep = Annotated[PostService, Depends(get_post_service)]
+PostTimelineServiceDep = Annotated[
+    PostTimelineService,
+    Depends(get_post_timeline_service),
+]
 TripServiceDep = Annotated[TripService, Depends(get_trip_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 AdminUserServiceDep = Annotated[AdminUserService, Depends(get_admin_user_service)]

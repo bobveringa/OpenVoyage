@@ -6,9 +6,11 @@ from typing import Self
 
 from pydantic import BaseModel, Field
 
+from models.api.geojson import GeoJsonLineString
 from models.api.locations import LocationInput, LocationResponse
 from models.api.media import MediaResponse
 from models.api.users import UserSummaryResponse
+from models.database.itinerary import TravelMode
 from models.database.posts import Post
 
 
@@ -87,3 +89,18 @@ class PostResponse(BaseModel):
                 for link in post.media_links
             ],
         )
+
+
+class PostTimelineRouteSegmentResponse(BaseModel):
+    travel_mode: TravelMode
+    geometry: GeoJsonLineString
+
+
+class PostTimelineRouteResponse(BaseModel):
+    duration_seconds: int | None = Field(ge=0)
+    segments: list[PostTimelineRouteSegmentResponse] = Field(min_length=1)
+
+
+class PostTimelineEntryResponse(BaseModel):
+    post: PostResponse
+    route_after: PostTimelineRouteResponse | None

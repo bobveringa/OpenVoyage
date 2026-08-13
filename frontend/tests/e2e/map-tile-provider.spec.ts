@@ -4,6 +4,7 @@ const tripId = '11111111-1111-4111-8111-111111111111'
 const userId = '22222222-2222-4222-8222-222222222222'
 const firstStopId = '33333333-3333-4333-8333-333333333333'
 const secondStopId = '44444444-4444-4444-8444-444444444444'
+const secondPostId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const timestamp = '2026-08-05T10:00:00Z'
 const customTileUrl = 'https://tiles.example.test/{z}/{x}/{y}.png'
 const transparentPng = Buffer.from(
@@ -38,6 +39,33 @@ test('swaps only the base tiles and preserves routes and point selection', async
   await expect(
     map.locator('[data-route-before-tile-swap="true"]'),
   ).toBeAttached()
+
+  await page.getByRole('button', { name: 'Travel', exact: true }).click()
+  await expect(page.getByText('2 hr 32 min')).toBeVisible()
+  await expect(map.locator('path[stroke="#7c3aed"]')).toBeAttached()
+  const unknownRoute = map.locator('path[stroke="#334155"]').first()
+  await unknownRoute.dispatchEvent('mouseover')
+  await expect(map.locator('.leaflet-tooltip')).toHaveCount(0)
+
+  const secondPostMarker = map.locator(
+    '.leaflet-marker-icon:has(img[alt="Second timeline post media placeholder"])',
+  )
+  const timelineScrollRoot = page.locator('aside .scrollbar-subtle').first()
+  const scrollTopBeforeSelection = await timelineScrollRoot.evaluate(
+    (element) => element.scrollTop,
+  )
+  await secondPostMarker.click()
+  await expect(map.locator('.leaflet-popup')).toHaveCount(0)
+  await expect
+    .poll(() => timelineScrollRoot.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(scrollTopBeforeSelection)
+
+  const secondPostCard = page.locator(
+    `[data-trip-post-id="${secondPostId}"]:visible`,
+  )
+  await expect(secondPostCard).toHaveClass(/border-primary\/55/)
+  await expect(secondPostCard.locator('p')).toHaveText('First line\nSecond line')
+  await expect(secondPostCard.locator('p')).toHaveCSS('white-space', 'pre-wrap')
 
   await page.getByRole('button', { name: 'Plan' }).click()
   await page.getByRole('button', { name: 'Add stop after this stop' }).click()
@@ -112,13 +140,8 @@ async function mockTripApi(page: Page) {
       return
     }
 
-    if (url.pathname.endsWith(`/trips/${tripId}/posts`)) {
-      await fulfillJson(route, {
-        items: [],
-        page: 1,
-        page_size: 100,
-        total: 0,
-      })
+    if (url.pathname.endsWith(`/trips/${tripId}/posts/timeline`)) {
+      await fulfillJson(route, createPostTimeline())
       return
     }
 
@@ -220,6 +243,92 @@ function createItinerary() {
     ],
     trip_id: tripId,
   }
+}
+
+function createPostTimeline() {
+  const author = {
+    first_name: 'Map',
+    id: userId,
+    last_name: 'Tester',
+    username: 'map-tester',
+  }
+  const firstLocation = createLocation(
+    '99999999-9999-4999-8999-999999999991',
+    'First post',
+    52.3702,
+    4.8952,
+  )
+  const secondLocation = createLocation(
+    '99999999-9999-4999-8999-999999999992',
+    'Second post',
+    52.0907,
+    5.1214,
+  )
+  const post = (
+    id: string,
+    title: string,
+    occurredAt: string,
+    location: ReturnType<typeof createLocation>,
+    body = title,
+  ) => ({
+    author,
+    body,
+    created_at: occurredAt,
+    id,
+    location,
+    media: [],
+    occurred_at: occurredAt,
+    published_at: occurredAt,
+    title,
+    trip_id: tripId,
+    updated_at: occurredAt,
+  })
+
+  return [
+    {
+      post: post(
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'First timeline post',
+        '2026-08-05T08:10:00Z',
+        firstLocation,
+      ),
+      route_after: {
+        duration_seconds: 9_120,
+        segments: [
+          {
+            geometry: {
+              coordinates: [
+                [4.8952, 52.3702],
+                [4.91, 52.36],
+              ],
+              type: 'LineString',
+            },
+            travel_mode: 'UNKNOWN',
+          },
+          {
+            geometry: {
+              coordinates: [
+                [4.91, 52.36],
+                [5.1214, 52.0907],
+              ],
+              type: 'LineString',
+            },
+            travel_mode: 'TRAIN',
+          },
+        ],
+      },
+    },
+    {
+      post: post(
+        secondPostId,
+        'Second timeline post',
+        '2026-08-05T10:42:00Z',
+        secondLocation,
+        'First line\nSecond line',
+      ),
+      route_after: null,
+    },
+  ]
 }
 
 function createStop(

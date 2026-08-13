@@ -11,6 +11,7 @@ from api.deps import (
     OptionalCurrentUser,
     PaginationDep,
     PostServiceDep,
+    PostTimelineServiceDep,
     ShareToken,
 )
 from models.api.pagination import PaginatedResponse, SortDirection
@@ -19,6 +20,7 @@ from models.api.posts import (
     PostResponse,
     PostSortField,
     PostStatusFilter,
+    PostTimelineEntryResponse,
     PostUpdateRequest,
 )
 from services.location_service import LocationNotFoundError
@@ -129,6 +131,46 @@ def list_posts(
         page=pagination.page,
         page_size=pagination.page_size,
     )
+
+
+@router.get(
+    '/timeline',
+    response_model=list[PostTimelineEntryResponse],
+)
+def get_post_timeline(
+    request: Request,
+    trip_id: uuid.UUID,
+    post_timeline_service: PostTimelineServiceDep,
+    user: OptionalCurrentUser,
+    share_token: ShareToken = None,
+    status_filter: Annotated[
+        PostStatusFilter,
+        Query(alias='status'),
+    ] = PostStatusFilter.PUBLISHED,
+) -> list[PostTimelineEntryResponse]:
+    try:
+        entries = post_timeline_service.get_timeline(
+            trip_id=trip_id,
+            current_user_id=user.id if user else None,
+            share_token=share_token,
+            status_filter=status_filter,
+        )
+    except TripNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+    media_base_url = str(request.base_url).rstrip('/')
+    return [
+        PostTimelineEntryResponse(
+            post=_post_response(
+                entry.post,
+                media_base_url=media_base_url,
+                user=user,
+                share_token=share_token,
+            ),
+            route_after=entry.route_after,
+        )
+        for entry in entries
+    ]
 
 
 @router.get(

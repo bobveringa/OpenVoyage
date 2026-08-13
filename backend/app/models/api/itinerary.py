@@ -2,10 +2,11 @@ import enum
 import uuid
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
-from typing import Literal, Self, TypeAlias
+from typing import Self, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from models.api.geojson import GeoJsonLineString
 from models.api.locations import LocationInput, LocationResponse
 from models.api.users import UserSummaryResponse
 from models.database.itinerary import (
@@ -18,11 +19,6 @@ from models.database.itinerary import (
 class ItineraryRouteType(str, enum.Enum):
     PROVIDER_BACKED = 'PROVIDER_BACKED'
     SIMPLE = 'SIMPLE'
-
-
-class GeoJsonLineString(BaseModel):
-    type: Literal['LineString'] = 'LineString'
-    coordinates: list[tuple[float, float]]
 
 
 class ItineraryTravelRouteResponse(BaseModel):
