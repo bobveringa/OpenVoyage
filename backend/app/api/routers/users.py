@@ -21,7 +21,7 @@ from models.api.users import (
     USERNAME_MIN_LENGTH,
     UserProfileUpdateRequest,
     UserResponse,
-    UserSummaryResponse,
+    UserSearchResultResponse,
     UsernameAvailabilityResponse,
     validate_username,
 )
@@ -39,14 +39,15 @@ from models.api.token import Token
 router = APIRouter(prefix='/users', tags=['users'])
 
 
-@router.get('', response_model=PaginatedResponse[UserSummaryResponse])
+@router.get('', response_model=PaginatedResponse[UserSearchResultResponse])
 def search_users(
+    request: Request,
     user: CurrentUser,
     user_service: UserServiceDep,
     pagination: PaginationDep,
-    query: Annotated[str, Query(min_length=2, max_length=320)],
+    query: Annotated[str, Query(min_length=1, max_length=320)],
     exclude_current_user: Annotated[bool, Query()] = False,
-) -> PaginatedResponse[UserSummaryResponse]:
+) -> PaginatedResponse[UserSearchResultResponse]:
     results, total = user_service.search_users(
         query=query,
         offset=pagination.offset,
@@ -54,8 +55,15 @@ def search_users(
         exclude_user_id=user.id if exclude_current_user else None,
     )
 
-    return PaginatedResponse[UserSummaryResponse](
-        items=[UserSummaryResponse.from_model(result) for result in results],
+    media_base_url = str(request.base_url).rstrip('/')
+    return PaginatedResponse[UserSearchResultResponse](
+        items=[
+            UserSearchResultResponse.from_model(
+                result,
+                media_base_url=media_base_url,
+            )
+            for result in results
+        ],
         total=total,
         page=pagination.page,
         page_size=pagination.page_size,

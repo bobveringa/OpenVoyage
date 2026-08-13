@@ -54,7 +54,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type FocusEvent,
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
   type TouchEvent,
 } from 'react'
@@ -66,6 +68,7 @@ import { DatePicker, DateTimePicker } from '@/components/ui/date-time-picker'
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import { ImageUploadDropzone } from '@/components/media/image-upload-dropzone'
 import { Input } from '@/components/ui/input'
+import { MediaImage } from '@/components/ui/media-image'
 import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -121,6 +124,7 @@ import {
   type TripShareLinkCreateResponse,
   type TripUpdatePayload,
   type TripViewer,
+  type UserSearchResult,
   type UserSummary,
 } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
@@ -381,8 +385,8 @@ type ShareLinkCreateDraft = {
 }
 
 type UserLookupDraft = {
-  query: string
   role?: MockTripRole
+  user: UserSearchResult
 }
 
 type PlaceSearchStatus = 'error' | 'idle' | 'loading' | 'success'
@@ -1109,40 +1113,13 @@ export function TripDetailPage({
       return
     }
 
+    setMutationError(null)
     navigateTripDetailUrlState({ activeDialog: dialog })
   }, [canManageTrip, navigateTripDetailUrlState])
 
   const closeDialog = useCallback(() => {
     navigateTripDetailUrlState({ activeDialog: null }, 'replace')
   }, [navigateTripDetailUrlState])
-
-  const resolveUserForQuery = useCallback(
-    async (query: string): Promise<UserSummary> => {
-      if (!accessToken) {
-        throw new Error('Sign in to search users.')
-      }
-
-      const trimmedQuery = query.trim()
-      if (trimmedQuery.length < 2) {
-        throw new Error('Enter at least two characters to search users.')
-      }
-
-      const users = await searchUsers({
-        accessToken,
-        excludeCurrentUser: true,
-        pageSize: 5,
-        query: trimmedQuery,
-      })
-      const user = users.items[0]
-
-      if (!user) {
-        throw new Error(`No user found for "${trimmedQuery}".`)
-      }
-
-      return user
-    },
-    [accessToken],
-  )
 
   function handleTripSettingsSave(draft: TripSettingsDraft) {
     if (isApiBacked) {
@@ -1248,10 +1225,9 @@ export function TripDetailPage({
       }
 
       void runMutation('Adding viewer', async () => {
-        const user = await resolveUserForQuery(draft.query)
         const viewer = await addTripViewer({
           accessToken,
-          payload: { user_id: user.id },
+          payload: { user_id: draft.user.id },
           tripId,
         })
         setTripViewers((currentViewers) =>
@@ -1261,12 +1237,11 @@ export function TripDetailPage({
       return
     }
 
-    const query = draft.query.trim()
     setTripViewers((currentViewers) => [
       {
-        email: query,
+        email: getUserSubtitle(draft.user),
         id: createClientId('viewer'),
-        name: query,
+        name: getUserDisplayName(draft.user),
       },
       ...currentViewers,
     ])
@@ -1306,12 +1281,11 @@ export function TripDetailPage({
       }
 
       void runMutation('Adding member', async () => {
-        const user = await resolveUserForQuery(draft.query)
         const member = await addTripMember({
           accessToken,
           payload: {
             role: draft.role ?? 'MEMBER',
-            user_id: user.id,
+            user_id: draft.user.id,
           },
           tripId,
         })
@@ -1322,12 +1296,11 @@ export function TripDetailPage({
       return
     }
 
-    const query = draft.query.trim()
     setTripMembers((currentMembers) => [
       {
-        email: query,
+        email: getUserSubtitle(draft.user),
         id: createClientId('member'),
-        name: query,
+        name: getUserDisplayName(draft.user),
         role: draft.role ?? 'MEMBER',
       },
       ...currentMembers,
@@ -2002,7 +1975,7 @@ export function TripDetailPage({
               isApiBacked={isApiBacked}
               mapPointTarget={mapPointTarget}
               mode={visibleMode}
-              mutationError={mutationError}
+              mutationError={activeDialog === null ? mutationError : null}
               onMapPointTargetChange={handleMapPointTargetChange}
               onCreateStop={handleCreateStop}
               onFocusedPostChange={handleFocusedPostChange}
@@ -2054,8 +2027,11 @@ export function TripDetailPage({
             trip={trip}
           />
           <ShareManagementDialog
+            accessToken={accessToken}
             canMutate={canManageTrip}
+            error={mutationError}
             isSaving={isMutating}
+            members={tripMembers}
             onClose={closeDialog}
             onCreateLink={handleShareLinkCreate}
             onInviteViewer={handleViewerAdd}
@@ -2066,7 +2042,9 @@ export function TripDetailPage({
             viewers={tripViewers}
           />
           <TripMembersDialog
+            accessToken={accessToken}
             canMutate={canManageTrip}
+            error={mutationError}
             isSaving={isMutating}
             members={tripMembers}
             onClose={closeDialog}
@@ -2361,9 +2339,230 @@ function VisibilityPreview({
   )
 }
 
+type UserSearchSelectProps = {
+  accessToken?: string | null
+  disabled: boolean
+  excludedUserIds: readonly string[]
+  id: string
+  onValueChange: (user: UserSearchResult | null) => void
+  value: UserSearchResult | null
+}
+
+function UserSearchSelect({
+  accessToken,
+  disabled,
+  excludedUserIds,
+  id,
+  onValueChange,
+  value,
+}: UserSearchSelectProps) {
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [isOpen, setIsOpen] = useState(false)
+  const [isSearching, setIsSearching] = useState(false)
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<readonly UserSearchResult[]>([])
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const excludedUserIdSet = useMemo(
+    () => new Set(excludedUserIds),
+    [excludedUserIds],
+  )
+  const listboxId = `${id}-results`
+
+  useEffect(() => {
+    const trimmedQuery = query.trim()
+    if (value || !trimmedQuery) {
+      setIsSearching(false)
+      setResults([])
+      setSearchError(null)
+      return undefined
+    }
+
+    if (!accessToken) {
+      setIsSearching(false)
+      setResults([])
+      setSearchError('Sign in to search users.')
+      return undefined
+    }
+
+    let isCurrent = true
+    setIsSearching(true)
+    setSearchError(null)
+
+    const timeoutId = window.setTimeout(() => {
+      void searchUsers({
+        accessToken,
+        excludeCurrentUser: true,
+        pageSize: 8,
+        query: trimmedQuery,
+      })
+        .then((response) => {
+          if (!isCurrent) {
+            return
+          }
+
+          const availableUsers = response.items.filter(
+            (user) => !excludedUserIdSet.has(user.id),
+          )
+          setResults(availableUsers)
+          setActiveIndex(0)
+        })
+        .catch((error) => {
+          if (isCurrent) {
+            setResults([])
+            setSearchError(getErrorMessage(error))
+          }
+        })
+        .finally(() => {
+          if (isCurrent) {
+            setIsSearching(false)
+          }
+        })
+    }, 250)
+
+    return () => {
+      isCurrent = false
+      window.clearTimeout(timeoutId)
+    }
+  }, [accessToken, excludedUserIdSet, query, value])
+
+  function selectUser(user: UserSearchResult) {
+    onValueChange(user)
+    setQuery(getUserDisplayName(user))
+    setIsOpen(false)
+    setSearchError(null)
+  }
+
+  function handleBlur(event: FocusEvent<HTMLDivElement>) {
+    if (
+      event.relatedTarget instanceof Node &&
+      event.currentTarget.contains(event.relatedTarget)
+    ) {
+      return
+    }
+    setIsOpen(false)
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Escape') {
+      setIsOpen(false)
+      return
+    }
+
+    if (!isOpen || results.length === 0) {
+      return
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setActiveIndex((current) => (current + 1) % results.length)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setActiveIndex(
+        (current) => (current - 1 + results.length) % results.length,
+      )
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      selectUser(results[activeIndex] ?? results[0])
+    }
+  }
+
+  return (
+    <div className="grid content-start gap-2 text-sm font-medium text-foreground">
+      <label htmlFor={id}>User search</label>
+      <div className="relative" onBlur={handleBlur}>
+        <Input
+          aria-autocomplete="list"
+          aria-controls={listboxId}
+          aria-expanded={isOpen}
+          autoComplete="off"
+          disabled={disabled}
+          id={id}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            onValueChange(null)
+            setIsOpen(event.target.value.trim().length > 0)
+          }}
+          onFocus={() => {
+            if (query.trim() && !value) {
+              setIsOpen(true)
+            }
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder="Name, username, or full email"
+          role="combobox"
+          value={query}
+        />
+
+        {isOpen ? (
+          <div
+            className="absolute inset-x-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-lg"
+            id={listboxId}
+            role="listbox"
+          >
+            {isSearching ? (
+              <p className="px-3 py-3 text-sm text-muted-foreground">
+                Searching users…
+              </p>
+            ) : searchError ? (
+              <p className="px-3 py-3 text-sm text-destructive" role="alert">
+                {searchError}
+              </p>
+            ) : results.length > 0 ? (
+              <div className="max-h-64 overflow-y-auto p-1.5">
+                {results.map((user, index) => {
+                  const name = getUserDisplayName(user)
+                  const username = user.username
+                  return (
+                    <button
+                      aria-selected={index === activeIndex}
+                      className={cn(
+                        'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors',
+                        index === activeIndex
+                          ? 'bg-emerald-50'
+                          : 'hover:bg-emerald-50/70',
+                      )}
+                      key={user.id}
+                      onClick={() => selectUser(user)}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      role="option"
+                      type="button"
+                    >
+                      <MediaImage
+                        alt=""
+                        className="size-10 shrink-0 rounded-xl text-sm font-semibold"
+                        fallback={getInitials(name)}
+                        media={user.profile_picture}
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold text-foreground">
+                          {name}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {username ? `@${username}` : 'No username'}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="px-3 py-3 text-sm text-muted-foreground">
+                No users found.
+              </p>
+            )}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function ShareManagementDialog({
+  accessToken,
   canMutate,
+  error,
   isSaving,
+  members,
   onClose,
   onCreateLink,
   onInviteViewer,
@@ -2373,8 +2572,11 @@ function ShareManagementDialog({
   shareLinks,
   viewers,
 }: {
+  accessToken?: string | null
   canMutate: boolean
+  error: string | null
   isSaving: boolean
+  members: readonly MockTripMember[]
   onClose: () => void
   onCreateLink: (draft: ShareLinkCreateDraft) => void
   onInviteViewer: (draft: UserLookupDraft) => void
@@ -2387,7 +2589,9 @@ function ShareManagementDialog({
   const [linkExpiresAt, setLinkExpiresAt] = useState('2027-06-01T09:00')
   const [linkLabel, setLinkLabel] = useState('Family preview')
   const [notice, setNotice] = useState<string | null>(null)
-  const [viewerQuery, setViewerQuery] = useState('')
+  const [selectedViewer, setSelectedViewer] =
+    useState<UserSearchResult | null>(null)
+  const [viewerSearchKey, setViewerSearchKey] = useState(0)
 
   function handleCreateLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -2401,14 +2605,14 @@ function ShareManagementDialog({
 
   function handleInviteViewer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const query = viewerQuery.trim()
-    if (query.length < 2) {
+    if (!selectedViewer) {
       return
     }
 
-    onInviteViewer({ query })
+    onInviteViewer({ user: selectedViewer })
     setNotice(null)
-    setViewerQuery('')
+    setSelectedViewer(null)
+    setViewerSearchKey((current) => current + 1)
   }
 
   return (
@@ -2419,6 +2623,14 @@ function ShareManagementDialog({
       title="Share management"
     >
       <div className="grid gap-5">
+        {error ? (
+          <p
+            className="sticky top-0 z-40 rounded-[1.2rem] border border-destructive/30 bg-white px-3 py-2 text-sm text-destructive shadow-md"
+            role="alert"
+          >
+            {error}
+          </p>
+        ) : null}
         {notice ? <MockNotice>{notice}</MockNotice> : null}
 
         <section className="space-y-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4">
@@ -2492,24 +2704,30 @@ function ShareManagementDialog({
             </div>
           </div>
 
-          <form className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={handleInviteViewer}>
-            <label className="grid gap-2 text-sm font-medium text-foreground">
-              User search
-              <Input
-                disabled={!canMutate || isSaving}
-                onChange={(event) => setViewerQuery(event.target.value)}
-                placeholder="Name, username, or email"
-                value={viewerQuery}
-              />
-            </label>
+          <form className="grid items-start gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={handleInviteViewer}>
+            <UserSearchSelect
+              accessToken={accessToken}
+              disabled={!canMutate || isSaving}
+              excludedUserIds={[
+                ...viewers.map((viewer) => viewer.userId ?? viewer.id),
+                ...members.map((member) => member.userId ?? member.id),
+              ]}
+              id="viewer-search"
+              key={viewerSearchKey}
+              onValueChange={setSelectedViewer}
+              value={selectedViewer}
+            />
             <Button
               className="self-end"
-              disabled={!canMutate || isSaving || viewerQuery.trim().length < 2}
+              disabled={!canMutate || isSaving || !selectedViewer}
               type="submit"
             >
               <Send className="size-4" aria-hidden="true" />
               {isSaving ? 'Adding' : 'Add viewer'}
             </Button>
+            <p className="text-xs font-normal text-muted-foreground sm:col-span-2">
+              Search names and usernames partially, or enter a complete email address.
+            </p>
           </form>
 
           <div className="grid gap-2">
@@ -2545,7 +2763,9 @@ function ShareManagementDialog({
 }
 
 function TripMembersDialog({
+  accessToken,
   canMutate,
+  error,
   isSaving,
   members,
   onClose,
@@ -2554,7 +2774,9 @@ function TripMembersDialog({
   onUpdateMemberRole,
   open,
 }: {
+  accessToken?: string | null
   canMutate: boolean
+  error: string | null
   isSaving: boolean
   members: readonly MockTripMember[]
   onClose: () => void
@@ -2563,20 +2785,22 @@ function TripMembersDialog({
   onUpdateMemberRole: (member: MockTripMember, role: MockTripRole) => void
   open: boolean
 }) {
-  const [inviteQuery, setInviteQuery] = useState('')
   const [inviteRole, setInviteRole] = useState<MockTripRole>('MEMBER')
   const [notice, setNotice] = useState<string | null>(null)
+  const [selectedMember, setSelectedMember] =
+    useState<UserSearchResult | null>(null)
+  const [memberSearchKey, setMemberSearchKey] = useState(0)
 
   function handleInviteMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const query = inviteQuery.trim()
-    if (query.length < 2) {
+    if (!selectedMember) {
       return
     }
 
-    onInviteMember({ query, role: inviteRole })
+    onInviteMember({ role: inviteRole, user: selectedMember })
     setNotice(null)
-    setInviteQuery('')
+    setSelectedMember(null)
+    setMemberSearchKey((current) => current + 1)
     setInviteRole('MEMBER')
   }
 
@@ -2588,6 +2812,14 @@ function TripMembersDialog({
       title="Members"
     >
       <div className="grid gap-5">
+        {error ? (
+          <p
+            className="sticky top-0 z-40 rounded-[1.2rem] border border-destructive/30 bg-white px-3 py-2 text-sm text-destructive shadow-md"
+            role="alert"
+          >
+            {error}
+          </p>
+        ) : null}
         {notice ? <MockNotice>{notice}</MockNotice> : null}
 
         <form
@@ -2606,17 +2838,17 @@ function TripMembersDialog({
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_11rem]">
-            <label className="grid gap-2 text-sm font-medium text-foreground">
-              User search
-              <Input
-                disabled={!canMutate || isSaving}
-                onChange={(event) => setInviteQuery(event.target.value)}
-                placeholder="Name, username, or email"
-                value={inviteQuery}
-              />
-            </label>
-            <label className="grid gap-2 text-sm font-medium text-foreground">
+          <div className="grid items-start gap-3 sm:grid-cols-[minmax(0,1fr)_11rem]">
+            <UserSearchSelect
+              accessToken={accessToken}
+              disabled={!canMutate || isSaving}
+              excludedUserIds={members.map((member) => member.userId ?? member.id)}
+              id="member-search"
+              key={memberSearchKey}
+              onValueChange={setSelectedMember}
+              value={selectedMember}
+            />
+            <label className="grid content-start gap-2 self-start text-sm font-medium text-foreground">
               Role
               <Select<MockTripRole>
                 disabled={!canMutate || isSaving}
@@ -2626,10 +2858,13 @@ function TripMembersDialog({
               />
             </label>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Search names and usernames partially, or enter a complete email address.
+          </p>
 
           <div className="flex justify-end">
             <Button
-              disabled={!canMutate || isSaving || inviteQuery.trim().length < 2}
+              disabled={!canMutate || isSaving || !selectedMember}
               type="submit"
             >
               <Mail className="size-4" aria-hidden="true" />

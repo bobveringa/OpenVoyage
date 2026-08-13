@@ -155,3 +155,26 @@ class UserSummaryResponse(BaseModel):
             first_name=profile.first_name if profile else None,
             last_name=profile.last_name if profile else None,
         )
+
+
+class UserSearchResultResponse(UserSummaryResponse):
+    profile_picture: MediaResponse | None
+
+    @classmethod
+    def from_model(
+        cls,
+        user: 'User',
+        media_base_url: str = '',
+    ) -> Self:
+        profile = user.profile
+        return cls(
+            **UserSummaryResponse.from_model(user).model_dump(),
+            profile_picture=(
+                MediaResponse.from_model(
+                    profile.profile_picture,
+                    media_base_url=media_base_url,
+                )
+                if profile and profile.profile_picture
+                else None
+            ),
+        )

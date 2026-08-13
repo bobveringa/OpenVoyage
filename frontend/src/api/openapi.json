@@ -1737,11 +1737,11 @@
         "title": "PaginatedResponse[TripResponse]",
         "type": "object"
       },
-      "PaginatedResponse_UserSummaryResponse_": {
+      "PaginatedResponse_UserSearchResultResponse_": {
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/UserSummaryResponse"
+              "$ref": "#/components/schemas/UserSearchResultResponse"
             },
             "title": "Items",
             "type": "array"
@@ -1768,7 +1768,7 @@
           "page",
           "page_size"
         ],
-        "title": "PaginatedResponse[UserSummaryResponse]",
+        "title": "PaginatedResponse[UserSearchResultResponse]",
         "type": "object"
       },
       "PasswordChangeRequest": {
@@ -2931,6 +2931,67 @@
         ],
         "title": "UserRole",
         "type": "string"
+      },
+      "UserSearchResultResponse": {
+        "properties": {
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "profile_picture": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MediaResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "first_name",
+          "last_name",
+          "profile_picture"
+        ],
+        "title": "UserSearchResultResponse",
+        "type": "object"
       },
       "UserSummaryResponse": {
         "properties": {
@@ -6357,7 +6418,7 @@
             "required": true,
             "schema": {
               "maxLength": 320,
-              "minLength": 2,
+              "minLength": 1,
               "title": "Query",
               "type": "string"
             }
@@ -6401,7 +6462,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse_UserSummaryResponse_"
+                  "$ref": "#/components/schemas/PaginatedResponse_UserSearchResultResponse_"
                 }
               }
             },

@@ -72,6 +72,7 @@ export type UserProfileUpdatePayload =
   components['schemas']['UserProfileUpdateRequest']
 export type PasswordChangePayload = components['schemas']['PasswordChangeRequest']
 export type UserSummary = components['schemas']['UserSummaryResponse']
+export type UserSearchResult = components['schemas']['UserSearchResultResponse']
 export type UsernameAvailability =
   components['schemas']['UsernameAvailabilityResponse']
 export type PaginatedPosts =
@@ -79,7 +80,7 @@ export type PaginatedPosts =
 export type PaginatedTrips =
   components['schemas']['PaginatedResponse_TripResponse_']
 export type PaginatedUsers =
-  components['schemas']['PaginatedResponse_UserSummaryResponse_']
+  components['schemas']['PaginatedResponse_UserSearchResultResponse_']
 export type TripMember = components['schemas']['TripMemberResponse']
 export type TripMemberCreatePayload =
   components['schemas']['TripMemberCreateRequest']

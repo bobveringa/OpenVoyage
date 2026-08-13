@@ -65,10 +65,10 @@ class UserService:
         limit: int,
         exclude_user_id: uuid.UUID | None = None,
     ) -> tuple[list[User], int]:
-        """Search users by email/profile fields and return a page plus total.
+        """Search users by exact email or partial profile fields.
 
         Args:
-            query: Case-insensitive text matched against email and profile fields.
+            query: Exact email or case-insensitive partial profile text.
             offset: Number of matching rows to skip.
             limit: Maximum number of users to return.
             exclude_user_id: Optional user id to exclude from the results.
@@ -76,13 +76,16 @@ class UserService:
         Returns:
             A tuple containing the current page of users and total match count.
         """
-        search_term = f'%{query}%'
+        normalized_query = query.strip()
+        if not normalized_query:
+            return [], 0
+
         filters = [
             or_(
-                User.email.ilike(search_term),
-                UserProfile.username.ilike(search_term),
-                UserProfile.first_name.ilike(search_term),
-                UserProfile.last_name.ilike(search_term),
+                func.lower(User.email) == normalized_query.casefold(),
+                UserProfile.username.icontains(normalized_query, autoescape=True),
+                UserProfile.first_name.icontains(normalized_query, autoescape=True),
+                UserProfile.last_name.icontains(normalized_query, autoescape=True),
             )
         ]
         if exclude_user_id is not None:
@@ -98,7 +101,11 @@ class UserService:
             select(User)
             .select_from(User)
             .outerjoin(UserProfile)
-            .options(contains_eager(User.profile))
+            .options(
+                contains_eager(User.profile).joinedload(
+                    UserProfile.profile_picture
+                )
+            )
             .where(*filters)
             .order_by(User.email.asc(), User.id.asc())
             .offset(offset)

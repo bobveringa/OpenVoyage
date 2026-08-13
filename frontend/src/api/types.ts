@@ -1404,10 +1404,10 @@ export interface components {
             /** Total */
             total: number;
         };
-        /** PaginatedResponse[UserSummaryResponse] */
-        PaginatedResponse_UserSummaryResponse_: {
+        /** PaginatedResponse[UserSearchResultResponse] */
+        PaginatedResponse_UserSearchResultResponse_: {
             /** Items */
-            items: components["schemas"]["UserSummaryResponse"][];
+            items: components["schemas"]["UserSearchResultResponse"][];
             /** Page */
             page: number;
             /** Page Size */
@@ -1844,6 +1844,21 @@ export interface components {
          * @enum {string}
          */
         UserRole: "USER" | "ADMIN";
+        /** UserSearchResultResponse */
+        UserSearchResultResponse: {
+            /** First Name */
+            first_name: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Name */
+            last_name: string | null;
+            profile_picture: components["schemas"]["MediaResponse"] | null;
+            /** Username */
+            username: string | null;
+        };
         /** UserSummaryResponse */
         UserSummaryResponse: {
             /** First Name */
@@ -3741,7 +3756,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaginatedResponse_UserSummaryResponse_"];
+                    "application/json": components["schemas"]["PaginatedResponse_UserSearchResultResponse_"];
                 };
             };
             /** @description Validation Error */

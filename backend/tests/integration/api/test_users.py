@@ -40,6 +40,13 @@ def test_search_users_matches_email_and_profile_fields(
         first_name='Robert',
         last_name='Example',
     )
+    avatar = create_media(
+        db_session,
+        storage_path='media/search-avatar.jpg',
+        created_by=email_match.id,
+    )
+    email_match.profile.profile_picture_media_id = avatar.id
+    db_session.commit()
     first_name_match = create_user(
         db_session,
         email='alice@example.com',
@@ -67,26 +74,57 @@ def test_search_users_matches_email_and_profile_fields(
     )
 
     response = client.get(
-        f'{api_prefix}/users?query=bob',
+        f'{api_prefix}/users?query=bob@example.com',
         headers={'Authorization': f'Bearer {tokens["access_token"]}'},
     )
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload['total'] == 3
+    assert payload['total'] == 1
     assert payload['page'] == 1
     assert payload['page_size'] == 20
-    assert {user['id'] for user in payload['items']} == {
-        str(email_match.id),
+    assert [user['id'] for user in payload['items']] == [str(email_match.id)]
+    assert all('email' not in user for user in payload['items'])
+    assert payload['items'][0]['profile_picture']['id'] == str(avatar.id)
+
+    partial_response = client.get(
+        f'{api_prefix}/users?query=bob',
+        headers={'Authorization': f'Bearer {tokens["access_token"]}'},
+    )
+
+    assert partial_response.status_code == 200
+    partial_payload = partial_response.json()
+    assert partial_payload['total'] == 2
+    assert {user['id'] for user in partial_payload['items']} == {
         str(first_name_match.id),
         str(username_match.id),
     }
-    assert all('email' not in user for user in payload['items'])
-    assert {user['username'] for user in payload['items']} == {
-        'unrelated',
-        'alice',
-        'bobcat',
-    }
+
+
+@pytest.mark.integration
+def test_search_users_does_not_match_partial_email(
+    client, db_session, api_prefix
+) -> None:
+    current_user = create_user(
+        db_session,
+        email='current@example.com',
+        password='UsersPass123!',
+    )
+    create_user(
+        db_session,
+        email='hidden-address@example.com',
+        username='traveler',
+        first_name='Alice',
+        last_name='Example',
+    )
+
+    response = client.get(
+        f'{api_prefix}/users?query=hidden-address',
+        headers=_auth_headers(current_user),
+    )
+
+    assert response.status_code == 200
+    assert response.json()['items'] == []
 
 
 @pytest.mark.integration
@@ -130,8 +168,17 @@ def test_search_users_supports_pagination(client, db_session, api_prefix) -> Non
         password='UsersPass123!',
     )
     paged_user = None
-    for email in ['alba@example.com', 'albert@example.com', 'alex@example.com']:
-        created_user = create_user(db_session, email=email)
+    for email, first_name in [
+        ('alba@example.com', 'Alba'),
+        ('albert@example.com', 'Albert'),
+        ('alex@example.com', 'Alex'),
+    ]:
+        created_user = create_user(
+            db_session,
+            email=email,
+            username=email.split('@')[0],
+            first_name=first_name,
+        )
         if email == 'albert@example.com':
             paged_user = created_user
     tokens = security.create_auth_tokens(
