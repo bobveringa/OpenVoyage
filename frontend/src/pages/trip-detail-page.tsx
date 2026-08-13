@@ -7758,17 +7758,17 @@ function getPostRouteSegmentPathOptions(
 ): L.PolylineOptions {
   const styles: Record<
     TravelMode,
-    Pick<L.PolylineOptions, 'color' | 'dashArray'>
+    Pick<L.PolylineOptions, 'color'>
   > = {
     BIKE: { color: '#16a34a' },
-    BUS: { color: '#ea580c', dashArray: '10 7' },
+    BUS: { color: '#ea580c' },
     CAR: { color: '#475569' },
-    FERRY: { color: '#0891b2', dashArray: '4 7' },
-    FLIGHT: { color: '#2563eb', dashArray: '2 9' },
-    OTHER: { color: '#78716c', dashArray: '7 7' },
-    TRAIN: { color: '#7c3aed', dashArray: '14 6' },
-    UNKNOWN: { color: '#334155', dashArray: '7 8' },
-    WALK: { color: '#0f766e', dashArray: '2 6' },
+    FERRY: { color: '#0891b2' },
+    FLIGHT: { color: '#2563eb' },
+    OTHER: { color: '#78716c' },
+    TRAIN: { color: '#7c3aed' },
+    UNKNOWN: { color: '#334155' },
+    WALK: { color: '#0f766e' },
   }
 
   return {
