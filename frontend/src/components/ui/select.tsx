@@ -26,6 +26,8 @@ type SelectProps<TValue extends string = string> = {
   onValueChange: (value: TValue) => void
   options: readonly SelectOption<TValue>[]
   placeholder?: string
+  searchable?: boolean
+  searchPlaceholder?: string
   value: TValue
 }
 
@@ -65,6 +67,8 @@ export function Select<TValue extends string = string>({
   onValueChange,
   options,
   placeholder = 'Select',
+  searchable = false,
+  searchPlaceholder = 'Search options',
   value,
 }: SelectProps<TValue>) {
   const generatedId = useId()
@@ -77,11 +81,22 @@ export function Select<TValue extends string = string>({
   const [activeIndex, setActiveIndex] = useState(-1)
   const [menuPosition, setMenuPosition] =
     useState<SelectMenuPosition | null>(null)
+  const [query, setQuery] = useState('')
 
   const selectedOption = useMemo(
     () => options.find((option) => option.value === value),
     [options, value],
   )
+  const visibleOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase()
+    if (!searchable || !normalizedQuery) {
+      return options
+    }
+
+    return options.filter((option) =>
+      option.label.toLocaleLowerCase().includes(normalizedQuery),
+    )
+  }, [options, query, searchable])
 
   useEffect(() => {
     if (!open) {
@@ -128,23 +143,26 @@ export function Select<TValue extends string = string>({
   }, [open])
 
   function getInitialActiveIndex() {
-    const selectedIndex = options.findIndex((option) => option.value === value)
-    if (selectedIndex >= 0 && !options[selectedIndex]?.disabled) {
+    const selectedIndex = visibleOptions.findIndex(
+      (option) => option.value === value,
+    )
+    if (selectedIndex >= 0 && !visibleOptions[selectedIndex]?.disabled) {
       return selectedIndex
     }
 
-    return options.findIndex((option) => !option.disabled)
+    return visibleOptions.findIndex((option) => !option.disabled)
   }
 
   function getNextActiveIndex(currentIndex: number, direction: -1 | 1) {
-    if (options.length === 0) {
+    if (visibleOptions.length === 0) {
       return -1
     }
 
     let nextIndex = currentIndex
-    for (let checked = 0; checked < options.length; checked += 1) {
-      nextIndex = (nextIndex + direction + options.length) % options.length
-      if (!options[nextIndex]?.disabled) {
+    for (let checked = 0; checked < visibleOptions.length; checked += 1) {
+      nextIndex =
+        (nextIndex + direction + visibleOptions.length) % visibleOptions.length
+      if (!visibleOptions[nextIndex]?.disabled) {
         return nextIndex
       }
     }
@@ -157,7 +175,13 @@ export function Select<TValue extends string = string>({
       return
     }
 
-    setActiveIndex(getInitialActiveIndex())
+    setQuery('')
+    const selectedIndex = options.findIndex((option) => option.value === value)
+    setActiveIndex(
+      selectedIndex >= 0 && !options[selectedIndex]?.disabled
+        ? selectedIndex
+        : options.findIndex((option) => !option.disabled),
+    )
     if (triggerRef.current) {
       setMenuPosition(getSelectMenuPosition(triggerRef.current))
     }
@@ -212,7 +236,7 @@ export function Select<TValue extends string = string>({
         return
       }
 
-      const option = options[activeIndex]
+      const option = visibleOptions[activeIndex]
       if (option) {
         selectOption(option)
       }
@@ -224,6 +248,34 @@ export function Select<TValue extends string = string>({
         event.stopPropagation()
         setOpen(false)
       }
+    }
+  }
+
+  function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      setActiveIndex((current) =>
+        getNextActiveIndex(
+          current >= 0 ? current : getInitialActiveIndex(),
+          event.key === 'ArrowDown' ? 1 : -1,
+        ),
+      )
+      return
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const option = visibleOptions[activeIndex]
+      if (option) {
+        selectOption(option)
+      }
+      return
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setOpen(false)
+      triggerRef.current?.focus()
     }
   }
 
@@ -265,22 +317,44 @@ export function Select<TValue extends string = string>({
               style={{
                 left: menuPosition.left,
                 top: menuPosition.top,
-                maxHeight: menuPosition.maxHeight + 10,
+                maxHeight: menuPosition.maxHeight + (searchable ? 60 : 10),
                 transform: menuPosition.openAbove
                   ? 'translateY(-100%)'
                   : undefined,
                 width: menuPosition.width,
               }}
             >
+              {searchable ? (
+                <div className="border-b border-emerald-100 p-1 pb-2">
+                  <input
+                    aria-controls={listboxId}
+                    aria-label={searchPlaceholder}
+                    autoFocus
+                    className="h-9 w-full rounded-xl border border-emerald-100 bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                    onChange={(event) => {
+                      setQuery(event.target.value)
+                      setActiveIndex(0)
+                    }}
+                    onKeyDown={handleSearchKeyDown}
+                    placeholder={searchPlaceholder}
+                    type="search"
+                    value={query}
+                  />
+                </div>
+              ) : null}
               <div
                 aria-labelledby={buttonId}
                 className="scrollbar-subtle overflow-auto"
                 id={listboxId}
                 role="listbox"
-                style={{ maxHeight: menuPosition.maxHeight }}
+                style={{
+                  maxHeight: searchable
+                    ? Math.max(1, menuPosition.maxHeight - 50)
+                    : menuPosition.maxHeight,
+                }}
                 tabIndex={-1}
               >
-                {options.map((option, index) => {
+                {visibleOptions.map((option, index) => {
                   const selected = option.value === value
                   return (
                     <button
@@ -313,6 +387,11 @@ export function Select<TValue extends string = string>({
                     </button>
                   )
                 })}
+                {visibleOptions.length === 0 ? (
+                  <p className="px-3 py-2 text-sm text-muted-foreground">
+                    No options found.
+                  </p>
+                ) : null}
               </div>
             </div>,
             document.body,

@@ -16,6 +16,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
+import { Select, type SelectOption } from '@/components/ui/select'
+
+const ianaTimezoneOptions = createIanaTimezoneOptions()
 
 export function JobsPanel({ accessToken }: { accessToken: string | null }) {
   const [jobs, setJobs] = useState<ScheduledJob[]>([])
@@ -120,7 +123,7 @@ function JobCard({ accessToken, job, onChange }: { accessToken: string; job: Sch
         </div>
         <form className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(10rem,0.55fr)]" onSubmit={save}>
           <label className="grid gap-1.5 text-sm font-medium">Cron<Input aria-label={`${job.name} cron`} onChange={(event) => setCron(event.target.value)} value={cron} /></label>
-          <label className="grid gap-1.5 text-sm font-medium">Timezone<Input aria-label={`${job.name} timezone`} onChange={(event) => setTimezone(event.target.value)} value={timezone} /></label>
+          <label className="grid gap-1.5 text-sm font-medium">Timezone<Select ariaLabel={`${job.name} timezone`} onValueChange={setTimezone} options={ianaTimezoneOptions} searchable searchPlaceholder="Search IANA timezones" value={timezone} /></label>
           <div className="flex flex-wrap gap-2 md:col-span-2"><Button disabled={busy} type="submit"><RefreshCw className="size-4" /> Save schedule</Button><Button disabled={busy} onClick={() => void restore()} type="button" variant="outline"><RotateCcw className="size-4" /> Restore defaults</Button></div>
         </form>
         <p className="text-xs text-muted-foreground">Use five cron fields. Weekdays use names such as mon–sun; schedules run in the selected IANA timezone.</p>
@@ -153,4 +156,15 @@ function formatDateTime(value: string) {
 
 function formatTrigger(trigger: JobExecution['trigger']) {
   return trigger.charAt(0) + trigger.slice(1).toLowerCase()
+}
+
+function createIanaTimezoneOptions(): readonly SelectOption[] {
+  const intlWithTimezoneValues = Intl as typeof Intl & {
+    supportedValuesOf?: (key: 'timeZone') => string[]
+  }
+  const timezones = intlWithTimezoneValues.supportedValuesOf?.('timeZone') ?? []
+
+  return [...new Set(['UTC', 'Etc/UTC', ...timezones])]
+    .sort((left, right) => left.localeCompare(right))
+    .map((timezone) => ({ label: timezone, value: timezone }))
 }
