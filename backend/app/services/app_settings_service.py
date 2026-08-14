@@ -18,7 +18,6 @@ from core.app_settings import (
     SettingDefinition,
     SettingValueType,
     SettingVisibility,
-    THEME_PALETTE_KEY,
     app_settings_registry,
 )
 from core.app_settings_encryption import AppSettingsEncryption
@@ -383,7 +382,7 @@ class AppSettingsService:
         if not structurally_valid:
             raise StoredAppSettingError('Stored app setting is invalid')
 
-        if definition.key == THEME_PALETTE_KEY:
+        if definition.validator is not None:
             try:
                 self.registry.validate_value(definition, value)
             except AppSettingValidationError as exc:

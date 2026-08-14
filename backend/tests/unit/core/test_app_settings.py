@@ -9,6 +9,7 @@ from core.app_settings import (
     DEFAULT_MAP_TILE_PROVIDER_URL,
     DEFAULT_THEME_PALETTE,
     MAP_TILE_PROVIDER_KEY,
+    ROUTING_GRAPHHOPPER_BASE_URL_KEY,
     SettingDefinition,
     SettingValueType,
     SettingVisibility,
@@ -47,6 +48,34 @@ def test_theme_palette_normalizes_valid_colors() -> None:
     normalized = app_settings_registry.validate_value(definition, value)
 
     assert normalized['light']['background'] == '#F7FBF7'
+
+
+def test_setting_runs_declarative_and_callable_validation() -> None:
+    def normalize_prefixed_value(value: object) -> str:
+        assert isinstance(value, str)
+        if not value.startswith('app-'):
+            raise AppSettingValidationError('Value must start with app-')
+        return value.upper()
+
+    definition = SettingDefinition(
+        key='test.prefixed_value',
+        value_type=SettingValueType.STRING,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        runtime_safe=True,
+        description='Test setting with both forms of validation.',
+        default_value='app-default',
+        validation={'max_length': 12},
+        validator=normalize_prefixed_value,
+    )
+    registry = AppSettingsRegistry((definition,))
+
+    assert registry.validate_value(definition, 'app-value') == 'APP-VALUE'
+
+    with pytest.raises(AppSettingValidationError, match='at most 12'):
+        registry.validate_value(definition, 'app-value-too-long')
+    with pytest.raises(AppSettingValidationError, match='must start'):
+        registry.validate_value(definition, 'other')
 
 
 @pytest.mark.parametrize(
@@ -99,6 +128,27 @@ def test_tile_provider_setting_accepts_custom_url_template(value: str) -> None:
 )
 def test_tile_provider_setting_rejects_invalid_url_template(value) -> None:
     definition = app_settings_registry.require(MAP_TILE_PROVIDER_KEY)
+
+    with pytest.raises(AppSettingValidationError):
+        app_settings_registry.validate_value(definition, value)
+
+
+@pytest.mark.parametrize(
+    'value',
+    [
+        'http://routing.example.test/api',
+        'https://routing.example.test/api',
+    ],
+)
+def test_graphhopper_base_url_setting_accepts_http_urls(value: str) -> None:
+    definition = app_settings_registry.require(ROUTING_GRAPHHOPPER_BASE_URL_KEY)
+
+    assert app_settings_registry.validate_value(definition, value) == value
+
+
+@pytest.mark.parametrize('value', ['ftp://routing.example.test/api', 'not-a-url'])
+def test_graphhopper_base_url_setting_rejects_non_http_urls(value: str) -> None:
+    definition = app_settings_registry.require(ROUTING_GRAPHHOPPER_BASE_URL_KEY)
 
     with pytest.raises(AppSettingValidationError):
         app_settings_registry.validate_value(definition, value)

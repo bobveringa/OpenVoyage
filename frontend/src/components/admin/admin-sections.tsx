@@ -61,6 +61,7 @@ type EditorStatus = {
 
 type SettingPresentation = {
   help: string
+  inputType?: 'url'
   label: string
   optionLabels?: Record<string, string>
   placeholder?: string
@@ -92,6 +93,7 @@ const settingPresentations: Record<string, SettingPresentation> = {
   },
   [SETTING_KEYS.graphHopperBaseUrl]: {
     help: 'Requests and the configured API key are sent to this endpoint.',
+    inputType: 'url',
     label: 'GraphHopper base URL',
     placeholder: 'https://graphhopper.com/api/1',
   },
@@ -719,8 +721,7 @@ function SettingControl({
             ? 'password'
             : setting.value_type === 'integer'
               ? 'number'
-            : setting.validation?.format === 'http-url' ||
-                setting.validation?.format === 'url'
+            : presentation.inputType === 'url'
               ? 'url'
                 : 'text'
         }

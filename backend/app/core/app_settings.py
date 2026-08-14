@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
-from pydantic import AnyHttpUrl, TypeAdapter, ValidationError
+from core.setting_validators.common import (
+    validate_http_url,
+    validate_http_url_template,
+)
+from core.setting_validators.theme_palette import (
+    DEFAULT_THEME_PALETTE,
+    validate_theme_palette,
+)
 
 
 class SettingValueType(str, Enum):
@@ -33,6 +38,9 @@ class AppSettingValidationError(ValueError):
     """Raised when an admin replacement value fails registry validation."""
 
 
+SettingValidator = Callable[[Any], Any]
+
+
 @dataclass(frozen=True)
 class SettingDefinition:
     key: str
@@ -43,6 +51,7 @@ class SettingDefinition:
     description: str
     default_value: Any = None
     validation: Mapping[str, Any] | None = None
+    validator: SettingValidator | None = None
 
     def __post_init__(self) -> None:
         if self.validation is not None:
@@ -64,81 +73,6 @@ MEDIA_MAX_UPLOAD_SIZE_MB_KEY = 'media.max_upload_size_mb'
 PLACES_GEONAMES_DATASET_KEY = 'places.geonames_dataset'
 MEDIA_ORPHAN_RETENTION_DAYS_KEY = 'media.orphan_retention_days'
 
-THEME_PALETTE_SCHEMA_VERSION = 1
-THEME_PALETTE_ROLES = (
-    'background',
-    'foreground',
-    'card',
-    'cardForeground',
-    'popover',
-    'popoverForeground',
-    'primary',
-    'primaryForeground',
-    'secondary',
-    'secondaryForeground',
-    'muted',
-    'mutedForeground',
-    'accent',
-    'accentForeground',
-    'border',
-    'input',
-    'ring',
-)
-
-DEFAULT_THEME_PALETTE = {
-    'schema_version': THEME_PALETTE_SCHEMA_VERSION,
-    'light': {
-        'background': '#F7FBF7',
-        'foreground': '#183026',
-        'card': '#FFFFFF',
-        'cardForeground': '#183026',
-        'popover': '#FFFFFF',
-        'popoverForeground': '#183026',
-        'primary': '#246B49',
-        'primaryForeground': '#FFFFFF',
-        'secondary': '#EAF3EB',
-        'secondaryForeground': '#264B37',
-        'muted': '#EDF3ED',
-        'mutedForeground': '#587064',
-        'accent': '#D99A2B',
-        'accentForeground': '#332711',
-        'border': '#D4E1D6',
-        'input': '#7C9483',
-        'ring': '#2C7652',
-    },
-    'dark': {
-        'background': '#121A27',
-        'foreground': '#E8EEF1',
-        'card': '#182231',
-        'cardForeground': '#E8EEF1',
-        'popover': '#182231',
-        'popoverForeground': '#E8EEF1',
-        'primary': '#65AFC8',
-        'primaryForeground': '#101923',
-        'secondary': '#263444',
-        'secondaryForeground': '#DFE9ED',
-        'muted': '#293746',
-        'mutedForeground': '#AABAC2',
-        'accent': '#E17D62',
-        'accentForeground': '#111923',
-        'border': '#35475A',
-        'input': '#71869B',
-        'ring': '#65AFC8',
-    },
-}
-
-_HEX_COLOR_PATTERN = re.compile(r'^#[0-9A-Fa-f]{6}$')
-_THEME_TEXT_PAIRS = (
-    ('foreground', 'background'),
-    ('cardForeground', 'card'),
-    ('popoverForeground', 'popover'),
-    ('primaryForeground', 'primary'),
-    ('secondaryForeground', 'secondary'),
-    ('mutedForeground', 'muted'),
-    ('accentForeground', 'accent'),
-)
-
-
 SETTING_DEFINITIONS = (
     SettingDefinition(
         key=THEME_DARKMODE_KEY,
@@ -159,7 +93,7 @@ SETTING_DEFINITIONS = (
         sensitive=False,
         default_value=DEFAULT_THEME_PALETTE,
         runtime_safe=True,
-        validation={'format': 'theme-palette-v1'},
+        validator=validate_theme_palette,
         description='Shared light and dark application color palettes.',
     ),
     SettingDefinition(
@@ -170,10 +104,10 @@ SETTING_DEFINITIONS = (
         default_value=DEFAULT_MAP_TILE_PROVIDER_URL,
         runtime_safe=True,
         validation={
-            'format': 'http-url-template',
             'max_length': 2048,
             'min_length': 1,
         },
+        validator=validate_http_url_template,
         description='Tile URL template used by interactive maps.',
     ),
     SettingDefinition(
@@ -193,7 +127,7 @@ SETTING_DEFINITIONS = (
         sensitive=False,
         default_value='https://graphhopper.com/api/1',
         runtime_safe=False,
-        validation={'format': 'http-url'},
+        validator=validate_http_url,
         description='GraphHopper API base URL used by route generation.',
     ),
     SettingDefinition(
@@ -246,9 +180,6 @@ SETTING_DEFINITIONS = (
 )
 
 
-_HTTP_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
-
-
 class AppSettingsRegistry:
     def __init__(self, definitions: tuple[SettingDefinition, ...]) -> None:
         self._definitions = definitions
@@ -277,9 +208,6 @@ class AppSettingsRegistry:
     def validate_value(self, definition: SettingDefinition, value: Any) -> Any:
         if value is None:
             raise AppSettingValidationError('Value must not be null')
-
-        if definition.key == THEME_PALETTE_KEY:
-            return _validate_theme_palette(value)
 
         value_type = definition.value_type
         validation = definition.validation or {}
@@ -326,23 +254,13 @@ class AppSettingsRegistry:
                 f'Value must contain at most {max_length} character(s)'
             )
 
-        if validation.get('format') == 'http-url':
+        if definition.validator is not None:
             try:
-                _HTTP_URL_ADAPTER.validate_python(value)
-            except ValidationError as exc:
-                raise AppSettingValidationError(
-                    'Value must be a valid HTTP or HTTPS URL'
-                ) from exc
-        elif validation.get('format') == 'http-url-template':
-            lower_value = value.lower()
-            if not (
-                lower_value.startswith('http://') or lower_value.startswith('https://')
-            ):
-                raise AppSettingValidationError(
-                    'Value must be an HTTP or HTTPS URL template'
-                )
-            if any(character.isspace() for character in value):
-                raise AppSettingValidationError('Value must not contain whitespace')
+                return definition.validator(value)
+            except AppSettingValidationError:
+                raise
+            except ValueError as exc:
+                raise AppSettingValidationError(str(exc)) from exc
 
         return value
 
@@ -352,6 +270,10 @@ class AppSettingsRegistry:
         if not definition.description:
             raise AppSettingRegistryError(
                 f'App setting {definition.key} must have a description'
+            )
+        if definition.validator is not None and not callable(definition.validator):
+            raise AppSettingRegistryError(
+                f'App setting {definition.key} validator must be callable'
             )
         if definition.visibility == SettingVisibility.PUBLIC and definition.sensitive:
             raise AppSettingRegistryError(
@@ -386,102 +308,6 @@ class AppSettingsRegistry:
                 raise AppSettingRegistryError(
                     f'Invalid default for app setting {definition.key}: {exc}'
                 ) from exc
-
-
-def _validate_theme_palette(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise AppSettingValidationError('Theme palette must be an object')
-
-    if set(value) != {'schema_version', 'light', 'dark'}:
-        raise AppSettingValidationError(
-            'Theme palette must contain exactly schema_version, light, and dark'
-        )
-    if value.get('schema_version') != THEME_PALETTE_SCHEMA_VERSION:
-        raise AppSettingValidationError(
-            f'Theme palette schema_version must be {THEME_PALETTE_SCHEMA_VERSION}'
-        )
-
-    normalized: dict[str, Any] = {
-        'schema_version': THEME_PALETTE_SCHEMA_VERSION,
-    }
-    for mode in ('light', 'dark'):
-        palette = value.get(mode)
-        if not isinstance(palette, dict) or set(palette) != set(THEME_PALETTE_ROLES):
-            raise AppSettingValidationError(
-                f'Theme palette {mode} must contain every supported color role exactly once'
-            )
-        normalized_palette: dict[str, str] = {}
-        for role in THEME_PALETTE_ROLES:
-            color = palette[role]
-            if not isinstance(color, str) or not _HEX_COLOR_PATTERN.fullmatch(color):
-                raise AppSettingValidationError(
-                    f'Theme palette {mode}.{role} must be a #RRGGBB color'
-                )
-            normalized_palette[role] = color.upper()
-        _validate_theme_palette_contrast(mode, normalized_palette)
-        normalized[mode] = normalized_palette
-
-    try:
-        encoded = json.dumps(normalized, separators=(',', ':'), sort_keys=True)
-    except (TypeError, ValueError) as exc:
-        raise AppSettingValidationError('Theme palette must be JSON serializable') from exc
-    if len(encoded.encode()) > 8192:
-        raise AppSettingValidationError('Theme palette must not exceed 8 KiB')
-    return normalized
-
-
-def _validate_theme_palette_contrast(mode: str, palette: Mapping[str, str]) -> None:
-    for foreground_role, background_role in _THEME_TEXT_PAIRS:
-        _require_contrast(
-            mode,
-            foreground_role,
-            background_role,
-            palette,
-            minimum=4.5,
-        )
-
-    for role in ('primary', 'mutedForeground'):
-        for background_role in ('background', 'card'):
-            _require_contrast(mode, role, background_role, palette, minimum=4.5)
-
-    for background_role in ('background', 'card'):
-        _require_contrast(mode, 'ring', background_role, palette, minimum=3.0)
-        _require_contrast(mode, 'input', background_role, palette, minimum=3.0)
-
-
-def _require_contrast(
-    mode: str,
-    foreground_role: str,
-    background_role: str,
-    palette: Mapping[str, str],
-    *,
-    minimum: float,
-) -> None:
-    ratio = _contrast_ratio(palette[foreground_role], palette[background_role])
-    if ratio < minimum:
-        raise AppSettingValidationError(
-            f'Theme palette {mode}.{foreground_role} requires {minimum:g}:1 contrast '
-            f'against {background_role} (received {ratio:.2f}:1)'
-        )
-
-
-def _contrast_ratio(first: str, second: str) -> float:
-    first_luminance = _relative_luminance(first)
-    second_luminance = _relative_luminance(second)
-    lighter, darker = sorted((first_luminance, second_luminance), reverse=True)
-    return (lighter + 0.05) / (darker + 0.05)
-
-
-def _relative_luminance(color: str) -> float:
-    channels = tuple(int(color[index : index + 2], 16) / 255 for index in (1, 3, 5))
-
-    def linearize(channel: float) -> float:
-        if channel <= 0.04045:
-            return channel / 12.92
-        return ((channel + 0.055) / 1.055) ** 2.4
-
-    red, green, blue = (linearize(channel) for channel in channels)
-    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
 
 
 app_settings_registry = AppSettingsRegistry(SETTING_DEFINITIONS)

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.app_settings import (
     PLACES_GEONAMES_DATASET_KEY,
+    AppSettingValidationError,
     AppSettingsRegistry,
     app_settings_registry,
     SettingDefinition,
@@ -208,6 +209,42 @@ def test_structurally_valid_stored_values_are_not_revalidated(
     )
 
     assert service.get_value(definition.key) == stored_value
+
+
+def test_stored_values_with_callable_validators_are_revalidated() -> None:
+    def require_uppercase(value: object) -> str:
+        assert isinstance(value, str)
+        if value != value.upper():
+            raise AppSettingValidationError('Value must be uppercase')
+        return value
+
+    definition = SettingDefinition(
+        key='test.uppercase',
+        value_type=SettingValueType.STRING,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        runtime_safe=True,
+        description='Test setting with a callable validator.',
+        default_value='DEFAULT',
+        validator=require_uppercase,
+    )
+    registry = AppSettingsRegistry((definition,))
+    db = Mock(spec=Session)
+    db.get_bind.return_value = object()
+    db.get.return_value = AppSetting(
+        key=definition.key,
+        value='legacy lowercase value',
+        updated_at=datetime.now(timezone.utc),
+    )
+    service = AppSettingsService(
+        db,
+        AppSettingsEncryption(None),
+        registry=registry,
+        cache=AppSettingsCache(),
+    )
+
+    with pytest.raises(StoredAppSettingError):
+        service.get_value(definition.key)
 
 
 @pytest.mark.parametrize(
