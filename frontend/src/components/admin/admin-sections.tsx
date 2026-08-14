@@ -511,14 +511,7 @@ function SettingEditor({
                 {presentation.label}
               </label>
               {isSecret ? (
-                <Badge
-                  className={cn(
-                    setting.is_configured
-                      ? 'border-input bg-muted text-emerald-800'
-                      : 'border-amber-200 bg-amber-50 text-amber-900',
-                  )}
-                  variant="outline"
-                >
+                <Badge variant={setting.is_configured ? 'secondary' : 'outline'}>
                   {setting.is_configured ? 'Configured' : 'Not configured'}
                 </Badge>
               ) : setting.is_configured ? (

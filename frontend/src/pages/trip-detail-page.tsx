@@ -3266,7 +3266,7 @@ function MobileMapPointPicker({
         travelPosts={travelPosts}
       />
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] bg-gradient-to-b from-white/95 via-white/70 to-transparent px-3 pb-8 pt-3">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] bg-gradient-to-b from-background/95 via-background/70 to-transparent px-3 pb-8 pt-3">
         <div className="pointer-events-auto flex items-center justify-between gap-3">
           <Button onClick={onCancel} type="button" variant="outline">
             <ArrowLeft className="size-4" aria-hidden="true" />
@@ -3278,7 +3278,7 @@ function MobileMapPointPicker({
         </div>
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-white via-white/95 to-transparent p-3 pt-10">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-background via-background/95 to-transparent p-3 pt-10">
         <div className="pointer-events-auto space-y-3 rounded-[1.5rem] border border-border bg-card p-4 shadow-xl shadow-foreground/10">
           <div className="flex items-start gap-3">
             <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-muted text-primary">
@@ -4516,7 +4516,7 @@ function TravelingPanel({
                 </div>
               ) : null}
 
-              <div className="absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-white/90 via-white/45 to-transparent pb-3 pt-10">
+              <div className="absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-3 pt-10">
                 <div
                   className="trip-mobile-post-carousel scrollbar-subtle flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1"
                   ref={mobileCarouselRef}

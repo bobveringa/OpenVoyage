@@ -613,7 +613,7 @@ function RequirementCheckbox({
     <label className="flex items-start gap-3 rounded-xl border border-border bg-muted/60 px-4 py-3 text-sm text-foreground">
       <input
         checked={checked}
-        className="mt-0.5 size-4 rounded border-input accent-emerald-600"
+        className="mt-0.5 size-4 rounded border-input accent-primary"
         onChange={(event) => onChange(event.target.checked)}
         type="checkbox"
       />
