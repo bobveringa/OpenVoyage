@@ -22,12 +22,12 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        'grid place-items-center rounded-2xl border border-emerald-100 bg-white px-6 py-12 text-center shadow-sm',
+        'grid place-items-center rounded-2xl border border-border bg-card px-6 py-12 text-center shadow-sm',
         className,
       )}
     >
       <div className="grid max-w-md justify-items-center gap-4">
-        <span className="grid size-11 place-items-center rounded-xl bg-emerald-50 text-primary shadow-sm">
+        <span className="grid size-11 place-items-center rounded-xl bg-muted text-primary shadow-sm">
           <Icon className="size-5" aria-hidden="true" />
         </span>
         <div className="space-y-1">

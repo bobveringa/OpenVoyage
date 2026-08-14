@@ -101,18 +101,18 @@
   .trip-leaflet-map .leaflet-control-attribution {
     margin: 0 0.75rem 0.75rem 0;
     border-radius: 999px;
-    background: rgb(255 255 255 / 0.86);
+    background: color-mix(in srgb, var(--card) 86%, transparent);
     padding: 0.25rem 0.6rem;
     color: var(--muted-foreground);
     font-size: 0.68rem;
-    box-shadow: 0 16px 40px -28px rgb(15 23 42 / 0.5);
+    box-shadow: 0 16px 40px -28px color-mix(in srgb, var(--foreground) 50%, transparent);
     backdrop-filter: blur(12px);
   }
 
   .trip-leaflet-map .leaflet-popup-content-wrapper {
     border-radius: 1rem;
     color: var(--foreground);
-    box-shadow: 0 24px 70px -36px rgb(15 23 42 / 0.6);
+    box-shadow: 0 24px 70px -36px color-mix(in srgb, var(--foreground) 60%, transparent);
   }
 
   .trip-leaflet-map .leaflet-popup-content {
@@ -131,7 +131,7 @@
     width: 0.9rem;
     height: 0.9rem;
     place-items: center;
-    border: 2px solid white;
+    border: 2px solid var(--card);
     border-radius: 999px;
     background: var(--primary);
     color: var(--primary-foreground);
@@ -140,8 +140,8 @@
     font-variant-numeric: tabular-nums;
     line-height: 1;
     box-shadow:
-      0 12px 28px -16px rgb(15 23 42 / 0.72),
-      0 0 0 3px rgb(15 118 110 / 0.14);
+      0 12px 28px -16px color-mix(in srgb, var(--foreground) 72%, transparent),
+      0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent);
   }
 
   .trip-map-place-marker--numbered {
@@ -158,12 +158,12 @@
     width: 2.75rem;
     height: 2.75rem;
     overflow: hidden;
-    border: 2px solid rgb(255 255 255 / 0.96);
+    border: 2px solid color-mix(in srgb, var(--card) 96%, transparent);
     border-radius: 999px;
     background: transparent;
     box-shadow:
-      0 10px 24px -14px rgb(15 23 42 / 0.82),
-      0 0 0 3px rgb(15 118 110 / 0.2);
+      0 10px 24px -14px color-mix(in srgb, var(--foreground) 82%, transparent),
+      0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
     transform-origin: center;
     transition:
       border-color 160ms ease,
@@ -172,11 +172,11 @@
   }
 
   .trip-map-post-bubble--active {
-    border-color: white;
+    border-color: var(--card);
     box-shadow:
-      0 18px 34px -16px rgb(15 23 42 / 0.9),
-      0 0 0 5px rgb(15 118 110 / 0.28),
-      0 0 0 9px rgb(255 255 255 / 0.65);
+      0 18px 34px -16px color-mix(in srgb, var(--foreground) 90%, transparent),
+      0 0 0 5px color-mix(in srgb, var(--primary) 28%, transparent),
+      0 0 0 9px color-mix(in srgb, var(--card) 65%, transparent);
     transform: scale(1.16);
   }
 
@@ -198,7 +198,7 @@
     width: 2.25rem;
     height: 2.25rem;
     place-items: center;
-    border: 2px solid white;
+    border: 2px solid var(--card);
     border-radius: 999px;
     background: var(--primary);
     color: var(--primary-foreground);
@@ -206,8 +206,8 @@
     font-weight: 800;
     line-height: 1;
     box-shadow:
-      0 16px 34px -18px rgb(15 23 42 / 0.78),
-      0 0 0 4px rgb(15 118 110 / 0.2);
+      0 16px 34px -18px color-mix(in srgb, var(--foreground) 78%, transparent),
+      0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent);
   }
 
   .trip-post-media-strip {
@@ -236,8 +236,8 @@ body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 0.75rem;
-  background: white;
-  box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.06);
+  background: var(--card);
+  box-shadow: 0 1px 2px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 
 body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar a {
@@ -247,7 +247,7 @@ body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar a {
   place-items: center;
   border: 0;
   border-radius: 0;
-  background: white;
+  background: var(--card);
   color: var(--foreground);
   font: 800 1.2rem/1 var(--app-font-sans);
   text-decoration: none;

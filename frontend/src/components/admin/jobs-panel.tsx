@@ -91,7 +91,7 @@ function JobCard({ accessToken, job, onChange }: { accessToken: string; job: Sch
   const latest = active ?? job.executions.latest
   const status = getExecutionStatus(latest?.status)
   return <Card>
-    <CardHeader className="gap-4 border-b border-emerald-100/80 p-5 sm:p-6">
+    <CardHeader className="gap-4 border-b border-border/80 p-5 sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2"><h3 className="text-xl font-semibold">{job.name}</h3><Badge variant={job.schedule.enabled ? 'secondary' : 'outline'}>{job.schedule.enabled ? 'Scheduled' : 'Schedule disabled'}</Badge></div>
@@ -112,12 +112,12 @@ function JobCard({ accessToken, job, onChange }: { accessToken: string; job: Sch
             <button
               aria-checked={enabled}
               aria-label={`Enable ${job.name} schedule`}
-              className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${enabled ? 'border-primary bg-primary' : 'border-emerald-200 bg-emerald-50'}`}
+              className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${enabled ? 'border-primary bg-primary' : 'border-input bg-muted'}`}
               onClick={() => setEnabled((current) => !current)}
               role="switch"
               type="button"
             >
-              <span className={`size-5 rounded-full bg-white shadow-sm transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+              <span className={`size-5 rounded-full bg-card shadow-sm transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </div>
         </div>
@@ -130,18 +130,18 @@ function JobCard({ accessToken, job, onChange }: { accessToken: string; job: Sch
       </section>
       {message ? <p className={message.type === 'error' ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'} role={message.type === 'error' ? 'alert' : 'status'}>{message.text}</p> : null}
       {job.schedule.error ? <p className="text-sm text-destructive">{job.schedule.error}</p> : null}
-      {latest?.error_message || latest?.summary ? <details className="group rounded-xl border border-emerald-100 bg-muted/30 px-3.5 py-3"><summary className="cursor-pointer text-sm font-medium marker:text-muted-foreground">Execution details</summary><div className="mt-3 border-t border-emerald-100 pt-3 text-sm">{latest.error_message ? <p className="text-destructive">{latest.error_message}</p> : null}{latest.summary ? <pre className="mt-3 overflow-x-auto rounded-lg bg-white p-3 text-xs leading-5 text-foreground">{JSON.stringify(latest.summary, null, 2)}</pre> : null}</div></details> : null}
+      {latest?.error_message || latest?.summary ? <details className="group rounded-xl border border-border bg-muted/30 px-3.5 py-3"><summary className="cursor-pointer text-sm font-medium marker:text-muted-foreground">Execution details</summary><div className="mt-3 border-t border-border pt-3 text-sm">{latest.error_message ? <p className="text-destructive">{latest.error_message}</p> : null}{latest.summary ? <pre className="mt-3 overflow-x-auto rounded-lg bg-card p-3 text-xs leading-5 text-foreground">{JSON.stringify(latest.summary, null, 2)}</pre> : null}</div></details> : null}
     </CardContent>
   </Card>
 }
 
 function getExecutionStatus(status: JobExecution['status'] | undefined) {
-  if (status === 'SUCCEEDED') return { label: 'Latest run succeeded', Icon: CheckCircle2, className: 'border-emerald-200 bg-emerald-50/70', iconClassName: 'text-emerald-700' }
+  if (status === 'SUCCEEDED') return { label: 'Latest run succeeded', Icon: CheckCircle2, className: 'border-input bg-muted/70', iconClassName: 'text-emerald-700' }
   if (status === 'FAILED') return { label: 'Latest run failed', Icon: XCircle, className: 'border-red-200 bg-red-50/70', iconClassName: 'text-destructive' }
   if (status === 'RUNNING') return { label: 'Run in progress', Icon: LoaderCircle, className: 'border-amber-200 bg-amber-50/70', iconClassName: 'animate-spin text-amber-700' }
   if (status === 'QUEUED') return { label: 'Run queued', Icon: Clock3, className: 'border-amber-200 bg-amber-50/70', iconClassName: 'text-amber-700' }
-  if (status === 'SKIPPED') return { label: 'Latest run skipped', Icon: Clock3, className: 'border-emerald-100 bg-muted/40', iconClassName: 'text-muted-foreground' }
-  return { label: 'No runs yet', Icon: Clock3, className: 'border-emerald-100 bg-muted/40', iconClassName: 'text-muted-foreground' }
+  if (status === 'SKIPPED') return { label: 'Latest run skipped', Icon: Clock3, className: 'border-border bg-muted/40', iconClassName: 'text-muted-foreground' }
+  return { label: 'No runs yet', Icon: Clock3, className: 'border-border bg-muted/40', iconClassName: 'text-muted-foreground' }
 }
 
 function formatExecutionTime(execution: JobExecution) {

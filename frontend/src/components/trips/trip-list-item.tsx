@@ -18,10 +18,10 @@ export function TripListItem({
 }: TripListItemProps) {
   return (
     <a
-      className="group overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm transition hover:-translate-y-1 hover:border-emerald-200 hover:shadow-xl hover:shadow-emerald-900/10"
+      className="group overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition hover:-translate-y-1 hover:border-input hover:shadow-xl hover:shadow-foreground/10"
       href={`/trips/${trip.id}`}
     >
-      <div className="relative aspect-[4/3] overflow-hidden bg-emerald-50">
+      <div className="relative aspect-[4/3] overflow-hidden bg-muted">
         <MediaImage
           alt={`${trip.name} cover`}
           className="absolute inset-0 size-full transition-transform duration-300 group-hover:scale-[1.03]"

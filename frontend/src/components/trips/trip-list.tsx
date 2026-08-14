@@ -35,7 +35,7 @@ export function TripList({
 }: TripListProps) {
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-white px-5 py-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card px-5 py-4 shadow-sm">
         <div>
           <h2 className="text-lg font-semibold text-foreground">{title}</h2>
           <p className="text-sm text-muted-foreground">

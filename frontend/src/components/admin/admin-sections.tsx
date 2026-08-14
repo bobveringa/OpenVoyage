@@ -31,6 +31,7 @@ import {
 } from '@/api/client'
 import type { AdminSectionId } from '@/components/admin/admin-navigation'
 import { JobsPanel } from '@/components/admin/jobs-panel'
+import { ThemeEditor } from '@/components/admin/theme-editor'
 import { UsersPanel } from '@/components/admin/users-panel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -66,7 +67,7 @@ type SettingPresentation = {
 }
 
 const SETTING_KEYS = {
-  darkMode: 'theme.darkmode',
+  themePalette: 'theme.palette',
   graphHopperApiKey: 'routing.graphhopper_api_key',
   graphHopperBaseUrl: 'routing.graphhopper_base_url',
   maxUploadSize: 'media.max_upload_size_mb',
@@ -77,15 +78,6 @@ const SETTING_KEYS = {
 } as const
 
 const settingPresentations: Record<string, SettingPresentation> = {
-  [SETTING_KEYS.darkMode]: {
-    help: 'Choose the future default color mode for public pages.',
-    label: 'Color mode',
-    optionLabels: {
-      disabled: 'Light',
-      enabled: 'Dark',
-      system: 'Use device setting',
-    },
-  },
   [SETTING_KEYS.mapTileProvider]: {
     help: 'Set the tile URL template used as the base layer for every interactive trip map.',
     label: 'Tile URL template',
@@ -279,17 +271,20 @@ function SettingsAdminSections({
     return (
       <section {...panelProps} className="space-y-6">
         <SectionHeading
-          description="Set presentation defaults that public experiences can adopt."
+          description="Publish shared light and dark palettes. Visitors choose light, dark, or system mode from the top bar."
           eyebrow="Public experience"
           title="Appearance"
         />
-        <SettingsGroup
-          description="The setting is available now; global theme application is planned for a later frontend pass."
-          icon={Palette}
-          onReset={handleReset}
-          onSave={handleSave}
-          settings={pickSettings(settingsByKey, [SETTING_KEYS.darkMode])}
-          title="Theme preference"
+        <ThemeEditor
+          accessToken={accessToken}
+          onPublished={async (nextSetting) => {
+            replaceSetting(nextSetting)
+            const refreshed = await refreshPublicSettings()
+            if (!refreshed) {
+              throw new Error('Theme was saved, but the public theme could not be refreshed.')
+            }
+          }}
+          setting={settingsByKey.get(SETTING_KEYS.themePalette)}
         />
         <SettingsGroup
           description="Configure the public tile URL template used as the base layer. Routes, markers, and map controls remain unchanged."
@@ -381,9 +376,9 @@ function SettingsGroup({
 }: SettingsGroupProps) {
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b border-emerald-100/80">
+      <CardHeader className="border-b border-border/80">
         <div className="flex items-start gap-4">
-          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-primary shadow-sm">
+          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-muted text-primary shadow-sm">
             <Icon aria-hidden="true" className="size-5" />
           </span>
           <div className="space-y-1">
@@ -396,7 +391,7 @@ function SettingsGroup({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="divide-y divide-emerald-100 p-0">
+      <CardContent className="divide-y divide-border p-0">
         {settings.map((setting, index) =>
           setting ? (
             <SettingEditor
@@ -517,7 +512,7 @@ function SettingEditor({
                 <Badge
                   className={cn(
                     setting.is_configured
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                      ? 'border-input bg-muted text-emerald-800'
                       : 'border-amber-200 bg-amber-50 text-amber-900',
                   )}
                   variant="outline"
@@ -694,7 +689,7 @@ function SettingControl({
   if (setting.value_type === 'object') {
     return (
       <textarea
-        className="min-h-32 w-full resize-y rounded-xl border border-emerald-100 bg-white px-3 py-2.5 font-mono text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="min-h-32 w-full resize-y rounded-xl border border-border bg-card px-3 py-2.5 font-mono text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         disabled={disabled}
         id={id}
         onChange={(event) => onChange(event.target.value)}

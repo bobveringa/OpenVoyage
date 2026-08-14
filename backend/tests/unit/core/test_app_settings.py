@@ -7,10 +7,12 @@ from core.app_settings import (
     AppSettingValidationError,
     AppSettingsRegistry,
     DEFAULT_MAP_TILE_PROVIDER_URL,
+    DEFAULT_THEME_PALETTE,
     MAP_TILE_PROVIDER_KEY,
     SettingDefinition,
     SettingValueType,
     SettingVisibility,
+    THEME_PALETTE_KEY,
     app_settings_registry,
 )
 from core.app_settings_encryption import (
@@ -23,11 +25,52 @@ def test_registry_contains_validated_defaults() -> None:
     darkmode = app_settings_registry.require('theme.darkmode')
     tile_provider = app_settings_registry.require(MAP_TILE_PROVIDER_KEY)
     upload_size = app_settings_registry.require('media.max_upload_size_mb')
+    palette = app_settings_registry.require(THEME_PALETTE_KEY)
 
     assert darkmode.default_value == 'system'
     assert tile_provider.default_value == DEFAULT_MAP_TILE_PROVIDER_URL
     assert upload_size.default_value == 512
+    assert palette.default_value == DEFAULT_THEME_PALETTE
     assert app_settings_registry.validate_value(darkmode, 'enabled') == 'enabled'
+
+
+def test_theme_palette_normalizes_valid_colors() -> None:
+    definition = app_settings_registry.require(THEME_PALETTE_KEY)
+    value = {
+        **DEFAULT_THEME_PALETTE,
+        'light': {
+            **DEFAULT_THEME_PALETTE['light'],
+            'background': '#f7fbf7',
+        },
+    }
+
+    normalized = app_settings_registry.validate_value(definition, value)
+
+    assert normalized['light']['background'] == '#F7FBF7'
+
+
+@pytest.mark.parametrize(
+    'value',
+    [
+        {},
+        {'schema_version': 2, 'light': {}, 'dark': {}},
+        {
+            'schema_version': 1,
+            'light': DEFAULT_THEME_PALETTE['light'],
+            'dark': {**DEFAULT_THEME_PALETTE['dark'], 'primary': 'url(evil)'},
+        },
+        {
+            'schema_version': 1,
+            'light': {**DEFAULT_THEME_PALETTE['light'], 'foreground': '#FFFFFF'},
+            'dark': DEFAULT_THEME_PALETTE['dark'],
+        },
+    ],
+)
+def test_theme_palette_rejects_invalid_or_inaccessible_values(value) -> None:
+    definition = app_settings_registry.require(THEME_PALETTE_KEY)
+
+    with pytest.raises(AppSettingValidationError):
+        app_settings_registry.validate_value(definition, value)
 
 
 @pytest.mark.parametrize(

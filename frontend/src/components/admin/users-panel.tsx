@@ -210,7 +210,7 @@ export function UsersPanel({ accessToken }: UsersPanelProps) {
       ) : null}
       {loadStatus === 'ready' && users.length > 0 ? (
         <Card className="overflow-hidden">
-          <div className="divide-y divide-emerald-100">
+          <div className="divide-y divide-border">
             {users.map((user) => (
               <UserRow
                 key={user.id}
@@ -221,7 +221,7 @@ export function UsersPanel({ accessToken }: UsersPanelProps) {
               />
             ))}
           </div>
-          <div className="flex flex-col gap-3 border-t border-emerald-100 px-5 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-t border-border px-5 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <span>
               Showing {showingFrom}–{showingTo} of {total}
             </span>
@@ -564,7 +564,7 @@ function SetPasswordModal({
     >
       <form className="space-y-5 p-1" onSubmit={submit}>
         {user ? (
-          <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-foreground">
+          <p className="rounded-xl bg-muted px-4 py-3 text-sm text-foreground">
             {user.first_name} {user.last_name} ({user.email})
           </p>
         ) : null}
@@ -610,10 +610,10 @@ function RequirementCheckbox({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-sm text-foreground">
+    <label className="flex items-start gap-3 rounded-xl border border-border bg-muted/60 px-4 py-3 text-sm text-foreground">
       <input
         checked={checked}
-        className="mt-0.5 size-4 rounded border-emerald-200 accent-emerald-600"
+        className="mt-0.5 size-4 rounded border-input accent-emerald-600"
         onChange={(event) => onChange(event.target.checked)}
         type="checkbox"
       />
@@ -672,7 +672,7 @@ function DeleteUserModal({
     >
       <div className="space-y-5 p-1">
         {user ? (
-          <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-foreground">
+          <p className="rounded-xl bg-muted px-4 py-3 text-sm text-foreground">
             {user.first_name} {user.last_name} ({user.email})
           </p>
         ) : null}

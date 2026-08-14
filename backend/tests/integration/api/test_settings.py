@@ -5,11 +5,13 @@ import pytest
 from core import security
 from core.app_settings import (
     DEFAULT_MAP_TILE_PROVIDER_URL,
+    DEFAULT_THEME_PALETTE,
     MAP_TILE_PROVIDER_KEY,
     MEDIA_MAX_UPLOAD_SIZE_MB_KEY,
     ROUTING_GRAPHHOPPER_API_KEY,
     ROUTING_PROVIDER_KEY,
     THEME_DARKMODE_KEY,
+    THEME_PALETTE_KEY,
 )
 from core.app_settings_encryption import AppSettingsEncryption
 from core.config import settings
@@ -43,10 +45,12 @@ def test_public_settings_returns_only_public_defaults(client, db_session, api_pr
     assert response.json() == {
         'settings': {
             THEME_DARKMODE_KEY: 'system',
+            THEME_PALETTE_KEY: DEFAULT_THEME_PALETTE,
             MAP_TILE_PROVIDER_KEY: DEFAULT_MAP_TILE_PROVIDER_URL,
         },
         'updated_at': None,
     }
+    assert response.headers['cache-control'] == 'no-store'
 
 
 @pytest.mark.integration
@@ -85,11 +89,14 @@ def test_admin_list_includes_redacted_secret_metadata(
     )
     assert keys == {
         'theme.darkmode',
+        'theme.palette',
         'map.tile_provider',
         'routing.provider',
         'routing.graphhopper_base_url',
         'routing.graphhopper_api_key',
         'media.max_upload_size_mb',
+        'places.geonames_dataset',
+        'media.orphan_retention_days',
     }
     assert secret['value'] is None
     assert secret['default_value'] is None
@@ -269,6 +276,33 @@ def test_admin_can_update_and_reset_public_tile_provider(
         reset_public_response.json()['settings'][MAP_TILE_PROVIDER_KEY]
         == DEFAULT_MAP_TILE_PROVIDER_URL
     )
+
+
+@pytest.mark.integration
+def test_admin_can_update_and_reset_theme_palette(client, db_session, api_prefix) -> None:
+    admin = _admin(db_session)
+    headers = _auth_headers(admin)
+    setting_url = f'{api_prefix}/admin/settings/{THEME_PALETTE_KEY}'
+    palette = {
+        **DEFAULT_THEME_PALETTE,
+        'light': {
+            **DEFAULT_THEME_PALETTE['light'],
+            'primary': '#1D5E43',
+        },
+    }
+
+    update_response = client.patch(setting_url, headers=headers, json={'value': palette})
+
+    assert update_response.status_code == 200
+    assert update_response.json()['value']['light']['primary'] == '#1D5E43'
+    public_response = client.get(f'{api_prefix}/settings/public')
+    assert public_response.json()['settings'][THEME_PALETTE_KEY]['light']['primary'] == '#1D5E43'
+
+    reset_response = client.post(f'{setting_url}/reset', headers=headers)
+
+    assert reset_response.status_code == 200
+    assert reset_response.json()['value'] == DEFAULT_THEME_PALETTE
+    assert db_session.get(AppSetting, THEME_PALETTE_KEY) is None
 
 
 @pytest.mark.integration

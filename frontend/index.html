@@ -3,7 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#F7FBF7" />
     <title>OpenVoyage</title>
+    <script>
+      ;(() => {
+        const roles = ['background', 'foreground', 'card', 'cardForeground', 'popover', 'popoverForeground', 'primary', 'primaryForeground', 'secondary', 'secondaryForeground', 'muted', 'mutedForeground', 'accent', 'accentForeground', 'border', 'input', 'ring']
+        const names = { background: 'background', foreground: 'foreground', card: 'card', cardForeground: 'card-foreground', popover: 'popover', popoverForeground: 'popover-foreground', primary: 'primary', primaryForeground: 'primary-foreground', secondary: 'secondary', secondaryForeground: 'secondary-foreground', muted: 'muted', mutedForeground: 'muted-foreground', accent: 'accent', accentForeground: 'accent-foreground', border: 'border', input: 'input', ring: 'ring' }
+        const validColors = (colors) => colors && typeof colors === 'object' && Object.keys(colors).length === roles.length && roles.every((role) => typeof colors[role] === 'string' && /^#[0-9a-f]{6}$/i.test(colors[role]))
+        try {
+          const raw = localStorage.getItem('openvoyage.theme.v1')
+          const cached = raw ? JSON.parse(raw) : null
+          const palette = cached && cached.cache_version === 1 && cached.palette && cached.palette.schema_version === 1 && validColors(cached.palette.light) && validColors(cached.palette.dark) ? cached.palette : null
+          const savedMode = localStorage.getItem('openvoyage.theme-mode.v1')
+          const preference = savedMode === 'light' || savedMode === 'dark' || savedMode === 'system' ? savedMode : 'system'
+          const mode = preference === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : preference
+          if (!palette) return
+          for (const paletteMode of ['light', 'dark']) for (const role of roles) document.documentElement.style.setProperty('--theme-' + paletteMode + '-' + names[role], palette[paletteMode][role])
+          document.documentElement.classList.toggle('dark', mode === 'dark')
+          document.documentElement.dataset.theme = mode
+          document.documentElement.style.colorScheme = mode
+          document.querySelector('meta[name="theme-color"]').content = palette[mode].background
+        } catch (_) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

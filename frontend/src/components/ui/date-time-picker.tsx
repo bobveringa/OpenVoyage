@@ -148,7 +148,7 @@ function DateTimePickerBase({
         aria-haspopup="dialog"
         aria-label={ariaLabel}
         className={cn(
-          'flex h-11 w-full items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-white px-3 py-2 text-left text-base text-foreground shadow-sm transition-colors hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+          'flex h-11 w-full items-center justify-between gap-3 rounded-2xl border border-border bg-card px-3 py-2 text-left text-base text-foreground shadow-sm transition-colors hover:border-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
           triggerClassName,
         )}
         disabled={disabled}
@@ -175,7 +175,7 @@ function DateTimePickerBase({
       {open ? (
         <div
           className={cn(
-            'absolute z-40 mt-2 w-[17rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[1.35rem] border border-emerald-100 bg-white p-2.5 shadow-xl shadow-emerald-950/10',
+            'absolute z-40 mt-2 w-[17rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[1.35rem] border border-border bg-card p-2.5 shadow-xl shadow-foreground/10',
             popoverAlign === 'end' ? 'right-0' : 'left-0',
           )}
           role="dialog"
@@ -222,7 +222,7 @@ function DateTimePickerBase({
               return (
                 <button
                   className={cn(
-                    'grid h-8 place-items-center rounded-lg text-xs font-medium transition-colors hover:bg-emerald-50',
+                    'grid h-8 place-items-center rounded-lg text-xs font-medium transition-colors hover:bg-muted',
                     outsideMonth && 'text-muted-foreground/50',
                     outsideRange &&
                       'cursor-not-allowed text-muted-foreground/30 hover:bg-transparent',
@@ -271,7 +271,7 @@ function TimeControls({
   }
 
   return (
-    <div className="mt-2.5 space-y-2.5 rounded-[1.1rem] border border-emerald-100 bg-emerald-50/60 p-2.5">
+    <div className="mt-2.5 space-y-2.5 rounded-[1.1rem] border border-border bg-muted/60 p-2.5">
       <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <Clock className="size-4 text-primary" aria-hidden="true" />
         Time
@@ -280,7 +280,7 @@ function TimeControls({
         <label className="grid gap-1 text-xs font-semibold text-muted-foreground">
           Hour
           <input
-            className="h-9 rounded-xl border border-emerald-100 bg-white px-2 text-center text-sm font-semibold text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-9 rounded-xl border border-border bg-card px-2 text-center text-sm font-semibold text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             max={23}
             min={0}
             onChange={(event) => updateTime(Number(event.target.value), minute)}
@@ -292,7 +292,7 @@ function TimeControls({
         <label className="grid gap-1 text-xs font-semibold text-muted-foreground">
           Minute
           <input
-            className="h-9 rounded-xl border border-emerald-100 bg-white px-2 text-center text-sm font-semibold text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-9 rounded-xl border border-border bg-card px-2 text-center text-sm font-semibold text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             max={59}
             min={0}
             onChange={(event) => updateTime(hour, Number(event.target.value))}
@@ -308,7 +308,7 @@ function TimeControls({
               'rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors',
               value === time
                 ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-emerald-100 bg-white text-foreground hover:bg-emerald-50',
+                : 'border-border bg-card text-foreground hover:bg-muted',
             )}
             key={time}
             onClick={() => onValueChange(time)}

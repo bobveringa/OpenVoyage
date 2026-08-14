@@ -13,6 +13,7 @@ import { SetupPage } from '@/pages/setup-page'
 import { TripDetailPage } from '@/pages/trip-detail-page'
 import { UserTripOverviewPage } from '@/pages/user-trip-overview-page'
 import { PublicSettingsProvider } from '@/settings/public-settings'
+import { ThemeProvider } from '@/theme'
 
 type Route =
   | { name: 'admin' }
@@ -31,9 +32,11 @@ type NavigateOptions = {
 function App() {
   return (
     <PublicSettingsProvider>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </ThemeProvider>
     </PublicSettingsProvider>
   )
 }

@@ -110,7 +110,7 @@ export function AdminNavigation({
 
   return (
     <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start">
-      <div className="rounded-2xl border border-emerald-100 bg-white/90 p-2 shadow-sm backdrop-blur-sm">
+      <div className="rounded-2xl border border-border bg-card/90 p-2 shadow-sm backdrop-blur-sm">
         <div
           aria-label="Admin sections"
           className="scrollbar-subtle flex gap-1 overflow-x-auto lg:grid lg:overflow-visible"
@@ -128,7 +128,7 @@ export function AdminNavigation({
                   'group flex min-w-max items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 lg:min-w-0',
                   isActive
                     ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:bg-emerald-50 hover:text-foreground',
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                 )}
                 id={`admin-tab-${item.id}`}
                 key={item.id}
@@ -145,8 +145,8 @@ export function AdminNavigation({
                   className={cn(
                     'grid size-9 shrink-0 place-items-center rounded-lg transition-colors',
                     isActive
-                      ? 'bg-white/15 text-primary-foreground'
-                      : 'bg-emerald-50 text-primary group-hover:bg-white',
+                      ? 'bg-card/15 text-primary-foreground'
+                      : 'bg-muted text-primary group-hover:bg-card',
                   )}
                 >
                   <Icon aria-hidden="true" className="size-4" />

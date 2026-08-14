@@ -62,8 +62,8 @@ export function ImageUploadDropzone({
     <div className="grid gap-3">
       <label
         className={cn(
-          'group grid min-h-56 cursor-pointer place-items-center overflow-hidden rounded-2xl border border-dashed border-emerald-200 bg-white text-center shadow-sm transition-colors',
-          isDragging && 'border-primary bg-emerald-50',
+          'group grid min-h-56 cursor-pointer place-items-center overflow-hidden rounded-2xl border border-dashed border-input bg-card text-center shadow-sm transition-colors',
+          isDragging && 'border-primary bg-muted',
           disabled && 'cursor-not-allowed opacity-60',
           dropzoneClassName,
         )}
@@ -85,7 +85,7 @@ export function ImageUploadDropzone({
           />
         ) : (
           <div className="grid justify-items-center gap-3 px-5 py-10">
-            <span className="grid size-12 place-items-center rounded-xl bg-emerald-50 text-primary shadow-sm">
+            <span className="grid size-12 place-items-center rounded-xl bg-muted text-primary shadow-sm">
               <ImagePlus className="size-6" aria-hidden="true" />
             </span>
             <div className="space-y-1">

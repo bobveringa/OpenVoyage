@@ -10,13 +10,13 @@ const tripStatusBadgeVariants = cva(
     variants: {
       surface: {
         default: '',
-        overlay: 'border-white/60 bg-white/90 text-slate-900 backdrop-blur-md',
+        overlay: 'border-white/60 bg-card/90 text-slate-900 backdrop-blur-md',
       },
       status: {
         active:
           'border-emerald-300/60 bg-emerald-100/75 text-emerald-900 before:bg-emerald-500',
         completed:
-          'border-slate-300/60 bg-white/65 text-slate-700 before:bg-slate-400',
+          'border-slate-300/60 bg-card/65 text-slate-700 before:bg-slate-400',
         upcoming:
           'border-amber-300/70 bg-amber-100/85 text-amber-950 before:bg-amber-500',
       },

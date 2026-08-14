@@ -18,6 +18,7 @@ from core.app_settings import (
     SettingDefinition,
     SettingValueType,
     SettingVisibility,
+    THEME_PALETTE_KEY,
     app_settings_registry,
 )
 from core.app_settings_encryption import AppSettingsEncryption
@@ -381,6 +382,12 @@ class AppSettingsService:
             structurally_valid = False
         if not structurally_valid:
             raise StoredAppSettingError('Stored app setting is invalid')
+
+        if definition.key == THEME_PALETTE_KEY:
+            try:
+                self.registry.validate_value(definition, value)
+            except AppSettingValidationError as exc:
+                raise StoredAppSettingError('Stored app setting is invalid') from exc
 
     def _resolve_cache_scope(self) -> int:
         bind = self.db.get_bind()

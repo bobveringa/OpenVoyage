@@ -5,6 +5,7 @@ import type { CurrentUser } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
 import { Button } from '@/components/ui/button'
 import { AppBackground } from '@/components/layout/app-background'
+import { ThemeModeToggle } from '@/components/layout/theme-mode-toggle'
 import { UserMenu } from '@/components/layout/user-menu'
 import { cn } from '@/lib/utils'
 import { getUserUsername } from '@/lib/users'
@@ -43,7 +44,7 @@ export function AppShell({
     <div className="relative isolate min-h-dvh text-foreground">
       <AppBackground />
       {showHeader ? (
-        <header className="sticky top-0 z-10 border-b border-emerald-100/80 bg-white/80 backdrop-blur-xl">
+        <header className="sticky top-0 z-10 border-b border-border/80 bg-card/80 backdrop-blur-xl">
           <div className="mx-auto flex h-16 w-full max-w-6xl min-w-0 items-center justify-between px-4 sm:px-6 lg:px-8">
             <button
               className="inline-flex items-center gap-3 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -56,31 +57,34 @@ export function AppShell({
               <span>OpenVoyage</span>
             </button>
 
-            {currentUser && onLogout && passwordChangeRequired ? (
-              <Button onClick={onLogout} size="sm" type="button" variant="outline">
-                <LogOut className="size-4" aria-hidden="true" />
-                Log out
-              </Button>
-            ) : currentUser && onLogout && onNavigate ? (
-              <UserMenu
-                currentUser={currentUser}
-                onLogout={onLogout}
-                onNavigate={onNavigate}
-              />
-            ) : authStatus === 'loading' ? (
-              <span className="text-sm font-medium text-muted-foreground">
-                Checking session
-              </span>
-            ) : (
-              <Button
-                onClick={() => handleNavigate('/')}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Sign in
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              <ThemeModeToggle />
+              {currentUser && onLogout && passwordChangeRequired ? (
+                <Button onClick={onLogout} size="sm" type="button" variant="outline">
+                  <LogOut className="size-4" aria-hidden="true" />
+                  Log out
+                </Button>
+              ) : currentUser && onLogout && onNavigate ? (
+                <UserMenu
+                  currentUser={currentUser}
+                  onLogout={onLogout}
+                  onNavigate={onNavigate}
+                />
+              ) : authStatus === 'loading' ? (
+                <span className="text-sm font-medium text-muted-foreground">
+                  Checking session
+                </span>
+              ) : (
+                <Button
+                  onClick={() => handleNavigate('/')}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Sign in
+                </Button>
+              )}
+            </div>
           </div>
         </header>
       ) : null}

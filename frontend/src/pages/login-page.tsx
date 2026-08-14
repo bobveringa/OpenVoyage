@@ -33,7 +33,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
   return (
     <main className="relative isolate grid min-h-dvh place-items-center px-4 py-10 text-foreground">
       <AppBackground />
-      <section className="w-full max-w-md rounded-2xl border border-emerald-100 bg-white p-6 shadow-soft sm:p-8">
+      <section className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-soft sm:p-8">
         <div className="mb-8 grid justify-items-center gap-4 text-center">
           <span className="grid size-12 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
             <Compass className="size-6" aria-hidden="true" />

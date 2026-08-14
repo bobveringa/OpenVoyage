@@ -297,7 +297,7 @@ export function ProfileDetailsForm({
 
           {savedMessage ? (
             <p
-              className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-primary"
+              className="rounded-xl border border-input bg-muted px-3 py-2 text-sm font-medium text-primary"
               role="status"
             >
               {savedMessage}

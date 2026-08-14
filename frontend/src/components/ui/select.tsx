@@ -40,7 +40,7 @@ type SelectMenuPosition = {
 }
 
 const selectTriggerVariants = cva(
-  'flex h-11 w-full items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-white px-3 py-2 text-left text-base text-foreground shadow-sm transition-colors hover:border-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+  'flex h-11 w-full items-center justify-between gap-3 rounded-2xl border border-input bg-card px-3 py-2 text-left text-base text-foreground shadow-sm transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
 )
 
 const selectOptionVariants = cva(
@@ -48,8 +48,8 @@ const selectOptionVariants = cva(
   {
     variants: {
       active: {
-        false: 'text-foreground hover:bg-emerald-50',
-        true: 'bg-emerald-50 text-foreground',
+        false: 'text-foreground hover:bg-muted',
+        true: 'bg-muted text-foreground',
       },
       selected: {
         false: '',
@@ -312,7 +312,7 @@ export function Select<TValue extends string = string>({
       {open && menuPosition && typeof document !== 'undefined'
         ? createPortal(
             <div
-              className="fixed z-[100] overflow-hidden rounded-2xl border border-emerald-100 bg-white p-1 shadow-xl shadow-emerald-950/10"
+              className="fixed z-[100] overflow-hidden rounded-2xl border border-border bg-popover p-1 shadow-xl shadow-foreground/10"
               ref={menuRef}
               style={{
                 left: menuPosition.left,
@@ -325,12 +325,12 @@ export function Select<TValue extends string = string>({
               }}
             >
               {searchable ? (
-                <div className="border-b border-emerald-100 p-1 pb-2">
+                <div className="border-b border-border p-1 pb-2">
                   <input
                     aria-controls={listboxId}
                     aria-label={searchPlaceholder}
                     autoFocus
-                    className="h-9 w-full rounded-xl border border-emerald-100 bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                    className="h-9 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
                     onChange={(event) => {
                       setQuery(event.target.value)
                       setActiveIndex(0)

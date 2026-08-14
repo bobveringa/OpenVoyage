@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import NoReturn
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from starlette import status
 
 from api.deps import AppSettingsServiceDep, CurrentAdmin
@@ -56,11 +56,13 @@ def _raise_http_error(exc: Exception) -> NoReturn:
 @public_router.get('/public', response_model=PublicSettingsResponse)
 def get_public_settings(
     app_settings_service: AppSettingsServiceDep,
+    response: Response,
 ) -> PublicSettingsResponse:
     try:
         record = app_settings_service.get_public_settings()
     except StoredAppSettingError as exc:
         _raise_http_error(exc)
+    response.headers['Cache-Control'] = 'no-store'
     return PublicSettingsResponse.model_validate(record)
 
 

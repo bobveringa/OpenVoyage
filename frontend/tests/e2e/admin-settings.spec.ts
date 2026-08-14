@@ -9,14 +9,35 @@ type MockSetting = {
   updated_at: string | null
   validation: Record<string, unknown> | null
   value: unknown | null
-  value_type: 'enum' | 'integer' | 'secret' | 'string'
+  value_type: 'enum' | 'integer' | 'object' | 'secret' | 'string'
   visibility: 'admin' | 'public'
 }
 
 const defaultTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 const customTileUrl = 'https://tiles.example.test/{z}/{x}/{y}.png'
+const defaultThemePalette = {
+  schema_version: 1,
+  light: {
+    background: '#F7FBF7', foreground: '#183026', card: '#FFFFFF', cardForeground: '#183026', popover: '#FFFFFF', popoverForeground: '#183026', primary: '#246B49', primaryForeground: '#FFFFFF', secondary: '#EAF3EB', secondaryForeground: '#264B37', muted: '#EDF3ED', mutedForeground: '#587064', accent: '#D99A2B', accentForeground: '#332711', border: '#D4E1D6', input: '#7C9483', ring: '#2C7652',
+  },
+  dark: {
+    background: '#121A27', foreground: '#E8EEF1', card: '#182231', cardForeground: '#E8EEF1', popover: '#182231', popoverForeground: '#E8EEF1', primary: '#65AFC8', primaryForeground: '#101923', secondary: '#263444', secondaryForeground: '#DFE9ED', muted: '#293746', mutedForeground: '#AABAC2', accent: '#E17D62', accentForeground: '#111923', border: '#35475A', input: '#71869B', ring: '#65AFC8',
+  },
+}
 
 const initialSettings: MockSetting[] = [
+  {
+    default_value: defaultThemePalette,
+    description: 'Shared light and dark application color palettes.',
+    is_configured: false,
+    key: 'theme.palette',
+    runtime_safe: true,
+    updated_at: null,
+    validation: { format: 'theme-palette-v1' },
+    value: defaultThemePalette,
+    value_type: 'object',
+    visibility: 'public',
+  },
   {
     default_value: 'system',
     description: 'Controls the public theme mode.',
@@ -294,6 +315,41 @@ test('updates and resets the public map tile provider URL', async ({ page }) => 
   await expect(tileProviderForm.getByText('Default restored.')).toBeVisible()
   await expect(page.getByLabel('Tile URL template')).toHaveValue(defaultTileUrl)
   expect(api.resets).toContain('map.tile_provider')
+})
+
+test('lets an admin preview and publish a complete theme preset', async ({ page }) => {
+  const api = await mockAdminApi(page)
+
+  await page.goto('/admin#appearance')
+  await page.getByRole('button', { name: 'Apply OpenVoyage preset' }).click()
+  await expect(page.getByRole('button', { name: 'Publish theme' })).toBeDisabled()
+  for (const preset of ['Ocean', 'Violet', 'Forest', 'Rose', 'Slate']) {
+    await page.getByRole('button', { name: `Apply ${preset} preset` }).click()
+    await expect(page.getByRole('button', { name: 'Publish theme' })).toBeEnabled()
+  }
+  await page.getByRole('button', { name: 'Apply Ocean preset' }).click()
+  await expect(page.getByText('light preview', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Publish theme' }).click()
+
+  await expect(page.getByText(/Theme published/)).toBeVisible()
+  expect(api.updates).toContainEqual({
+    key: 'theme.palette',
+    value: expect.objectContaining({ schema_version: 1 }),
+  })
+})
+
+test('stores a visitor color mode choice from the top bar', async ({ page }) => {
+  await mockAdminApi(page)
+
+  await page.goto('/admin#appearance')
+  await page.getByRole('button', { name: 'Use dark appearance' }).click()
+
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.classList.contains('dark')))
+    .toBe(true)
+  await expect
+    .poll(() => page.evaluate(() => window.localStorage.getItem('openvoyage.theme-mode.v1')))
+    .toBe('dark')
 })
 
 async function mockAdminApi(page: Page) {

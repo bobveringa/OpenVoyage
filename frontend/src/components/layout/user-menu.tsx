@@ -61,7 +61,7 @@ export function UserMenu({
     <div className="relative" ref={menuRef}>
       <button
         aria-expanded={open}
-        className="inline-flex h-10 max-w-[13rem] items-center gap-2 rounded-xl border border-emerald-100 bg-white px-2 text-sm font-semibold shadow-sm transition-colors hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="inline-flex h-10 max-w-[13rem] items-center gap-2 rounded-xl border border-border bg-card px-2 text-sm font-semibold shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
@@ -76,8 +76,8 @@ export function UserMenu({
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-emerald-100 bg-white p-1 text-popover-foreground shadow-lg">
-          <div className="border-b border-emerald-100 px-3 py-2">
+        <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+          <div className="border-b border-border px-3 py-2">
             <p className="truncate text-sm font-medium">{displayName}</p>
             {username ? (
               <p className="truncate text-xs text-muted-foreground">@{username}</p>

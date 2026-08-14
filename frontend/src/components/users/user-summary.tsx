@@ -26,7 +26,7 @@ export function UserSummary({
   const tripLabel = `${totalTrips} ${totalTrips === 1 ? 'trip' : 'trips'}`
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm sm:p-6">
+    <section className="relative overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
       <div className="absolute inset-x-0 top-0 h-1 bg-primary" />
       <div className="grid gap-5 sm:grid-cols-[auto_1fr] sm:items-center">
         <MediaImage

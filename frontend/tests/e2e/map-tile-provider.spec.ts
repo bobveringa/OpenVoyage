@@ -43,7 +43,7 @@ test('swaps only the base tiles and preserves routes and point selection', async
   await page.getByRole('button', { name: 'Travel', exact: true }).click()
   await expect(page.getByText('2 hr 32 min')).toBeVisible()
   await expect(map.locator('path[stroke="#7c3aed"]')).toBeAttached()
-  const unknownRoute = map.locator('path[stroke="#334155"]').first()
+  const unknownRoute = map.locator('path[stroke="#587064"]').first()
   await unknownRoute.dispatchEvent('mouseover')
   await expect(map.locator('.leaflet-tooltip')).toHaveCount(0)
 

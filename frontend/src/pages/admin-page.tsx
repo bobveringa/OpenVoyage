@@ -40,6 +40,17 @@ export function AdminPage({
 
   return (
     <div className="space-y-7 py-6 sm:py-8 lg:space-y-8 lg:py-10">
+      <div className="space-y-2 lg:pl-[calc(14.5rem+2rem)]">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">
+          Administration
+        </p>
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+          Application control centre
+        </h1>
+        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+          Manage shared appearance, travel infrastructure, and application tools.
+        </p>
+      </div>
 
       <div className="grid min-w-0 gap-6 lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start lg:gap-8 min-[1680px]:-ml-[16.5rem] min-[1680px]:w-[calc(100%+16.5rem)]">
         <AdminNavigation

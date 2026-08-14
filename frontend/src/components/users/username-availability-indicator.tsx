@@ -22,7 +22,7 @@ const indicatorVariants = cva(
   {
     variants: {
       state: {
-        available: 'bg-emerald-50 text-primary',
+        available: 'bg-muted text-primary',
         checking: 'bg-secondary text-muted-foreground',
         error: 'bg-destructive/10 text-destructive',
         idle: 'bg-secondary text-muted-foreground',

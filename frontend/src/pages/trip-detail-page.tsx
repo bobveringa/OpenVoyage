@@ -77,6 +77,7 @@ import {
   resolveMapTileProvider,
 } from '@/lib/map-tile-providers'
 import { usePublicSetting } from '@/settings/public-settings'
+import { useTheme } from '@/theme'
 import {
   addTripMember,
   addTripViewer,
@@ -2157,7 +2158,7 @@ function TripSidebarHeader({
   trip: MockTrip
 }) {
   return (
-    <div className="space-y-2 border-b border-emerald-100 px-4 py-3">
+    <div className="space-y-2 border-b border-border px-4 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <h1 className="truncate text-lg font-semibold tracking-normal text-foreground">
@@ -2379,8 +2380,8 @@ function VisibilityPreview({
         : Globe2
 
   return (
-    <div className="flex items-start gap-3 rounded-[1.25rem] border border-emerald-100 bg-emerald-50/70 p-3">
-      <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-white text-primary">
+    <div className="flex items-start gap-3 rounded-[1.25rem] border border-border bg-muted/70 p-3">
+      <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-card text-primary">
         <Icon className="size-4" aria-hidden="true" />
       </span>
       <div>
@@ -2551,7 +2552,7 @@ function UserSearchSelect({
 
         {isOpen ? (
           <div
-            className="absolute inset-x-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-lg"
+            className="absolute inset-x-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
             id={listboxId}
             role="listbox"
           >
@@ -2574,8 +2575,8 @@ function UserSearchSelect({
                       className={cn(
                         'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors',
                         index === activeIndex
-                          ? 'bg-emerald-50'
-                          : 'hover:bg-emerald-50/70',
+                          ? 'bg-muted'
+                          : 'hover:bg-muted/70',
                       )}
                       key={user.id}
                       onClick={() => selectUser(user)}
@@ -2681,7 +2682,7 @@ function ShareManagementDialog({
       <div className="grid gap-5">
         {error ? (
           <p
-            className="sticky top-0 z-40 rounded-[1.2rem] border border-destructive/30 bg-white px-3 py-2 text-sm text-destructive shadow-md"
+            className="sticky top-0 z-40 rounded-[1.2rem] border border-destructive/30 bg-card px-3 py-2 text-sm text-destructive shadow-md"
             role="alert"
           >
             {error}
@@ -2689,9 +2690,9 @@ function ShareManagementDialog({
         ) : null}
         {notice ? <MockNotice>{notice}</MockNotice> : null}
 
-        <section className="space-y-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4">
+        <section className="space-y-4 rounded-[1.5rem] border border-border bg-card p-4">
           <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-primary">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-muted text-primary">
               <Link2 className="size-4" aria-hidden="true" />
             </span>
             <div>
@@ -2740,16 +2741,16 @@ function ShareManagementDialog({
               />
             ))}
             {shareLinks.length === 0 ? (
-              <p className="rounded-[1.1rem] bg-emerald-50/70 px-3 py-2 text-sm text-muted-foreground">
+              <p className="rounded-[1.1rem] bg-muted/70 px-3 py-2 text-sm text-muted-foreground">
                 No share links yet.
               </p>
             ) : null}
           </div>
         </section>
 
-        <section className="space-y-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4">
+        <section className="space-y-4 rounded-[1.5rem] border border-border bg-card p-4">
           <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-primary">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-muted text-primary">
               <Eye className="size-4" aria-hidden="true" />
             </span>
             <div>
@@ -2789,7 +2790,7 @@ function ShareManagementDialog({
           <div className="grid gap-2">
             {viewers.map((viewer) => (
               <div
-                className="flex items-center justify-between gap-3 rounded-[1.2rem] border border-emerald-100 bg-emerald-50/40 px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-[1.2rem] border border-border bg-muted/40 px-3 py-2"
                 key={viewer.id}
               >
                 <UserSummary name={viewer.name} subtitle={viewer.email} />
@@ -2807,7 +2808,7 @@ function ShareManagementDialog({
               </div>
             ))}
             {viewers.length === 0 ? (
-              <p className="rounded-[1.1rem] bg-emerald-50/70 px-3 py-2 text-sm text-muted-foreground">
+              <p className="rounded-[1.1rem] bg-muted/70 px-3 py-2 text-sm text-muted-foreground">
                 No viewers yet.
               </p>
             ) : null}
@@ -2870,7 +2871,7 @@ function TripMembersDialog({
       <div className="grid gap-5">
         {error ? (
           <p
-            className="sticky top-0 z-40 rounded-[1.2rem] border border-destructive/30 bg-white px-3 py-2 text-sm text-destructive shadow-md"
+            className="sticky top-0 z-40 rounded-[1.2rem] border border-destructive/30 bg-card px-3 py-2 text-sm text-destructive shadow-md"
             role="alert"
           >
             {error}
@@ -2879,11 +2880,11 @@ function TripMembersDialog({
         {notice ? <MockNotice>{notice}</MockNotice> : null}
 
         <form
-          className="grid gap-3 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/70 p-4"
+          className="grid gap-3 rounded-[1.5rem] border border-border bg-muted/70 p-4"
           onSubmit={handleInviteMember}
         >
           <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-white text-primary">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-card text-primary">
               <UserPlus className="size-4" aria-hidden="true" />
             </span>
             <div>
@@ -2929,9 +2930,9 @@ function TripMembersDialog({
           </div>
         </form>
 
-        <section className="space-y-3 rounded-[1.5rem] border border-emerald-100 bg-white p-4">
+        <section className="space-y-3 rounded-[1.5rem] border border-border bg-card p-4">
           <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-primary">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-muted text-primary">
               <Users className="size-4" aria-hidden="true" />
             </span>
             <div>
@@ -2955,7 +2956,7 @@ function TripMembersDialog({
               />
             ))}
             {members.length === 0 ? (
-              <p className="rounded-[1.1rem] bg-emerald-50/70 px-3 py-2 text-sm text-muted-foreground">
+              <p className="rounded-[1.1rem] bg-muted/70 px-3 py-2 text-sm text-muted-foreground">
                 No members yet.
               </p>
             ) : null}
@@ -3045,7 +3046,7 @@ function ShareLinkRow({
   }
 
   return (
-    <div className="grid gap-3 rounded-[1.2rem] border border-emerald-100 bg-emerald-50/40 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+    <div className="grid gap-3 rounded-[1.2rem] border border-border bg-muted/40 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <div className="min-w-0">
         <p className="font-semibold text-foreground">{link.label}</p>
         <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -3111,7 +3112,7 @@ function MemberRow({
   }
 
   return (
-    <div className="grid gap-3 rounded-[1.2rem] border border-emerald-100 bg-emerald-50/40 p-3 sm:grid-cols-[minmax(0,1fr)_11rem_auto] sm:items-center">
+    <div className="grid gap-3 rounded-[1.2rem] border border-border bg-muted/40 p-3 sm:grid-cols-[minmax(0,1fr)_11rem_auto] sm:items-center">
       <UserSummary name={member.name} subtitle={member.email} />
       <Select<MockTripRole>
         disabled={!canMutate || isSaving || isOwner}
@@ -3153,7 +3154,7 @@ function ActionRow({
         'flex w-full items-center gap-3 rounded-[1.25rem] border p-3 text-left transition-colors',
         destructive
           ? 'border-destructive/30 bg-destructive/5 hover:bg-destructive/10'
-          : 'border-emerald-100 bg-white hover:bg-emerald-50',
+          : 'border-border bg-card hover:bg-muted',
       )}
       onClick={onClick}
       type="button"
@@ -3163,7 +3164,7 @@ function ActionRow({
           'grid size-11 shrink-0 place-items-center rounded-2xl',
           destructive
             ? 'bg-destructive/10 text-destructive'
-            : 'bg-emerald-50 text-primary',
+            : 'bg-muted text-primary',
         )}
       >
         <Icon className="size-4" aria-hidden="true" />
@@ -3187,7 +3188,7 @@ function UserSummary({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-white text-sm font-semibold text-primary">
+      <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-card text-sm font-semibold text-primary">
         {getInitials(name)}
       </span>
       <span className="min-w-0">
@@ -3203,7 +3204,7 @@ function UserSummary({
 function MockNotice({ children }: { children: ReactNode }) {
   return (
     <p
-      className="rounded-[1.2rem] border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-sm font-medium text-primary"
+      className="rounded-[1.2rem] border border-border bg-muted/70 px-3 py-2 text-sm font-medium text-primary"
       role="status"
     >
       {children}
@@ -3248,7 +3249,7 @@ function MobileMapPointPicker({
   return createPortal(
     <div
       aria-modal="true"
-      className="fixed inset-0 z-[70] overflow-hidden bg-white"
+      className="fixed inset-0 z-[70] overflow-hidden bg-card"
       role="dialog"
     >
       <TripLeafletMap
@@ -3278,9 +3279,9 @@ function MobileMapPointPicker({
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-white via-white/95 to-transparent p-3 pt-10">
-        <div className="pointer-events-auto space-y-3 rounded-[1.5rem] border border-emerald-100 bg-white p-4 shadow-xl shadow-emerald-950/10">
+        <div className="pointer-events-auto space-y-3 rounded-[1.5rem] border border-border bg-card p-4 shadow-xl shadow-foreground/10">
           <div className="flex items-start gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-primary">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-muted text-primary">
               <MousePointer2 className="size-5" aria-hidden="true" />
             </span>
             <div className="min-w-0">
@@ -3438,7 +3439,7 @@ function TripSidebar({
   return (
     <aside
       className={cn(
-        'flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-sm lg:h-full',
+        'flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[2rem] border border-border bg-card shadow-sm lg:h-full',
         isMobileTravelPosts && `${mobileTravelMapHeight} lg:h-full`,
       )}
     >
@@ -3557,7 +3558,7 @@ function ModeButton({
       className={cn(
         'flex h-11 items-center justify-center gap-2 rounded-[1.1rem] text-sm font-semibold transition-colors',
         active
-          ? 'bg-white text-foreground shadow-sm'
+          ? 'bg-card text-foreground shadow-sm'
           : 'text-muted-foreground hover:text-foreground',
       )}
       onClick={onClick}
@@ -3581,7 +3582,7 @@ function TripModeSwitch({
   return (
     <div
       className={cn(
-        'grid grid-cols-2 rounded-[1.4rem] border border-emerald-100 bg-white/92 p-1 shadow-xl shadow-emerald-950/10 backdrop-blur',
+        'grid grid-cols-2 rounded-[1.4rem] border border-border bg-card/92 p-1 shadow-xl shadow-foreground/10 backdrop-blur',
         className,
       )}
     >
@@ -3610,7 +3611,7 @@ function TripModeDock({
 }) {
   return (
     <div className="hidden min-h-0 items-center lg:flex">
-      <div className="flex w-full flex-col gap-1.5 rounded-[1.35rem] border border-emerald-100 bg-white/95 p-1.5 shadow-xl shadow-emerald-950/10">
+      <div className="flex w-full flex-col gap-1.5 rounded-[1.35rem] border border-border bg-card/95 p-1.5 shadow-xl shadow-foreground/10">
         <DockModeButton
           active={mode === 'planning'}
           icon={PenLine}
@@ -3647,7 +3648,7 @@ function DockModeButton({
         'h-16 w-full flex-col gap-1 rounded-[1rem] border px-1 py-1.5 text-center text-[13px] font-semibold leading-none tracking-normal transition-colors',
         active
           ? 'border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90'
-          : 'border-transparent bg-white text-muted-foreground hover:bg-emerald-50 hover:text-foreground',
+          : 'border-transparent bg-card text-muted-foreground hover:bg-muted hover:text-foreground',
       )}
       onClick={onClick}
       title={label}
@@ -3704,8 +3705,8 @@ function LocationOptionCard({
       className={cn(
         'flex w-full items-center gap-3 rounded-[1.25rem] border p-3 text-left transition-colors',
         active
-          ? 'border-primary bg-white shadow-sm ring-2 ring-primary/12'
-          : 'border-emerald-100 bg-white/75 hover:bg-white',
+          ? 'border-primary bg-card shadow-sm ring-2 ring-primary/12'
+          : 'border-border bg-card/75 hover:bg-card',
       )}
       onClick={onClick}
       type="button"
@@ -3713,7 +3714,7 @@ function LocationOptionCard({
       <span
         className={cn(
           'grid size-10 shrink-0 place-items-center rounded-2xl',
-          active ? 'bg-primary text-primary-foreground' : 'bg-emerald-50 text-primary',
+          active ? 'bg-primary text-primary-foreground' : 'bg-muted text-primary',
         )}
       >
         <Icon className="size-4" aria-hidden="true" />
@@ -3734,7 +3735,7 @@ function LocationOptionCard({
           'grid size-7 shrink-0 place-items-center rounded-full border transition-colors',
           active
             ? 'border-primary bg-primary text-primary-foreground'
-            : 'border-emerald-100 bg-white text-transparent',
+            : 'border-border bg-card text-transparent',
         )}
       >
         <Check className="size-4" aria-hidden="true" />
@@ -3769,7 +3770,7 @@ function PlaceSearchDropdown({
   return (
     <div
       aria-label="Place search results"
-      className="overflow-hidden rounded-[1.25rem] border border-emerald-100 bg-white shadow-sm"
+      className="overflow-hidden rounded-[1.25rem] border border-border bg-card shadow-sm"
       role="listbox"
     >
       {!trimmedQuery ? (
@@ -3793,7 +3794,7 @@ function PlaceSearchDropdown({
       {places.map((place) => (
         <button
           aria-selected={false}
-          className="grid w-full gap-1 border-t border-emerald-50 px-3 py-2 text-left transition-colors first:border-t-0 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="grid w-full gap-1 border-t border-border/60 px-3 py-2 text-left transition-colors first:border-t-0 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
           disabled={disabled}
           key={place.id}
           onClick={() => onSelect(place)}
@@ -3998,16 +3999,16 @@ function StopInsertButton({
     <div className="grid grid-cols-[3.25rem_1fr] gap-3 px-1 py-0.5">
       <div className="flex justify-center">
         <div className="flex w-0 flex-col items-center">
-          <span className="h-2 w-px bg-emerald-100" />
-          <span className="grid size-8 shrink-0 place-items-center rounded-2xl border border-dashed border-emerald-200 bg-emerald-50 text-primary">
+          <span className="h-2 w-px bg-border" />
+          <span className="grid size-8 shrink-0 place-items-center rounded-2xl border border-dashed border-input bg-muted text-primary">
             <Plus className="size-4" aria-hidden="true" />
           </span>
-          <span className="h-2 w-px bg-emerald-100" />
+          <span className="h-2 w-px bg-border" />
         </div>
       </div>
 
       <button
-        className="flex min-h-10 w-full items-center justify-center gap-2 rounded-[1.1rem] border border-dashed border-emerald-200 bg-emerald-50/55 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:border-primary/50 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex min-h-10 w-full items-center justify-center gap-2 rounded-[1.1rem] border border-dashed border-input bg-muted/55 px-3 py-2 text-sm font-semibold text-primary transition-colors hover:border-primary/50 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
         disabled={disabled}
         onClick={onClick}
         type="button"
@@ -4169,7 +4170,7 @@ function CreateStopPanel({
         </div>
       </div>
 
-      <section className="space-y-3 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/70 p-4">
+      <section className="space-y-3 rounded-[1.5rem] border border-border bg-muted/70 p-4">
         <label className="grid gap-2 text-sm font-medium text-foreground">
           Search places
           <span className="relative">
@@ -4236,7 +4237,7 @@ function CreateStopPanel({
         />
       </section>
 
-      <section className="space-y-3 rounded-[1.5rem] border border-emerald-100 bg-white p-4">
+      <section className="space-y-3 rounded-[1.5rem] border border-border bg-card p-4">
         <div>
           <h3 className="font-semibold text-foreground">Stop title</h3>
           <p className="text-sm text-muted-foreground">
@@ -4276,7 +4277,7 @@ function CreateStopPanel({
         ) : null}
       </section>
 
-      <section className="min-w-0 space-y-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4">
+      <section className="min-w-0 space-y-4 rounded-[1.5rem] border border-border bg-card p-4">
         <div>
           <h3 className="font-semibold text-foreground">Schedule</h3>
           <p className="text-sm text-muted-foreground">
@@ -4342,7 +4343,7 @@ function MobileTravelMap({
   const [resetNonce, setResetNonce] = useState(0)
 
   return (
-    <section className="trip-mobile-travel-map absolute inset-0 overflow-hidden bg-white lg:hidden">
+    <section className="trip-mobile-travel-map absolute inset-0 overflow-hidden bg-card lg:hidden">
       <TripLeafletMap
         draftMapLocation={null}
         fitMode="mobile-travel"
@@ -4360,7 +4361,7 @@ function MobileTravelMap({
       <div className="pointer-events-none absolute right-3 top-3 z-[500]">
         <Button
           aria-label="Recenter travel map"
-          className="pointer-events-auto size-10 rounded-full bg-white/90 shadow-lg shadow-emerald-950/10 backdrop-blur hover:bg-white"
+          className="pointer-events-auto size-10 rounded-full bg-card/90 shadow-lg shadow-foreground/10 backdrop-blur hover:bg-card"
           onClick={() => setResetNonce((current) => current + 1)}
           size="icon"
           title="Recenter"
@@ -4504,7 +4505,7 @@ function TravelingPanel({
               {canMutate ? (
                 <div className="pointer-events-none absolute left-3 top-3 z-[500]">
                   <Button
-                    className="pointer-events-auto shadow-xl shadow-emerald-950/10"
+                    className="pointer-events-auto shadow-xl shadow-foreground/10"
                     onClick={onNewPost}
                     size="sm"
                     type="button"
@@ -5117,7 +5118,7 @@ function PostFormPanel({
         </div>
       </div>
 
-      <section className="space-y-3 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/70 p-4">
+      <section className="space-y-3 rounded-[1.5rem] border border-border bg-muted/70 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="font-semibold text-foreground">Location</h3>
@@ -5202,7 +5203,7 @@ function PostFormPanel({
         />
       </section>
 
-      <section className="space-y-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4">
+      <section className="space-y-4 rounded-[1.5rem] border border-border bg-card p-4">
         <label className="grid gap-2 text-sm font-medium text-foreground">
           Title
           <Input
@@ -5234,7 +5235,7 @@ function PostFormPanel({
         </label>
       </section>
 
-      <section className="space-y-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4">
+      <section className="space-y-4 rounded-[1.5rem] border border-border bg-card p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="font-semibold text-foreground">Media</h3>
@@ -5260,7 +5261,7 @@ function PostFormPanel({
           {draftMedia.length === 0 ? (
             <button
               className={cn(
-                'grid w-[76vw] max-w-80 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary sm:w-80',
+                'grid w-[76vw] max-w-80 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-input bg-muted/60 text-primary sm:w-80',
                 mediaStripHeightClassName,
               )}
               disabled={formDisabled}
@@ -5288,7 +5289,7 @@ function PostFormPanel({
                   retryDisabled={isSubmitting}
                 />
               ) : null}
-              <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 rounded-2xl bg-white/90 p-1.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 rounded-2xl bg-card/90 p-1.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 <div className="flex gap-1">
                   <Button
                     aria-label={`Move ${media.alt} left`}
@@ -5336,7 +5337,7 @@ function PostFormPanel({
 
           <button
             className={cn(
-              'grid w-[52vw] max-w-52 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/60 text-primary sm:w-52',
+              'grid w-[52vw] max-w-52 shrink-0 place-items-center rounded-[1.4rem] border border-dashed border-input bg-muted/60 text-primary sm:w-52',
               mediaStripHeightClassName,
             )}
             disabled={formDisabled}
@@ -5351,7 +5352,7 @@ function PostFormPanel({
         </div>
 
         {mediaToolsOpen ? (
-          <div className="space-y-3 rounded-[1.25rem] border border-emerald-100 bg-emerald-50/70 p-3">
+          <div className="space-y-3 rounded-[1.25rem] border border-border bg-muted/70 p-3">
             <div className="grid gap-2 sm:grid-cols-2">
               <Button
                 disabled={formDisabled}
@@ -5386,7 +5387,7 @@ function PostFormPanel({
               type="file"
             />
 
-            <p className="rounded-[1.1rem] bg-white/75 px-3 py-2 text-sm text-muted-foreground">
+            <p className="rounded-[1.1rem] bg-card/75 px-3 py-2 text-sm text-muted-foreground">
               Select photos or videos. New uploads are added to the end of the
               strip and can be reordered before publishing.
             </p>
@@ -5440,7 +5441,7 @@ function PostFormPanel({
         title="Finishing uploads"
       >
         <div className="space-y-4">
-          <div className="rounded-[1.1rem] border border-emerald-100 bg-emerald-50/70 px-3 py-3">
+          <div className="rounded-[1.1rem] border border-border bg-muted/70 px-3 py-3">
             <p className="text-sm font-semibold text-foreground">
               {getDraftMediaUploadSummaryLabel(uploadSummary)}
             </p>
@@ -5456,7 +5457,7 @@ function PostFormPanel({
               .filter((media) => isDraftMediaUploadBlocking(media))
               .map((media) => (
                 <div
-                  className="flex items-center justify-between gap-3 rounded-[1.1rem] border border-emerald-100 px-3 py-2"
+                  className="flex items-center justify-between gap-3 rounded-[1.1rem] border border-border px-3 py-2"
                   key={media.clientId}
                 >
                   <div className="min-w-0">
@@ -5541,8 +5542,8 @@ function TravelPostCard({
   return (
     <article
       className={cn(
-        'min-w-0 overflow-hidden rounded-[1.5rem] border bg-emerald-50/45 shadow-sm shadow-emerald-950/5 transition-colors',
-        active ? 'border-primary/55' : 'border-emerald-100',
+        'min-w-0 overflow-hidden rounded-[1.5rem] border bg-muted/45 shadow-sm shadow-foreground/5 transition-colors',
+        active ? 'border-primary/55' : 'border-border',
       )}
       ref={postRef}
     >
@@ -5622,9 +5623,9 @@ function PostRouteDuration({
     return (
       <div
         aria-label={`${label} until the next post`}
-        className="flex shrink-0 snap-none items-center gap-2 self-center rounded-[1.1rem] border border-emerald-100 bg-white/90 px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm"
+        className="flex shrink-0 snap-none items-center gap-2 self-center rounded-[1.1rem] border border-border bg-card/90 px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm"
       >
-        <span className="grid size-6 place-items-center rounded-lg bg-emerald-50 text-primary">
+        <span className="grid size-6 place-items-center rounded-lg bg-muted text-primary">
           <ModeIcon className="size-3.5" aria-hidden="true" />
         </span>
         <span>Traveled for {label}</span>
@@ -5637,21 +5638,21 @@ function PostRouteDuration({
     <div className="grid grid-cols-[3.25rem_1fr] gap-3 px-1 py-0.5">
       <div className="flex justify-center" aria-hidden="true">
         <div className="flex w-0 flex-col items-center">
-          <span className="h-2 w-px bg-emerald-100" />
-          <span className="grid size-8 shrink-0 place-items-center rounded-2xl border border-emerald-100 bg-white text-primary shadow-sm">
+          <span className="h-2 w-px bg-border" />
+          <span className="grid size-8 shrink-0 place-items-center rounded-2xl border border-border bg-card text-primary shadow-sm">
             <ModeIcon className="size-4" />
           </span>
-          <span className="h-2 w-px bg-emerald-100" />
+          <span className="h-2 w-px bg-border" />
         </div>
       </div>
       <div
         aria-label={`Traveled for ${label} until the next post`}
-        className="flex min-h-10 items-center gap-2 rounded-[1.1rem] border border-emerald-100 bg-white/85 px-3 py-2 text-sm shadow-sm"
+        className="flex min-h-10 items-center gap-2 rounded-[1.1rem] border border-border bg-card/85 px-3 py-2 text-sm shadow-sm"
       >
         <span className="text-muted-foreground">
           Traveled for
         </span>
-        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-foreground">
+        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
           <Clock className="size-3" aria-hidden="true" />
           {label}
         </span>
@@ -5677,8 +5678,8 @@ function TravelPostPreviewCard({
   return (
     <article
       className={cn(
-        'trip-mobile-post-carousel__card shrink-0 snap-center overflow-hidden rounded-[1.5rem] border bg-emerald-50/45 shadow-sm shadow-emerald-950/5 transition-colors',
-        active ? 'border-primary/55' : 'border-emerald-100',
+        'trip-mobile-post-carousel__card shrink-0 snap-center overflow-hidden rounded-[1.5rem] border bg-muted/45 shadow-sm shadow-foreground/5 transition-colors',
+        active ? 'border-primary/55' : 'border-border',
       )}
       ref={postRef}
     >
@@ -5697,13 +5698,13 @@ function TravelPostPreviewCard({
           <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
           {isVideo ? (
             <span className="pointer-events-none absolute inset-0 grid place-items-center">
-              <span className="grid size-11 place-items-center rounded-full bg-white/90 text-primary shadow-lg shadow-black/15">
+              <span className="grid size-11 place-items-center rounded-full bg-card/90 text-primary shadow-lg shadow-black/15">
                 <Play className="ml-0.5 size-5 fill-current" aria-hidden="true" />
               </span>
             </span>
           ) : null}
           {post.media.length > 1 ? (
-            <span className="absolute right-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[0.68rem] font-semibold text-primary shadow-sm">
+            <span className="absolute right-2 top-2 rounded-full bg-card/90 px-2 py-1 text-[0.68rem] font-semibold text-primary shadow-sm">
               {post.media.length} media
             </span>
           ) : null}
@@ -5741,8 +5742,8 @@ function MobilePostDetailCard({
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
 
   return (
-    <article className="flex h-full min-h-0 flex-col overflow-hidden bg-white lg:hidden">
-      <div className="flex min-w-0 items-start gap-3 border-b border-emerald-100 bg-white/85 p-3">
+    <article className="flex h-full min-h-0 flex-col overflow-hidden bg-card lg:hidden">
+      <div className="flex min-w-0 items-start gap-3 border-b border-border bg-card/85 p-3">
         <Button
           aria-label="Back to post carousel"
           className="size-9 rounded-full"
@@ -5838,7 +5839,7 @@ function MobilePostDetailMediaCard({
         <span className="sr-only">Open {media.alt}</span>
         {isVideo ? (
           <span className="pointer-events-none absolute inset-0 grid place-items-center">
-            <span className="grid size-10 place-items-center rounded-full bg-white/90 text-primary shadow-lg shadow-black/15">
+            <span className="grid size-10 place-items-center rounded-full bg-card/90 text-primary shadow-lg shadow-black/15">
               <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
             </span>
           </span>
@@ -5881,7 +5882,7 @@ function MediaStripCard({
         <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
         {isVideo ? (
           <span className="pointer-events-none absolute inset-0 grid place-items-center">
-            <span className="grid size-12 place-items-center rounded-full bg-white/90 text-primary shadow-lg shadow-black/15">
+            <span className="grid size-12 place-items-center rounded-full bg-card/90 text-primary shadow-lg shadow-black/15">
               <Play className="ml-0.5 size-5 fill-current" aria-hidden="true" />
             </span>
           </span>
@@ -5889,7 +5890,7 @@ function MediaStripCard({
       </button>
 
       {badge ? (
-        <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[0.68rem] font-semibold text-primary shadow-sm">
+        <span className="absolute left-2 top-2 rounded-full bg-card/90 px-2 py-1 text-[0.68rem] font-semibold text-primary shadow-sm">
           {badge}
         </span>
       ) : null}
@@ -5916,7 +5917,7 @@ function DraftMediaUploadStatusBadge({
 
   if (status === 'failed') {
     return (
-      <div className="absolute inset-x-2 top-2 space-y-2 rounded-[1rem] border border-destructive/30 bg-white/95 p-2 text-destructive shadow-sm">
+      <div className="absolute inset-x-2 top-2 space-y-2 rounded-[1rem] border border-destructive/30 bg-card/95 p-2 text-destructive shadow-sm">
         <div className="flex items-start gap-1.5">
           <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <p className="min-w-0 text-xs font-medium">
@@ -5944,7 +5945,7 @@ function DraftMediaUploadStatusBadge({
         className={cn(
           'absolute right-2 top-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full px-2 py-1 text-[0.68rem] font-semibold shadow-sm',
           status === 'uploaded' || status === 'existing'
-            ? 'bg-white/90 text-primary'
+            ? 'bg-card/90 text-primary'
             : 'bg-slate-950/70 text-white',
         )}
       >
@@ -5956,7 +5957,7 @@ function DraftMediaUploadStatusBadge({
         {getDraftMediaUploadStatusText(media)}
       </span>
       {status === 'uploading' && progressPercent !== null ? (
-        <span className="absolute inset-x-3 bottom-14 h-1.5 overflow-hidden rounded-full bg-white/70">
+        <span className="absolute inset-x-3 bottom-14 h-1.5 overflow-hidden rounded-full bg-card/70">
           <span
             className="block h-full rounded-full bg-primary"
             style={{ width: `${progressPercent}%` }}
@@ -6324,7 +6325,7 @@ function StopCard({
     <article
       className={cn(
         'grid w-full grid-cols-[3rem_1fr] gap-3 rounded-[1.5rem] border p-3 text-left',
-        'border-emerald-100 bg-emerald-50/45 shadow-sm shadow-emerald-950/5',
+        'border-border bg-muted/45 shadow-sm shadow-foreground/5',
       )}
     >
       <span className="grid size-10 place-items-center rounded-2xl bg-secondary text-sm font-semibold text-primary">
@@ -6365,7 +6366,7 @@ function StopCard({
           </span>
         </span>
 
-        <div className="grid grid-cols-2 rounded-2xl border border-emerald-100 bg-white shadow-sm sm:min-h-14 sm:grid-cols-[minmax(0,1fr)_7.75rem_minmax(0,1fr)]">
+        <div className="grid grid-cols-2 rounded-2xl border border-border bg-card shadow-sm sm:min-h-14 sm:grid-cols-[minmax(0,1fr)_7.75rem_minmax(0,1fr)]">
           <div className="min-w-0 px-3 py-2">
             <span className="block text-[0.65rem] font-semibold uppercase text-muted-foreground">
               Arrive
@@ -6385,7 +6386,7 @@ function StopCard({
             />
           </div>
 
-          <div className="min-w-0 border-l border-emerald-100 bg-white/70 px-3 py-2 text-right sm:order-3">
+          <div className="min-w-0 border-l border-border bg-card/70 px-3 py-2 text-right sm:order-3">
             <span className="block text-[0.65rem] font-semibold uppercase text-muted-foreground">
               Leave
             </span>
@@ -6402,10 +6403,10 @@ function StopCard({
             />
           </div>
 
-          <div className="col-span-2 grid grid-cols-[2rem_minmax(0,1fr)_2rem] border-t border-emerald-100 bg-emerald-50/50 sm:order-2 sm:col-span-1 sm:border-x sm:border-t-0">
+          <div className="col-span-2 grid grid-cols-[2rem_minmax(0,1fr)_2rem] border-t border-border bg-muted/50 sm:order-2 sm:col-span-1 sm:border-x sm:border-t-0">
             <button
               aria-label={`Remove one night from ${stop.title}`}
-              className="grid place-items-center border-r border-emerald-100 text-primary transition-colors hover:bg-emerald-100/70"
+              className="grid place-items-center border-r border-border text-primary transition-colors hover:bg-secondary/70"
               disabled={disabled}
               onClick={() => updateNights(stop.planned_nights - 1)}
               type="button"
@@ -6422,7 +6423,7 @@ function StopCard({
             </span>
             <button
               aria-label={`Add one night to ${stop.title}`}
-              className="grid place-items-center border-l border-emerald-100 text-primary transition-colors hover:bg-emerald-100/70"
+              className="grid place-items-center border-l border-border text-primary transition-colors hover:bg-secondary/70"
               disabled={disabled}
               onClick={() => updateNights(stop.planned_nights + 1)}
               type="button"
@@ -6467,17 +6468,17 @@ function TravelLegCard({
     <div className="grid grid-cols-[3.25rem_1fr] gap-3 px-1 py-0.5">
       <div className="flex justify-center">
         <div className="flex w-0 flex-col items-center">
-          <span className="h-2 w-px bg-emerald-100" />
-          <span className="grid size-8 shrink-0 place-items-center rounded-2xl border border-emerald-100 bg-white text-primary shadow-sm">
+          <span className="h-2 w-px bg-border" />
+          <span className="grid size-8 shrink-0 place-items-center rounded-2xl border border-border bg-card text-primary shadow-sm">
             <ModeIcon className="size-4" aria-hidden="true" />
           </span>
-          <span className="h-2 w-px bg-emerald-100" />
+          <span className="h-2 w-px bg-border" />
         </div>
       </div>
 
       <section className="min-w-0">
         <button
-          className="flex min-h-10 w-full items-center gap-2 rounded-[1.1rem] border border-emerald-100 bg-white/85 px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-emerald-50"
+          className="flex min-h-10 w-full items-center gap-2 rounded-[1.1rem] border border-border bg-card/85 px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-muted"
           disabled={disabled}
           onClick={() => onEdit(leg.id)}
           type="button"
@@ -6496,13 +6497,13 @@ function TravelLegCard({
           {hasRouteMetrics ? (
             <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-foreground">
               {routeDurationLabel ? (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-emerald-50 px-1.5 py-0.5">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-muted px-1.5 py-0.5">
                   <Clock className="size-3" aria-hidden="true" />
                   {routeDurationLabel}
                 </span>
               ) : null}
               {routeDistanceLabel ? (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-emerald-50 px-1.5 py-0.5">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-muted px-1.5 py-0.5">
                   <Navigation className="size-3" aria-hidden="true" />
                   {routeDistanceLabel}
                 </span>
@@ -6588,7 +6589,7 @@ function StopEditDialog({
       title={`Edit ${stop.title}`}
     >
       <div className="grid gap-5">
-        <section className="space-y-3 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 p-4">
+        <section className="space-y-3 rounded-[1.5rem] border border-border bg-muted/45 p-4">
           <div>
             <h3 className="font-semibold text-foreground">Stop</h3>
             <p className="text-sm text-muted-foreground">
@@ -6627,7 +6628,7 @@ function StopEditDialog({
           </label>
         </section>
 
-        <section className="grid gap-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_10rem]">
+        <section className="grid gap-4 rounded-[1.5rem] border border-border bg-card p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_10rem]">
           <label className="grid gap-2 text-sm font-medium text-foreground">
             Arrival date
             <DatePicker
@@ -6654,9 +6655,9 @@ function StopEditDialog({
 
           <div className="grid gap-2">
             <span className="text-sm font-medium text-foreground">Nights</span>
-            <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-sm">
+            <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] overflow-hidden rounded-xl border border-border bg-card shadow-sm">
               <button
-                className="grid place-items-center border-r border-emerald-100 text-primary transition-colors hover:bg-emerald-50"
+                className="grid place-items-center border-r border-border text-primary transition-colors hover:bg-muted"
                 disabled={saving}
                 onClick={() => updateNights(draft.plannedNights - 1)}
                 type="button"
@@ -6664,7 +6665,7 @@ function StopEditDialog({
                 <Minus className="size-4" aria-hidden="true" />
               </button>
               <input
-                className="h-10 w-full bg-white text-center text-sm font-semibold text-foreground focus-visible:outline-none"
+                className="h-10 w-full bg-card text-center text-sm font-semibold text-foreground focus-visible:outline-none"
                 disabled={saving}
                 min={0}
                 onChange={(event) => updateNights(Number(event.target.value))}
@@ -6672,7 +6673,7 @@ function StopEditDialog({
                 value={draft.plannedNights}
               />
               <button
-                className="grid place-items-center border-l border-emerald-100 text-primary transition-colors hover:bg-emerald-50"
+                className="grid place-items-center border-l border-border text-primary transition-colors hover:bg-muted"
                 disabled={saving}
                 onClick={() => updateNights(draft.plannedNights + 1)}
                 type="button"
@@ -6746,9 +6747,9 @@ function TravelLegEditDialog({
       title={`${fromStop.title} to ${toStop.title}`}
     >
       <div className="grid gap-5">
-        <section className="space-y-3 rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 p-4">
+        <section className="space-y-3 rounded-[1.5rem] border border-border bg-muted/45 p-4">
           <div className="flex items-start gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-white text-primary">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-card text-primary">
               <ModeIcon className="size-5" aria-hidden="true" />
             </span>
             <div className="min-w-0">
@@ -6795,7 +6796,7 @@ function TravelLegEditDialog({
           </div>
         </section>
 
-        <section className="grid gap-4 rounded-[1.5rem] border border-emerald-100 bg-white p-4 sm:grid-cols-2">
+        <section className="grid gap-4 rounded-[1.5rem] border border-border bg-card p-4 sm:grid-cols-2">
           <label className="grid gap-2 text-sm font-medium text-foreground">
             Operator
             <Input
@@ -6900,7 +6901,7 @@ function MapWorkspace({
   const [resetNonce, setResetNonce] = useState(0)
 
   return (
-    <section className="relative min-h-0 min-w-0 overflow-hidden rounded-[2rem] border border-emerald-100 bg-white shadow-sm lg:h-full">
+    <section className="relative min-h-0 min-w-0 overflow-hidden rounded-[2rem] border border-border bg-card shadow-sm lg:h-full">
       <TripLeafletMap
         draftMapLocation={draftMapLocation}
         focusedPostId={focusedPostId}
@@ -6955,6 +6956,7 @@ function TripLeafletMap({
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
 }) {
+  const { mode: themeMode, palette: themePalette } = useTheme()
   const tileProviderSetting = usePublicSetting(MAP_TILE_PROVIDER_SETTING_KEY)
   const tileProvider = useMemo(
     () => resolveMapTileProvider(tileProviderSetting),
@@ -7110,7 +7112,7 @@ function TripLeafletMap({
     })
 
     return () => window.cancelAnimationFrame(animationFrameId)
-  }, [fitMode, routeKey, routeMode])
+  }, [fitMode, routeKey, routeMode, themeMode, themePalette])
 
   useEffect(() => {
     const map = mapRef.current
@@ -7252,7 +7254,7 @@ function renderRouteLayer(
     }
 
     L.polyline(segment.coordinates, {
-      color: '#ffffff',
+      color: getThemeColor('--card', '#FFFFFF'),
       dashArray: '2 10',
       lineCap: 'round',
       lineJoin: 'round',
@@ -7724,7 +7726,7 @@ function getRouteSegmentPathOptions(
 
   if (segment.kind === 'post-to-stop') {
     return {
-      color: '#334155',
+      color: getThemeColor('--muted-foreground', '#334155'),
       dashArray: '7 9',
       lineCap: 'round',
       lineJoin: 'round',
@@ -7735,7 +7737,7 @@ function getRouteSegmentPathOptions(
 
   if (routeMode === 'itinerary') {
     return {
-      color: '#0f766e',
+      color: getThemeColor('--primary', '#0F766E'),
       lineCap: 'round',
       lineJoin: 'round',
       opacity: 0.82,
@@ -7744,7 +7746,7 @@ function getRouteSegmentPathOptions(
   }
 
   return {
-    color: '#0f766e',
+    color: getThemeColor('--primary', '#0F766E'),
     dashArray: segment.routeType === 'SIMPLE' ? '10 10' : undefined,
     lineCap: 'round',
     lineJoin: 'round',
@@ -7760,15 +7762,15 @@ function getPostRouteSegmentPathOptions(
     TravelMode,
     Pick<L.PolylineOptions, 'color'>
   > = {
-    BIKE: { color: '#16a34a' },
-    BUS: { color: '#ea580c' },
-    CAR: { color: '#475569' },
-    FERRY: { color: '#0891b2' },
-    FLIGHT: { color: '#2563eb' },
-    OTHER: { color: '#78716c' },
-    TRAIN: { color: '#7c3aed' },
-    UNKNOWN: { color: '#334155' },
-    WALK: { color: '#0f766e' },
+    BIKE: { color: getThemeColor('--chart-3', '#16A34A') },
+    BUS: { color: getThemeColor('--accent', '#EA580C') },
+    CAR: { color: getThemeColor('--muted-foreground', '#475569') },
+    FERRY: { color: getThemeColor('--chart-5', '#0891B2') },
+    FLIGHT: { color: getThemeColor('--primary', '#2563EB') },
+    OTHER: { color: getThemeColor('--border', '#78716C') },
+    TRAIN: { color: getThemeColor('--chart-4', '#7C3AED') },
+    UNKNOWN: { color: getThemeColor('--muted-foreground', '#334155') },
+    WALK: { color: getThemeColor('--primary', '#0F766E') },
   }
 
   return {
@@ -7778,6 +7780,11 @@ function getPostRouteSegmentPathOptions(
     opacity: 0.78,
     weight: 4,
   }
+}
+
+function getThemeColor(variable: string, fallback: string) {
+  if (typeof window === 'undefined') return fallback
+  return getComputedStyle(document.documentElement).getPropertyValue(variable).trim() || fallback
 }
 
 function getRouteBoundsCoordinates(
