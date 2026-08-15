@@ -47,14 +47,14 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     await expect(page.getByRole('heading', { name: 'Planning' })).toBeVisible()
     await expectMapTilesRequested(page)
 
-    await page.getByRole('button', { name: 'Trip settings' }).click()
+    await page.getByRole('button', { name: 'Manage trip' }).click()
     await page.getByLabel('Trip title').fill('E2E API trip updated')
     await page.getByRole('button', { name: 'Save changes' }).click()
     await expect(
       page.getByRole('heading', { name: 'E2E API trip updated' }),
     ).toBeVisible()
 
-    await page.getByRole('button', { name: 'Share management' }).click()
+    await page.getByRole('button', { name: 'People & sharing' }).click()
     await page.getByLabel('Link label').fill('E2E share link')
     await page.getByRole('button', { name: 'Create link' }).click()
     await expect(page.getByText('E2E share link')).toBeVisible()

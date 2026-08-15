@@ -4,10 +4,14 @@ import { createPortal } from 'react-dom'
 
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 type ModalProps = {
   children: ReactNode
+  className?: string
+  contentClassName?: string
   description?: string
+  fullscreenOnMobile?: boolean
   onClose: () => void
   open: boolean
   title: string
@@ -15,7 +19,10 @@ type ModalProps = {
 
 export function Modal({
   children,
+  className,
+  contentClassName,
   description,
+  fullscreenOnMobile = false,
   onClose,
   open,
   title,
@@ -42,10 +49,21 @@ export function Modal({
   return createPortal(
     <div
       aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-md"
+      className={cn(
+        'fixed inset-0 z-50 grid place-items-center bg-foreground/35 backdrop-blur-md',
+        fullscreenOnMobile ? 'p-0 sm:p-4' : 'p-4',
+      )}
       role="dialog"
     >
-      <div className="grid h-[min(44rem,calc(100dvh-2rem))] w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
+      <div
+        className={cn(
+          'grid w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-border bg-card shadow-soft',
+          fullscreenOnMobile
+            ? 'h-dvh max-w-none sm:h-[min(44rem,calc(100dvh-2rem))] sm:max-w-2xl sm:rounded-2xl'
+            : 'h-[min(44rem,calc(100dvh-2rem))] max-w-2xl rounded-2xl',
+          className,
+        )}
+      >
         <div className="flex items-start justify-between gap-4 border-b border-border bg-card p-5">
           <div className="space-y-1">
             <h2 className="text-xl font-semibold tracking-normal text-popover-foreground">
@@ -65,7 +83,7 @@ export function Modal({
             <X className="size-4" aria-hidden="true" />
           </Button>
         </div>
-        <ScrollArea className="m-2 min-h-0 rounded-xl px-3 py-3">
+        <ScrollArea className={cn('m-2 min-h-0 rounded-xl px-3 py-3', contentClassName)}>
           {children}
         </ScrollArea>
       </div>

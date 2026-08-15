@@ -8,7 +8,7 @@ from pathlib import Path
 
 def normalize_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Adjust framework-level schemas that Dart generators handle poorly."""
-    schema.setdefault('servers', [{'url': 'http://localhost:8000'}])
+    schema.setdefault('servers', [{'url': 'http://192.168.1.189:8000'}])
 
     validation_error = (
         schema.get('components', {}).get('schemas', {}).get('ValidationError')

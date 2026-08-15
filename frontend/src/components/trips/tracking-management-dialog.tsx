@@ -1,4 +1,4 @@
-import { Radio, Trash2 } from 'lucide-react'
+import { Loader2, Radio, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import {
@@ -16,7 +16,6 @@ import {
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 
 const TRAVEL_MODE_OPTIONS = [
@@ -34,12 +33,10 @@ const TRAVEL_MODE_OPTIONS = [
 
 const SAMPLE_PAGE_SIZE = 500
 
-type TrackingManagementDialogProps = {
+type TrackingManagementPanelProps = {
   accessToken: string
   canManageLiveSharing: boolean
-  onClose: () => void
   onTrackingChanged: () => void
-  open: boolean
   tripId: string
 }
 
@@ -47,14 +44,12 @@ function formatMoment(value: string) {
   return new Date(value).toLocaleString()
 }
 
-export function TrackingManagementDialog({
+export function TrackingManagementPanel({
   accessToken,
   canManageLiveSharing,
-  onClose,
   onTrackingChanged,
-  open,
   tripId,
-}: TrackingManagementDialogProps) {
+}: TrackingManagementPanelProps) {
   const [sessions, setSessions] = useState<readonly TrackingSession[]>([])
   const [shareLiveLocation, setShareLiveLocation] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -62,8 +57,9 @@ export function TrackingManagementDialog({
   const [selectedSampleIds, setSelectedSampleIds] = useState<readonly string[]>([])
   const [bulkMode, setBulkMode] = useState<TravelMode>('WALK')
   const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [isBusy, setIsBusy] = useState(false)
+  const [isUpdatingLiveSharing, setIsUpdatingLiveSharing] = useState(false)
 
   const loadOverview = useCallback(async () => {
     setIsLoading(true)
@@ -83,14 +79,11 @@ export function TrackingManagementDialog({
   }, [accessToken, tripId])
 
   useEffect(() => {
-    if (!open) {
-      return
-    }
     setSelectedSessionId(null)
     setSamples([])
     setSelectedSampleIds([])
     void loadOverview()
-  }, [loadOverview, open])
+  }, [loadOverview])
 
   const loadSamples = useCallback(
     async (sessionId: string) => {
@@ -130,20 +123,30 @@ export function TrackingManagementDialog({
   }
 
   const handleToggleLiveSharing = async () => {
+    if (isBusy || isLoading || isUpdatingLiveSharing) {
+      return
+    }
+
+    const previousValue = shareLiveLocation
+    const nextValue = !previousValue
+    setShareLiveLocation(nextValue)
+    setIsUpdatingLiveSharing(true)
     setIsBusy(true)
     try {
       const settings = await replaceTripLiveLocationSettings({
         accessToken,
-        shareLiveLocation: !shareLiveLocation,
+        shareLiveLocation: nextValue,
         tripId,
       })
       setShareLiveLocation(settings.share_live_location)
       setError(null)
       onTrackingChanged()
     } catch (toggleError) {
+      setShareLiveLocation(previousValue)
       setError(getErrorMessage(toggleError))
     } finally {
       setIsBusy(false)
+      setIsUpdatingLiveSharing(false)
     }
   }
 
@@ -235,14 +238,10 @@ export function TrackingManagementDialog({
     )
   }
 
+  const isLiveLocationPending = isLoading || isUpdatingLiveSharing
+
   return (
-    <Modal
-      description="Recordings, retained points, and who can see where you are right now."
-      onClose={onClose}
-      open={open}
-      title="GPS tracking"
-    >
-      <div className="space-y-5">
+    <div className="space-y-5">
         {error ? (
           <p className="text-sm font-medium text-destructive" role="alert">
             {error}
@@ -250,7 +249,10 @@ export function TrackingManagementDialog({
         ) : null}
 
         {canManageLiveSharing ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
+          <div
+            aria-busy={isLiveLocationPending}
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-lg border border-border px-4 py-3"
+          >
             <div className="min-w-0">
               <p className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Radio className="size-4" />
@@ -262,33 +264,49 @@ export function TrackingManagementDialog({
                   : 'Only trip members see the final route after the latest post; it is shown in the map’s member-only color. Earlier finished routes remain visible to everyone.'}
               </p>
             </div>
-            <input
-              aria-label="Share live location"
-              checked={shareLiveLocation}
-              className="peer sr-only"
-              disabled={isBusy}
-              id="share-live-location"
-              onChange={() => void handleToggleLiveSharing()}
-              role="switch"
-              type="checkbox"
-            />
-            <label
-              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border p-0.5 transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background peer-disabled:cursor-not-allowed peer-disabled:opacity-50 ${
-                shareLiveLocation
-                  ? 'border-primary bg-primary'
-                  : 'border-input bg-muted'
-              }`}
-              htmlFor="share-live-location"
-            >
+            {isLiveLocationPending ? (
               <span
-                className={`size-5 rounded-full bg-card shadow-sm transition-transform ${
-                  shareLiveLocation ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-              <span className="sr-only">
-                {shareLiveLocation ? 'Live location sharing is on' : 'Live location sharing is off'}
+                aria-label={
+                  isLoading
+                    ? 'Loading live location setting'
+                    : 'Updating live location setting'
+                }
+                className="mt-0.5 grid h-7 w-12 place-items-center rounded-full border border-input bg-muted text-muted-foreground"
+                role="status"
+              >
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
               </span>
-            </label>
+            ) : (
+              <>
+                <input
+                  aria-label="Share live location"
+                  checked={shareLiveLocation}
+                  className="peer sr-only"
+                  disabled={isBusy}
+                  id="share-live-location"
+                  onChange={() => void handleToggleLiveSharing()}
+                  role="switch"
+                  type="checkbox"
+                />
+                <label
+                  className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border p-0.5 transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background peer-disabled:cursor-not-allowed peer-disabled:opacity-50 ${
+                    shareLiveLocation
+                      ? 'border-primary bg-primary'
+                      : 'border-input bg-muted'
+                  }`}
+                  htmlFor="share-live-location"
+                >
+                  <span
+                    className={`size-5 rounded-full bg-card shadow-sm transition-transform ${
+                      shareLiveLocation ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                  <span className="sr-only">
+                    {shareLiveLocation ? 'Live location sharing is on' : 'Live location sharing is off'}
+                  </span>
+                </label>
+              </>
+            )}
           </div>
         ) : null}
 
@@ -418,7 +436,6 @@ export function TrackingManagementDialog({
             </div>
           </section>
         ) : null}
-      </div>
-    </Modal>
+    </div>
   )
 }

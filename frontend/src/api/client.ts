@@ -3,7 +3,7 @@ import createClient from 'openapi-fetch'
 import type { components, paths } from '@/api/types'
 
 export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+  import.meta.env.VITE_API_BASE_URL ?? 'http://192.168.1.189:8000'
 
 export const api = createClient<paths>({
   baseUrl: API_BASE_URL,
@@ -593,6 +593,19 @@ export async function updateTrip(options: {
       method: 'PATCH',
       accessToken: options.accessToken,
       json: options.payload,
+    },
+  )
+}
+
+export async function deleteTrip(options: {
+  tripId: string
+  accessToken: string
+}): Promise<void> {
+  return requestJson<void>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}`,
+    {
+      method: 'DELETE',
+      accessToken: options.accessToken,
     },
   )
 }

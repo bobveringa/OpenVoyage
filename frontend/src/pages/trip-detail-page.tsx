@@ -3,7 +3,6 @@ import 'leaflet/dist/leaflet.css'
 import * as L from 'leaflet'
 import {
   AlertCircle,
-  Archive,
   ArrowLeft,
   ArrowRight,
   Bike,
@@ -14,7 +13,6 @@ import {
   Clock,
   Compass,
   Copy,
-  Download,
   Eye,
   Car,
   Globe2,
@@ -25,7 +23,6 @@ import {
   Mail,
   MapPin,
   Minus,
-  MoreHorizontal,
   Motorbike,
   MousePointer2,
   Navigation,
@@ -36,7 +33,6 @@ import {
   RefreshCw,
   Search,
   Send,
-  Share2,
   Ship,
   Settings,
   Footprints,
@@ -69,7 +65,7 @@ import { Button } from '@/components/ui/button'
 import { DatePicker, DateTimePicker } from '@/components/ui/date-time-picker'
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import { ImageUploadDropzone } from '@/components/media/image-upload-dropzone'
-import { TrackingManagementDialog } from '@/components/trips/tracking-management-dialog'
+import { TrackingManagementPanel } from '@/components/trips/tracking-management-dialog'
 import { Input } from '@/components/ui/input'
 import { MediaImage } from '@/components/ui/media-image'
 import { Modal } from '@/components/ui/modal'
@@ -87,6 +83,7 @@ import {
   createItineraryStop,
   createPost,
   createTripShareLink,
+  deleteTrip,
   deleteItineraryStop,
   geocodePlaces,
   getErrorMessage,
@@ -142,7 +139,8 @@ type PlanningView = 'create-stop' | 'stops'
 type TravelingView = 'create-post' | 'edit-post' | 'posts'
 type MapPointTarget = 'post' | 'stop'
 type RouteFitMode = 'mobile-picker' | 'mobile-travel' | 'workspace'
-type TripDialog = 'actions' | 'members' | 'settings' | 'share' | 'tracking'
+type TripDialog = 'management'
+type TripManagementSection = 'general' | 'people' | 'gps' | 'danger'
 type MockTripVisibility = 'PLATFORM_PUBLIC' | 'PRIVATE' | 'PUBLIC'
 type MockTripRole = 'MEMBER' | 'OWNER'
 type TravelMode =
@@ -352,6 +350,7 @@ type TripDetailHistoryAction = 'push' | 'replace'
 
 type TripDetailUrlState = {
   activeDialog: TripDialog | null
+  managementSection: TripManagementSection
   editingPostId: string | null
   mode: TripMode
   planningView: PlanningView
@@ -932,6 +931,8 @@ export function TripDetailPage({
   const [activeDialog, setActiveDialog] = useState<TripDialog | null>(
     initialUrlState.activeDialog,
   )
+  const [managementSection, setManagementSection] =
+    useState<TripManagementSection>(initialUrlState.managementSection)
   const [mapPointTarget, setMapPointTarget] = useState<MapPointTarget | null>(
     null,
   )
@@ -1147,6 +1148,7 @@ export function TripDetailPage({
       setTravelingView(nextState.travelingView)
       setEditingPostId(nextState.editingPostId)
       setActiveDialog(nextState.activeDialog)
+      setManagementSection(nextState.managementSection)
       setMapPointTarget(null)
       setMobileMapPickerTarget(null)
 
@@ -1183,7 +1185,7 @@ export function TripDetailPage({
         },
         {
           canEditTravelPosts: canMutate,
-          canOpenManagementDialogs: canManageTrip,
+          canOpenManagementDialogs: canMutate,
           canSwitchModes,
           travelPosts,
         },
@@ -1194,24 +1196,24 @@ export function TripDetailPage({
     },
     [
       applyTripDetailUrlState,
-      canManageTrip,
       canMutate,
       canSwitchModes,
       travelPosts,
     ],
   )
 
-  const openDialog = useCallback((dialog: TripDialog) => {
-    // Tracking is member-level: everyone who can edit the trip can manage its
-    // recordings and points. Only the live-sharing switch inside it is
-    // owner-only, and the server enforces that separately.
-    const isPermitted = dialog === 'tracking' ? canMutate : canManageTrip
-    if (!isPermitted) {
+  const openManagement = useCallback((section: TripManagementSection) => {
+    // GPS recordings are available to members. The other management sections
+    // are owner-only, including the live-sharing switch shown inside GPS.
+    if (section === 'gps' ? !canMutate : !canManageTrip) {
       return
     }
 
     setMutationError(null)
-    navigateTripDetailUrlState({ activeDialog: dialog })
+    navigateTripDetailUrlState({
+      activeDialog: 'management',
+      managementSection: section,
+    })
   }, [canManageTrip, canMutate, navigateTripDetailUrlState])
 
   const closeDialog = useCallback(() => {
@@ -1249,6 +1251,26 @@ export function TripDetailPage({
       visibility: draft.visibility,
     }))
     closeDialog()
+  }
+
+  function handleTripDelete() {
+    if (!isApiBacked) {
+      setMutationError('Trip deletion is only available for saved trips.')
+      return
+    }
+    if (!tripId || !accessToken) {
+      setMutationError('Sign in to delete this trip.')
+      return
+    }
+
+    void runMutation('Deleting trip', async () => {
+      await deleteTrip({ accessToken, tripId })
+      window.location.assign(
+        currentUser?.profile?.username
+          ? `/users/${encodeURIComponent(currentUser.profile.username)}`
+          : '/',
+      )
+    })
   }
 
   function handleShareLinkCreate(draft: ShareLinkCreateDraft) {
@@ -1936,6 +1958,7 @@ export function TripDetailPage({
   useEffect(() => {
     const currentState = {
       activeDialog,
+      managementSection,
       editingPostId,
       mode,
       planningView,
@@ -1943,7 +1966,7 @@ export function TripDetailPage({
     }
     const normalizedState = normalizeTripDetailUrlState(currentState, {
       canEditTravelPosts: canMutate,
-      canOpenManagementDialogs: canManageTrip,
+      canOpenManagementDialogs: canMutate,
       canSwitchModes,
       travelPosts,
     })
@@ -1961,6 +1984,7 @@ export function TripDetailPage({
     canSwitchModes,
     editingPostId,
     mode,
+    managementSection,
     planningView,
     travelingView,
     travelPosts,
@@ -1971,7 +1995,7 @@ export function TripDetailPage({
       applyTripDetailUrlState(
         readTripDetailUrlState({
           canEditTravelPosts: canMutate,
-          canOpenManagementDialogs: canManageTrip,
+          canOpenManagementDialogs: canMutate,
           canSwitchModes,
           travelPosts,
         }),
@@ -2079,7 +2103,7 @@ export function TripDetailPage({
               onPostMarkerSelect={handleMapPostSelect}
               onCreateStop={handleCreateStop}
               onFocusedPostChange={handleFocusedPostChange}
-              onOpenDialog={openDialog}
+              onOpenManagement={openManagement}
               onEditPost={handleEditPost}
               onPostSubmit={handlePostSubmit}
               onPlanningViewChange={handlePlanningViewChange}
@@ -2120,54 +2144,22 @@ export function TripDetailPage({
         </div>
       </div>
 
-      {canManageTrip ? (
-        <>
-          <TripSettingsDialog
-            canMutate={canManageTrip}
-            isSaving={isMutating}
-            onClose={closeDialog}
-            onSave={handleTripSettingsSave}
-            open={activeDialog === 'settings'}
-            trip={trip}
-          />
-          <ShareManagementDialog
-            accessToken={accessToken}
-            canMutate={canManageTrip}
-            error={mutationError}
-            isSaving={isMutating}
-            members={tripMembers}
-            onClose={closeDialog}
-            onCreateLink={handleShareLinkCreate}
-            onInviteViewer={handleViewerAdd}
-            onRemoveViewer={handleViewerRemove}
-            onRevokeLink={handleShareLinkRevoke}
-            open={activeDialog === 'share'}
-            shareLinks={tripShareLinks}
-            viewers={tripViewers}
-          />
-          <TripMembersDialog
-            accessToken={accessToken}
-            canMutate={canManageTrip}
-            error={mutationError}
-            isSaving={isMutating}
-            members={tripMembers}
-            onClose={closeDialog}
-            onInviteMember={handleMemberAdd}
-            onRemoveMember={handleMemberRemove}
-            onUpdateMemberRole={handleMemberRoleChange}
-            open={activeDialog === 'members'}
-          />
-          <TripActionsDialog
-            onClose={closeDialog}
-            open={activeDialog === 'actions'}
-          />
-        </>
-      ) : null}
-      {canMutate && accessToken && tripId ? (
-        <TrackingManagementDialog
+      {canMutate ? (
+        <TripManagementDialog
           accessToken={accessToken}
           canManageLiveSharing={canManageTrip}
+          canManageTrip={canManageTrip}
+          error={mutationError}
+          isSaving={isMutating}
+          members={tripMembers}
           onClose={closeDialog}
+          onCreateLink={handleShareLinkCreate}
+          onDeleteTrip={handleTripDelete}
+          onInviteMember={handleMemberAdd}
+          onInviteViewer={handleViewerAdd}
+          onRemoveMember={handleMemberRemove}
+          onRemoveViewer={handleViewerRemove}
+          onRevokeLink={handleShareLinkRevoke}
           onTrackingChanged={() => {
             // Mode edits and deletions change public geometry, so reload the
             // authoritative timeline rather than patching it locally.
@@ -2176,8 +2168,20 @@ export function TripDetailPage({
               setTrackingGeometry(trackingGeometry)
             })
           }}
-          open={activeDialog === 'tracking'}
+          onUpdateMemberRole={handleMemberRoleChange}
+          onSaveSettings={handleTripSettingsSave}
+          onSectionChange={(section) => {
+            navigateTripDetailUrlState(
+              { managementSection: section },
+              'replace',
+            )
+          }}
+          open={activeDialog === 'management'}
+          section={managementSection}
+          shareLinks={tripShareLinks}
           tripId={tripId}
+          trip={trip}
+          viewers={tripViewers}
         />
       ) : null}
       <MobileMapPointPicker
@@ -2216,12 +2220,12 @@ export function TripDetailPage({
 function TripSidebarHeader({
   canManageTrip,
   canMutate,
-  onOpenDialog,
+  onOpenManagement,
   trip,
 }: {
   canManageTrip: boolean
   canMutate: boolean
-  onOpenDialog: (dialog: TripDialog) => void
+  onOpenManagement: (section: TripManagementSection) => void
   trip: MockTrip
 }) {
   return (
@@ -2241,36 +2245,31 @@ function TripSidebarHeader({
 
         {canMutate ? (
           <div className="flex shrink-0 items-center gap-1">
-            <TripActionButton
-              icon={Radio}
-              label="GPS tracking"
-              onClick={() => onOpenDialog('tracking')}
-            />
+            <Button
+              aria-label="GPS tracking"
+              className="size-8 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
+              onClick={() => onOpenManagement('gps')}
+              size="sm"
+              title="GPS tracking"
+              type="button"
+              variant="outline"
+            >
+              <Radio className="size-3.5" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">GPS</span>
+            </Button>
             {canManageTrip ? (
-              <TripActionButton
-                icon={Settings}
-                label="Trip settings"
-                onClick={() => onOpenDialog('settings')}
-              />
-            ) : null}
-            {canManageTrip ? (
-              <>
-                <TripActionButton
-                  icon={Share2}
-                  label="Share management"
-                  onClick={() => onOpenDialog('share')}
-                />
-                <TripActionButton
-                  icon={Users}
-                  label="Members"
-                  onClick={() => onOpenDialog('members')}
-                />
-                <TripActionButton
-                  icon={MoreHorizontal}
-                  label="More actions"
-                  onClick={() => onOpenDialog('actions')}
-                />
-              </>
+              <Button
+                aria-label="Manage trip"
+                className="size-8 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
+                onClick={() => onOpenManagement('general')}
+                size="sm"
+                title="Manage trip"
+                type="button"
+                variant="outline"
+              >
+                <Settings className="size-3.5" aria-hidden="true" />
+                <span className="sr-only sm:not-sr-only">Manage trip</span>
+              </Button>
             ) : null}
           </div>
         ) : null}
@@ -2279,43 +2278,17 @@ function TripSidebarHeader({
   )
 }
 
-function TripActionButton({
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  icon: LucideIcon
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <Button
-      aria-label={label}
-      className="size-8 rounded-xl"
-      onClick={onClick}
-      size="icon"
-      title={label}
-      type="button"
-      variant="outline"
-    >
-      <Icon className="size-3.5" aria-hidden="true" />
-    </Button>
-  )
-}
-
-function TripSettingsDialog({
+function TripSettingsPanel({
   canMutate,
   isSaving,
   onClose,
   onSave,
-  open,
   trip,
 }: {
   canMutate: boolean
   isSaving: boolean
   onClose: () => void
   onSave: (draft: TripSettingsDraft) => void
-  open: boolean
   trip: MockTrip
 }) {
   const [description, setDescription] = useState(trip.description)
@@ -2328,17 +2301,13 @@ function TripSettingsDialog({
   )
 
   useEffect(() => {
-    if (!open) {
-      return
-    }
-
     setDescription(trip.description)
     setCoverFile(null)
     setEndDate(trip.endDate)
     setName(trip.name)
     setStartDate(trip.startDate)
     setVisibility(trip.visibility)
-  }, [open, trip])
+  }, [trip])
 
   function handleStartDateChange(nextStartDate: string) {
     setStartDate(nextStartDate)
@@ -2360,13 +2329,7 @@ function TripSettingsDialog({
   }
 
   return (
-    <Modal
-      description="Update the trip details, dates, and visibility."
-      onClose={onClose}
-      open={open}
-      title="Trip settings"
-    >
-      <form className="grid gap-5" onSubmit={handleSubmit}>
+    <form className="grid gap-5" onSubmit={handleSubmit}>
         <ImageUploadDropzone
           buttonLabel="Choose a new cover"
           description="PNG, JPG, or WebP work best. Leave this unchanged to keep the current cover."
@@ -2440,8 +2403,7 @@ function TripSettingsDialog({
             {isSaving ? 'Saving' : 'Save changes'}
           </Button>
         </div>
-      </form>
-    </Modal>
+    </form>
   )
 }
 
@@ -2692,18 +2654,16 @@ function UserSearchSelect({
   )
 }
 
-function ShareManagementDialog({
+function ShareManagementPanel({
   accessToken,
   canMutate,
   error,
   isSaving,
   members,
-  onClose,
   onCreateLink,
   onInviteViewer,
   onRemoveViewer,
   onRevokeLink,
-  open,
   shareLinks,
   viewers,
 }: {
@@ -2712,12 +2672,10 @@ function ShareManagementDialog({
   error: string | null
   isSaving: boolean
   members: readonly MockTripMember[]
-  onClose: () => void
   onCreateLink: (draft: ShareLinkCreateDraft) => void
   onInviteViewer: (draft: UserLookupDraft) => void
   onRemoveViewer: (viewer: MockTripViewer) => void
   onRevokeLink: (link: MockShareLink) => void
-  open: boolean
   shareLinks: readonly MockShareLink[]
   viewers: readonly MockTripViewer[]
 }) {
@@ -2751,13 +2709,7 @@ function ShareManagementDialog({
   }
 
   return (
-    <Modal
-      description="Manage read-only visitor access and share links."
-      onClose={onClose}
-      open={open}
-      title="Share management"
-    >
-      <div className="grid gap-5">
+    <div className="grid gap-5">
         {error ? (
           <p
             className="sticky top-0 z-40 rounded-[1.2rem] border border-destructive/30 bg-card px-3 py-2 text-sm text-destructive shadow-md"
@@ -2892,33 +2844,28 @@ function ShareManagementDialog({
             ) : null}
           </div>
         </section>
-      </div>
-    </Modal>
+    </div>
   )
 }
 
-function TripMembersDialog({
+function TripMembersPanel({
   accessToken,
   canMutate,
   error,
   isSaving,
   members,
-  onClose,
   onInviteMember,
   onRemoveMember,
   onUpdateMemberRole,
-  open,
 }: {
   accessToken?: string | null
   canMutate: boolean
   error: string | null
   isSaving: boolean
   members: readonly MockTripMember[]
-  onClose: () => void
   onInviteMember: (draft: UserLookupDraft) => void
   onRemoveMember: (member: MockTripMember) => void
   onUpdateMemberRole: (member: MockTripMember, role: MockTripRole) => void
-  open: boolean
 }) {
   const [inviteRole, setInviteRole] = useState<MockTripRole>('MEMBER')
   const [notice, setNotice] = useState<string | null>(null)
@@ -2940,13 +2887,7 @@ function TripMembersDialog({
   }
 
   return (
-    <Modal
-      description="Invite collaborators and manage trip roles."
-      onClose={onClose}
-      open={open}
-      title="Members"
-    >
-      <div className="grid gap-5">
+    <div className="grid gap-5">
         {error ? (
           <p
             className="sticky top-0 z-40 rounded-[1.2rem] border border-destructive/30 bg-card px-3 py-2 text-sm text-destructive shadow-md"
@@ -3040,57 +2981,342 @@ function TripMembersDialog({
             ) : null}
           </div>
         </section>
-      </div>
+    </div>
+  )
+}
+
+const managementSections = [
+  {
+    description: 'Details, dates, cover, and visibility.',
+    icon: Settings,
+    label: 'General',
+    value: 'general',
+  },
+  {
+    description: 'Members, viewers, and share links.',
+    icon: Users,
+    label: 'People & sharing',
+    value: 'people',
+  },
+  {
+    description: 'Recordings, points, and live location.',
+    icon: Radio,
+    label: 'GPS & location',
+    value: 'gps',
+  },
+  {
+    description: 'Permanently delete this trip.',
+    icon: Trash2,
+    label: 'Danger zone',
+    value: 'danger',
+  },
+] as const satisfies ReadonlyArray<{
+  description: string
+  icon: LucideIcon
+  label: string
+  value: TripManagementSection
+}>
+
+function TripManagementDialog({
+  accessToken,
+  canManageLiveSharing,
+  canManageTrip,
+  error,
+  isSaving,
+  members,
+  onClose,
+  onCreateLink,
+  onDeleteTrip,
+  onInviteMember,
+  onInviteViewer,
+  onRemoveMember,
+  onRemoveViewer,
+  onRevokeLink,
+  onSaveSettings,
+  onSectionChange,
+  onTrackingChanged,
+  onUpdateMemberRole,
+  open,
+  section,
+  shareLinks,
+  trip,
+  tripId,
+  viewers,
+}: {
+  accessToken?: string | null
+  canManageLiveSharing: boolean
+  canManageTrip: boolean
+  error: string | null
+  isSaving: boolean
+  members: readonly MockTripMember[]
+  onClose: () => void
+  onCreateLink: (draft: ShareLinkCreateDraft) => void
+  onDeleteTrip: () => void
+  onInviteMember: (draft: UserLookupDraft) => void
+  onInviteViewer: (draft: UserLookupDraft) => void
+  onRemoveMember: (member: MockTripMember) => void
+  onRemoveViewer: (viewer: MockTripViewer) => void
+  onRevokeLink: (link: MockShareLink) => void
+  onSaveSettings: (draft: TripSettingsDraft) => void
+  onSectionChange: (section: TripManagementSection) => void
+  onTrackingChanged: () => void
+  onUpdateMemberRole: (member: MockTripMember, role: MockTripRole) => void
+  open: boolean
+  section: TripManagementSection
+  shareLinks: readonly MockShareLink[]
+  trip: MockTrip
+  tripId?: string
+  viewers: readonly MockTripViewer[]
+}) {
+  const isMobile = useMediaQuery('(max-width: 639px)')
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
+  const effectiveSection = canManageTrip ? section : 'gps'
+  const activeSection = managementSections.find(
+    (item) => item.value === effectiveSection,
+  )!
+  const availableSections = canManageTrip
+    ? managementSections
+    : managementSections.filter((item) => item.value === 'gps')
+
+  useEffect(() => {
+    if (open) {
+      setShowMobileMenu(isMobile && effectiveSection === 'general')
+    }
+  }, [effectiveSection, isMobile, open])
+
+  function selectSection(nextSection: TripManagementSection) {
+    onSectionChange(nextSection)
+    setShowMobileMenu(false)
+  }
+
+  return (
+    <Modal
+      className="sm:h-[min(48rem,calc(100dvh-2rem))] sm:max-w-5xl"
+      contentClassName="pl-3 pr-5 sm:px-4"
+      description={
+        isMobile && !showMobileMenu
+          ? activeSection.description
+          : 'Settings, access, location data, and trip administration.'
+      }
+      fullscreenOnMobile
+      onClose={onClose}
+      open={open}
+      title={isMobile && !showMobileMenu ? activeSection.label : 'Manage trip'}
+    >
+      {isMobile && showMobileMenu ? (
+        <div className="grid gap-2 p-1">
+          {availableSections.map(({ description, icon: Icon, label, value }) => (
+            <button
+              className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-4 text-left transition-colors hover:bg-muted"
+              key={value}
+              onClick={() => selectSection(value)}
+              type="button"
+            >
+              <span className="grid size-10 place-items-center rounded-xl bg-muted text-primary">
+                <Icon className="size-4" aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold text-foreground">{label}</span>
+                <span className="mt-0.5 block text-sm text-muted-foreground">{description}</span>
+              </span>
+              <ArrowRight className="size-4 text-muted-foreground" aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="grid min-h-full gap-5 sm:grid-cols-[11.5rem_minmax(0,1fr)]">
+          <nav
+            aria-label="Trip management sections"
+            className="sticky top-0 z-10 hidden self-start bg-card pb-2 pr-4 sm:grid content-start gap-1 border-r border-border"
+          >
+            {availableSections.map(({ icon: Icon, label, value }) => (
+              <Button
+                className="justify-start gap-2"
+                key={value}
+                onClick={() => selectSection(value)}
+                type="button"
+                variant={effectiveSection === value ? 'secondary' : 'ghost'}
+              >
+                <Icon className="size-4" aria-hidden="true" />
+                {label}
+              </Button>
+            ))}
+          </nav>
+          <div className="min-w-0 pb-2">
+            {isMobile ? (
+              <Button
+                className="mb-4 -ml-2 gap-1.5"
+                onClick={() => setShowMobileMenu(true)}
+                type="button"
+                variant="ghost"
+              >
+                <ArrowLeft className="size-4" aria-hidden="true" />
+                All trip settings
+              </Button>
+            ) : null}
+            {effectiveSection === 'general' && canManageTrip ? (
+              <TripSettingsPanel
+                canMutate={canManageTrip}
+                isSaving={isSaving}
+                onClose={onClose}
+                onSave={onSaveSettings}
+                trip={trip}
+              />
+            ) : null}
+            {effectiveSection === 'people' && canManageTrip ? (
+              <div className="grid gap-8">
+                <TripMembersPanel
+                  accessToken={accessToken}
+                  canMutate={canManageTrip}
+                  error={error}
+                  isSaving={isSaving}
+                  members={members}
+                  onInviteMember={onInviteMember}
+                  onRemoveMember={onRemoveMember}
+                  onUpdateMemberRole={onUpdateMemberRole}
+                />
+                <ShareManagementPanel
+                  accessToken={accessToken}
+                  canMutate={canManageTrip}
+                  error={error}
+                  isSaving={isSaving}
+                  members={members}
+                  onCreateLink={onCreateLink}
+                  onInviteViewer={onInviteViewer}
+                  onRemoveViewer={onRemoveViewer}
+                  onRevokeLink={onRevokeLink}
+                  shareLinks={shareLinks}
+                  viewers={viewers}
+                />
+              </div>
+            ) : null}
+            {effectiveSection === 'gps' && accessToken && tripId ? (
+              <TrackingManagementPanel
+                accessToken={accessToken}
+                canManageLiveSharing={canManageLiveSharing}
+                onTrackingChanged={onTrackingChanged}
+                tripId={tripId}
+              />
+            ) : null}
+            {effectiveSection === 'gps' && (!accessToken || !tripId) ? (
+              <p className="rounded-2xl border border-border bg-muted/50 p-4 text-sm text-muted-foreground">
+                GPS recordings are available after this trip has been saved and opened while signed in.
+              </p>
+            ) : null}
+            {effectiveSection === 'danger' && canManageTrip ? (
+              <TripDangerZone
+                error={error}
+                isDeleting={isSaving}
+                onDelete={onDeleteTrip}
+                tripName={trip.name}
+              />
+            ) : null}
+          </div>
+        </div>
+      )}
     </Modal>
   )
 }
 
-function TripActionsDialog({
-  onClose,
-  open,
+function TripDangerZone({
+  error,
+  isDeleting,
+  onDelete,
+  tripName,
 }: {
-  onClose: () => void
-  open: boolean
+  error: string | null
+  isDeleting: boolean
+  onDelete: () => void
+  tripName: string
 }) {
-  const [notice, setNotice] = useState<string | null>(null)
+  const [isConfirming, setIsConfirming] = useState(false)
+  const [secondsRemaining, setSecondsRemaining] = useState(3)
+
+  useEffect(() => {
+    setIsConfirming(false)
+    setSecondsRemaining(3)
+  }, [tripName])
+
+  useEffect(() => {
+    if (!isConfirming || isDeleting || secondsRemaining === 0) {
+      return undefined
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSecondsRemaining((current) => Math.max(0, current - 1))
+    }, 1000)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [isConfirming, isDeleting, secondsRemaining])
 
   return (
-    <Modal
-      description="Secondary trip actions."
-      onClose={onClose}
-      open={open}
-      title="More actions"
-    >
-      <div className="grid gap-4">
-        {notice ? <MockNotice>{notice}</MockNotice> : null}
-
-        <ActionRow
-          description="Prepare a downloadable trip archive."
-          icon={Download}
-          label="Export trip data"
-          onClick={() => setNotice('Export action staged.')}
-        />
-        <ActionRow
-          description="Use the same route as a starting point for another trip."
-          icon={Copy}
-          label="Duplicate planning route"
-          onClick={() => setNotice('Duplicate action staged.')}
-        />
-        <ActionRow
-          description="Hide this trip from active planning without deleting it."
-          icon={Archive}
-          label="Archive trip"
-          onClick={() => setNotice('Archive action staged.')}
-        />
-        <ActionRow
-          destructive
-          description="Requires confirmation before removing trip data."
-          icon={Trash2}
-          label="Delete trip"
-          onClick={() => setNotice('Delete confirmation would open here.')}
-        />
+    <section className="space-y-4 rounded-[1.5rem] border border-destructive/35 bg-destructive/5 p-5">
+      <div className="space-y-1">
+        <h3 className="font-semibold text-foreground">Delete trip</h3>
+        <p className="text-sm leading-6 text-muted-foreground">
+          Permanently remove {tripName}, including posts, itinerary, sharing access, and GPS data. This cannot be undone.
+        </p>
       </div>
-    </Modal>
+      {error ? (
+        <p className="rounded-xl border border-destructive/30 bg-card px-3 py-2 text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {isConfirming ? (
+        <div className="space-y-4 rounded-[1.25rem] border border-destructive/30 bg-card p-4">
+          <div className="space-y-1">
+            <p className="font-semibold text-foreground">Confirm deletion</p>
+            <p className="text-sm leading-6 text-muted-foreground">
+              This permanently deletes <span className="font-medium text-foreground">{tripName}</span> and its data. You can cancel while the deletion button unlocks.
+            </p>
+          </div>
+          {secondsRemaining > 0 ? (
+            <p aria-live="polite" className="text-sm font-medium text-destructive">
+              Deletion available in {secondsRemaining} second{secondsRemaining === 1 ? '' : 's'}
+            </p>
+          ) : null}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              disabled={isDeleting}
+              onClick={() => {
+                setIsConfirming(false)
+                setSecondsRemaining(3)
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isDeleting || secondsRemaining > 0}
+              onClick={onDelete}
+              type="button"
+              variant="destructive"
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+              {isDeleting
+                ? 'Deleting trip'
+                : secondsRemaining > 0
+                  ? `Delete in ${secondsRemaining}s`
+                  : 'Permanently delete trip'}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button
+          disabled={isDeleting}
+          onClick={() => {
+            setSecondsRemaining(3)
+            setIsConfirming(true)
+          }}
+          type="button"
+          variant="destructive"
+        >
+          <Trash2 className="size-4" aria-hidden="true" />
+          Delete trip
+        </Button>
+      )}
+    </section>
   )
 }
 
@@ -3210,50 +3436,6 @@ function MemberRow({
         <Trash2 className="size-4" aria-hidden="true" />
       </Button>
     </div>
-  )
-}
-
-function ActionRow({
-  description,
-  destructive = false,
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  description: string
-  destructive?: boolean
-  icon: LucideIcon
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      className={cn(
-        'flex w-full items-center gap-3 rounded-[1.25rem] border p-3 text-left transition-colors',
-        destructive
-          ? 'border-destructive/30 bg-destructive/5 hover:bg-destructive/10'
-          : 'border-border bg-card hover:bg-muted',
-      )}
-      onClick={onClick}
-      type="button"
-    >
-      <span
-        className={cn(
-          'grid size-11 shrink-0 place-items-center rounded-2xl',
-          destructive
-            ? 'bg-destructive/10 text-destructive'
-            : 'bg-muted text-primary',
-        )}
-      >
-        <Icon className="size-4" aria-hidden="true" />
-      </span>
-      <span className="min-w-0">
-        <span className="block font-semibold text-foreground">{label}</span>
-        <span className="mt-1 block text-sm text-muted-foreground">
-          {description}
-        </span>
-      </span>
-    </button>
   )
 }
 
@@ -3422,7 +3604,7 @@ function TripSidebar({
   onFocusedPostChange,
   onMapPointTargetChange,
   onPostMarkerSelect,
-  onOpenDialog,
+  onOpenManagement,
   onPostSubmit,
   onPlanningViewChange,
   onRefreshTravelLegRoute,
@@ -3460,7 +3642,7 @@ function TripSidebar({
   onFocusedPostChange: (postId: string | null) => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
   onPostMarkerSelect: (postId: string) => void
-  onOpenDialog: (dialog: TripDialog) => void
+  onOpenManagement: (section: TripManagementSection) => void
   onPostSubmit: (postId: string | null, draft: PostSubmitDraft) => void
   onPlanningViewChange: (view: PlanningView) => void
   onRefreshTravelLegRoute: (legId: string) => void
@@ -3529,7 +3711,7 @@ function TripSidebar({
       <TripSidebarHeader
         canManageTrip={canManageTrip}
         canMutate={canMutate}
-        onOpenDialog={onOpenDialog}
+        onOpenManagement={onOpenManagement}
         trip={trip}
       />
       {mutationError ? (
@@ -9669,7 +9851,8 @@ function readTripDetailUrlState({
 
   return normalizeTripDetailUrlState(
     {
-      activeDialog: parseTripDialogParam(searchParams.get('dialog')),
+      activeDialog: null,
+      managementSection: 'general',
       editingPostId: panel === 'edit-post' ? postId : null,
       mode,
       planningView: panel === 'new-stop' ? 'create-stop' : 'stops',
@@ -9694,6 +9877,7 @@ function createDefaultTripDetailUrlState(
 ): TripDetailUrlState {
   return {
     activeDialog: null,
+    managementSection: 'general',
     editingPostId: null,
     mode: canSwitchModes ? 'planning' : 'traveling',
     planningView: 'stops',
@@ -9734,6 +9918,7 @@ function normalizeTripDetailUrlState(
 
   return {
     activeDialog: canOpenManagementDialogs ? state.activeDialog : null,
+    managementSection: state.managementSection,
     editingPostId,
     mode,
     planningView,
@@ -9754,6 +9939,7 @@ function writeTripDetailUrlState(
   url.searchParams.delete('panel')
   url.searchParams.delete('post')
   url.searchParams.delete('dialog')
+  url.searchParams.delete('section')
 
   url.searchParams.set('tab', state.mode === 'planning' ? 'plan' : 'travel')
 
@@ -9771,10 +9957,6 @@ function writeTripDetailUrlState(
     url.searchParams.set('panel', 'edit-post')
     url.searchParams.set('post', state.editingPostId)
   }
-  if (state.activeDialog) {
-    url.searchParams.set('dialog', state.activeDialog)
-  }
-
   const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
   const nextUrl = `${url.pathname}${url.search}${url.hash}`
 
@@ -9796,23 +9978,12 @@ function areTripDetailUrlStatesEqual(
 ) {
   return (
     leftState.activeDialog === rightState.activeDialog &&
+    leftState.managementSection === rightState.managementSection &&
     leftState.editingPostId === rightState.editingPostId &&
     leftState.mode === rightState.mode &&
     leftState.planningView === rightState.planningView &&
     leftState.travelingView === rightState.travelingView
   )
-}
-
-function parseTripDialogParam(value: string | null): TripDialog | null {
-  switch (value) {
-    case 'actions':
-    case 'members':
-    case 'settings':
-    case 'share':
-      return value
-    default:
-      return null
-  }
 }
 
 function useMediaQuery(query: string) {
