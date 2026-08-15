@@ -49,15 +49,6 @@
     color: var(--foreground);
   }
 
-  @media (max-width: 1023px) {
-    html {
-      scrollbar-gutter: auto;
-    }
-
-    body {
-      overflow-x: clip;
-    }
-  }
 }
 
 @layer utilities {
