@@ -10,13 +10,32 @@ from models.database.user import User, UserProfile, UserRole
 
 
 @pytest.mark.integration
-def test_create_first_user_creates_admin_and_profile(
+def test_setup_status_reflects_whether_users_exist(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    initial_response = client.get(f'{api_prefix}/admin/setup')
+
+    assert initial_response.status_code == 200
+    assert initial_response.json() == {'setup_required': True}
+
+    create_user(db_session)
+
+    configured_response = client.get(f'{api_prefix}/admin/setup')
+
+    assert configured_response.status_code == 200
+    assert configured_response.json() == {'setup_required': False}
+
+
+@pytest.mark.integration
+def test_setup_creates_admin_and_profile(
     client,
     db_session,
     api_prefix,
 ) -> None:
     response = client.post(
-        f'{api_prefix}/admin/first-user',
+        f'{api_prefix}/admin/setup',
         json={
             'email': 'FIRST-ADMIN@EXAMPLE.COM',
             'password': 'FirstAdminPass123!',
@@ -45,7 +64,7 @@ def test_create_first_user_creates_admin_and_profile(
 
 
 @pytest.mark.integration
-def test_create_first_user_rejects_when_any_user_exists(
+def test_setup_rejects_when_any_user_exists(
     client,
     db_session,
     api_prefix,
@@ -53,7 +72,7 @@ def test_create_first_user_rejects_when_any_user_exists(
     create_user(db_session)
 
     response = client.post(
-        f'{api_prefix}/admin/first-user',
+        f'{api_prefix}/admin/setup',
         json={
             'email': 'second-admin@example.com',
             'password': 'FirstAdminPass123!',
@@ -69,11 +88,11 @@ def test_create_first_user_rejects_when_any_user_exists(
 
 @pytest.mark.integration
 @pytest.mark.parametrize('username', [' first-admin', 'first admin', 'first@admin'])
-def test_create_first_user_rejects_invalid_username(
+def test_setup_rejects_invalid_username(
     client, api_prefix, username
 ) -> None:
     response = client.post(
-        f'{api_prefix}/admin/first-user',
+        f'{api_prefix}/admin/setup',
         json={
             'email': 'first-admin@example.com',
             'password': 'FirstAdminPass123!',

@@ -2,8 +2,11 @@ import createClient from 'openapi-fetch'
 
 import type { components, paths } from '@/api/types'
 
+// A deployed OpenVoyage instance serves the UI and API from the same origin.
+// Keeping that as the default means a build can be moved to another host
+// without baking a backend address into its JavaScript bundle.
 export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? 'http://192.168.1.189:8000'
+  import.meta.env.VITE_API_BASE_URL ?? window.location.origin
 
 export const api = createClient<paths>({
   baseUrl: API_BASE_URL,
@@ -15,6 +18,8 @@ const SHARE_TOKEN_HEADER = 'X-Trip-Share-Token'
 
 export type AuthTokens = components['schemas']['Token']
 export type CurrentUser = components['schemas']['CurrentUserResponse']
+export type SetupCreatePayload = components['schemas']['SetupCreateRequest']
+export type SetupStatus = components['schemas']['SetupStatusResponse']
 export type User = components['schemas']['UserResponse']
 export type Trip = components['schemas']['TripResponse']
 export type TripCreatePayload = components['schemas']['TripCreateRequest']
@@ -184,6 +189,19 @@ export async function login(
   return requestJson<AuthTokens>(`${API_V1_PREFIX}/login/access-token`, {
     method: 'POST',
     urlEncoded: body,
+  })
+}
+
+export async function getSetupStatus(): Promise<SetupStatus> {
+  return requestJson<SetupStatus>(`${API_V1_PREFIX}/admin/setup`)
+}
+
+export async function createSetupAdmin(
+  payload: SetupCreatePayload,
+): Promise<void> {
+  await requestJson(`${API_V1_PREFIX}/admin/setup`, {
+    method: 'POST',
+    json: payload,
   })
 }
 

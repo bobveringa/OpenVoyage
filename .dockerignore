@@ -1,0 +1,14 @@
+.git
+.idea
+.agents
+.venv
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
+.env
+.coverage
+data
+private
+frontend/node_modules
+frontend/dist

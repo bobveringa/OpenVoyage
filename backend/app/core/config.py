@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     JWT_ISSUER: str = 'openvoyage-backend'
     JWT_AUDIENCE: str = 'openvoyage-api'
     FRONTEND_HOST: str = ''
+    FRONTEND_DIST_DIRECTORY: str = ''
 
     MEDIA_DIRECTORY: str = ''
     GEONAMES_DOWNLOAD_BASE_URL: str = 'https://download.geonames.org/export/dump'

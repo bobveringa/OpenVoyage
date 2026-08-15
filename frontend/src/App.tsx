@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { getSetupStatus } from '@/api/client'
 import { AuthProvider } from '@/auth/auth-provider'
 import { useAuth } from '@/auth/use-auth'
+import { AppBackground } from '@/components/layout/app-background'
 import { AppShell } from '@/components/layout/app-shell'
 import { getUserUsername } from '@/lib/users'
 import { AdminPage } from '@/pages/admin-page'
@@ -29,6 +31,8 @@ type NavigateOptions = {
   replace?: boolean
 }
 
+type InitialSetupStatus = 'complete' | 'loading' | 'required' | 'unknown'
+
 function App() {
   return (
     <PublicSettingsProvider>
@@ -46,6 +50,30 @@ function AppRoutes() {
   const { location, navigate } = useBrowserLocation()
   const route = useMemo(() => parseRoute(location), [location])
   const currentUsername = getUserUsername(currentUser)
+  const [initialSetupStatus, setInitialSetupStatus] =
+    useState<InitialSetupStatus>('loading')
+
+  useEffect(() => {
+    let isCurrent = true
+
+    void getSetupStatus()
+      .then(({ setup_required }) => {
+        if (isCurrent) {
+          setInitialSetupStatus(setup_required ? 'required' : 'complete')
+        }
+      })
+      .catch(() => {
+        if (isCurrent) {
+          // Preserve normal sign-in behavior if an older API has not yet
+          // implemented the setup-status endpoint.
+          setInitialSetupStatus('unknown')
+        }
+      })
+
+    return () => {
+      isCurrent = false
+    }
+  }, [])
 
   useEffect(() => {
     if (status !== 'authenticated') {
@@ -56,6 +84,16 @@ function AppRoutes() {
       if (route.name !== 'security-settings') {
         navigate('/settings/security', { replace: true })
       }
+      return
+    }
+
+    if (route.name === 'setup') {
+      navigate(
+        currentUsername
+          ? `/users/${encodeURIComponent(currentUsername)}`
+          : '/login',
+        { replace: true },
+      )
       return
     }
 
@@ -85,8 +123,36 @@ function AppRoutes() {
     navigate('/', { replace: true })
   }
 
+  if (status === 'loading' || initialSetupStatus === 'loading') {
+    return <LoadingPage />
+  }
+
+  if (
+    initialSetupStatus === 'required' &&
+    status === 'unauthenticated'
+  ) {
+    return (
+      <SetupPage
+        onAuthenticated={handleAuthenticated}
+        onSetupCompleted={() => setInitialSetupStatus('complete')}
+      />
+    )
+  }
+
+  if (
+    route.name === 'setup' &&
+    initialSetupStatus !== 'required' &&
+    status === 'unauthenticated'
+  ) {
+    return <LoginPage onAuthenticated={handleAuthenticated} />
+  }
+
   if (route.name === 'login') {
     return <LoginPage onAuthenticated={handleAuthenticated} />
+  }
+
+  if (route.name === 'setup') {
+    return <LoadingPage />
   }
 
   const renderedRoute =
@@ -133,8 +199,6 @@ function renderRoute(route: Route, context: RouteRenderContext) {
           currentUser={context.currentUser}
         />
       )
-    case 'setup':
-      return <SetupPage />
     case 'profile-settings':
       return (
         <ProfileSettingsPage
@@ -182,6 +246,17 @@ function renderRoute(route: Route, context: RouteRenderContext) {
     case 'login':
       return null
   }
+}
+
+function LoadingPage() {
+  return (
+    <main className="relative isolate grid min-h-dvh place-items-center px-4 text-foreground">
+      <AppBackground />
+      <p className="text-sm text-muted-foreground" role="status">
+        Loading OpenVoyage…
+      </p>
+    </main>
+  )
 }
 
 function useBrowserLocation() {

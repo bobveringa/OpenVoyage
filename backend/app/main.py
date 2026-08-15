@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from starlette.middleware.cors import CORSMiddleware
+from starlette.staticfiles import StaticFiles
 
 from api.main import api_router
 from core.config import settings
@@ -36,3 +39,35 @@ if settings.all_cors_origins:
     )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+def configure_frontend(app: FastAPI) -> None:
+    """Serve the compiled SPA when it is packaged with the API."""
+    if not settings.FRONTEND_DIST_DIRECTORY:
+        return
+
+    frontend_directory = Path(settings.FRONTEND_DIST_DIRECTORY).resolve()
+    index_file = frontend_directory / 'index.html'
+    if not index_file.is_file():
+        raise RuntimeError(
+            f'Frontend build not found at {frontend_directory}. '
+            'Build the frontend or remove FRONTEND_DIST_DIRECTORY.'
+        )
+
+    assets_directory = frontend_directory / 'assets'
+    if assets_directory.is_dir():
+        app.mount(
+            '/assets',
+            StaticFiles(directory=assets_directory),
+            name='frontend-assets',
+        )
+
+    @app.get('/{full_path:path}', include_in_schema=False)
+    async def serve_frontend(full_path: str):
+        requested_file = (frontend_directory / full_path).resolve()
+        if requested_file.is_relative_to(frontend_directory) and requested_file.is_file():
+            return FileResponse(requested_file)
+        return FileResponse(index_file)
+
+
+configure_frontend(app)

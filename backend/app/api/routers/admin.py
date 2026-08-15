@@ -14,8 +14,9 @@ from models.api.admin import (
     AdminUserResponse,
     AdminUsersListResponse,
     AdminUserUpdateRequest,
-    FirstUserCreateRequest,
-    FirstUserCreateResponse,
+    SetupCreateRequest,
+    SetupCreateResponse,
+    SetupStatusResponse,
 )
 from models.database.user import User, UserProfile, UserRole
 from services.admin_user_service import (
@@ -39,14 +40,23 @@ def _raise_admin_user_error(exc: Exception) -> None:
     raise exc
 
 
+@router.get('/setup', response_model=SetupStatusResponse)
+def get_setup_status(
+    session: SessionDep,
+) -> SetupStatusResponse:
+    """Report whether this instance still needs its initial administrator."""
+    existing_user = session.execute(select(User.id).limit(1)).first()
+    return SetupStatusResponse(setup_required=existing_user is None)
+
+
 @router.post(
-    '/first-user',
-    response_model=FirstUserCreateResponse,
+    '/setup',
+    response_model=SetupCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_first_user(
-    session: SessionDep, payload: FirstUserCreateRequest
-) -> FirstUserCreateResponse:
+def create_setup_admin(
+    session: SessionDep, payload: SetupCreateRequest
+) -> SetupCreateResponse:
     existing_user = session.execute(select(User.id).limit(1)).first()
     if existing_user is not None:
         raise HTTPException(
@@ -73,7 +83,7 @@ def create_first_user(
     session.commit()
     session.refresh(user)
 
-    return FirstUserCreateResponse(
+    return SetupCreateResponse(
         id=user.id,
         email=user.email,
     )

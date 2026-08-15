@@ -506,68 +506,6 @@
         "title": "CursorPaginatedResponse[TrackSampleResponse]",
         "type": "object"
       },
-      "FirstUserCreateRequest": {
-        "properties": {
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          },
-          "first_name": {
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "First Name",
-            "type": "string"
-          },
-          "last_name": {
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Last Name",
-            "type": "string"
-          },
-          "password": {
-            "maxLength": 128,
-            "minLength": 8,
-            "title": "Password",
-            "type": "string"
-          },
-          "username": {
-            "maxLength": 32,
-            "minLength": 3,
-            "title": "Username",
-            "type": "string"
-          }
-        },
-        "required": [
-          "email",
-          "password",
-          "username",
-          "first_name",
-          "last_name"
-        ],
-        "title": "FirstUserCreateRequest",
-        "type": "object"
-      },
-      "FirstUserCreateResponse": {
-        "properties": {
-          "email": {
-            "format": "email",
-            "title": "Email",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "email"
-        ],
-        "title": "FirstUserCreateResponse",
-        "type": "object"
-      },
       "GeoJsonLineString": {
         "properties": {
           "coordinates": {
@@ -2416,6 +2354,81 @@
         "title": "SettingVisibility",
         "type": "string"
       },
+      "SetupCreateRequest": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "first_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "First Name",
+            "type": "string"
+          },
+          "last_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Last Name",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password",
+            "type": "string"
+          },
+          "username": {
+            "maxLength": 32,
+            "minLength": 3,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "username",
+          "first_name",
+          "last_name"
+        ],
+        "title": "SetupCreateRequest",
+        "type": "object"
+      },
+      "SetupCreateResponse": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email"
+        ],
+        "title": "SetupCreateResponse",
+        "type": "object"
+      },
+      "SetupStatusResponse": {
+        "properties": {
+          "setup_required": {
+            "title": "Setup Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "setup_required"
+        ],
+        "title": "SetupStatusResponse",
+        "type": "object"
+      },
       "SortDirection": {
         "enum": [
           "asc",
@@ -3773,47 +3786,6 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/v1/admin/first-user": {
-      "post": {
-        "operationId": "create_first_user_api_v1_admin_first_user_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FirstUserCreateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FirstUserCreateResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create First User",
-        "tags": [
-          "admin"
-        ]
-      }
-    },
     "/api/v1/admin/job-executions": {
       "get": {
         "operationId": "list_executions_api_v1_admin_job_executions_get",
@@ -4330,6 +4302,67 @@
           }
         ],
         "summary": "Reset Admin Setting",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/setup": {
+      "get": {
+        "description": "Report whether this instance still needs its initial administrator.",
+        "operationId": "get_setup_status_api_v1_admin_setup_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Setup Status",
+        "tags": [
+          "admin"
+        ]
+      },
+      "post": {
+        "operationId": "create_setup_admin_api_v1_admin_setup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Setup Admin",
         "tags": [
           "admin"
         ]

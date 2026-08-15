@@ -4,23 +4,6 @@
  */
 
 export interface paths {
-    "/api/v1/admin/first-user": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create First User */
-        post: operations["create_first_user_api_v1_admin_first_user_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/admin/job-executions": {
         parameters: {
             query?: never;
@@ -170,6 +153,27 @@ export interface paths {
         put?: never;
         /** Reset Admin Setting */
         post: operations["reset_admin_setting_api_v1_admin_settings__setting_key__reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Setup Status
+         * @description Report whether this instance still needs its initial administrator.
+         */
+        get: operations["get_setup_status_api_v1_admin_setup_get"];
+        put?: never;
+        /** Create Setup Admin */
+        post: operations["create_setup_admin_api_v1_admin_setup_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1144,35 +1148,6 @@ export interface components {
             /** Next Cursor */
             next_cursor: string | null;
         };
-        /** FirstUserCreateRequest */
-        FirstUserCreateRequest: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
-            /** First Name */
-            first_name: string;
-            /** Last Name */
-            last_name: string;
-            /** Password */
-            password: string;
-            /** Username */
-            username: string;
-        };
-        /** FirstUserCreateResponse */
-        FirstUserCreateResponse: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-        };
         /** GeoJsonLineString */
         GeoJsonLineString: {
             /** Coordinates */
@@ -1832,6 +1807,40 @@ export interface components {
          * @enum {string}
          */
         SettingVisibility: "public" | "admin" | "internal";
+        /** SetupCreateRequest */
+        SetupCreateRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** First Name */
+            first_name: string;
+            /** Last Name */
+            last_name: string;
+            /** Password */
+            password: string;
+            /** Username */
+            username: string;
+        };
+        /** SetupCreateResponse */
+        SetupCreateResponse: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+        };
+        /** SetupStatusResponse */
+        SetupStatusResponse: {
+            /** Setup Required */
+            setup_required: boolean;
+        };
         /**
          * SortDirection
          * @enum {string}
@@ -2333,39 +2342,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    create_first_user_api_v1_admin_first_user_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FirstUserCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FirstUserCreateResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_executions_api_v1_admin_job_executions_get: {
         parameters: {
             query?: {
@@ -2682,6 +2658,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminSettingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_setup_status_api_v1_admin_setup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupStatusResponse"];
+                };
+            };
+        };
+    };
+    create_setup_admin_api_v1_admin_setup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupCreateResponse"];
                 };
             };
             /** @description Validation Error */

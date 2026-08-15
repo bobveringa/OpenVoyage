@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from models.database.user import User
 
 
-class FirstUserCreateRequest(BaseModel):
+class SetupCreateRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     username: str = Field(
@@ -37,9 +37,13 @@ class FirstUserCreateRequest(BaseModel):
         return validate_username(username)
 
 
-class FirstUserCreateResponse(BaseModel):
+class SetupCreateResponse(BaseModel):
     id: uuid.UUID
     email: EmailStr
+
+
+class SetupStatusResponse(BaseModel):
+    setup_required: bool
 
 
 class AdminUserResponse(BaseModel):

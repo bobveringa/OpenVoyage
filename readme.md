@@ -12,11 +12,21 @@ which is more fitting for an open-source project.
 ## 🚀 Quick Start
 The quickest way to get OpenVoyage up and running is to use Docker Compose.
 
-```yaml
-
+```bash
+cp .env.example .env
+# Edit .env and replace the two secret values before a public deployment.
+docker build --tag openvoyage:latest .
+docker compose up -d
 ```
 
-And if that compose existed, you could run it.
+Open `http://localhost:8000`. This starts a PostgreSQL container and one
+OpenVoyage application container. The application container contains both the
+compiled frontend and FastAPI backend; it applies database migrations before it
+starts.
+
+Persistent uploads are stored in `./data/media`, and PostgreSQL data is kept in
+the `postgres_data` Docker volume.
+
 
 ## 📂 Project Structure
 The project is organized into the following directories:
@@ -33,8 +43,14 @@ shadcn/ui-style shared component structure.
 ```bash
 cd frontend
 npm install
-npm run dev
+npm start
 ```
+
+By default the development server proxies `/api` to `http://127.0.0.1:8000`,
+so the frontend continues to use same-origin API URLs. Set
+`VITE_API_PROXY_TARGET` to point the proxy at another local backend. Set
+`VITE_API_BASE_URL` only when intentionally serving the frontend separately
+from its API; it is embedded at build time.
 
 Generate the frontend API schema and TypeScript definitions from the FastAPI
 OpenAPI spec:
