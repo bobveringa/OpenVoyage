@@ -4794,7 +4794,7 @@ function TravelingPanel({
                   className="trip-mobile-post-carousel scrollbar-subtle flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1"
                   ref={mobileCarouselRef}
                 >
-                  {displayedPosts.map((post, index) => (
+                  {displayedPosts.map((post) => (
                     <Fragment key={post.id}>
                       <TravelPostPreviewCard
                         active={focusedPostId === post.id}
@@ -4813,14 +4813,6 @@ function TravelingPanel({
                           )
                         }
                       />
-                      {index < displayedPosts.length - 1 &&
-                      post.routeAfter?.durationSeconds !== null &&
-                      post.routeAfter?.durationSeconds !== undefined ? (
-                        <PostRouteDuration
-                          compact
-                          route={post.routeAfter}
-                        />
-                      ) : null}
                     </Fragment>
                   ))}
                 </div>
@@ -5881,33 +5873,10 @@ function TravelPostCard({
   )
 }
 
-function PostRouteDuration({
-  compact = false,
-  route,
-}: {
-  compact?: boolean
-  route: TravelPostRoute
-}) {
+function PostRouteDuration({ route }: { route: TravelPostRoute }) {
   const label = formatPostRouteDuration(route.durationSeconds ?? 0)
   const travelMode = getPostRouteTravelMode(route)
   const ModeIcon = getTravelModeIcon(travelMode)
-
-  if (compact) {
-    return (
-      <div
-        aria-label={`${label} until the next post`}
-        className="flex w-10 shrink-0 snap-none flex-col items-center justify-center gap-1 self-stretch rounded-2xl border border-border bg-card/90 px-1 py-2 text-xs font-medium text-foreground shadow-sm"
-      >
-        <span className="grid size-6 shrink-0 place-items-center rounded-lg bg-muted text-primary">
-          <ModeIcon className="size-3.5" aria-hidden="true" />
-        </span>
-        <span className="max-w-full text-center text-[0.65rem] leading-3 text-muted-foreground">
-          {label}
-        </span>
-        <ArrowRight className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
-      </div>
-    )
-  }
 
   return (
     <div className="grid grid-cols-[3.25rem_1fr] gap-3 px-1 py-0.5">
