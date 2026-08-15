@@ -26,6 +26,9 @@ class TripPermission(str, enum.Enum):
     PUBLISH_POST = 'post:publishPost'
     GET_ITINERARY = 'itinerary:getItinerary'
     MANAGE_ITINERARY = 'itinerary:manageItinerary'
+    GET_TRACKING = 'tracking:getTracking'
+    MANAGE_TRACKING = 'tracking:manageTracking'
+    MANAGE_LIVE_SHARING = 'tracking:manageLiveSharing'
 
 
 ROLE_PERMISSIONS: dict[TripRole, set[TripPermission]] = {
@@ -47,6 +50,9 @@ ROLE_PERMISSIONS: dict[TripRole, set[TripPermission]] = {
         TripPermission.PUBLISH_POST,
         TripPermission.GET_ITINERARY,
         TripPermission.MANAGE_ITINERARY,
+        TripPermission.GET_TRACKING,
+        TripPermission.MANAGE_TRACKING,
+        TripPermission.MANAGE_LIVE_SHARING,
     },
     TripRole.MEMBER: {
         TripPermission.GET_TRIP,
@@ -59,6 +65,8 @@ ROLE_PERMISSIONS: dict[TripRole, set[TripPermission]] = {
         TripPermission.PUBLISH_POST,
         TripPermission.GET_ITINERARY,
         TripPermission.MANAGE_ITINERARY,
+        TripPermission.GET_TRACKING,
+        TripPermission.MANAGE_TRACKING,
     },
 }
 

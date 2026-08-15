@@ -12,19 +12,17 @@ from models.api.itinerary import (
     ItineraryStopUpdateRequest,
     ItineraryTravelReplaceRequest,
 )
-from models.database.itinerary import ItineraryStop, ItineraryTravelLeg, TravelMode
+from models.database.itinerary import ItineraryStop, ItineraryTravelLeg
+from models.database.travel import TravelMode
 from models.database.trips import Trip, TripMember
 from models.database.user import User
 from services.itinerary_routes import ItineraryRouteService
 from services.location_service import LocationService
 from services.trip_access import get_membership, get_trip_read_access
 from services.trip_authorization import TripPermission, role_has_permission
+from services.trip_errors import TripNotFoundError
 
 StopPair = tuple[uuid.UUID, uuid.UUID]
-
-
-class TripNotFoundError(Exception):
-    """Raised when a trip cannot be found or read by the user."""
 
 
 class ItineraryPermissionError(Exception):

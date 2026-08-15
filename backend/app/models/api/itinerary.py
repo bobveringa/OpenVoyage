@@ -9,11 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from models.api.geojson import GeoJsonLineString
 from models.api.locations import LocationInput, LocationResponse
 from models.api.users import UserSummaryResponse
-from models.database.itinerary import (
-    ItineraryStop,
-    ItineraryTravelLeg,
-    TravelMode,
-)
+from models.database.itinerary import ItineraryStop, ItineraryTravelLeg
+from models.database.travel import TravelMode
 
 
 class ItineraryRouteType(str, enum.Enum):

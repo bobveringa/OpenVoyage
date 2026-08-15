@@ -19,3 +19,10 @@ class PaginatedResponse(BaseModel, Generic[T]):
     total: int = Field(ge=0)
     page: int = Field(ge=1)
     page_size: int = Field(ge=1)
+
+
+class CursorPaginatedResponse(BaseModel, Generic[T]):
+    """A keyset-paginated page for append-heavy or frequently changing data."""
+
+    items: list[T]
+    next_cursor: str | None

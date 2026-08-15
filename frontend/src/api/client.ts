@@ -71,6 +71,24 @@ export type PostTimelineEntry =
   components['schemas']['PostTimelineEntryResponse']
 export type PostTimelineRoute =
   components['schemas']['PostTimelineRouteResponse']
+export type PostTimelineOpeningRoute =
+  components['schemas']['PostTimelineOpeningRouteResponse']
+export type PostTimeline = components['schemas']['PostTimelineResponse']
+export type PostTimelineRouteSegment =
+  components['schemas']['PostTimelineRouteSegmentResponse']
+export type GpsPrivacyZone = components['schemas']['GpsPrivacyZoneResponse']
+export type GpsPrivacyZonePayload =
+  components['schemas']['GpsPrivacyZoneRequest']
+export type TripLiveLocationSettings =
+  components['schemas']['TripLiveLocationSettingsResponse']
+export type TrackingSession = components['schemas']['TrackingSessionResponse']
+export type TrackSample = components['schemas']['TrackSampleResponse']
+export type TrackSamplePage =
+  components['schemas']['CursorPaginatedResponse_TrackSampleResponse_']
+export type TrackSampleBatchResult =
+  components['schemas']['TrackSampleBatchResponse']
+export type TrackSampleInput = components['schemas']['TrackSampleRequest']
+export type TravelMode = components['schemas']['TravelMode']
 export type PostUpdatePayload = components['schemas']['PostUpdateRequest']
 export type UserProfileUpdatePayload =
   components['schemas']['UserProfileUpdateRequest']
@@ -887,8 +905,8 @@ export async function getPostTimeline(options: {
   accessToken?: string | null
   shareToken?: string | null
   status?: components['schemas']['PostStatusFilter']
-}): Promise<PostTimelineEntry[]> {
-  return requestJson<PostTimelineEntry[]>(
+}): Promise<PostTimeline> {
+  return requestJson<PostTimeline>(
     `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts/timeline`,
     {
       accessToken: options.accessToken,
@@ -960,6 +978,217 @@ export async function publishPost(options: {
       accessToken: options.accessToken,
     },
   )
+}
+
+
+// ---------------------------------------------------------------------------
+// GPS tracking
+//
+// Zones live under the current user because their configuration never leaves
+// the owning account. Everything else is trip-scoped.
+// ---------------------------------------------------------------------------
+export async function listGpsPrivacyZones(options: {
+  accessToken: string
+}): Promise<GpsPrivacyZone[]> {
+  return requestJson<GpsPrivacyZone[]>(
+    `${API_V1_PREFIX}/users/me/gps-privacy-zones`,
+    { accessToken: options.accessToken },
+  )
+}
+
+export async function createGpsPrivacyZone(options: {
+  payload: GpsPrivacyZonePayload
+  accessToken: string
+}): Promise<GpsPrivacyZone> {
+  const result = await requestJson<{ zone: GpsPrivacyZone }>(
+    `${API_V1_PREFIX}/users/me/gps-privacy-zones`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      json: options.payload,
+    },
+  )
+  return result.zone
+}
+
+export async function replaceGpsPrivacyZone(options: {
+  zoneId: string
+  payload: GpsPrivacyZonePayload
+  accessToken: string
+}): Promise<GpsPrivacyZone> {
+  const result = await requestJson<{ zone: GpsPrivacyZone }>(
+    `${API_V1_PREFIX}/users/me/gps-privacy-zones/${encodeURIComponent(options.zoneId)}`,
+    {
+      method: 'PUT',
+      accessToken: options.accessToken,
+      json: options.payload,
+    },
+  )
+  return result.zone
+}
+
+export async function deleteGpsPrivacyZone(options: {
+  zoneId: string
+  accessToken: string
+}): Promise<void> {
+  await requestJson<void>(
+    `${API_V1_PREFIX}/users/me/gps-privacy-zones/${encodeURIComponent(options.zoneId)}`,
+    { method: 'DELETE', accessToken: options.accessToken },
+  )
+}
+
+export async function getTripLiveLocationSettings(options: {
+  tripId: string
+  accessToken: string
+}): Promise<TripLiveLocationSettings> {
+  return requestJson<TripLiveLocationSettings>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/live-location-settings`,
+    { accessToken: options.accessToken },
+  )
+}
+
+export async function replaceTripLiveLocationSettings(options: {
+  tripId: string
+  shareLiveLocation: boolean
+  accessToken: string
+}): Promise<TripLiveLocationSettings> {
+  return requestJson<TripLiveLocationSettings>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/live-location-settings`,
+    {
+      method: 'PUT',
+      accessToken: options.accessToken,
+      json: { share_live_location: options.shareLiveLocation },
+    },
+  )
+}
+
+export async function listTrackingSessions(options: {
+  tripId: string
+  accessToken: string
+}): Promise<TrackingSession[]> {
+  const result = await requestJson<{ sessions: TrackingSession[] }>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/sessions`,
+    { accessToken: options.accessToken },
+  )
+  return result.sessions
+}
+
+export async function createTrackingSession(options: {
+  tripId: string
+  sessionId: string
+  startedAt: string
+  endedAt?: string | null
+  accessToken: string
+}): Promise<TrackingSession> {
+  return requestJson<TrackingSession>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/sessions/${encodeURIComponent(options.sessionId)}`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      json: {
+        started_at: options.startedAt,
+        ended_at: options.endedAt ?? null,
+      },
+    },
+  )
+}
+
+export async function endTrackingSession(options: {
+  tripId: string
+  sessionId: string
+  endedAt: string
+  accessToken: string
+}): Promise<TrackingSession> {
+  return requestJson<TrackingSession>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/sessions/${encodeURIComponent(options.sessionId)}`,
+    {
+      method: 'PATCH',
+      accessToken: options.accessToken,
+      json: { ended_at: options.endedAt },
+    },
+  )
+}
+
+export async function deleteTrackingSession(options: {
+  tripId: string
+  sessionId: string
+  accessToken: string
+}): Promise<void> {
+  await requestJson<void>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/sessions/${encodeURIComponent(options.sessionId)}`,
+    { method: 'DELETE', accessToken: options.accessToken },
+  )
+}
+
+export async function uploadTrackSamples(options: {
+  tripId: string
+  sessionId: string
+  samples: TrackSampleInput[]
+  accessToken: string
+}): Promise<TrackSampleBatchResult> {
+  return requestJson<TrackSampleBatchResult>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/sessions/${encodeURIComponent(options.sessionId)}/samples/batch`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      json: { samples: options.samples },
+    },
+  )
+}
+
+export async function listTrackSamples(options: {
+  tripId: string
+  sessionId: string
+  limit?: number
+  cursor?: string | null
+  accessToken: string
+}): Promise<TrackSamplePage> {
+  return requestJson<TrackSamplePage>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/sessions/${encodeURIComponent(options.sessionId)}/samples`,
+    {
+      accessToken: options.accessToken,
+      query: {
+        limit: options.limit,
+        cursor: options.cursor ?? undefined,
+      },
+    },
+  )
+}
+
+export async function updateTrackSampleModes(options: {
+  tripId: string
+  sampleIds: string[]
+  travelMode: TravelMode
+  accessToken: string
+}): Promise<number> {
+  const result = await requestJson<{ updated_count: number }>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/samples/travel-mode`,
+    {
+      method: 'PATCH',
+      accessToken: options.accessToken,
+      json: {
+        sample_ids: options.sampleIds,
+        travel_mode: options.travelMode,
+      },
+    },
+  )
+  return result.updated_count
+}
+
+export async function deleteTrackSamples(options: {
+  tripId: string
+  sampleIds: string[]
+  accessToken: string
+}): Promise<number> {
+  const result = await requestJson<{ deleted_count: number }>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/samples/delete`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      json: { sample_ids: options.sampleIds },
+    },
+  )
+  return result.deleted_count
 }
 
 async function requestJson<T>(

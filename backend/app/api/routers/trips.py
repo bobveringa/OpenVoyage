@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from starlette import status
 from starlette.requests import Request
 
@@ -16,6 +16,8 @@ from api.deps import (
 from models.api.pagination import PaginatedResponse, SortDirection
 from models.api.trips import (
     TripCreateRequest,
+    TripLiveLocationSettingsRequest,
+    TripLiveLocationSettingsResponse,
     TripMemberCreateRequest,
     TripMemberResponse,
     TripMemberUpdateRequest,
@@ -38,13 +40,13 @@ from services.trip_service import (
     TripDateRangeError,
     TripMemberAlreadyExistsError,
     TripMemberNotFoundError,
-    TripNotFoundError,
     TripPermissionError,
     TripShareLinkNotFoundError,
     TripViewerAlreadyExistsError,
     TripViewerNotFoundError,
     UserNotFoundError,
 )
+from services.trip_errors import TripNotFoundError
 
 router = APIRouter(prefix='/trips', tags=['trips'])
 
@@ -158,6 +160,54 @@ def list_trip_members(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
     return [TripMemberResponse.from_model(member) for member in members]
+
+
+@router.get(
+    '/{trip_id}/live-location-settings',
+    response_model=TripLiveLocationSettingsResponse,
+)
+def get_live_location_settings(
+    trip_id: uuid.UUID,
+    trip_service: TripServiceDep,
+    user: CurrentUser,
+    response: Response,
+) -> TripLiveLocationSettingsResponse:
+    try:
+        share_live_location = trip_service.get_live_location_settings(
+            trip_id=trip_id,
+            current_user_id=user.id,
+        )
+    except TripNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except TripPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+    response.headers['Cache-Control'] = 'no-store'
+    return TripLiveLocationSettingsResponse(share_live_location=share_live_location)
+
+
+@router.put(
+    '/{trip_id}/live-location-settings',
+    response_model=TripLiveLocationSettingsResponse,
+)
+def replace_live_location_settings(
+    trip_id: uuid.UUID,
+    payload: TripLiveLocationSettingsRequest,
+    trip_service: TripServiceDep,
+    user: CurrentUser,
+) -> TripLiveLocationSettingsResponse:
+    try:
+        share_live_location = trip_service.replace_live_location_settings(
+            trip_id=trip_id,
+            current_user_id=user.id,
+            share_live_location=payload.share_live_location,
+        )
+    except TripNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except TripPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+    return TripLiveLocationSettingsResponse(share_live_location=share_live_location)
 
 
 @router.patch(

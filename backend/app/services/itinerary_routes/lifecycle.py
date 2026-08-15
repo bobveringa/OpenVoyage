@@ -15,8 +15,8 @@ from models.database.itinerary import (
     ItineraryTravelLeg,
     ItineraryTravelLegRoute,
     ItineraryTravelRouteStatus,
-    TravelMode,
 )
+from models.database.travel import TravelMode
 from services.route_providers import (
     RouteProviderBase,
     RouteProviderConfigurationError,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
 
 import { usePublicSettings } from '@/settings/public-settings'
 import { ThemeContext } from '@/theme/theme-context'
@@ -39,7 +39,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => media.removeEventListener('change', update)
   }, [])
 
-  useEffect(() => {
+  // Leaflet reads these CSS values when it creates its route layers. Apply the
+  // selected theme during the layout phase so child effects never see the
+  // previous mode's colors after a theme switch.
+  useLayoutEffect(() => {
     applyThemeToDocument(palette, mode)
   }, [mode, palette])
 

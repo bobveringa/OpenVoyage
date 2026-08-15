@@ -9,11 +9,10 @@ from models.api.posts import (
     PostTimelineRouteResponse,
     PostTimelineRouteSegmentResponse,
 )
-from models.api.geojson import GeoJsonLineString
-from models.database.itinerary import TravelMode
 from models.database.posts import Post, PostMedia
 from models.database.user import User
-from services.post_service import TripNotFoundError
+from services.gps.tracking_service import GpsTrackingService, TimelineGeometry
+from services.trip_errors import TripNotFoundError
 from services.trip_access import get_trip_read_access
 
 
@@ -23,11 +22,31 @@ class PostTimelineEntry:
     route_after: PostTimelineRouteResponse | None
 
 
+@dataclass(frozen=True)
+class PostTimeline:
+    """The public route read model for a trip.
+
+    ``carries_unbounded_open_geometry`` tells the router to send
+    ``Cache-Control: no-store``. It is set only for geometry that no visible
+    post bounds from above, because that is the only geometry that can
+    disclose where somebody is right now.
+    """
+
+    opening_segments: list[PostTimelineRouteSegmentResponse] | None
+    entries: list[PostTimelineEntry]
+    carries_unbounded_open_geometry: bool
+
+
 class PostTimelineService:
     """Builds the chronological post-and-route read model for a trip."""
 
-    def __init__(self, db: Session) -> None:
+    def __init__(
+        self,
+        db: Session,
+        gps_tracking_service: GpsTrackingService,
+    ) -> None:
         self.db = db
+        self.gps_tracking_service = gps_tracking_service
 
     def get_timeline(
         self,
@@ -36,7 +55,7 @@ class PostTimelineService:
         current_user_id: uuid.UUID | None,
         share_token: str | None = None,
         status_filter: PostStatusFilter,
-    ) -> list[PostTimelineEntry]:
+    ) -> PostTimeline:
         access = get_trip_read_access(
             self.db,
             trip_id=trip_id,
@@ -51,7 +70,14 @@ class PostTimelineService:
             conditions.append(Post.published_at.is_not(None))
         elif status_filter == PostStatusFilter.DRAFT:
             if not access.can_read_drafts:
-                return []
+                # An empty timeline, not a postless one: a reader who cannot
+                # see drafts must not fall through to the whole-trip opening
+                # route that a genuinely postless trip would return.
+                return PostTimeline(
+                    opening_segments=None,
+                    entries=[],
+                    carries_unbounded_open_geometry=False,
+                )
             conditions.append(Post.published_at.is_(None))
         elif status_filter == PostStatusFilter.ALL and not access.can_read_drafts:
             conditions.append(Post.published_at.is_not(None))
@@ -71,43 +97,59 @@ class PostTimelineService:
             .all()
         )
 
+        geometry = self.gps_tracking_service.build_timeline_geometry(
+            trip_id=trip_id,
+            posts=posts,
+            is_member=access.membership is not None,
+            share_live_location=access.trip.share_live_location,
+        )
+
         entries: list[PostTimelineEntry] = []
         for index, post in enumerate(posts):
-            next_post = posts[index + 1] if index + 1 < len(posts) else None
-            entries.append(
-                PostTimelineEntry(
-                    post=post,
-                    route_after=(
-                        self._straight_route(post, next_post)
-                        if next_post is not None
-                        else None
-                    ),
+            is_final = index == len(posts) - 1
+            if is_final:
+                route_after = self._final_route(geometry)
+            else:
+                route_after = self._transition_route(
+                    geometry=geometry,
+                    index=index,
+                    from_post=post,
+                    to_post=posts[index + 1],
                 )
-            )
-        return entries
+            entries.append(PostTimelineEntry(post=post, route_after=route_after))
+
+        return PostTimeline(
+            opening_segments=geometry.opening_segments,
+            entries=entries,
+            carries_unbounded_open_geometry=geometry.carries_unbounded_open_geometry,
+        )
 
     @staticmethod
-    def _straight_route(from_post: Post, to_post: Post) -> PostTimelineRouteResponse:
+    def _transition_route(
+        *,
+        geometry: TimelineGeometry,
+        index: int,
+        from_post: Post,
+        to_post: Post,
+    ) -> PostTimelineRouteResponse:
+        # Every completed transition already contains its two post anchors, so
+        # the plain post-to-post line falls out of the same algorithm when no
+        # GPS point lies between them.
         duration_seconds = int(
             (to_post.occurred_at - from_post.occurred_at).total_seconds()
         )
         return PostTimelineRouteResponse(
             duration_seconds=duration_seconds,
-            segments=[
-                PostTimelineRouteSegmentResponse(
-                    travel_mode=TravelMode.UNKNOWN,
-                    geometry=GeoJsonLineString(
-                        coordinates=[
-                            (
-                                from_post.location.longitude,
-                                from_post.location.latitude,
-                            ),
-                            (
-                                to_post.location.longitude,
-                                to_post.location.latitude,
-                            ),
-                        ]
-                    ),
-                )
-            ],
+            segments=geometry.transition_segments[index],
+        )
+
+    @staticmethod
+    def _final_route(
+        geometry: TimelineGeometry,
+    ) -> PostTimelineRouteResponse | None:
+        if geometry.final_segments is None:
+            return None
+        return PostTimelineRouteResponse(
+            duration_seconds=None,
+            segments=geometry.final_segments,
         )

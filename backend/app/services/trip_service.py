@@ -31,6 +31,7 @@ from services.trip_access import (
     hash_share_token,
 )
 from services.trip_authorization import TripPermission, role_has_permission
+from services.trip_errors import TripNotFoundError
 
 
 LISTED_TRIP_ROLES = (TripRole.OWNER, TripRole.MEMBER)
@@ -54,10 +55,6 @@ def trip_status_filters(
             or_(Trip.end_date.is_(None), Trip.end_date >= today),
         )
     return ()
-
-
-class TripNotFoundError(Exception):
-    """Raised when a trip cannot be found."""
 
 
 class MediaNotFoundError(Exception):
@@ -228,6 +225,38 @@ class TripService:
         self.db.commit()
         self.db.refresh(trip)
         return trip
+
+    def get_live_location_settings(
+        self,
+        *,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+    ) -> bool:
+        """Return whether the trip shares unbounded live location data."""
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.GET_TRACKING,
+        )
+        return self._get_trip_or_raise(trip_id).share_live_location
+
+    def replace_live_location_settings(
+        self,
+        *,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+        share_live_location: bool,
+    ) -> bool:
+        """Set whether the trip shares unbounded live location data."""
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.MANAGE_LIVE_SHARING,
+        )
+        trip = self._get_trip_or_raise(trip_id)
+        trip.share_live_location = share_live_location
+        self.db.commit()
+        return trip.share_live_location
 
     def delete_trip(self, trip_id: uuid.UUID, current_user_id: uuid.UUID) -> None:
         """Delete a trip after verifying the current user may delete it.

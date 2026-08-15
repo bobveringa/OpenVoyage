@@ -477,6 +477,24 @@ export interface paths {
         patch: operations["update_stop_api_v1_trips__trip_id__itinerary_stops__stop_id__patch"];
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/live-location-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Live Location Settings */
+        get: operations["get_live_location_settings_api_v1_trips__trip_id__live_location_settings_get"];
+        /** Replace Live Location Settings */
+        put: operations["replace_live_location_settings_api_v1_trips__trip_id__live_location_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/members": {
         parameters: {
             query?: never;
@@ -637,6 +655,110 @@ export interface paths {
         patch: operations["update_share_link_api_v1_trips__trip_id__share_links__share_link_id__patch"];
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/tracking/samples/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete Track Samples */
+        post: operations["delete_track_samples_api_v1_trips__trip_id__tracking_samples_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/tracking/samples/travel-mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Track Sample Modes */
+        patch: operations["update_track_sample_modes_api_v1_trips__trip_id__tracking_samples_travel_mode_patch"];
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/tracking/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tracking Sessions */
+        get: operations["list_tracking_sessions_api_v1_trips__trip_id__tracking_sessions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Tracking Session */
+        post: operations["create_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__post"];
+        /** Delete Tracking Session */
+        delete: operations["delete_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        /** End Tracking Session */
+        patch: operations["end_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Track Samples */
+        get: operations["list_track_samples_api_v1_trips__trip_id__tracking_sessions__session_id__samples_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/samples/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Track Samples */
+        post: operations["upload_track_samples_api_v1_trips__trip_id__tracking_sessions__session_id__samples_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/viewers": {
         parameters: {
             query?: never;
@@ -722,6 +844,48 @@ export interface paths {
         head?: never;
         /** Update User Profile */
         patch: operations["update_user_profile_api_v1_users_me_patch"];
+        trace?: never;
+    };
+    "/api/v1/users/me/gps-privacy-zones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Gps Privacy Zones */
+        get: operations["list_gps_privacy_zones_api_v1_users_me_gps_privacy_zones_get"];
+        put?: never;
+        /** Create Gps Privacy Zone */
+        post: operations["create_gps_privacy_zone_api_v1_users_me_gps_privacy_zones_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/gps-privacy-zones/{zone_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace Gps Privacy Zone
+         * @description Replace a zone. This never creates one; an unknown id is a 404.
+         *
+         *     Existing retained coordinates are untouched: a zone only ever filters
+         *     uploads processed after it was stored.
+         */
+        put: operations["replace_gps_privacy_zone_api_v1_users_me_gps_privacy_zones__zone_id__put"];
+        post?: never;
+        /** Delete Gps Privacy Zone */
+        delete: operations["delete_gps_privacy_zone_api_v1_users_me_gps_privacy_zones__zone_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/users/me/password": {
@@ -973,6 +1137,13 @@ export interface components {
             profile: components["schemas"]["UserProfileResponse"] | null;
             role: components["schemas"]["UserRole"];
         };
+        /** CursorPaginatedResponse[TrackSampleResponse] */
+        CursorPaginatedResponse_TrackSampleResponse_: {
+            /** Items */
+            items: components["schemas"]["TrackSampleResponse"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
         /** FirstUserCreateRequest */
         FirstUserCreateRequest: {
             /**
@@ -1015,6 +1186,40 @@ export interface components {
              * @constant
              */
             type: "LineString";
+        };
+        /**
+         * GpsPrivacyZoneEnvelope
+         * @description Creation and replacement wrap the zone, matching the spec's examples.
+         */
+        GpsPrivacyZoneEnvelope: {
+            zone: components["schemas"]["GpsPrivacyZoneResponse"];
+        };
+        /** GpsPrivacyZoneRequest */
+        GpsPrivacyZoneRequest: {
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Name */
+            name: string;
+            /** Radius Meters */
+            radius_meters: number;
+        };
+        /** GpsPrivacyZoneResponse */
+        GpsPrivacyZoneResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Name */
+            name: string;
+            /** Radius Meters */
+            radius_meters: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1537,6 +1742,23 @@ export interface components {
             post: components["schemas"]["PostResponse"];
             route_after: components["schemas"]["PostTimelineRouteResponse"] | null;
         };
+        /**
+         * PostTimelineOpeningRouteResponse
+         * @description Geometry before the first visible post.
+         *
+         *     It carries no ``duration_seconds`` because there is no preceding post to
+         *     define a public timeline duration.
+         */
+        PostTimelineOpeningRouteResponse: {
+            /** Segments */
+            segments: components["schemas"]["PostTimelineRouteSegmentResponse"][];
+        };
+        /** PostTimelineResponse */
+        PostTimelineResponse: {
+            /** Entries */
+            entries: components["schemas"]["PostTimelineEntryResponse"][];
+            opening_route: components["schemas"]["PostTimelineOpeningRouteResponse"] | null;
+        };
         /** PostTimelineRouteResponse */
         PostTimelineRouteResponse: {
             /** Duration Seconds */
@@ -1548,6 +1770,11 @@ export interface components {
         PostTimelineRouteSegmentResponse: {
             geometry: components["schemas"]["GeoJsonLineString"];
             travel_mode: components["schemas"]["TravelMode"];
+            /**
+             * Visible To Members Only
+             * @default false
+             */
+            visible_to_members_only: boolean;
         };
         /** PostUpdateRequest */
         PostUpdateRequest: {
@@ -1624,11 +1851,141 @@ export interface components {
              */
             token_type: string;
         };
+        /** TrackSampleBatchRequest */
+        TrackSampleBatchRequest: {
+            /** Samples */
+            samples: components["schemas"]["TrackSampleRequest"][];
+        };
+        /**
+         * TrackSampleBatchResponse
+         * @description The four buckets add up to the request length.
+         *
+         *     That lets a client retire a whole queue slice and still reconcile its local
+         *     point count against the server's.
+         */
+        TrackSampleBatchResponse: {
+            /** Accepted Samples */
+            accepted_samples: number;
+            /** Discarded Samples */
+            discarded_samples: number;
+            /** Duplicate Samples */
+            duplicate_samples: number;
+            /** Filtered Samples */
+            filtered_samples: number;
+        };
+        /** TrackSampleDeleteRequest */
+        TrackSampleDeleteRequest: {
+            /** Sample Ids */
+            sample_ids: string[];
+        };
+        /** TrackSampleDeleteResponse */
+        TrackSampleDeleteResponse: {
+            /** Deleted Count */
+            deleted_count: number;
+        };
+        /** TrackSampleModeUpdateRequest */
+        TrackSampleModeUpdateRequest: {
+            /** Sample Ids */
+            sample_ids: string[];
+            travel_mode: components["schemas"]["TravelMode"];
+        };
+        /** TrackSampleModeUpdateResponse */
+        TrackSampleModeUpdateResponse: {
+            /** Updated Count */
+            updated_count: number;
+        };
+        /** TrackSampleRequest */
+        TrackSampleRequest: {
+            /** Accuracy Meters */
+            accuracy_meters?: number | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** @default UNKNOWN */
+            travel_mode: components["schemas"]["TravelMode"];
+        };
+        /** TrackSampleResponse */
+        TrackSampleResponse: {
+            /** Accuracy Meters */
+            accuracy_meters: number | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            travel_mode: components["schemas"]["TravelMode"];
+        };
+        /** TrackingSessionCreateRequest */
+        TrackingSessionCreateRequest: {
+            /** Ended At */
+            ended_at?: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /** TrackingSessionEndRequest */
+        TrackingSessionEndRequest: {
+            /**
+             * Ended At
+             * Format: date-time
+             */
+            ended_at: string;
+        };
+        /** TrackingSessionListResponse */
+        TrackingSessionListResponse: {
+            /** Sessions */
+            sessions: components["schemas"]["TrackingSessionResponse"][];
+        };
+        /** TrackingSessionResponse */
+        TrackingSessionResponse: {
+            /** Ended At */
+            ended_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Recorded By User Id */
+            recorded_by_user_id: string | null;
+            /** Sample Count */
+            sample_count: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
         /**
          * TravelMode
+         * @description Transport mode shared by itinerary legs, post routes, and GPS samples.
+         *
+         *     Values are stored as plain strings in ``String(32)`` columns, so adding a
+         *     member is a code change only and never needs a migration.
          * @enum {string}
          */
-        TravelMode: "UNKNOWN" | "WALK" | "BIKE" | "CAR" | "BUS" | "TRAIN" | "FERRY" | "FLIGHT" | "OTHER";
+        TravelMode: "UNKNOWN" | "WALK" | "BIKE" | "MOTORCYCLE" | "CAR" | "BUS" | "TRAIN" | "FERRY" | "FLIGHT" | "OTHER";
         /** TripCreateRequest */
         TripCreateRequest: {
             /**
@@ -1652,6 +2009,19 @@ export interface components {
             start_date: string;
             /** @default PRIVATE */
             visibility: components["schemas"]["TripVisibility"];
+        };
+        /** TripLiveLocationSettingsRequest */
+        TripLiveLocationSettingsRequest: {
+            /**
+             * Share Live Location
+             * @default false
+             */
+            share_live_location: boolean;
+        };
+        /** TripLiveLocationSettingsResponse */
+        TripLiveLocationSettingsResponse: {
+            /** Share Live Location */
+            share_live_location: boolean;
         };
         /** TripMemberCreateRequest */
         TripMemberCreateRequest: {
@@ -3170,6 +3540,72 @@ export interface operations {
             };
         };
     };
+    get_live_location_settings_api_v1_trips__trip_id__live_location_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TripLiveLocationSettingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_live_location_settings_api_v1_trips__trip_id__live_location_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TripLiveLocationSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TripLiveLocationSettingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_trip_members_api_v1_trips__trip_id__members_get: {
         parameters: {
             query?: never;
@@ -3399,7 +3835,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PostTimelineEntryResponse"][];
+                    "application/json": components["schemas"]["PostTimelineResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3709,6 +4145,280 @@ export interface operations {
             };
         };
     };
+    delete_track_samples_api_v1_trips__trip_id__tracking_samples_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackSampleDeleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackSampleDeleteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_track_sample_modes_api_v1_trips__trip_id__tracking_samples_travel_mode_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackSampleModeUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackSampleModeUpdateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tracking_sessions_api_v1_trips__trip_id__tracking_sessions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackingSessionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackingSessionCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackingSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    end_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackingSessionEndRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackingSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_track_samples_api_v1_trips__trip_id__tracking_sessions__session_id__samples_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                trip_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CursorPaginatedResponse_TrackSampleResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_track_samples_api_v1_trips__trip_id__tracking_sessions__session_id__samples_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackSampleBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackSampleBatchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_trip_viewers_api_v1_trips__trip_id__viewers_get: {
         parameters: {
             query?: never;
@@ -3911,6 +4621,123 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CurrentUserResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_gps_privacy_zones_api_v1_users_me_gps_privacy_zones_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GpsPrivacyZoneResponse"][];
+                };
+            };
+        };
+    };
+    create_gps_privacy_zone_api_v1_users_me_gps_privacy_zones_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GpsPrivacyZoneRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GpsPrivacyZoneEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_gps_privacy_zone_api_v1_users_me_gps_privacy_zones__zone_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GpsPrivacyZoneRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GpsPrivacyZoneEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_gps_privacy_zone_api_v1_users_me_gps_privacy_zones__zone_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

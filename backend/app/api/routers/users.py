@@ -8,12 +8,18 @@ from starlette.requests import Request
 from api.deps import (
     AuthenticatedUser,
     CurrentUser,
+    GpsPrivacyZoneServiceDep,
     OptionalCurrentUser,
     PaginationDep,
     UserServiceDep,
 )
 from core import security
 from models.api.pagination import PaginatedResponse
+from models.api.gps_privacy_zones import (
+    GpsPrivacyZoneEnvelope,
+    GpsPrivacyZoneRequest,
+    GpsPrivacyZoneResponse,
+)
 from models.api.users import (
     CurrentUserResponse,
     PasswordChangeRequest,
@@ -35,6 +41,10 @@ from services.user_service import (
     NewPasswordMatchesCurrentError,
 )
 from models.api.token import Token
+from services.gps.privacy_zone_service import (
+    PrivacyZoneLimitError,
+    PrivacyZoneNotFoundError,
+)
 
 router = APIRouter(prefix='/users', tags=['users'])
 
@@ -131,6 +141,96 @@ def update_user_profile(
 
     media_base_url = str(request.base_url).rstrip('/')
     return CurrentUserResponse.from_model(updated_user, media_base_url=media_base_url)
+
+
+# ---------------------------------------------------------------------------
+# GPS privacy zones
+#
+# Declared as static ``/me/...`` routes so they are matched before ``/{user_id}``.
+# A zone's configuration never leaves its owner's account, so every route here
+# is scoped to the authenticated user and none of them accept a user id.
+# ---------------------------------------------------------------------------
+@router.get(
+    '/me/gps-privacy-zones',
+    response_model=list[GpsPrivacyZoneResponse],
+)
+def list_gps_privacy_zones(
+    user: CurrentUser,
+    privacy_zone_service: GpsPrivacyZoneServiceDep,
+    response: Response,
+) -> list[GpsPrivacyZoneResponse]:
+    response.headers['Cache-Control'] = 'no-store'
+    return [
+        GpsPrivacyZoneResponse.from_model(zone)
+        for zone in privacy_zone_service.list_zones(user_id=user.id)
+    ]
+
+
+@router.post(
+    '/me/gps-privacy-zones',
+    response_model=GpsPrivacyZoneEnvelope,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_gps_privacy_zone(
+    payload: GpsPrivacyZoneRequest,
+    user: CurrentUser,
+    privacy_zone_service: GpsPrivacyZoneServiceDep,
+) -> GpsPrivacyZoneEnvelope:
+    try:
+        zone = privacy_zone_service.create_zone(user_id=user.id, payload=payload)
+    except PrivacyZoneLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        )
+
+    return GpsPrivacyZoneEnvelope(zone=GpsPrivacyZoneResponse.from_model(zone))
+
+
+@router.put(
+    '/me/gps-privacy-zones/{zone_id}',
+    response_model=GpsPrivacyZoneEnvelope,
+)
+def replace_gps_privacy_zone(
+    zone_id: uuid.UUID,
+    payload: GpsPrivacyZoneRequest,
+    user: CurrentUser,
+    privacy_zone_service: GpsPrivacyZoneServiceDep,
+) -> GpsPrivacyZoneEnvelope:
+    """Replace a zone. This never creates one; an unknown id is a 404.
+
+    Existing retained coordinates are untouched: a zone only ever filters
+    uploads processed after it was stored.
+    """
+    try:
+        zone = privacy_zone_service.replace_zone(
+            user_id=user.id,
+            zone_id=zone_id,
+            payload=payload,
+        )
+    except PrivacyZoneNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+    return GpsPrivacyZoneEnvelope(zone=GpsPrivacyZoneResponse.from_model(zone))
+
+
+@router.delete(
+    '/me/gps-privacy-zones/{zone_id}',
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_gps_privacy_zone(
+    zone_id: uuid.UUID,
+    user: CurrentUser,
+    privacy_zone_service: GpsPrivacyZoneServiceDep,
+) -> Response:
+    try:
+        privacy_zone_service.delete_zone(user_id=user.id, zone_id=zone_id)
+    except PrivacyZoneNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
 
 
 @router.get(

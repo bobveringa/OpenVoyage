@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from starlette import status
 from starlette.requests import Request
 
@@ -21,6 +21,8 @@ from models.api.posts import (
     PostSortField,
     PostStatusFilter,
     PostTimelineEntryResponse,
+    PostTimelineOpeningRouteResponse,
+    PostTimelineResponse,
     PostUpdateRequest,
 )
 from services.location_service import LocationNotFoundError
@@ -30,8 +32,8 @@ from services.post_service import (
     PostMediaOwnershipError,
     PostNotFoundError,
     PostPermissionError,
-    TripNotFoundError,
 )
+from services.trip_errors import TripNotFoundError
 
 router = APIRouter(prefix='/trips/{trip_id}/posts', tags=['posts'])
 
@@ -135,10 +137,11 @@ def list_posts(
 
 @router.get(
     '/timeline',
-    response_model=list[PostTimelineEntryResponse],
+    response_model=PostTimelineResponse,
 )
 def get_post_timeline(
     request: Request,
+    response: Response,
     trip_id: uuid.UUID,
     post_timeline_service: PostTimelineServiceDep,
     user: OptionalCurrentUser,
@@ -147,9 +150,9 @@ def get_post_timeline(
         PostStatusFilter,
         Query(alias='status'),
     ] = PostStatusFilter.PUBLISHED,
-) -> list[PostTimelineEntryResponse]:
+) -> PostTimelineResponse:
     try:
-        entries = post_timeline_service.get_timeline(
+        timeline = post_timeline_service.get_timeline(
             trip_id=trip_id,
             current_user_id=user.id if user else None,
             share_token=share_token,
@@ -158,19 +161,33 @@ def get_post_timeline(
     except TripNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
+    if timeline.carries_unbounded_open_geometry:
+        # Geometry no visible post bounds from above carries a coordinate
+        # recorded moments ago, so it must not sit in a shared cache. A route
+        # that ends at a published post is as fresh as that post and stays
+        # ordinarily cacheable.
+        response.headers['Cache-Control'] = 'no-store'
+
     media_base_url = str(request.base_url).rstrip('/')
-    return [
-        PostTimelineEntryResponse(
-            post=_post_response(
-                entry.post,
-                media_base_url=media_base_url,
-                user=user,
-                share_token=share_token,
-            ),
-            route_after=entry.route_after,
-        )
-        for entry in entries
-    ]
+    return PostTimelineResponse(
+        opening_route=(
+            PostTimelineOpeningRouteResponse(segments=timeline.opening_segments)
+            if timeline.opening_segments
+            else None
+        ),
+        entries=[
+            PostTimelineEntryResponse(
+                post=_post_response(
+                    entry.post,
+                    media_base_url=media_base_url,
+                    user=user,
+                    share_token=share_token,
+                ),
+                route_after=entry.route_after,
+            )
+            for entry in timeline.entries
+        ],
+    )
 
 
 @router.get(

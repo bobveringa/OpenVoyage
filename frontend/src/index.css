@@ -126,6 +126,15 @@
     background: transparent;
   }
 
+  /* The final GPS point after the latest visible post. */
+  .trip-map-route-endpoint {
+    display: block;
+    width: 0.85rem;
+    height: 0.85rem;
+    margin: 0.55rem;
+    border-radius: 999px;
+  }
+
   .trip-map-place-marker {
     display: grid;
     width: 0.9rem;
@@ -229,6 +238,20 @@
 
   .trip-mobile-post-carousel__card {
     width: var(--trip-mobile-post-card-width);
+  }
+
+  .privacy-zone-map {
+    height: 20rem;
+    width: 100%;
+    cursor: crosshair;
+    font-family: var(--app-font-sans);
+  }
+
+  .privacy-zone-map .leaflet-control-attribution {
+    border-top-left-radius: 0.5rem;
+    background: color-mix(in srgb, var(--card) 88%, transparent);
+    color: var(--muted-foreground);
+    font-size: 0.65rem;
   }
 }
 

@@ -24,6 +24,8 @@ from jobs.runtime import JobRuntime
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from models.api.token import TokenPayload
 from models.database.user import User
+from services.gps.privacy_zone_service import GpsPrivacyZoneService
+from services.gps.tracking_service import GpsTrackingService
 from services.job_service import JobService
 from services.itinerary_routes import ItineraryRouteService
 from services.app_settings_service import AppSettingsService
@@ -212,8 +214,29 @@ def get_post_service(
     )
 
 
-def get_post_timeline_service(session: SessionDep):
-    return PostTimelineService(db=session)
+def get_gps_privacy_zone_service(session: SessionDep):
+    return GpsPrivacyZoneService(db=session)
+
+
+def get_gps_tracking_service(
+    session: SessionDep,
+    privacy_zones: Annotated[
+        GpsPrivacyZoneService, Depends(get_gps_privacy_zone_service)
+    ],
+):
+    return GpsTrackingService(db=session, privacy_zones=privacy_zones)
+
+
+def get_post_timeline_service(
+    session: SessionDep,
+    gps_tracking_service: Annotated[
+        GpsTrackingService, Depends(get_gps_tracking_service)
+    ],
+):
+    return PostTimelineService(
+        db=session,
+        gps_tracking_service=gps_tracking_service,
+    )
 
 
 route_provider_factory = RouteProviderFactory()
@@ -280,6 +303,14 @@ PostServiceDep = Annotated[PostService, Depends(get_post_service)]
 PostTimelineServiceDep = Annotated[
     PostTimelineService,
     Depends(get_post_timeline_service),
+]
+GpsTrackingServiceDep = Annotated[
+    GpsTrackingService,
+    Depends(get_gps_tracking_service),
+]
+GpsPrivacyZoneServiceDep = Annotated[
+    GpsPrivacyZoneService,
+    Depends(get_gps_privacy_zone_service),
 ]
 TripServiceDep = Annotated[TripService, Depends(get_trip_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]

@@ -70,6 +70,14 @@ class TripUpdateRequest(BaseModel):
         return self
 
 
+class TripLiveLocationSettingsResponse(BaseModel):
+    share_live_location: bool
+
+
+class TripLiveLocationSettingsRequest(BaseModel):
+    share_live_location: bool = False
+
+
 class TripMemberCreateRequest(BaseModel):
     user_id: uuid.UUID
     role: TripRole = TripRole.MEMBER

@@ -18,14 +18,11 @@ from models.database.user import User
 from services.location_service import LocationService
 from services.trip_access import TripReadAccess, get_trip_read_access, get_membership
 from services.trip_authorization import TripPermission, role_has_permission
+from services.trip_errors import TripNotFoundError
 
 
 class PostNotFoundError(Exception):
     """Raised when a post cannot be found or read by the user."""
-
-
-class TripNotFoundError(Exception):
-    """Raised when a trip cannot be found or read by the user."""
 
 
 class MediaNotFoundError(Exception):

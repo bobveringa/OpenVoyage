@@ -6,7 +6,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from models.database.itinerary import TravelMode
+from models.database.travel import TravelMode
 from services.route_providers.route_provider import (
     RouteProviderBase,
     RouteProviderConfigurationError,

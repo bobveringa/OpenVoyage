@@ -9,6 +9,7 @@ from api.routers import (
     places,
     posts,
     settings,
+    tracking,
     trips,
     users,
 )
@@ -26,3 +27,4 @@ api_router.include_router(places.router)
 api_router.include_router(trips.router)
 api_router.include_router(itinerary.router)
 api_router.include_router(posts.router)
+api_router.include_router(tracking.router)

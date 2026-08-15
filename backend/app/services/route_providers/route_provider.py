@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from models.database.itinerary import ItineraryTravelLeg, TravelMode
+from models.database.itinerary import ItineraryTravelLeg
+from models.database.travel import TravelMode
 
 
 @dataclass(frozen=True)

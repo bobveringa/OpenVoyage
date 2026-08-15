@@ -10,7 +10,7 @@ from models.api.geojson import GeoJsonLineString
 from models.api.locations import LocationInput, LocationResponse
 from models.api.media import MediaResponse
 from models.api.users import UserSummaryResponse
-from models.database.itinerary import TravelMode
+from models.database.travel import TravelMode
 from models.database.posts import Post
 
 
@@ -94,6 +94,7 @@ class PostResponse(BaseModel):
 class PostTimelineRouteSegmentResponse(BaseModel):
     travel_mode: TravelMode
     geometry: GeoJsonLineString
+    visible_to_members_only: bool = False
 
 
 class PostTimelineRouteResponse(BaseModel):
@@ -104,3 +105,18 @@ class PostTimelineRouteResponse(BaseModel):
 class PostTimelineEntryResponse(BaseModel):
     post: PostResponse
     route_after: PostTimelineRouteResponse | None
+
+
+class PostTimelineOpeningRouteResponse(BaseModel):
+    """Geometry before the first visible post.
+
+    It carries no ``duration_seconds`` because there is no preceding post to
+    define a public timeline duration.
+    """
+
+    segments: list[PostTimelineRouteSegmentResponse] = Field(min_length=1)
+
+
+class PostTimelineResponse(BaseModel):
+    opening_route: PostTimelineOpeningRouteResponse | None
+    entries: list[PostTimelineEntryResponse]

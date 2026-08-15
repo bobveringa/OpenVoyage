@@ -20,23 +20,12 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, utcnow
+from .travel import TravelMode
 
 if typing.TYPE_CHECKING:
     from .locations import Location
     from .trips import Trip
     from .user import User
-
-
-class TravelMode(str, enum.Enum):
-    UNKNOWN = 'UNKNOWN'
-    WALK = 'WALK'
-    BIKE = 'BIKE'
-    CAR = 'CAR'
-    BUS = 'BUS'
-    TRAIN = 'TRAIN'
-    FERRY = 'FERRY'
-    FLIGHT = 'FLIGHT'
-    OTHER = 'OTHER'
 
 
 class ItineraryTravelRouteStatus(str, enum.Enum):

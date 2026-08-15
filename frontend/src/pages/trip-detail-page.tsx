@@ -26,10 +26,12 @@ import {
   MapPin,
   Minus,
   MoreHorizontal,
+  Motorbike,
   MousePointer2,
   Navigation,
   PenLine,
   Plane,
+  Radio,
   Plus,
   RefreshCw,
   Search,
@@ -67,6 +69,7 @@ import { Button } from '@/components/ui/button'
 import { DatePicker, DateTimePicker } from '@/components/ui/date-time-picker'
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import { ImageUploadDropzone } from '@/components/media/image-upload-dropzone'
+import { TrackingManagementDialog } from '@/components/trips/tracking-management-dialog'
 import { Input } from '@/components/ui/input'
 import { MediaImage } from '@/components/ui/media-image'
 import { Modal } from '@/components/ui/modal'
@@ -118,6 +121,7 @@ import {
   type Post,
   type PostCreatePayload,
   type PostTimelineEntry,
+  type PostTimelineOpeningRoute,
   type PostTimelineRoute,
   type PostUpdatePayload,
   type MediaUploadProgress,
@@ -138,7 +142,7 @@ type PlanningView = 'create-stop' | 'stops'
 type TravelingView = 'create-post' | 'edit-post' | 'posts'
 type MapPointTarget = 'post' | 'stop'
 type RouteFitMode = 'mobile-picker' | 'mobile-travel' | 'workspace'
-type TripDialog = 'actions' | 'members' | 'settings' | 'share'
+type TripDialog = 'actions' | 'members' | 'settings' | 'share' | 'tracking'
 type MockTripVisibility = 'PLATFORM_PUBLIC' | 'PRIVATE' | 'PUBLIC'
 type MockTripRole = 'MEMBER' | 'OWNER'
 type TravelMode =
@@ -147,6 +151,7 @@ type TravelMode =
   | 'CAR'
   | 'FERRY'
   | 'FLIGHT'
+  | 'MOTORCYCLE'
   | 'OTHER'
   | 'TRAIN'
   | 'UNKNOWN'
@@ -283,6 +288,12 @@ type TravelPostRoute = {
 type TravelPostRouteSegment = {
   coordinates: L.LatLngTuple[]
   travelMode: TravelMode
+  visibleToMembersOnly?: boolean
+}
+
+type RouteEndpoint = {
+  coordinates: L.LatLngTuple
+  travelMode: TravelMode
 }
 
 type DraftPostLocation = {
@@ -303,6 +314,21 @@ type RouteSegment = {
   kind: RouteSegmentKind
   routeType: ItineraryRouteType
   travelMode?: TravelMode
+  visibleToMembersOnly?: boolean
+}
+
+/**
+ * GPS-derived map data that does not belong to any single post.
+ *
+ * `openingRoute` is the path leading to the first visible post, or the whole
+ * retained path when no post is visible yet.
+ */
+type TripTrackingGeometry = {
+  openingRoute: TravelPostRoute | null
+}
+
+const EMPTY_TRACKING_GEOMETRY: TripTrackingGeometry = {
+  openingRoute: null,
 }
 
 type FocusedPostNeighbor = {
@@ -482,6 +508,7 @@ const travelModeOptions = [
   { label: 'Unknown', value: 'UNKNOWN' },
   { label: 'Walk', value: 'WALK' },
   { label: 'Bike', value: 'BIKE' },
+  { label: 'Motorcycle', value: 'MOTORCYCLE' },
   { label: 'Car', value: 'CAR' },
   { label: 'Bus', value: 'BUS' },
   { label: 'Train', value: 'TRAIN' },
@@ -890,6 +917,9 @@ export function TripDetailPage({
     useState<readonly TravelLeg[]>(sourceTravelLegs)
   const [travelPosts, setTravelPosts] =
     useState<readonly TravelPost[]>(sourceTravelPosts)
+  const [trackingGeometry, setTrackingGeometry] = useState<TripTrackingGeometry>(
+    EMPTY_TRACKING_GEOMETRY,
+  )
   const [travelingView, setTravelingView] = useState<TravelingView>(
     initialUrlState.travelingView,
   )
@@ -961,9 +991,9 @@ export function TripDetailPage({
     [accessToken, isApiBacked, tripId],
   )
 
-  const fetchTravelPosts = useCallback(async () => {
+  const fetchTravelTimeline = useCallback(async () => {
     if (!tripId) {
-      return []
+      return { posts: [], trackingGeometry: EMPTY_TRACKING_GEOMETRY }
     }
 
     const timeline = await getPostTimeline({
@@ -972,7 +1002,13 @@ export function TripDetailPage({
       status: accessToken ? 'all' : 'published',
       tripId,
     })
-    return timeline.map(toTravelTimelinePostViewModel)
+
+    return {
+      posts: timeline.entries.map(toTravelTimelinePostViewModel),
+      trackingGeometry: {
+        openingRoute: toTravelPostRouteViewModel(timeline.opening_route),
+      },
+    }
   }, [accessToken, shareToken, tripId])
 
   const loadTripDetail = useCallback(
@@ -985,13 +1021,15 @@ export function TripDetailPage({
       setMutationError(null)
 
       try {
-        const [loadedTrip, loadedItinerary, loadedPosts, loadedMembers] =
+        const [loadedTrip, loadedItinerary, loadedTimeline, loadedMembers] =
           await Promise.all([
             getTrip({ accessToken, shareToken, tripId }),
             getItinerary({ accessToken, shareToken, tripId }),
-            fetchTravelPosts(),
+            fetchTravelTimeline(),
             listTripMembers({ accessToken, shareToken, tripId }),
           ])
+        const { posts: loadedPosts, trackingGeometry: loadedTrackingGeometry } =
+          loadedTimeline
 
         if (!options.isCurrent()) {
           return
@@ -1009,6 +1047,7 @@ export function TripDetailPage({
         applyItinerary(loadedItinerary)
         setTripMembers(loadedTripMembers)
         setTravelPosts(loadedPosts)
+        setTrackingGeometry(loadedTrackingGeometry)
         setLoadState({ error: null, status: 'success' })
 
         if (accessToken && loadedCurrentMembership?.role === 'OWNER') {
@@ -1036,7 +1075,7 @@ export function TripDetailPage({
       accessToken,
       applyItinerary,
       currentUserId,
-      fetchTravelPosts,
+      fetchTravelTimeline,
       loadTripManagement,
       shareToken,
       tripId,
@@ -1163,13 +1202,17 @@ export function TripDetailPage({
   )
 
   const openDialog = useCallback((dialog: TripDialog) => {
-    if (!canManageTrip) {
+    // Tracking is member-level: everyone who can edit the trip can manage its
+    // recordings and points. Only the live-sharing switch inside it is
+    // owner-only, and the server enforces that separately.
+    const isPermitted = dialog === 'tracking' ? canMutate : canManageTrip
+    if (!isPermitted) {
       return
     }
 
     setMutationError(null)
     navigateTripDetailUrlState({ activeDialog: dialog })
-  }, [canManageTrip, navigateTripDetailUrlState])
+  }, [canManageTrip, canMutate, navigateTripDetailUrlState])
 
   const closeDialog = useCallback(() => {
     navigateTripDetailUrlState({ activeDialog: null }, 'replace')
@@ -1711,7 +1754,9 @@ export function TripDetailPage({
             tripId,
           })
         }
-        setTravelPosts(await fetchTravelPosts())
+        const { posts, trackingGeometry } = await fetchTravelTimeline()
+        setTravelPosts(posts)
+        setTrackingGeometry(trackingGeometry)
 
         setDraftPostLocation(null)
         navigateTripDetailUrlState(
@@ -2053,6 +2098,7 @@ export function TripDetailPage({
               stops={visibleStops}
               trip={trip}
               travelLegs={travelLegs}
+              trackingGeometry={trackingGeometry}
               travelPosts={travelPosts}
               travelingView={travelingView}
             />
@@ -2067,6 +2113,7 @@ export function TripDetailPage({
               routeMode={mapRouteMode}
               stops={visibleStops}
               travelLegs={travelLegs}
+              trackingGeometry={trackingGeometry}
               travelPosts={travelPosts}
             />
           ) : null}
@@ -2116,6 +2163,23 @@ export function TripDetailPage({
           />
         </>
       ) : null}
+      {canMutate && accessToken && tripId ? (
+        <TrackingManagementDialog
+          accessToken={accessToken}
+          canManageLiveSharing={canManageTrip}
+          onClose={closeDialog}
+          onTrackingChanged={() => {
+            // Mode edits and deletions change public geometry, so reload the
+            // authoritative timeline rather than patching it locally.
+            void fetchTravelTimeline().then(({ posts, trackingGeometry }) => {
+              setTravelPosts(posts)
+              setTrackingGeometry(trackingGeometry)
+            })
+          }}
+          open={activeDialog === 'tracking'}
+          tripId={tripId}
+        />
+      ) : null}
       <MobileMapPointPicker
         initialLocation={mobileMapPickerLocation}
         onCancel={() => {
@@ -2136,6 +2200,7 @@ export function TripDetailPage({
         stops={mobileMapPickerStops}
         target={mobileMapPickerTarget}
         travelLegs={travelLegs}
+        trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
       {canSwitchModes ? (
@@ -2150,10 +2215,12 @@ export function TripDetailPage({
 
 function TripSidebarHeader({
   canManageTrip,
+  canMutate,
   onOpenDialog,
   trip,
 }: {
   canManageTrip: boolean
+  canMutate: boolean
   onOpenDialog: (dialog: TripDialog) => void
   trip: MockTrip
 }) {
@@ -2172,28 +2239,39 @@ function TripSidebarHeader({
           </div>
         </div>
 
-        {canManageTrip ? (
+        {canMutate ? (
           <div className="flex shrink-0 items-center gap-1">
             <TripActionButton
-              icon={Settings}
-              label="Trip settings"
-              onClick={() => onOpenDialog('settings')}
+              icon={Radio}
+              label="GPS tracking"
+              onClick={() => onOpenDialog('tracking')}
             />
-            <TripActionButton
-              icon={Share2}
-              label="Share management"
-              onClick={() => onOpenDialog('share')}
-            />
-            <TripActionButton
-              icon={Users}
-              label="Members"
-              onClick={() => onOpenDialog('members')}
-            />
-            <TripActionButton
-              icon={MoreHorizontal}
-              label="More actions"
-              onClick={() => onOpenDialog('actions')}
-            />
+            {canManageTrip ? (
+              <TripActionButton
+                icon={Settings}
+                label="Trip settings"
+                onClick={() => onOpenDialog('settings')}
+              />
+            ) : null}
+            {canManageTrip ? (
+              <>
+                <TripActionButton
+                  icon={Share2}
+                  label="Share management"
+                  onClick={() => onOpenDialog('share')}
+                />
+                <TripActionButton
+                  icon={Users}
+                  label="Members"
+                  onClick={() => onOpenDialog('members')}
+                />
+                <TripActionButton
+                  icon={MoreHorizontal}
+                  label="More actions"
+                  onClick={() => onOpenDialog('actions')}
+                />
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -3220,6 +3298,7 @@ function MobileMapPointPicker({
   routeMode,
   stops,
   target,
+  trackingGeometry,
   travelLegs,
   travelPosts,
 }: {
@@ -3230,6 +3309,7 @@ function MobileMapPointPicker({
   routeMode: MapRouteMode
   stops: readonly Stop[]
   target: MapPointTarget | null
+  trackingGeometry: TripTrackingGeometry
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
 }) {
@@ -3263,6 +3343,7 @@ function MobileMapPointPicker({
         routeMode={routeMode}
         stops={stops}
         travelLegs={travelLegs}
+        trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
 
@@ -3357,6 +3438,7 @@ function TripSidebar({
   showMobileTravelMap,
   stops,
   trip,
+  trackingGeometry,
   travelLegs,
   travelPosts,
   travelingView,
@@ -3394,6 +3476,7 @@ function TripSidebar({
   showMobileTravelMap: boolean
   stops: readonly Stop[]
   trip: MockTrip
+  trackingGeometry: TripTrackingGeometry
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
   travelingView: TravelingView
@@ -3445,6 +3528,7 @@ function TripSidebar({
     >
       <TripSidebarHeader
         canManageTrip={canManageTrip}
+        canMutate={canMutate}
         onOpenDialog={onOpenDialog}
         trip={trip}
       />
@@ -3534,6 +3618,7 @@ function TripSidebar({
             showMobileMap={showMobileTravelMap}
             stops={stops}
             travelLegs={travelLegs}
+            trackingGeometry={trackingGeometry}
             travelPosts={travelPosts}
           />
         )}
@@ -4331,12 +4416,14 @@ function MobileTravelMap({
   focusedPostId,
   onPostMarkerSelect,
   stops,
+  trackingGeometry,
   travelLegs,
   travelPosts,
 }: {
   focusedPostId: string | null
   onPostMarkerSelect: (postId: string) => void
   stops: readonly Stop[]
+  trackingGeometry: TripTrackingGeometry
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
 }) {
@@ -4355,6 +4442,7 @@ function MobileTravelMap({
         focusedPostId={focusedPostId}
         stops={stops}
         travelLegs={travelLegs}
+        trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
 
@@ -4386,6 +4474,7 @@ function TravelingPanel({
   scrollRequest,
   showMobileMap,
   stops,
+  trackingGeometry,
   travelLegs,
   travelPosts,
 }: {
@@ -4399,6 +4488,7 @@ function TravelingPanel({
   scrollRequest: PostScrollRequest | null
   showMobileMap: boolean
   stops: readonly Stop[]
+  trackingGeometry: TripTrackingGeometry
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
 }) {
@@ -4499,6 +4589,7 @@ function TravelingPanel({
                 onPostMarkerSelect={onPostMarkerSelect}
                 stops={stops}
                 travelLegs={travelLegs}
+                trackingGeometry={trackingGeometry}
                 travelPosts={travelPosts}
               />
 
@@ -5623,13 +5714,15 @@ function PostRouteDuration({
     return (
       <div
         aria-label={`${label} until the next post`}
-        className="flex shrink-0 snap-none items-center gap-2 self-center rounded-[1.1rem] border border-border bg-card/90 px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm"
+        className="flex w-10 shrink-0 snap-none flex-col items-center justify-center gap-1 self-stretch rounded-2xl border border-border bg-card/90 px-1 py-2 text-xs font-medium text-foreground shadow-sm"
       >
-        <span className="grid size-6 place-items-center rounded-lg bg-muted text-primary">
+        <span className="grid size-6 shrink-0 place-items-center rounded-lg bg-muted text-primary">
           <ModeIcon className="size-3.5" aria-hidden="true" />
         </span>
-        <span>Traveled for {label}</span>
-        <ArrowRight className="size-3.5 text-primary" aria-hidden="true" />
+        <span className="max-w-full text-center text-[0.65rem] leading-3 text-muted-foreground">
+          {label}
+        </span>
+        <ArrowRight className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
       </div>
     )
   }
@@ -6885,6 +6978,7 @@ function MapWorkspace({
   onPostMarkerSelect,
   routeMode,
   stops,
+  trackingGeometry,
   travelLegs,
   travelPosts,
 }: {
@@ -6895,6 +6989,7 @@ function MapWorkspace({
   onPostMarkerSelect: (postId: string) => void
   routeMode: MapRouteMode
   stops: readonly Stop[]
+  trackingGeometry: TripTrackingGeometry
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
 }) {
@@ -6912,6 +7007,7 @@ function MapWorkspace({
         routeMode={routeMode}
         stops={stops}
         travelLegs={travelLegs}
+        trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
 
@@ -6941,6 +7037,7 @@ function TripLeafletMap({
   resetNonce,
   routeMode = 'itinerary',
   stops,
+  trackingGeometry,
   travelLegs,
   travelPosts,
 }: {
@@ -6953,6 +7050,7 @@ function TripLeafletMap({
   resetNonce: number
   routeMode?: MapRouteMode
   stops: readonly Stop[]
+  trackingGeometry: TripTrackingGeometry
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
 }) {
@@ -6975,10 +7073,19 @@ function TripLeafletMap({
   const travelPostsRef = useRef(travelPosts)
   const stopsRef = useRef(stops)
   const travelLegsRef = useRef(travelLegs)
-  const routeKey = createRouteKey(routeMode, stops, travelLegs, travelPosts)
+  const trackingGeometryRef = useRef(trackingGeometry)
+  const routeEndpointLayerRef = useRef<L.LayerGroup | null>(null)
+  const routeKey = createRouteKey(
+    routeMode,
+    stops,
+    travelLegs,
+    travelPosts,
+    trackingGeometry,
+  )
 
   focusedPostIdRef.current = focusedPostId
   travelPostsRef.current = travelPosts
+  trackingGeometryRef.current = trackingGeometry
   stopsRef.current = stops
   travelLegsRef.current = travelLegs
 
@@ -7034,6 +7141,7 @@ function TripLeafletMap({
 
     routeLayerRef.current = L.layerGroup().addTo(map)
     postMarkerLayerRef.current = L.layerGroup().addTo(map)
+    routeEndpointLayerRef.current = L.layerGroup().addTo(map)
 
     window.requestAnimationFrame(() => map.invalidateSize())
 
@@ -7042,6 +7150,7 @@ function TripLeafletMap({
       map.remove()
       draftMarkerRef.current = null
       mapRef.current = null
+      routeEndpointLayerRef.current = null
       postMarkerLayerRef.current = null
       routeLayerRef.current = null
       tileLayerRef.current = null
@@ -7096,7 +7205,19 @@ function TripLeafletMap({
       stopsRef.current,
       travelLegsRef.current,
       travelPostsRef.current,
+      trackingGeometryRef.current.openingRoute,
     )
+
+    const routeEndpointLayer = routeEndpointLayerRef.current
+    if (routeEndpointLayer) {
+      routeEndpointLayer.clearLayers()
+      if (routeMode === 'travel-timeline') {
+        renderRouteEndpointMarker(
+          routeEndpointLayer,
+          getFinalPostRouteEndpoint(travelPostsRef.current),
+        )
+      }
+    }
     const animationFrameId = window.requestAnimationFrame(() => {
       map.invalidateSize()
       if (!focusedPostIdRef.current) {
@@ -7106,6 +7227,7 @@ function TripLeafletMap({
           stopsRef.current,
           travelLegsRef.current,
           travelPostsRef.current,
+          trackingGeometryRef.current.openingRoute,
           fitMode,
         )
       }
@@ -7127,6 +7249,7 @@ function TripLeafletMap({
         stopsRef.current,
         travelLegsRef.current,
         travelPostsRef.current,
+        trackingGeometryRef.current.openingRoute,
         fitMode,
         { animate: true },
       )
@@ -7197,6 +7320,7 @@ function TripLeafletMap({
       stopsRef.current,
       travelLegsRef.current,
       travelPostsRef.current,
+      trackingGeometryRef.current.openingRoute,
       fitMode,
       { animate: true },
     )
@@ -7217,33 +7341,24 @@ function renderRouteLayer(
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
   travelPosts: readonly TravelPost[],
+  openingRoute: TravelPostRoute | null,
 ) {
   const routeSegments = getMapRouteSegments(
     routeMode,
     stops,
     travelLegs,
     travelPosts,
+    openingRoute,
   )
   for (const segment of routeSegments) {
     if (segment.coordinates.length < 2) {
       continue
     }
 
-    const polyline = L.polyline(
+    L.polyline(
       segment.coordinates,
       getRouteSegmentPathOptions(segment, routeMode),
     ).addTo(routeLayer)
-
-    if (
-      segment.kind === 'post-link' &&
-      segment.travelMode &&
-      segment.travelMode !== 'UNKNOWN'
-    ) {
-      polyline.bindTooltip(getTravelModeLabel(segment.travelMode), {
-        direction: 'top',
-        sticky: true,
-      })
-    }
 
     if (
       routeMode === 'itinerary' ||
@@ -7280,6 +7395,48 @@ function renderRouteLayer(
   }
 }
 
+function renderRouteEndpointMarker(
+  layer: L.LayerGroup,
+  endpoint: RouteEndpoint | null,
+) {
+  if (!endpoint) {
+    return
+  }
+
+  L.marker(endpoint.coordinates, {
+    icon: L.divIcon({
+      className: 'trip-map-div-icon',
+      html: createRouteEndpointBubbleHtml(endpoint.travelMode),
+      iconAnchor: [16, 16],
+      iconSize: [32, 32],
+    }),
+    zIndexOffset: 1500,
+  }).addTo(layer)
+}
+
+function getFinalPostRouteEndpoint(
+  travelPosts: readonly TravelPost[],
+): RouteEndpoint | null {
+  const postsInRouteOrder = getTravelPostsInRouteOrder(travelPosts)
+  const finalRoute = postsInRouteOrder[postsInRouteOrder.length - 1]?.routeAfter
+  const lastSegment = finalRoute?.segments[finalRoute.segments.length - 1]
+  const coordinates = lastSegment?.coordinates[lastSegment.coordinates.length - 1]
+
+  return coordinates
+    ? { coordinates, travelMode: lastSegment.travelMode }
+    : null
+}
+
+function createRouteEndpointBubbleHtml(travelMode: TravelMode) {
+  const color = getThemeColor('--primary', '#0F766E')
+  const ring = getThemeColor('--card', '#FFFFFF')
+  return [
+    `<span class="trip-map-route-endpoint" title="${getTravelModeLabel(travelMode)}"`,
+    ` style="background:${color};box-shadow:0 0 0 3px ${ring},0 0 0 9px ${color}33;"`,
+    '></span>',
+  ].join('')
+}
+
 function renderPostMarkerLayer(
   postMarkerLayer: L.LayerGroup,
   travelPosts: readonly TravelPost[],
@@ -7314,6 +7471,7 @@ function fitRouteBounds(
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
   travelPosts: readonly TravelPost[],
+  openingRoute: TravelPostRoute | null,
   fitMode: RouteFitMode,
   options: { animate?: boolean } = {},
 ) {
@@ -7322,6 +7480,7 @@ function fitRouteBounds(
     stops,
     travelLegs,
     travelPosts,
+    openingRoute,
   )
   if (routeCoordinates.length === 0) {
     map.setView(defaultMapCenter, defaultMapZoom, {
@@ -7561,6 +7720,7 @@ function createRouteKey(
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
   travelPosts: readonly TravelPost[],
+  trackingGeometry: TripTrackingGeometry,
 ) {
   const stopKey = stops
     .map((stop) =>
@@ -7599,6 +7759,7 @@ function createRouteKey(
                 .map((segment) =>
                   [
                     segment.travelMode,
+                    segment.visibleToMembersOnly,
                     ...segment.coordinates.flat(),
                   ].join(','),
                 )
@@ -7609,7 +7770,21 @@ function createRouteKey(
           .join('|')
       : ''
 
-  return `${routeMode}::${stopKey}::${legKey}::${postKey}`
+  const openingRouteKey = trackingGeometry.openingRoute
+    ? trackingGeometry.openingRoute.segments
+        .map((segment) =>
+          [segment.travelMode, ...segment.coordinates.flat()].join(','),
+        )
+        .join(';')
+    : 'no-opening-route'
+
+  return [
+    routeMode,
+    stopKey,
+    legKey,
+    postKey,
+    openingRouteKey,
+  ].join('::')
 }
 
 function getUpcomingStops(stops: readonly Stop[]) {
@@ -7634,9 +7809,15 @@ function getMapRouteSegments(
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
   travelPosts: readonly TravelPost[],
+  openingRoute: TravelPostRoute | null,
 ): RouteSegment[] {
   if (routeMode === 'travel-timeline') {
-    return getTravelTimelineRouteSegments(stops, travelLegs, travelPosts)
+    return getTravelTimelineRouteSegments(
+      stops,
+      travelLegs,
+      travelPosts,
+      openingRoute,
+    )
   }
 
   return getItineraryRouteSegments(stops, travelLegs)
@@ -7682,9 +7863,15 @@ function getTravelTimelineRouteSegments(
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
   travelPosts: readonly TravelPost[],
+  openingRoute: TravelPostRoute | null,
 ): RouteSegment[] {
   const postsInRouteOrder = getTravelPostsInRouteOrder(travelPosts)
-  const segments = getBackendTravelPostRouteSegments(postsInRouteOrder)
+  // The opening route leads into the first post, so it is drawn before every
+  // post-to-post segment. When no post is visible it is the only geometry.
+  const segments = [
+    ...toPostRouteSegments(openingRoute),
+    ...getBackendTravelPostRouteSegments(postsInRouteOrder),
+  ]
   const finalPost = postsInRouteOrder[postsInRouteOrder.length - 1] ?? null
   const upcomingStop = stops[0] ?? null
 
@@ -7707,13 +7894,18 @@ function getBackendTravelPostRouteSegments(
   postsInRouteOrder: readonly TravelPost[],
 ): RouteSegment[] {
   return postsInRouteOrder.flatMap((post) =>
-    (post.routeAfter?.segments ?? []).map((segment) => ({
-      coordinates: segment.coordinates,
-      kind: 'post-link' as const,
-      routeType: 'SIMPLE' as const,
-      travelMode: segment.travelMode,
-    })),
+    toPostRouteSegments(post.routeAfter),
   )
+}
+
+function toPostRouteSegments(route: TravelPostRoute | null): RouteSegment[] {
+  return (route?.segments ?? []).map((segment) => ({
+    coordinates: segment.coordinates,
+    kind: 'post-link' as const,
+    routeType: 'SIMPLE' as const,
+    travelMode: segment.travelMode,
+    visibleToMembersOnly: segment.visibleToMembersOnly,
+  }))
 }
 
 function getRouteSegmentPathOptions(
@@ -7721,7 +7913,15 @@ function getRouteSegmentPathOptions(
   routeMode: MapRouteMode,
 ): L.PolylineOptions {
   if (segment.kind === 'post-link') {
-    return getPostRouteSegmentPathOptions(segment.travelMode ?? 'UNKNOWN')
+    return {
+      ...getPostRouteSegmentPathOptions(),
+      color: segment.visibleToMembersOnly
+        ? getThemeColor('--chart-4', '#C2410C')
+        : getThemeColor('--primary', '#0F766E'),
+      // GPS-derived traces are visual-only: they must not receive clicks or
+      // hover/focus events that would show a Leaflet tooltip.
+      interactive: false,
+    }
   }
 
   if (segment.kind === 'post-to-stop') {
@@ -7755,26 +7955,9 @@ function getRouteSegmentPathOptions(
   }
 }
 
-function getPostRouteSegmentPathOptions(
-  travelMode: TravelMode,
-): L.PolylineOptions {
-  const styles: Record<
-    TravelMode,
-    Pick<L.PolylineOptions, 'color'>
-  > = {
-    BIKE: { color: getThemeColor('--chart-3', '#16A34A') },
-    BUS: { color: getThemeColor('--accent', '#EA580C') },
-    CAR: { color: getThemeColor('--muted-foreground', '#475569') },
-    FERRY: { color: getThemeColor('--chart-5', '#0891B2') },
-    FLIGHT: { color: getThemeColor('--primary', '#2563EB') },
-    OTHER: { color: getThemeColor('--border', '#78716C') },
-    TRAIN: { color: getThemeColor('--chart-4', '#7C3AED') },
-    UNKNOWN: { color: getThemeColor('--muted-foreground', '#334155') },
-    WALK: { color: getThemeColor('--primary', '#0F766E') },
-  }
-
+function getPostRouteSegmentPathOptions(): L.PolylineOptions {
   return {
-    ...styles[travelMode],
+    color: getThemeColor('--primary', '#0F766E'),
     lineCap: 'round',
     lineJoin: 'round',
     opacity: 0.78,
@@ -7792,12 +7975,14 @@ function getRouteBoundsCoordinates(
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
   travelPosts: readonly TravelPost[],
+  openingRoute: TravelPostRoute | null,
 ) {
   const routeCoordinates = getMapRouteSegments(
     routeMode,
     stops,
     travelLegs,
     travelPosts,
+    openingRoute,
   ).flatMap((segment) => segment.coordinates)
 
   if (routeCoordinates.length > 0) {
@@ -8491,6 +8676,8 @@ function getTravelModeIcon(travelMode: TravelMode): LucideIcon {
       return Ship
     case 'FLIGHT':
       return Plane
+    case 'MOTORCYCLE':
+      return Motorbike
     case 'TRAIN':
       return TrainFront
     case 'WALK':
@@ -8715,7 +8902,7 @@ function toTravelPostViewModel(
 }
 
 function toTravelPostRouteViewModel(
-  route: PostTimelineRoute | null,
+  route: PostTimelineRoute | PostTimelineOpeningRoute | null,
 ): TravelPostRoute | null {
   if (!route) {
     return null
@@ -8724,13 +8911,20 @@ function toTravelPostRouteViewModel(
   const segments = route.segments.flatMap((segment) => {
     const coordinates = getGeoJsonLineStringCoordinates(segment.geometry)
     return coordinates
-      ? [{ coordinates, travelMode: segment.travel_mode }]
+      ? [
+          {
+            coordinates,
+            travelMode: segment.travel_mode,
+            visibleToMembersOnly: segment.visible_to_members_only,
+          },
+        ]
       : []
   })
 
   return segments.length > 0
     ? {
-        durationSeconds: route.duration_seconds,
+        durationSeconds:
+          'duration_seconds' in route ? route.duration_seconds : null,
         segments,
       }
     : null

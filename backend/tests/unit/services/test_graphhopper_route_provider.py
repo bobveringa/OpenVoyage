@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from models.database.itinerary import TravelMode
+from models.database.travel import TravelMode
 from services.route_providers import (
     GraphHopperRouteProvider,
     RouteProviderConfigurationError,

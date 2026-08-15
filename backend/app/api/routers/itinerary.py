@@ -21,8 +21,8 @@ from services.itinerary_service import (
     ItineraryStopNotFoundError,
     ItineraryTravelLegNotFoundError,
     ItineraryTravelValidationError,
-    TripNotFoundError,
 )
+from services.trip_errors import TripNotFoundError
 from services.location_service import LocationNotFoundError
 
 router = APIRouter(prefix='/trips/{trip_id}/itinerary', tags=['itinerary'])

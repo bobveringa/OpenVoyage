@@ -303,7 +303,9 @@ def test_post_timeline_returns_backend_routes_in_chronological_order(
     response = client.get(f'{api_prefix}/trips/{trip.id}/posts/timeline')
 
     assert response.status_code == 200
-    timeline = response.json()
+    body = response.json()
+    assert body['opening_route'] is None
+    timeline = body['entries']
     assert [entry['post']['title'] for entry in timeline] == [
         'Lisbon',
         'Porto',
@@ -312,9 +314,10 @@ def test_post_timeline_returns_backend_routes_in_chronological_order(
     assert timeline[0]['route_after'] == {
         'duration_seconds': 9120,
         'segments': [
-            {
-                'travel_mode': 'UNKNOWN',
-                'geometry': {
+                {
+                    'travel_mode': 'UNKNOWN',
+                    'visible_to_members_only': False,
+                    'geometry': {
                     'type': 'LineString',
                     'coordinates': [[-9.1393, 38.7223], [-8.6291, 41.1579]],
                 },
@@ -397,7 +400,9 @@ def test_post_timeline_builds_routes_only_between_visible_posts(
     )
 
     assert public_response.status_code == 200
-    public_timeline = public_response.json()
+    public_body = public_response.json()
+    assert public_body['opening_route'] is None
+    public_timeline = public_body['entries']
     assert [entry['post']['title'] for entry in public_timeline] == [
         'Published first',
         'Published final',
@@ -408,7 +413,7 @@ def test_post_timeline_builds_routes_only_between_visible_posts(
     ] == [[20.0, 10.0], [60.0, 50.0]]
 
     assert member_response.status_code == 200
-    member_timeline = member_response.json()
+    member_timeline = member_response.json()['entries']
     assert [entry['post']['title'] for entry in member_timeline] == [
         'Published first',
         'Hidden draft',
@@ -440,7 +445,7 @@ def test_post_timeline_handles_empty_and_private_trips(
 
     assert unauthorized_response.status_code == 404
     assert owner_response.status_code == 200
-    assert owner_response.json() == []
+    assert owner_response.json() == {'opening_route': None, 'entries': []}
 
 
 @pytest.mark.integration
@@ -508,7 +513,7 @@ def test_post_timeline_recomputes_after_post_mutations(
     )
 
     assert update_response.status_code == 200
-    updated_timeline = updated_timeline_response.json()
+    updated_timeline = updated_timeline_response.json()['entries']
     assert [entry['post']['title'] for entry in updated_timeline] == [
         'Second',
         'First',
@@ -527,10 +532,11 @@ def test_post_timeline_recomputes_after_post_mutations(
     )
 
     assert unpublish_response.status_code == 200
-    assert [entry['post']['id'] for entry in published_timeline_response.json()] == [
+    published_entries = published_timeline_response.json()['entries']
+    assert [entry['post']['id'] for entry in published_entries] == [
         second_post['id']
     ]
-    assert published_timeline_response.json()[0]['route_after'] is None
+    assert published_entries[0]['route_after'] is None
 
 
 @pytest.mark.integration
@@ -563,7 +569,7 @@ def test_post_timeline_uses_post_id_to_break_equal_timestamp_ties(
     response = client.get(f'{api_prefix}/trips/{trip.id}/posts/timeline')
 
     assert response.status_code == 200
-    timeline = response.json()
+    timeline = response.json()['entries']
     assert [entry['post']['id'] for entry in timeline] == sorted(
         post['id'] for post in posts
     )

@@ -2,6 +2,7 @@ import { UserCog } from 'lucide-react'
 
 import type { CurrentUser } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
+import { GpsPrivacyZonesForm } from '@/components/users/gps-privacy-zones-form'
 import { ProfileDetailsForm } from '@/components/users/profile-details-form'
 import { Button } from '@/components/ui/button'
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
@@ -77,6 +78,8 @@ export function ProfileSettingsPage({
         currentUser={currentUser}
         onSaved={onProfileUpdated}
       />
+
+      <GpsPrivacyZonesForm accessToken={accessToken} />
     </div>
   )
 }

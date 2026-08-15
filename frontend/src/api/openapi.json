@@ -478,6 +478,34 @@
         "title": "CurrentUserResponse",
         "type": "object"
       },
+      "CursorPaginatedResponse_TrackSampleResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrackSampleResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "CursorPaginatedResponse[TrackSampleResponse]",
+        "type": "object"
+      },
       "FirstUserCreateRequest": {
         "properties": {
           "email": {
@@ -556,6 +584,7 @@
               ],
               "type": "array"
             },
+            "minItems": 2,
             "title": "Coordinates",
             "type": "array"
           },
@@ -570,6 +599,89 @@
           "coordinates"
         ],
         "title": "GeoJsonLineString",
+        "type": "object"
+      },
+      "GpsPrivacyZoneEnvelope": {
+        "description": "Creation and replacement wrap the zone, matching the spec's examples.",
+        "properties": {
+          "zone": {
+            "$ref": "#/components/schemas/GpsPrivacyZoneResponse"
+          }
+        },
+        "required": [
+          "zone"
+        ],
+        "title": "GpsPrivacyZoneEnvelope",
+        "type": "object"
+      },
+      "GpsPrivacyZoneRequest": {
+        "properties": {
+          "latitude": {
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "type": "number"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "radius_meters": {
+            "maximum": 10000.0,
+            "minimum": 100.0,
+            "title": "Radius Meters",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "latitude",
+          "longitude",
+          "radius_meters"
+        ],
+        "title": "GpsPrivacyZoneRequest",
+        "type": "object"
+      },
+      "GpsPrivacyZoneResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "radius_meters": {
+            "title": "Radius Meters",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "latitude",
+          "longitude",
+          "radius_meters"
+        ],
+        "title": "GpsPrivacyZoneResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -2019,6 +2131,51 @@
         "title": "PostTimelineEntryResponse",
         "type": "object"
       },
+      "PostTimelineOpeningRouteResponse": {
+        "description": "Geometry before the first visible post.\n\nIt carries no ``duration_seconds`` because there is no preceding post to\ndefine a public timeline duration.",
+        "properties": {
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/PostTimelineRouteSegmentResponse"
+            },
+            "minItems": 1,
+            "title": "Segments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "segments"
+        ],
+        "title": "PostTimelineOpeningRouteResponse",
+        "type": "object"
+      },
+      "PostTimelineResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/PostTimelineEntryResponse"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "opening_route": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PostTimelineOpeningRouteResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "opening_route",
+          "entries"
+        ],
+        "title": "PostTimelineResponse",
+        "type": "object"
+      },
       "PostTimelineRouteResponse": {
         "properties": {
           "duration_seconds": {
@@ -2056,6 +2213,11 @@
           },
           "travel_mode": {
             "$ref": "#/components/schemas/TravelMode"
+          },
+          "visible_to_members_only": {
+            "default": false,
+            "title": "Visible To Members Only",
+            "type": "boolean"
           }
         },
         "required": [
@@ -2290,11 +2452,331 @@
         "title": "Token",
         "type": "object"
       },
+      "TrackSampleBatchRequest": {
+        "properties": {
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/TrackSampleRequest"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Samples",
+            "type": "array"
+          }
+        },
+        "required": [
+          "samples"
+        ],
+        "title": "TrackSampleBatchRequest",
+        "type": "object"
+      },
+      "TrackSampleBatchResponse": {
+        "description": "The four buckets add up to the request length.\n\nThat lets a client retire a whole queue slice and still reconcile its local\npoint count against the server's.",
+        "properties": {
+          "accepted_samples": {
+            "title": "Accepted Samples",
+            "type": "integer"
+          },
+          "discarded_samples": {
+            "title": "Discarded Samples",
+            "type": "integer"
+          },
+          "duplicate_samples": {
+            "title": "Duplicate Samples",
+            "type": "integer"
+          },
+          "filtered_samples": {
+            "title": "Filtered Samples",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accepted_samples",
+          "filtered_samples",
+          "duplicate_samples",
+          "discarded_samples"
+        ],
+        "title": "TrackSampleBatchResponse",
+        "type": "object"
+      },
+      "TrackSampleDeleteRequest": {
+        "properties": {
+          "sample_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 5000,
+            "minItems": 1,
+            "title": "Sample Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sample_ids"
+        ],
+        "title": "TrackSampleDeleteRequest",
+        "type": "object"
+      },
+      "TrackSampleDeleteResponse": {
+        "properties": {
+          "deleted_count": {
+            "title": "Deleted Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deleted_count"
+        ],
+        "title": "TrackSampleDeleteResponse",
+        "type": "object"
+      },
+      "TrackSampleModeUpdateRequest": {
+        "properties": {
+          "sample_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 5000,
+            "minItems": 1,
+            "title": "Sample Ids",
+            "type": "array"
+          },
+          "travel_mode": {
+            "$ref": "#/components/schemas/TravelMode"
+          }
+        },
+        "required": [
+          "sample_ids",
+          "travel_mode"
+        ],
+        "title": "TrackSampleModeUpdateRequest",
+        "type": "object"
+      },
+      "TrackSampleModeUpdateResponse": {
+        "properties": {
+          "updated_count": {
+            "title": "Updated Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "updated_count"
+        ],
+        "title": "TrackSampleModeUpdateResponse",
+        "type": "object"
+      },
+      "TrackSampleRequest": {
+        "properties": {
+          "accuracy_meters": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy Meters"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "latitude": {
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "type": "number"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "travel_mode": {
+            "$ref": "#/components/schemas/TravelMode",
+            "default": "UNKNOWN"
+          }
+        },
+        "required": [
+          "id",
+          "recorded_at",
+          "latitude",
+          "longitude"
+        ],
+        "title": "TrackSampleRequest",
+        "type": "object"
+      },
+      "TrackSampleResponse": {
+        "properties": {
+          "accuracy_meters": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy Meters"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "travel_mode": {
+            "$ref": "#/components/schemas/TravelMode"
+          }
+        },
+        "required": [
+          "id",
+          "recorded_at",
+          "latitude",
+          "longitude",
+          "accuracy_meters",
+          "travel_mode"
+        ],
+        "title": "TrackSampleResponse",
+        "type": "object"
+      },
+      "TrackingSessionCreateRequest": {
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "started_at"
+        ],
+        "title": "TrackingSessionCreateRequest",
+        "type": "object"
+      },
+      "TrackingSessionEndRequest": {
+        "properties": {
+          "ended_at": {
+            "format": "date-time",
+            "title": "Ended At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ended_at"
+        ],
+        "title": "TrackingSessionEndRequest",
+        "type": "object"
+      },
+      "TrackingSessionListResponse": {
+        "properties": {
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/TrackingSessionResponse"
+            },
+            "title": "Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sessions"
+        ],
+        "title": "TrackingSessionListResponse",
+        "type": "object"
+      },
+      "TrackingSessionResponse": {
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "recorded_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By User Id"
+          },
+          "sample_count": {
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "started_at",
+          "ended_at",
+          "recorded_by_user_id",
+          "sample_count"
+        ],
+        "title": "TrackingSessionResponse",
+        "type": "object"
+      },
       "TravelMode": {
+        "description": "Transport mode shared by itinerary legs, post routes, and GPS samples.\n\nValues are stored as plain strings in ``String(32)`` columns, so adding a\nmember is a code change only and never needs a migration.",
         "enum": [
           "UNKNOWN",
           "WALK",
           "BIKE",
+          "MOTORCYCLE",
           "CAR",
           "BUS",
           "TRAIN",
@@ -2351,6 +2833,30 @@
           "start_date"
         ],
         "title": "TripCreateRequest",
+        "type": "object"
+      },
+      "TripLiveLocationSettingsRequest": {
+        "properties": {
+          "share_live_location": {
+            "default": false,
+            "title": "Share Live Location",
+            "type": "boolean"
+          }
+        },
+        "title": "TripLiveLocationSettingsRequest",
+        "type": "object"
+      },
+      "TripLiveLocationSettingsResponse": {
+        "properties": {
+          "share_live_location": {
+            "title": "Share Live Location",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "share_live_location"
+        ],
+        "title": "TripLiveLocationSettingsResponse",
         "type": "object"
       },
       "TripMemberCreateRequest": {
@@ -5380,6 +5886,110 @@
         ]
       }
     },
+    "/api/v1/trips/{trip_id}/live-location-settings": {
+      "get": {
+        "operationId": "get_live_location_settings_api_v1_trips__trip_id__live_location_settings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripLiveLocationSettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Live Location Settings",
+        "tags": [
+          "trips"
+        ]
+      },
+      "put": {
+        "operationId": "replace_live_location_settings_api_v1_trips__trip_id__live_location_settings_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TripLiveLocationSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripLiveLocationSettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Replace Live Location Settings",
+        "tags": [
+          "trips"
+        ]
+      }
+    },
     "/api/v1/trips/{trip_id}/members": {
       "get": {
         "operationId": "list_trip_members_api_v1_trips__trip_id__members_get",
@@ -5832,11 +6442,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/PostTimelineEntryResponse"
-                  },
-                  "title": "Response Get Post Timeline Api V1 Trips  Trip Id  Posts Timeline Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/PostTimelineResponse"
                 }
               }
             },
@@ -6394,6 +7000,507 @@
         ]
       }
     },
+    "/api/v1/trips/{trip_id}/tracking/samples/delete": {
+      "post": {
+        "operationId": "delete_track_samples_api_v1_trips__trip_id__tracking_samples_delete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackSampleDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackSampleDeleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Track Samples",
+        "tags": [
+          "tracking"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/tracking/samples/travel-mode": {
+      "patch": {
+        "operationId": "update_track_sample_modes_api_v1_trips__trip_id__tracking_samples_travel_mode_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackSampleModeUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackSampleModeUpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Track Sample Modes",
+        "tags": [
+          "tracking"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/tracking/sessions": {
+      "get": {
+        "operationId": "list_tracking_sessions_api_v1_trips__trip_id__tracking_sessions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingSessionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Tracking Sessions",
+        "tags": [
+          "tracking"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}": {
+      "delete": {
+        "operationId": "delete_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Tracking Session",
+        "tags": [
+          "tracking"
+        ]
+      },
+      "patch": {
+        "operationId": "end_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackingSessionEndRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "End Tracking Session",
+        "tags": [
+          "tracking"
+        ]
+      },
+      "post": {
+        "operationId": "create_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackingSessionCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Tracking Session",
+        "tags": [
+          "tracking"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/samples": {
+      "get": {
+        "operationId": "list_track_samples_api_v1_trips__trip_id__tracking_sessions__session_id__samples_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 2000,
+              "maximum": 5000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CursorPaginatedResponse_TrackSampleResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Track Samples",
+        "tags": [
+          "tracking"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/samples/batch": {
+      "post": {
+        "operationId": "upload_track_samples_api_v1_trips__trip_id__tracking_sessions__session_id__samples_batch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackSampleBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackSampleBatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Upload Track Samples",
+        "tags": [
+          "tracking"
+        ]
+      }
+    },
     "/api/v1/trips/{trip_id}/viewers": {
       "get": {
         "operationId": "list_trip_viewers_api_v1_trips__trip_id__viewers_get",
@@ -6744,6 +7851,178 @@
           }
         ],
         "summary": "Update User Profile",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/gps-privacy-zones": {
+      "get": {
+        "operationId": "list_gps_privacy_zones_api_v1_users_me_gps_privacy_zones_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GpsPrivacyZoneResponse"
+                  },
+                  "title": "Response List Gps Privacy Zones Api V1 Users Me Gps Privacy Zones Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Gps Privacy Zones",
+        "tags": [
+          "users"
+        ]
+      },
+      "post": {
+        "operationId": "create_gps_privacy_zone_api_v1_users_me_gps_privacy_zones_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GpsPrivacyZoneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GpsPrivacyZoneEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Gps Privacy Zone",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/gps-privacy-zones/{zone_id}": {
+      "delete": {
+        "operationId": "delete_gps_privacy_zone_api_v1_users_me_gps_privacy_zones__zone_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "zone_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Zone Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Gps Privacy Zone",
+        "tags": [
+          "users"
+        ]
+      },
+      "put": {
+        "description": "Replace a zone. This never creates one; an unknown id is a 404.\n\nExisting retained coordinates are untouched: a zone only ever filters\nuploads processed after it was stored.",
+        "operationId": "replace_gps_privacy_zone_api_v1_users_me_gps_privacy_zones__zone_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "zone_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Zone Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GpsPrivacyZoneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GpsPrivacyZoneEnvelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Replace Gps Privacy Zone",
         "tags": [
           "users"
         ]
