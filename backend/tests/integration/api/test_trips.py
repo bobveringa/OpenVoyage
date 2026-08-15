@@ -736,6 +736,7 @@ def test_trip_owner_can_manage_members(client, db_session, api_prefix) -> None:
     assert added_member['role'] == TripRole.MEMBER.value
     assert 'email' not in added_member['user']
     assert added_member['user']['first_name'] == 'Trip'
+    assert added_member['user']['profile_picture'] is None
 
     assert list_response.status_code == 200
     assert {item['user_id'] for item in list_response.json()} == {
@@ -749,6 +750,51 @@ def test_trip_owner_can_manage_members(client, db_session, api_prefix) -> None:
     assert delete_response.status_code == 204
     assert final_list_response.status_code == 200
     assert [item['user_id'] for item in final_list_response.json()] == [str(owner.id)]
+
+
+@pytest.mark.integration
+def test_list_trip_members_includes_public_profile_picture(
+    client, db_session, api_prefix
+) -> None:
+    owner = create_user(db_session, password='TripsPass123!')
+    member = create_user(
+        db_session,
+        password='TripsPass123!',
+        username='pictured-member',
+        first_name='Pictured',
+        last_name='Member',
+    )
+    profile_picture = create_media(
+        db_session,
+        storage_path='media/member-profile-picture.jpg',
+        created_by=member.id,
+    )
+    member.profile.profile_picture_media_id = profile_picture.id
+    db_session.commit()
+    trip_id = _create_trip(client, db_session, api_prefix, owner)
+
+    add_response = client.post(
+        f'{api_prefix}/trips/{trip_id}/members',
+        headers=_auth_headers(owner),
+        json={'user_id': str(member.id), 'role': TripRole.MEMBER.value},
+    )
+    list_response = client.get(
+        f'{api_prefix}/trips/{trip_id}/members',
+        headers=_auth_headers(owner),
+    )
+
+    assert add_response.status_code == 201
+    assert add_response.json()['user']['profile_picture']['id'] == str(profile_picture.id)
+    assert (
+        add_response.json()['user']['profile_picture']['urls']['content']
+        == f'http://testserver{api_prefix}/media/{profile_picture.id}/content'
+    )
+    assert list_response.status_code == 200
+    listed_member = next(
+        item for item in list_response.json() if item['user_id'] == str(member.id)
+    )
+    assert listed_member['user']['profile_picture']['id'] == str(profile_picture.id)
+    assert 'email' not in listed_member['user']
 
 
 @pytest.mark.integration

@@ -178,3 +178,28 @@ class UserSearchResultResponse(UserSummaryResponse):
                 else None
             ),
         )
+
+
+class TripMemberUserResponse(UserSummaryResponse):
+    """Display-safe user data used when showing a trip's travellers."""
+
+    profile_picture: MediaResponse | None
+
+    @classmethod
+    def from_model(
+        cls,
+        user: 'User',
+        media_base_url: str = '',
+    ) -> Self:
+        profile = user.profile
+        return cls(
+            **UserSummaryResponse.from_model(user).model_dump(),
+            profile_picture=(
+                MediaResponse.from_model(
+                    profile.profile_picture,
+                    media_base_url=media_base_url,
+                )
+                if profile and profile.profile_picture
+                else None
+            ),
+        )

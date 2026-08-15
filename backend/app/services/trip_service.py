@@ -22,7 +22,7 @@ from models.database.trips import (
     TripViewer,
     TripVisibility,
 )
-from models.database.user import User
+from models.database.user import User, UserProfile
 from models.database.base import utcnow
 from services.trip_access import (
     generate_share_token,
@@ -414,7 +414,11 @@ class TripService:
         statement = (
             select(TripMember)
             .join(TripMember.user)
-            .options(joinedload(TripMember.user).joinedload(User.profile))
+            .options(
+                joinedload(TripMember.user)
+                .joinedload(User.profile)
+                .joinedload(UserProfile.profile_picture)
+            )
             .where(TripMember.trip_id == trip_id)
             .order_by(User.email.asc(), TripMember.user_id.asc())
         )

@@ -5,7 +5,7 @@ from typing import Self
 
 from pydantic import BaseModel, Field, model_validator
 from models.api.media import MediaResponse
-from models.api.users import UserSummaryResponse
+from models.api.users import TripMemberUserResponse, UserSummaryResponse
 from models.database.trips import (
     Trip,
     TripMember,
@@ -91,15 +91,18 @@ class TripMemberResponse(BaseModel):
     trip_id: uuid.UUID
     user_id: uuid.UUID
     role: TripRole
-    user: UserSummaryResponse
+    user: TripMemberUserResponse
 
     @classmethod
-    def from_model(cls, membership: TripMember) -> Self:
+    def from_model(cls, membership: TripMember, media_base_url: str = '') -> Self:
         return cls(
             trip_id=membership.trip_id,
             user_id=membership.user_id,
             role=membership.role,
-            user=UserSummaryResponse.from_model(membership.user),
+            user=TripMemberUserResponse.from_model(
+                membership.user,
+                media_base_url=media_base_url,
+            ),
         )
 
 

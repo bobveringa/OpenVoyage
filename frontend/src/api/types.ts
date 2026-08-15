@@ -2041,7 +2041,7 @@ export interface components {
              * Format: uuid
              */
             trip_id: string;
-            user: components["schemas"]["UserSummaryResponse"];
+            user: components["schemas"]["TripMemberUserResponse"];
             /**
              * User Id
              * Format: uuid
@@ -2051,6 +2051,24 @@ export interface components {
         /** TripMemberUpdateRequest */
         TripMemberUpdateRequest: {
             role: components["schemas"]["TripRole"];
+        };
+        /**
+         * TripMemberUserResponse
+         * @description Display-safe user data used when showing a trip's travellers.
+         */
+        TripMemberUserResponse: {
+            /** First Name */
+            first_name: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Name */
+            last_name: string | null;
+            profile_picture: components["schemas"]["MediaResponse"] | null;
+            /** Username */
+            username: string | null;
         };
         /** TripResponse */
         TripResponse: {

@@ -66,6 +66,7 @@ import { DatePicker, DateTimePicker } from '@/components/ui/date-time-picker'
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import { ImageUploadDropzone } from '@/components/media/image-upload-dropzone'
 import { TrackingManagementPanel } from '@/components/trips/tracking-management-dialog'
+import { TripMemberPresence } from '@/components/trips/trip-member-presence'
 import { Input } from '@/components/ui/input'
 import { MediaImage } from '@/components/ui/media-image'
 import { Modal } from '@/components/ui/modal'
@@ -114,6 +115,7 @@ import {
   type ItineraryTravelRoute,
   type ItineraryRouteType,
   type ItineraryTravelReplacePayload,
+  type Media,
   type Place,
   type Post,
   type PostCreatePayload,
@@ -168,8 +170,10 @@ type MockTripMember = {
   email: string
   id: string
   name: string
+  profilePicture: Media | null
   role: MockTripRole
   userId?: string
+  username: string | null
 }
 
 type MockTripViewer = {
@@ -521,13 +525,17 @@ const mockTripMembers: readonly MockTripMember[] = [
     email: 'bob@example.com',
     id: 'bob',
     name: 'Bob Vermeer',
+    profilePicture: null,
     role: 'OWNER',
+    username: 'bob-vermeer',
   },
   {
     email: 'nora@example.com',
     id: 'nora',
     name: 'Nora Lane',
+    profilePicture: null,
     role: 'MEMBER',
+    username: 'nora-lane',
   },
 ]
 
@@ -1420,7 +1428,9 @@ export function TripDetailPage({
         email: getUserSubtitle(draft.user),
         id: createClientId('member'),
         name: getUserDisplayName(draft.user),
+        profilePicture: draft.user.profile_picture,
         role: draft.role ?? 'MEMBER',
+        username: draft.user.username,
       },
       ...currentMembers,
     ])
@@ -2091,6 +2101,7 @@ export function TripDetailPage({
               accessToken={accessToken}
               canManageTrip={canManageTrip}
               canMutate={canMutate}
+              currentUserId={currentUser?.id ?? null}
               draftPostLocation={draftPostLocation}
               draftStopLocation={draftStopLocation}
               focusedPostId={focusedPostId}
@@ -2123,6 +2134,7 @@ export function TripDetailPage({
               trip={trip}
               travelLegs={travelLegs}
               trackingGeometry={trackingGeometry}
+              tripMembers={tripMembers}
               travelPosts={travelPosts}
               travelingView={travelingView}
             />
@@ -2220,11 +2232,15 @@ export function TripDetailPage({
 function TripSidebarHeader({
   canManageTrip,
   canMutate,
+  currentUserId,
+  members,
   onOpenManagement,
   trip,
 }: {
   canManageTrip: boolean
   canMutate: boolean
+  currentUserId: string | null
+  members: readonly MockTripMember[]
   onOpenManagement: (section: TripManagementSection) => void
   trip: MockTrip
 }) {
@@ -2235,11 +2251,12 @@ function TripSidebarHeader({
           <h1 className="truncate text-lg font-semibold tracking-normal text-foreground">
             {trip.name}
           </h1>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-3 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
               <CalendarDays className="size-3.5" aria-hidden="true" />
               {formatTripDateRange(trip.startDate, trip.endDate)}
             </span>
+            <TripMemberPresence currentUserId={currentUserId} members={members} />
           </div>
         </div>
 
@@ -3590,6 +3607,7 @@ function TripSidebar({
   accessToken,
   canManageTrip,
   canMutate,
+  currentUserId,
   draftPostLocation,
   draftStopLocation,
   editingPostId,
@@ -3621,6 +3639,7 @@ function TripSidebar({
   stops,
   trip,
   trackingGeometry,
+  tripMembers,
   travelLegs,
   travelPosts,
   travelingView,
@@ -3628,6 +3647,7 @@ function TripSidebar({
   accessToken?: string | null
   canManageTrip: boolean
   canMutate: boolean
+  currentUserId: string | null
   draftPostLocation: DraftPostLocation | null
   draftStopLocation: DraftPostLocation | null
   editingPostId: string | null
@@ -3659,6 +3679,7 @@ function TripSidebar({
   stops: readonly Stop[]
   trip: MockTrip
   trackingGeometry: TripTrackingGeometry
+  tripMembers: readonly MockTripMember[]
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
   travelingView: TravelingView
@@ -3711,6 +3732,8 @@ function TripSidebar({
       <TripSidebarHeader
         canManageTrip={canManageTrip}
         canMutate={canMutate}
+        currentUserId={currentUserId}
+        members={tripMembers}
         onOpenManagement={onOpenManagement}
         trip={trip}
       />
@@ -8970,8 +8993,10 @@ function toTripMemberViewModel(member: TripMember): MockTripMember {
     email: getUserSubtitle(member.user),
     id: member.user_id,
     name: getUserDisplayName(member.user),
+    profilePicture: member.user.profile_picture,
     role: member.role,
     userId: member.user_id,
+    username: member.user.username,
   }
 }
 

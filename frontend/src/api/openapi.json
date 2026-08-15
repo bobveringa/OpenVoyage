@@ -2888,7 +2888,7 @@
             "type": "string"
           },
           "user": {
-            "$ref": "#/components/schemas/UserSummaryResponse"
+            "$ref": "#/components/schemas/TripMemberUserResponse"
           },
           "user_id": {
             "format": "uuid",
@@ -2915,6 +2915,68 @@
           "role"
         ],
         "title": "TripMemberUpdateRequest",
+        "type": "object"
+      },
+      "TripMemberUserResponse": {
+        "description": "Display-safe user data used when showing a trip's travellers.",
+        "properties": {
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "profile_picture": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MediaResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "first_name",
+          "last_name",
+          "profile_picture"
+        ],
+        "title": "TripMemberUserResponse",
         "type": "object"
       },
       "TripResponse": {

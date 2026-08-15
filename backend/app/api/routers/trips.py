@@ -145,6 +145,7 @@ def list_trips(
     response_model=list[TripMemberResponse],
 )
 def list_trip_members(
+    request: Request,
     trip_id: uuid.UUID,
     trip_service: TripServiceDep,
     user: OptionalCurrentUser,
@@ -159,7 +160,11 @@ def list_trip_members(
     except TripNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
-    return [TripMemberResponse.from_model(member) for member in members]
+    media_base_url = str(request.base_url).rstrip('/')
+    return [
+        TripMemberResponse.from_model(member, media_base_url=media_base_url)
+        for member in members
+    ]
 
 
 @router.get(
@@ -266,6 +271,7 @@ def delete_trip(
     response_model=TripMemberResponse,
 )
 def add_trip_member(
+    request: Request,
     trip_id: uuid.UUID,
     payload: TripMemberCreateRequest,
     trip_service: TripServiceDep,
@@ -285,7 +291,10 @@ def add_trip_member(
     except TripMemberAlreadyExistsError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
-    return TripMemberResponse.from_model(member)
+    return TripMemberResponse.from_model(
+        member,
+        media_base_url=str(request.base_url).rstrip('/'),
+    )
 
 
 @router.patch(
@@ -293,6 +302,7 @@ def add_trip_member(
     response_model=TripMemberResponse,
 )
 def update_trip_member(
+    request: Request,
     trip_id: uuid.UUID,
     user_id: uuid.UUID,
     payload: TripMemberUpdateRequest,
@@ -313,7 +323,10 @@ def update_trip_member(
     except LastTripOwnerError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
-    return TripMemberResponse.from_model(member)
+    return TripMemberResponse.from_model(
+        member,
+        media_base_url=str(request.base_url).rstrip('/'),
+    )
 
 
 @router.delete(
