@@ -7388,7 +7388,10 @@ function TripLeafletMap({
       if (routeMode === 'travel-timeline') {
         renderRouteEndpointMarker(
           routeEndpointLayer,
-          getFinalPostRouteEndpoint(travelPostsRef.current),
+          getTravelTimelineRouteEndpoint(
+            travelPostsRef.current,
+            trackingGeometryRef.current.openingRoute,
+          ),
         )
       }
     }
@@ -7588,12 +7591,17 @@ function renderRouteEndpointMarker(
   }).addTo(layer)
 }
 
-function getFinalPostRouteEndpoint(
+function getTravelTimelineRouteEndpoint(
   travelPosts: readonly TravelPost[],
+  openingRoute: TravelPostRoute | null,
 ): RouteEndpoint | null {
   const postsInRouteOrder = getTravelPostsInRouteOrder(travelPosts)
   const finalRoute = postsInRouteOrder[postsInRouteOrder.length - 1]?.routeAfter
-  const lastSegment = finalRoute?.segments[finalRoute.segments.length - 1]
+  // A postless trip exposes its current path as `opening_route`, rather than
+  // `route_after`. Use it as the live endpoint source when there is no final
+  // post route, which covers viewers and trip members alike.
+  const route = finalRoute ?? openingRoute
+  const lastSegment = route?.segments[route.segments.length - 1]
   const coordinates = lastSegment?.coordinates[lastSegment.coordinates.length - 1]
 
   return coordinates
@@ -7947,7 +7955,11 @@ function createRouteKey(
   const openingRouteKey = trackingGeometry.openingRoute
     ? trackingGeometry.openingRoute.segments
         .map((segment) =>
-          [segment.travelMode, ...segment.coordinates.flat()].join(','),
+          [
+            segment.travelMode,
+            segment.visibleToMembersOnly,
+            ...segment.coordinates.flat(),
+          ].join(','),
         )
         .join(';')
     : 'no-opening-route'
