@@ -10,6 +10,7 @@ from core.app_settings import (
     DEFAULT_THEME_PALETTE,
     MAP_TILE_PROVIDER_KEY,
     ROUTING_GRAPHHOPPER_BASE_URL_KEY,
+    ROUTING_PROVIDER_KEY,
     SettingDefinition,
     SettingValueType,
     SettingVisibility,
@@ -23,16 +24,19 @@ from core.app_settings_encryption import (
 
 
 def test_registry_contains_validated_defaults() -> None:
-    darkmode = app_settings_registry.require('theme.darkmode')
     tile_provider = app_settings_registry.require(MAP_TILE_PROVIDER_KEY)
     upload_size = app_settings_registry.require('media.max_upload_size_mb')
     palette = app_settings_registry.require(THEME_PALETTE_KEY)
+    routing_provider = app_settings_registry.require(ROUTING_PROVIDER_KEY)
 
-    assert darkmode.default_value == 'system'
     assert tile_provider.default_value == DEFAULT_MAP_TILE_PROVIDER_URL
     assert upload_size.default_value == 512
     assert palette.default_value == DEFAULT_THEME_PALETTE
-    assert app_settings_registry.validate_value(darkmode, 'enabled') == 'enabled'
+    assert routing_provider.default_value == 'none'
+    assert (
+        app_settings_registry.validate_value(routing_provider, 'graphhopper')
+        == 'graphhopper'
+    )
 
 
 def test_theme_palette_normalizes_valid_colors() -> None:

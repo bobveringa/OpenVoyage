@@ -106,7 +106,6 @@ async function mockTripApi(page: Page) {
       await fulfillJson(route, {
         settings: {
           'map.tile_provider': customTileUrl,
-          'theme.darkmode': 'system',
         },
         updated_at: timestamp,
       })

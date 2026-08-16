@@ -7,6 +7,8 @@ import pytest
 from sqlalchemy.orm import Session
 
 from core.app_settings import (
+    DEFAULT_MAP_TILE_PROVIDER_URL,
+    MAP_TILE_PROVIDER_KEY,
     PLACES_GEONAMES_DATASET_KEY,
     AppSettingValidationError,
     AppSettingsRegistry,
@@ -56,7 +58,7 @@ def test_non_secret_default_and_missing_secret_do_not_need_encryption_key() -> N
     db.get.return_value = None
     service = _service(db)
 
-    assert service.get_value('theme.darkmode') == 'system'
+    assert service.get_value(MAP_TILE_PROVIDER_KEY) == DEFAULT_MAP_TILE_PROVIDER_URL
     assert service.get_value('routing.graphhopper_api_key') is None
 
 
@@ -143,7 +145,7 @@ def test_secret_update_overwrites_without_decrypting_old_value() -> None:
 def test_cache_does_not_repopulate_a_value_read_before_invalidation() -> None:
     cache = AppSettingsCache()
     scope = 123
-    key = 'theme.darkmode'
+    key = 'test.setting'
 
     cache_hit, _value, generation = cache.read(scope, key)
     cache.invalidate(scope, key)

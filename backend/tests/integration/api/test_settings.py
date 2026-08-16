@@ -10,7 +10,6 @@ from core.app_settings import (
     MEDIA_MAX_UPLOAD_SIZE_MB_KEY,
     ROUTING_GRAPHHOPPER_API_KEY,
     ROUTING_PROVIDER_KEY,
-    THEME_DARKMODE_KEY,
     THEME_PALETTE_KEY,
 )
 from core.app_settings_encryption import AppSettingsEncryption
@@ -44,7 +43,6 @@ def test_public_settings_returns_only_public_defaults(client, db_session, api_pr
     assert response.status_code == 200
     assert response.json() == {
         'settings': {
-            THEME_DARKMODE_KEY: 'system',
             THEME_PALETTE_KEY: DEFAULT_THEME_PALETTE,
             MAP_TILE_PROVIDER_KEY: DEFAULT_MAP_TILE_PROVIDER_URL,
         },
@@ -88,7 +86,6 @@ def test_admin_list_includes_redacted_secret_metadata(
         if record['key'] == ROUTING_GRAPHHOPPER_API_KEY
     )
     assert keys == {
-        'theme.darkmode',
         'theme.palette',
         'map.tile_provider',
         'routing.provider',
@@ -147,7 +144,6 @@ def test_admin_can_update_normal_and_secret_settings(
 @pytest.mark.parametrize(
     ('setting_key', 'value'),
     [
-        (THEME_DARKMODE_KEY, 'automatic'),
         (MAP_TILE_PROVIDER_KEY, 'ftp://tiles.example.test/{z}/{x}/{y}.png'),
         (ROUTING_PROVIDER_KEY, 'unknown'),
         ('routing.graphhopper_base_url', 'ftp://example.test'),
@@ -155,7 +151,7 @@ def test_admin_can_update_normal_and_secret_settings(
         (MEDIA_MAX_UPLOAD_SIZE_MB_KEY, 0),
         (MEDIA_MAX_UPLOAD_SIZE_MB_KEY, 5121),
         (ROUTING_GRAPHHOPPER_API_KEY, ''),
-        (THEME_DARKMODE_KEY, None),
+        (MAP_TILE_PROVIDER_KEY, None),
     ],
 )
 def test_admin_update_validates_registry_values(

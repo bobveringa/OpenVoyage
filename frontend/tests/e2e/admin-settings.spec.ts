@@ -39,18 +39,6 @@ const initialSettings: MockSetting[] = [
     visibility: 'public',
   },
   {
-    default_value: 'system',
-    description: 'Controls the public theme mode.',
-    is_configured: false,
-    key: 'theme.darkmode',
-    runtime_safe: true,
-    updated_at: null,
-    validation: { allowed_values: ['enabled', 'disabled', 'system'] },
-    value: 'system',
-    value_type: 'enum',
-    visibility: 'public',
-  },
-  {
     default_value: 'none',
     description: 'Route provider used for itinerary travel routes.',
     is_configured: true,

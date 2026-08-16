@@ -62,7 +62,6 @@ class SettingDefinition:
             )
 
 
-THEME_DARKMODE_KEY = 'theme.darkmode'
 THEME_PALETTE_KEY = 'theme.palette'
 MAP_TILE_PROVIDER_KEY = 'map.tile_provider'
 DEFAULT_MAP_TILE_PROVIDER_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
@@ -74,18 +73,6 @@ PLACES_GEONAMES_DATASET_KEY = 'places.geonames_dataset'
 MEDIA_ORPHAN_RETENTION_DAYS_KEY = 'media.orphan_retention_days'
 
 SETTING_DEFINITIONS = (
-    SettingDefinition(
-        key=THEME_DARKMODE_KEY,
-        value_type=SettingValueType.ENUM,
-        visibility=SettingVisibility.PUBLIC,
-        sensitive=False,
-        default_value='system',
-        runtime_safe=True,
-        validation={'allowed_values': ['enabled', 'disabled', 'system']},
-        description=(
-            'Legacy site theme mode. Visitor preference now controls the active mode.'
-        ),
-    ),
     SettingDefinition(
         key=THEME_PALETTE_KEY,
         value_type=SettingValueType.OBJECT,

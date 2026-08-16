@@ -8,6 +8,8 @@ import pytest
 from sqlalchemy.orm import Session
 
 from core.app_settings import (
+    DEFAULT_MAP_TILE_PROVIDER_URL,
+    MAP_TILE_PROVIDER_KEY,
     ROUTING_GRAPHHOPPER_API_KEY,
     ROUTING_GRAPHHOPPER_BASE_URL_KEY,
     ROUTING_PROVIDER_KEY,
@@ -36,11 +38,12 @@ def test_update_and_reset_invalidate_effective_value_cache(db_session) -> None:
     cache = AppSettingsCache()
     service = _service(db_session, cache)
 
-    assert service.get_value('theme.darkmode') == 'system'
-    service.update_setting('theme.darkmode', 'enabled', updated_by=None)
-    assert service.get_value('theme.darkmode') == 'enabled'
-    service.reset_setting('theme.darkmode')
-    assert service.get_value('theme.darkmode') == 'system'
+    custom_tile_url = 'https://tiles.example.test/{z}/{x}/{y}.png'
+    assert service.get_value(MAP_TILE_PROVIDER_KEY) == DEFAULT_MAP_TILE_PROVIDER_URL
+    service.update_setting(MAP_TILE_PROVIDER_KEY, custom_tile_url, updated_by=None)
+    assert service.get_value(MAP_TILE_PROVIDER_KEY) == custom_tile_url
+    service.reset_setting(MAP_TILE_PROVIDER_KEY)
+    assert service.get_value(MAP_TILE_PROVIDER_KEY) == DEFAULT_MAP_TILE_PROVIDER_URL
 
 
 @pytest.mark.integration
@@ -127,27 +130,31 @@ def test_concurrent_first_writes_use_atomic_upsert(db_session) -> None:
             )
             barrier.wait(timeout=5)
             return service.update_setting(
-                'theme.darkmode',
+                MAP_TILE_PROVIDER_KEY,
                 value,
                 updated_by=None,
             ).value
 
+    tile_urls = (
+        'https://tiles-one.example.test/{z}/{x}/{y}.png',
+        'https://tiles-two.example.test/{z}/{x}/{y}.png',
+    )
     with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(executor.map(update, ('enabled', 'disabled')))
+        results = list(executor.map(update, tile_urls))
 
     db_session.expire_all()
-    row = db_session.get(AppSetting, 'theme.darkmode')
+    row = db_session.get(AppSetting, MAP_TILE_PROVIDER_KEY)
     assert len(results) == 2
-    assert all(result in {'enabled', 'disabled'} for result in results)
+    assert all(result in tile_urls for result in results)
     assert row is not None
-    assert row.value in {'enabled', 'disabled'}
+    assert row.value in tile_urls
 
 
 @pytest.mark.integration
 def test_concurrent_update_and_reset_are_atomic(db_session) -> None:
     _service(db_session).update_setting(
-        'theme.darkmode',
-        'enabled',
+        MAP_TILE_PROVIDER_KEY,
+        'https://tiles-initial.example.test/{z}/{x}/{y}.png',
         updated_by=None,
     )
     bind = db_session.get_bind()
@@ -162,8 +169,8 @@ def test_concurrent_update_and_reset_are_atomic(db_session) -> None:
             )
             barrier.wait(timeout=5)
             record = service.update_setting(
-                'theme.darkmode',
-                'disabled',
+                MAP_TILE_PROVIDER_KEY,
+                'https://tiles-updated.example.test/{z}/{x}/{y}.png',
                 updated_by=None,
             )
             return 'update', record.value
@@ -176,7 +183,7 @@ def test_concurrent_update_and_reset_are_atomic(db_session) -> None:
                 cache=AppSettingsCache(),
             )
             barrier.wait(timeout=5)
-            record = service.reset_setting('theme.darkmode')
+            record = service.reset_setting(MAP_TILE_PROVIDER_KEY)
             return 'reset', record.value
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -185,7 +192,16 @@ def test_concurrent_update_and_reset_are_atomic(db_session) -> None:
         results = {update_future.result(), reset_future.result()}
 
     db_session.expire_all()
-    row = db_session.get(AppSetting, 'theme.darkmode')
+    row = db_session.get(AppSetting, MAP_TILE_PROVIDER_KEY)
     assert {operation for operation, _value in results} == {'update', 'reset'}
-    assert all(value in {'disabled', 'system'} for _operation, value in results)
-    assert row is None or row.value == 'disabled'
+    assert all(
+        value
+        in {
+            'https://tiles-updated.example.test/{z}/{x}/{y}.png',
+            DEFAULT_MAP_TILE_PROVIDER_URL,
+        }
+        for _operation, value in results
+    )
+    assert (
+        row is None or row.value == 'https://tiles-updated.example.test/{z}/{x}/{y}.png'
+    )
