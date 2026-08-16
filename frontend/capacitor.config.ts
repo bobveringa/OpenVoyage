@@ -7,13 +7,24 @@ const config: CapacitorConfig = {
   appId: 'app.openvoyage',
   appName: 'OpenVoyage',
   webDir: 'dist',
+  server: {
+    // A self-hosted server address (home LAN, no TLS terminator, see
+    // src/native/server-config.ts) is plain HTTP. Serving the webview
+    // itself over Capacitor's default https://localhost would make every
+    // request to that server "mixed content": fetch()/XHR can be forced
+    // through with android.allowMixedContent, but Chromium auto-upgrades
+    // <img>/<video> mixed-content requests to https and hard-blocks them
+    // if that upgrade fails (which it always does here, since the server
+    // has no TLS) — no WebView setting can override that for images.
+    // Serving the webview over http://localhost instead means same-scheme
+    // requests to an http server are never "mixed content" in the first
+    // place, so images load like any other resource.
+    androidScheme: 'http',
+  },
   android: {
-    // The webview itself always loads over https://localhost (Capacitor's
-    // own scheme), so a plain-HTTP server address (self-hosted on a home
-    // LAN with no TLS terminator, see src/native/server-config.ts) counts
-    // as mixed content from that secure origin's point of view. Without
-    // this, fetch() calls to an HTTP server are blocked identically to the
-    // OS-level cleartext block that network_security_config.xml lifts.
+    // Belt-and-suspenders alongside androidScheme above, in case any
+    // request is ever made from an https context (e.g. a future iOS-style
+    // config, or a stray absolute https:// asset URL).
     allowMixedContent: true,
   },
 }
