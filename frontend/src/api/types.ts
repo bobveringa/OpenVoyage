@@ -1138,6 +1138,8 @@ export interface components {
             id: string;
             /** Password Change Required */
             password_change_required: boolean;
+            /** Permissions */
+            permissions: components["schemas"]["PlatformPermission"][];
             profile: components["schemas"]["UserProfileResponse"] | null;
             role: components["schemas"]["UserRole"];
         };
@@ -1643,6 +1645,12 @@ export interface components {
             /** Region */
             region: string;
         };
+        /**
+         * PlatformPermission
+         * @description Permissions that apply to the platform rather than a specific trip.
+         * @enum {string}
+         */
+        PlatformPermission: "trip:create" | "platform:administer";
         /** PostCreateRequest */
         PostCreateRequest: {
             /** Body */
@@ -2274,7 +2282,7 @@ export interface components {
          * UserRole
          * @enum {string}
          */
-        UserRole: "USER" | "ADMIN";
+        UserRole: "USER" | "COMPANION" | "ADMIN";
         /** UserSearchResultResponse */
         UserSearchResultResponse: {
             /** First Name */

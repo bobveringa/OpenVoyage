@@ -36,6 +36,7 @@ from services.itinerary_service import ItineraryService
 from services.place_service import PlaceService
 from services.post_service import PostService
 from services.post_timeline_service import PostTimelineService
+from services.platform_authorization import PlatformPermission, role_has_permission
 from services.trip_service import TripService
 from services.user_service import UserService
 from services.admin_user_service import AdminUserService
@@ -147,10 +148,21 @@ def get_optional_current_user(
 def get_current_admin_user(
     user: Annotated[User, Depends(get_current_user)],
 ) -> User:
-    if user.role != 'ADMIN':
+    if not role_has_permission(user.role, PlatformPermission.ADMINISTER_PLATFORM):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail='The user does not have enough privileges',
+        )
+    return user
+
+
+def get_current_trip_creator(
+    user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    if not role_has_permission(user.role, PlatformPermission.CREATE_TRIP):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='The user does not have permission to create trips',
         )
     return user
 
@@ -291,6 +303,7 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 AuthenticatedUser = Annotated[User, Depends(get_authenticated_user)]
 OptionalCurrentUser = Annotated[User | None, Depends(get_optional_current_user)]
 CurrentAdmin = Annotated[User, Depends(get_current_admin_user)]
+CurrentTripCreator = Annotated[User, Depends(get_current_trip_creator)]
 JobServiceDep = Annotated[JobService, Depends(get_job_service)]
 MediaServiceDep = Annotated[MediaService, Depends(get_media_service)]
 LocationServiceDep = Annotated[LocationService, Depends(get_location_service)]

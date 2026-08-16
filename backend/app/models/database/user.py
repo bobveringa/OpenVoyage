@@ -32,6 +32,7 @@ def canonical_username_expression(username_column):
 
 class UserRole(str, Enum):
     USER = 'USER'
+    COMPANION = 'COMPANION'
     ADMIN = 'ADMIN'
 
 

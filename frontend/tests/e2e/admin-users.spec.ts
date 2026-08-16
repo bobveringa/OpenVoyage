@@ -7,7 +7,7 @@ type AdminUser = {
   id: string
   last_name: string
   password_change_required: boolean
-  role: 'ADMIN' | 'USER'
+  role: 'ADMIN' | 'COMPANION' | 'USER'
   updated_at: string
   username: string
 }
@@ -121,7 +121,7 @@ async function mockAdminUsersApi(page: Page) {
   }, `test.${tokenPayload}.signature`)
 
   await page.route('**/api/v1/users/me', (route) => fulfillJson(route, {
-    id: '10000000-0000-4000-8000-000000000001', password_change_required: false, profile: null, role: 'ADMIN',
+    id: '10000000-0000-4000-8000-000000000001', password_change_required: false, permissions: ['platform:administer', 'trip:create'], profile: null, role: 'ADMIN',
   }))
   await page.route('**/api/v1/settings/public', (route) => fulfillJson(route, {
     settings: {}, updated_at: null,

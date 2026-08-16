@@ -56,7 +56,7 @@ export function UsersPanel({ accessToken }: UsersPanelProps) {
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [appliedQuery, setAppliedQuery] = useState('')
-  const [role, setRole] = useState<'ADMIN' | 'USER' | 'ALL'>('ALL')
+  const [role, setRole] = useState<'ADMIN' | 'COMPANION' | 'USER' | 'ALL'>('ALL')
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading')
   const [loadError, setLoadError] = useState<string | null>(null)
   const [editor, setEditor] = useState<EditorState>(null)
@@ -102,7 +102,7 @@ export function UsersPanel({ accessToken }: UsersPanelProps) {
     setAppliedQuery(query.trim())
   }
 
-  function changeRole(nextRole: 'ADMIN' | 'USER' | 'ALL') {
+  function changeRole(nextRole: 'ADMIN' | 'COMPANION' | 'USER' | 'ALL') {
     setRole(nextRole)
   }
 
@@ -156,6 +156,7 @@ export function UsersPanel({ accessToken }: UsersPanelProps) {
                   { label: 'All roles', value: 'ALL' },
                   { label: 'Administrators', value: 'ADMIN' },
                   { label: 'Users', value: 'USER' },
+                  { label: 'Companions', value: 'COMPANION' },
                 ]}
                 value={role}
               />
@@ -299,7 +300,7 @@ function UserRow({
             {user.first_name} {user.last_name}
           </p>
           <Badge variant={user.role === 'ADMIN' ? 'secondary' : 'outline'}>
-            {user.role === 'ADMIN' ? 'Administrator' : 'User'}
+            {getRoleLabel(user.role)}
           </Badge>
           {user.password_change_required ? (
             <Badge variant="outline">Password change required</Badge>
@@ -348,7 +349,7 @@ function UserEditorModal({
   const [username, setUsername] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [role, setRole] = useState<'ADMIN' | 'USER'>('USER')
+  const [role, setRole] = useState<'ADMIN' | 'COMPANION' | 'USER'>('USER')
   const [password, setPassword] = useState('')
   const [requirePasswordChange, setRequirePasswordChange] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -464,6 +465,7 @@ function UserEditorModal({
             onValueChange={setRole}
             options={[
               { label: 'User', value: 'USER' },
+              { label: 'Companion', value: 'COMPANION' },
               { label: 'Administrator', value: 'ADMIN' },
             ]}
             value={role}
@@ -505,6 +507,17 @@ function UserEditorModal({
       </form>
     </Modal>
   )
+}
+
+function getRoleLabel(role: AdminUser['role']) {
+  switch (role) {
+    case 'ADMIN':
+      return 'Administrator'
+    case 'COMPANION':
+      return 'Companion'
+    case 'USER':
+      return 'User'
+  }
 }
 
 function SetPasswordModal({

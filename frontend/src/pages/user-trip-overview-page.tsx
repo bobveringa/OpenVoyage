@@ -213,7 +213,10 @@ export function UserTripOverviewPage({
   }
 
   const isOwner = currentUser?.id === state.user.id
-  const canCreateTrips = isOwner && Boolean(accessToken)
+  const canCreateTrips =
+    isOwner &&
+    Boolean(accessToken) &&
+    currentUser?.permissions.includes('trip:create')
 
   function handleTripCreated(trip: Trip) {
     onNavigate(`/trips/${encodeURIComponent(trip.id)}`)

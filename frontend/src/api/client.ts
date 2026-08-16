@@ -351,7 +351,7 @@ export async function listAdminUsers(options: {
   page?: number
   pageSize?: number
   query?: string
-  role?: 'ADMIN' | 'USER'
+  role?: 'ADMIN' | 'COMPANION' | 'USER'
 }): Promise<AdminUsersList> {
   return requestJson<AdminUsersList>(`${API_V1_PREFIX}/admin/users`, {
     accessToken: options.accessToken,

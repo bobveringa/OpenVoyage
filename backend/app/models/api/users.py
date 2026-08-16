@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from models.api.media import MediaResponse
 from models.database.user import UserRole
+from services.platform_authorization import PlatformPermission, permissions_for_role
 
 if TYPE_CHECKING:
     from models.database.user import User, UserProfile
@@ -128,6 +129,7 @@ class UserResponse(BaseModel):
 
 class CurrentUserResponse(UserResponse):
     role: UserRole
+    permissions: list[PlatformPermission]
     password_change_required: bool
 
     @classmethod
@@ -136,6 +138,7 @@ class CurrentUserResponse(UserResponse):
         return cls(
             **user_response.model_dump(),
             role=user.role,
+            permissions=sorted(permissions_for_role(user.role), key=lambda item: item.value),
             password_change_required=user.password_change_required,
         )
 

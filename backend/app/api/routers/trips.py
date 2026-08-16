@@ -8,6 +8,7 @@ from starlette.requests import Request
 from core import security
 from api.deps import (
     CurrentUser,
+    CurrentTripCreator,
     OptionalCurrentUser,
     PaginationDep,
     ShareToken,
@@ -79,7 +80,7 @@ def create_trip(
     request: Request,
     payload: TripCreateRequest,
     trip_service: TripServiceDep,
-    user: CurrentUser,
+    user: CurrentTripCreator,
 ) -> TripResponse:
     try:
         trip = trip_service.create_trip(payload=payload, current_user_id=user.id)

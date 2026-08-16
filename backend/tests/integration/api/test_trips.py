@@ -12,6 +12,7 @@ from factories.trips import create_trip as create_trip_model
 from factories.users import create_user
 from models.database.media import MediaStatus
 from models.database.trips import TripRole, TripVisibility
+from models.database.user import UserRole
 
 
 TRIP_START_DATE = '2026-07-01'
@@ -89,6 +90,72 @@ def test_create_trip_success(client, db_session, api_prefix) -> None:
     assert thumbnail_url.path == f'/api/v1/media/{media.id}/content'
     assert thumbnail_query['media_token'] == content_query['media_token']
     assert thumbnail_query['thumbnail'] == ['true']
+
+
+@pytest.mark.integration
+def test_companion_cannot_create_trip(client, db_session, api_prefix) -> None:
+    companion = create_user(
+        db_session,
+        password='TripsPass123!',
+        role=UserRole.COMPANION,
+    )
+    media = create_media(
+        db_session,
+        storage_path='media/companion-cover.jpg',
+        created_by=companion.id,
+    )
+
+    response = client.post(
+        f'{api_prefix}/trips',
+        headers=_auth_headers(companion),
+        json={
+            'name': 'Companion trip',
+            'description': '',
+            'media_id': str(media.id),
+            'start_date': TRIP_START_DATE,
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()['detail'] == 'The user does not have permission to create trips'
+
+
+@pytest.mark.integration
+def test_companion_can_access_trips_as_member_or_viewer(
+    client, db_session, api_prefix
+) -> None:
+    owner = create_user(db_session, password='TripsPass123!')
+    companion = create_user(
+        db_session,
+        password='TripsPass123!',
+        role=UserRole.COMPANION,
+    )
+    owner_headers = _auth_headers(owner)
+    companion_headers = _auth_headers(companion)
+    member_trip_id = _create_trip(client, db_session, api_prefix, owner)
+    viewer_trip_id = _create_trip(client, db_session, api_prefix, owner)
+
+    add_member_response = client.post(
+        f'{api_prefix}/trips/{member_trip_id}/members',
+        headers=owner_headers,
+        json={'user_id': str(companion.id), 'role': TripRole.MEMBER.value},
+    )
+    add_viewer_response = client.post(
+        f'{api_prefix}/trips/{viewer_trip_id}/viewers',
+        headers=owner_headers,
+        json={'user_id': str(companion.id)},
+    )
+    member_read_response = client.get(
+        f'{api_prefix}/trips/{member_trip_id}', headers=companion_headers
+    )
+    viewer_read_response = client.get(
+        f'{api_prefix}/trips/{viewer_trip_id}', headers=companion_headers
+    )
+
+    assert add_member_response.status_code == 201
+    assert add_viewer_response.status_code == 201
+    assert member_read_response.status_code == 200
+    assert viewer_read_response.status_code == 200
 
 
 @pytest.mark.integration

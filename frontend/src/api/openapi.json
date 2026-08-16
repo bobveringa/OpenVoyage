@@ -455,6 +455,13 @@
             "title": "Password Change Required",
             "type": "boolean"
           },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformPermission"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
           "profile": {
             "anyOf": [
               {
@@ -473,6 +480,7 @@
           "id",
           "profile",
           "role",
+          "permissions",
           "password_change_required"
         ],
         "title": "CurrentUserResponse",
@@ -1897,6 +1905,15 @@
         ],
         "title": "PlaceResponse",
         "type": "object"
+      },
+      "PlatformPermission": {
+        "description": "Permissions that apply to the platform rather than a specific trip.",
+        "enum": [
+          "trip:create",
+          "platform:administer"
+        ],
+        "title": "PlatformPermission",
+        "type": "string"
       },
       "PostCreateRequest": {
         "properties": {
@@ -3577,6 +3594,7 @@
       "UserRole": {
         "enum": [
           "USER",
+          "COMPANION",
           "ADMIN"
         ],
         "title": "UserRole",

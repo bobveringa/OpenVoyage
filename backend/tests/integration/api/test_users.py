@@ -282,8 +282,29 @@ def test_get_current_user_returns_role(client, db_session, api_prefix) -> None:
     payload = response.json()
     assert payload['id'] == str(user.id)
     assert payload['role'] == UserRole.ADMIN.value
+    assert payload['permissions'] == ['platform:administer', 'trip:create']
     assert payload['profile']['username'] == 'admin-user'
     assert 'email' not in payload
+
+
+@pytest.mark.integration
+def test_get_current_companion_has_no_trip_creation_permission(
+    client, db_session, api_prefix
+) -> None:
+    companion = create_user(
+        db_session,
+        password='UsersPass123!',
+        role=UserRole.COMPANION,
+    )
+
+    response = client.get(
+        f'{api_prefix}/users/me',
+        headers=_auth_headers(companion),
+    )
+
+    assert response.status_code == 200
+    assert response.json()['role'] == UserRole.COMPANION.value
+    assert response.json()['permissions'] == []
 
 
 @pytest.mark.integration
