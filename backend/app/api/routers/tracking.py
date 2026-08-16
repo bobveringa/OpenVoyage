@@ -175,6 +175,7 @@ def upload_track_samples(
     user: CurrentUser,
     tracking_service: GpsTrackingServiceDep,
 ) -> TrackSampleBatchResponse:
+    print(payload)
     try:
         result = tracking_service.upload_samples(
             trip_id=trip_id,

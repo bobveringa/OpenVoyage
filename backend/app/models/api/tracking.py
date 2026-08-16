@@ -51,6 +51,9 @@ class TrackSampleRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     accuracy_meters: float | None = Field(default=None, ge=0)
+    speed_mps: float | None = Field(default=None, ge=0)
+    heading_degrees: float | None = Field(default=None, ge=0, le=360)
+    altitude_meters: float | None = None
     travel_mode: TravelMode = TravelMode.UNKNOWN
 
 
@@ -91,6 +94,9 @@ class TrackSampleResponse(BaseModel):
     latitude: float
     longitude: float
     accuracy_meters: float | None
+    speed_mps: float | None
+    heading_degrees: float | None
+    altitude_meters: float | None
     travel_mode: TravelMode
 
     @classmethod
@@ -101,6 +107,9 @@ class TrackSampleResponse(BaseModel):
             latitude=sample.latitude,
             longitude=sample.longitude,
             accuracy_meters=sample.accuracy_meters,
+            speed_mps=sample.speed_mps,
+            heading_degrees=sample.heading_degrees,
+            altitude_meters=sample.altitude_meters,
             travel_mode=TravelMode(sample.travel_mode),
         )
 

@@ -1,4 +1,4 @@
-import { Loader2, Radio, Trash2 } from 'lucide-react'
+import { Loader2, Play, Radio, Square, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import {
@@ -14,22 +14,13 @@ import {
   type TrackingSession,
   type TravelMode,
 } from '@/api/client'
+import { useAuth } from '@/auth/use-auth'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Select } from '@/components/ui/select'
-
-const TRAVEL_MODE_OPTIONS = [
-  { label: 'Unknown', value: 'UNKNOWN' },
-  { label: 'Walk', value: 'WALK' },
-  { label: 'Bike', value: 'BIKE' },
-  { label: 'Motorcycle', value: 'MOTORCYCLE' },
-  { label: 'Car', value: 'CAR' },
-  { label: 'Bus', value: 'BUS' },
-  { label: 'Train', value: 'TRAIN' },
-  { label: 'Ferry', value: 'FERRY' },
-  { label: 'Flight', value: 'FLIGHT' },
-  { label: 'Other', value: 'OTHER' },
-] as const satisfies ReadonlyArray<{ label: string; value: TravelMode }>
+import type { UploaderStatus } from '@/tracking/uploader'
+import { TRAVEL_MODE_OPTIONS } from '@/tracking/travel-mode-options'
+import { useTracking } from '@/tracking/use-tracking'
 
 const SAMPLE_PAGE_SIZE = 500
 
@@ -44,12 +35,119 @@ function formatMoment(value: string) {
   return new Date(value).toLocaleString()
 }
 
+function describeUploaderStatus(status: UploaderStatus): string {
+  switch (status) {
+    case 'idle':
+      return 'synced'
+    case 'syncing':
+      return 'syncing…'
+    case 'waiting-retry':
+      return 'retrying…'
+    case 'paused-sign-in-required':
+      return 'paused — sign in again to resume'
+    case 'paused-account-mismatch':
+      return 'paused — sign in as the recording account to resume'
+    case 'terminated':
+      return 'stopped'
+  }
+}
+
+function RecordingControl({
+  accessToken,
+  currentUserId,
+  onSessionsChanged,
+  onTrackingChanged,
+  tripId,
+}: {
+  accessToken: string
+  currentUserId: string | null
+  onSessionsChanged: () => void
+  onTrackingChanged: () => void
+  tripId: string
+}) {
+  const tracking = useTracking()
+  const activeSession = tracking.activeSession
+  const isThisTripActive = activeSession?.tripId === tripId
+  const isOtherTripActive = activeSession !== null && activeSession?.tripId !== tripId
+
+  // The session list (below `onSessionsChanged`) and the trip's public map
+  // (`onTrackingChanged`) both only reflect server state, so both need a
+  // refetch once a recording starts/stops locally and again once the
+  // uploader actually finishes syncing it (the end PATCH is asynchronous).
+  useEffect(() => {
+    onSessionsChanged()
+    onTrackingChanged()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isThisTripActive, tracking.uploaderSnapshot?.lastSyncAt])
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold text-foreground">Recording</h3>
+
+      {isOtherTripActive ? (
+        <p className="text-sm text-muted-foreground">
+          A recording is already in progress for another trip on this device.
+          Stop it before starting one here.
+        </p>
+      ) : isThisTripActive ? (
+        <div className="space-y-1.5 rounded-lg border border-border px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-medium text-foreground">Recording…</p>
+            <Button
+              disabled={tracking.status === 'stopping'}
+              onClick={() => void tracking.stopTracking()}
+              size="sm"
+              type="button"
+              variant="destructive"
+            >
+              <Square className="size-4" />
+              {tracking.status === 'stopping' ? 'Stopping…' : 'Stop'}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {tracking.queueStats?.sampleCount ?? 0} point
+            {tracking.queueStats?.sampleCount === 1 ? '' : 's'} queued
+            {tracking.queueStats && tracking.queueStats.droppedLocallyCount > 0
+              ? ` · ${tracking.queueStats.droppedLocallyCount} dropped locally`
+              : ''}
+            {tracking.uploaderSnapshot
+              ? ` · ${describeUploaderStatus(tracking.uploaderSnapshot.status)}`
+              : ''}
+          </p>
+        </div>
+      ) : (
+        <Button
+          disabled={tracking.status !== 'idle' || !currentUserId}
+          onClick={() => {
+            if (!currentUserId) {
+              return
+            }
+            void tracking.startTracking({ accessToken, currentUserId, tripId })
+          }}
+          size="sm"
+          type="button"
+        >
+          <Play className="size-4" />
+          {tracking.status === 'starting' ? 'Starting…' : 'Start tracking'}
+        </Button>
+      )}
+
+      {tracking.error ? (
+        <p className="text-xs text-destructive" role="alert">
+          {tracking.error}
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
 export function TrackingManagementPanel({
   accessToken,
   canManageLiveSharing,
   onTrackingChanged,
   tripId,
 }: TrackingManagementPanelProps) {
+  const { currentUser } = useAuth()
   const [sessions, setSessions] = useState<readonly TrackingSession[]>([])
   const [shareLiveLocation, setShareLiveLocation] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -309,6 +407,14 @@ export function TrackingManagementPanel({
             )}
           </div>
         ) : null}
+
+        <RecordingControl
+          accessToken={accessToken}
+          currentUserId={currentUser?.id ?? null}
+          onSessionsChanged={() => void loadOverview()}
+          onTrackingChanged={onTrackingChanged}
+          tripId={tripId}
+        />
 
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-foreground">Recordings</h3>

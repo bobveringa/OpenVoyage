@@ -4,15 +4,44 @@ import type { components, paths } from '@/api/types'
 
 // A deployed OpenVoyage instance serves the UI and API from the same origin.
 // Keeping that as the default means a build can be moved to another host
-// without baking a backend address into its JavaScript bundle.
+// without baking a backend address into its JavaScript bundle. In the
+// Capacitor native shell there is no meaningful same-origin default (the
+// webview's own origin is not the API), so the native settings UI can call
+// setApiBaseUrl() to override this at runtime — see native/server-config.ts.
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? window.location.origin
 
+let currentApiBaseUrl = API_BASE_URL.replace(/\/+$/, '')
+
+export function getApiBaseUrl(): string {
+  return currentApiBaseUrl
+}
+
+export function setApiBaseUrl(nextBaseUrl: string): void {
+  currentApiBaseUrl = nextBaseUrl.replace(/\/+$/, '')
+}
+
 export const api = createClient<paths>({
-  baseUrl: API_BASE_URL,
+  baseUrl: currentApiBaseUrl,
 })
 
-const API_ROOT = API_BASE_URL.replace(/\/+$/, '')
+// openapi-fetch bakes the base URL into each client at creation time, so a
+// runtime override (native "Server" field) needs to rewrite already-built
+// request URLs rather than mutate `api` itself.
+api.use({
+  onRequest({ request }) {
+    const target = new URL(request.url)
+    const current = new URL(currentApiBaseUrl)
+    if (target.origin === current.origin) {
+      return undefined
+    }
+    return new Request(
+      new URL(target.pathname + target.search, currentApiBaseUrl).toString(),
+      request,
+    )
+  },
+})
+
 const API_V1_PREFIX = '/api/v1'
 const SHARE_TOKEN_HEADER = 'X-Trip-Share-Token'
 
@@ -1104,6 +1133,27 @@ export async function listTrackingSessions(options: {
   return result.sessions
 }
 
+// Same request as listTrackingSessions, but also surfaces the response's
+// Date header so the pre-start flow can run its clock-skew check (§3.1)
+// without a second round trip.
+export async function listTrackingSessionsWithServerDate(options: {
+  tripId: string
+  accessToken: string
+}): Promise<{ sessions: TrackingSession[]; serverDate: Date | null }> {
+  const { data, response } = await requestJsonResponse<{
+    sessions: TrackingSession[]
+  }>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/sessions`,
+    { accessToken: options.accessToken },
+  )
+  const dateHeader = response.headers.get('Date')
+  const serverDate = dateHeader ? new Date(dateHeader) : null
+  return {
+    serverDate: serverDate && !Number.isNaN(serverDate.getTime()) ? serverDate : null,
+    sessions: data.sessions,
+  }
+}
+
 export async function createTrackingSession(options: {
   tripId: string
   sessionId: string
@@ -1397,7 +1447,7 @@ function sendMediaUploadRequest(
 }
 
 function buildApiUrl(path: string, query?: Record<string, QueryValue>): string {
-  const url = new URL(`${API_ROOT}${path}`)
+  const url = new URL(`${currentApiBaseUrl}${path}`)
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== null && value !== undefined) {
       url.searchParams.set(key, String(value))

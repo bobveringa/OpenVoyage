@@ -42,13 +42,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const tokensRef = useRef<AuthTokens | null>(null)
 
   const storeSession = useCallback((nextTokens: AuthTokens) => {
-    writeStoredAuthTokens(nextTokens)
+    // Persistence is best-effort and asynchronous; in-memory state (below)
+    // is the source of truth for the running session either way.
+    void writeStoredAuthTokens(nextTokens)
     tokensRef.current = nextTokens
     setTokens(nextTokens)
   }, [])
 
   const clearSession = useCallback(() => {
-    clearStoredAuthTokens()
+    void clearStoredAuthTokens()
     tokensRef.current = null
     refreshPromiseRef.current = null
     setTokens(null)
@@ -89,7 +91,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         })
         .catch((refreshError: unknown) => {
           if (tokensRef.current?.refresh_token === refreshToken) {
-            clearStoredAuthTokens()
+            void clearStoredAuthTokens()
             tokensRef.current = null
             setTokens(null)
             setCurrentUser(null)
@@ -141,7 +143,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     let isCurrent = true
 
     async function restoreSession() {
-      const storedTokens = readStoredAuthTokens()
+      const storedTokens = await readStoredAuthTokens()
+      if (!isCurrent) {
+        return
+      }
       if (!storedTokens) {
         setStatus('unauthenticated')
         return
@@ -169,7 +174,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (!isCurrent) {
           return
         }
-        clearStoredAuthTokens()
+        void clearStoredAuthTokens()
         tokensRef.current = null
         setTokens(null)
         setCurrentUser(null)

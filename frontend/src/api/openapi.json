@@ -2611,6 +2611,30 @@
             ],
             "title": "Accuracy Meters"
           },
+          "altitude_meters": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Altitude Meters"
+          },
+          "heading_degrees": {
+            "anyOf": [
+              {
+                "maximum": 360.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading Degrees"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -2632,6 +2656,18 @@
             "format": "date-time",
             "title": "Recorded At",
             "type": "string"
+          },
+          "speed_mps": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed Mps"
           },
           "travel_mode": {
             "$ref": "#/components/schemas/TravelMode",
@@ -2660,6 +2696,28 @@
             ],
             "title": "Accuracy Meters"
           },
+          "altitude_meters": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Altitude Meters"
+          },
+          "heading_degrees": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading Degrees"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -2678,6 +2736,17 @@
             "title": "Recorded At",
             "type": "string"
           },
+          "speed_mps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed Mps"
+          },
           "travel_mode": {
             "$ref": "#/components/schemas/TravelMode"
           }
@@ -2688,6 +2757,9 @@
           "latitude",
           "longitude",
           "accuracy_meters",
+          "speed_mps",
+          "heading_degrees",
+          "altitude_meters",
           "travel_mode"
         ],
         "title": "TrackSampleResponse",

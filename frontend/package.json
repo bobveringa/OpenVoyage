@@ -15,9 +15,20 @@
     "start": "npm run dev",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:unit": "vitest run",
+    "cap:sync": "npm run build && npx cap sync android",
+    "cap:open": "npx cap open android",
+    "android:apk": "npm run cap:sync && node scripts/build-android.mjs"
   },
   "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
+    "@capacitor-community/sqlite": "^8.1.1",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/preferences": "^8.0.1",
     "@tailwindcss/vite": "4.1.17",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -30,6 +41,7 @@
     "tailwindcss": "4.1.17"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@eslint/js": "9.27.0",
     "@playwright/test": "^1.62.0",
     "@types/leaflet": "^1.9.21",
@@ -40,10 +52,13 @@
     "eslint": "9.27.0",
     "eslint-plugin-react-hooks": "5.2.0",
     "eslint-plugin-react-refresh": "0.4.19",
+    "fake-indexeddb": "^6.2.5",
     "globals": "16.0.0",
+    "jsdom": "^30.0.1",
     "openapi-typescript": "^7.13.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "8.30.1",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^4.1.10"
   }
 }

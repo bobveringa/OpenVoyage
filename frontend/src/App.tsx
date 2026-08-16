@@ -6,16 +6,20 @@ import { useAuth } from '@/auth/use-auth'
 import { AppBackground } from '@/components/layout/app-background'
 import { AppShell } from '@/components/layout/app-shell'
 import { getUserUsername } from '@/lib/users'
+import { NativeServerGate } from '@/native/native-server-gate'
+import { isNativePlatform } from '@/native/platform'
 import { AdminPage } from '@/pages/admin-page'
 import { AccountSecurityPage } from '@/pages/account-security-page'
 import { LoginPage } from '@/pages/login-page'
 import { PlaceholderPage } from '@/pages/placeholder-page'
 import { ProfileSettingsPage } from '@/pages/profile-settings-page'
 import { SetupPage } from '@/pages/setup-page'
+import { TrackingSettingsPage } from '@/pages/tracking-settings-page'
 import { TripDetailPage } from '@/pages/trip-detail-page'
 import { UserTripOverviewPage } from '@/pages/user-trip-overview-page'
 import { PublicSettingsProvider } from '@/settings/public-settings'
 import { ThemeProvider } from '@/theme'
+import { TrackingProvider } from '@/tracking/tracking-provider'
 
 type Route =
   | { name: 'admin' }
@@ -24,6 +28,7 @@ type Route =
   | { name: 'profile-settings' }
   | { name: 'security-settings' }
   | { name: 'setup' }
+  | { name: 'tracking-settings' }
   | { name: 'trip-detail'; tripId: string }
   | { name: 'user-overview'; username: string }
 
@@ -35,13 +40,17 @@ type InitialSetupStatus = 'complete' | 'loading' | 'required' | 'unknown'
 
 function App() {
   return (
-    <PublicSettingsProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
-      </ThemeProvider>
-    </PublicSettingsProvider>
+    <NativeServerGate>
+      <PublicSettingsProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <TrackingProvider>
+              <AppRoutes />
+            </TrackingProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </PublicSettingsProvider>
+    </NativeServerGate>
   )
 }
 
@@ -217,6 +226,15 @@ function renderRoute(route: Route, context: RouteRenderContext) {
           onNavigate={context.onNavigate}
         />
       )
+    case 'tracking-settings':
+      return isNativePlatform() ? (
+        <TrackingSettingsPage />
+      ) : (
+        <PlaceholderPage
+          description="GPS tracking settings are only available in the OpenVoyage Android app."
+          title="Native app only"
+        />
+      )
     case 'trip-detail':
       return (
         <TripDetailPage
@@ -327,6 +345,10 @@ function parseRoute(location: string): Route {
 
   if (pathname === '/settings/security') {
     return { name: 'security-settings' }
+  }
+
+  if (pathname === '/settings/tracking') {
+    return { name: 'tracking-settings' }
   }
 
   return { name: 'not-found' }

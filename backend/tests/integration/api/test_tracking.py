@@ -32,6 +32,9 @@ def _sample(
     longitude: float = 5.5,
     travel_mode: str = 'UNKNOWN',
     sample_id: uuid.UUID | None = None,
+    speed_mps: float | None = None,
+    heading_degrees: float | None = None,
+    altitude_meters: float | None = None,
 ) -> dict:
     return {
         'id': str(sample_id or uuid.uuid4()),
@@ -39,6 +42,9 @@ def _sample(
         'latitude': latitude,
         'longitude': longitude,
         'accuracy_meters': 8.4,
+        'speed_mps': speed_mps,
+        'heading_degrees': heading_degrees,
+        'altitude_meters': altitude_meters,
         'travel_mode': travel_mode,
     }
 
@@ -508,6 +514,48 @@ def test_batch_counts_add_up_across_every_bucket(
         'discarded_samples': 1,
     }
     assert sum(result.values()) == len(batch)
+
+
+@pytest.mark.integration
+def test_speed_heading_altitude_round_trip_and_default_to_null(tracking) -> None:
+    session_id = uuid.uuid4()
+    tracking.put_session(session_id, started_at=START)
+
+    with_motion = _sample(
+        offset_seconds=60,
+        speed_mps=1.4,
+        heading_degrees=180.0,
+        altitude_meters=42.0,
+    )
+    without_motion = _sample(offset_seconds=120)
+    result = tracking.upload(session_id, [with_motion, without_motion]).json()
+    assert result['accepted_samples'] == 2
+
+    stored = {
+        point['id']: point
+        for point in tracking.raw_samples(session_id).json()['items']
+    }
+    assert stored[with_motion['id']]['speed_mps'] == 1.4
+    assert stored[with_motion['id']]['heading_degrees'] == 180.0
+    assert stored[with_motion['id']]['altitude_meters'] == 42.0
+    assert stored[without_motion['id']]['speed_mps'] is None
+    assert stored[without_motion['id']]['heading_degrees'] is None
+    assert stored[without_motion['id']]['altitude_meters'] is None
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    'field,value',
+    [('speed_mps', -1.0), ('heading_degrees', -1.0), ('heading_degrees', 361.0)],
+)
+def test_out_of_range_motion_fields_are_rejected(tracking, field, value) -> None:
+    session_id = uuid.uuid4()
+    tracking.put_session(session_id, started_at=START)
+
+    sample = _sample(offset_seconds=60)
+    sample[field] = value
+    response = tracking.upload(session_id, [sample])
+    assert response.status_code == 422
 
 
 @pytest.mark.integration

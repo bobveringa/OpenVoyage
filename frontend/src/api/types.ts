@@ -1915,6 +1915,10 @@ export interface components {
         TrackSampleRequest: {
             /** Accuracy Meters */
             accuracy_meters?: number | null;
+            /** Altitude Meters */
+            altitude_meters?: number | null;
+            /** Heading Degrees */
+            heading_degrees?: number | null;
             /**
              * Id
              * Format: uuid
@@ -1929,6 +1933,8 @@ export interface components {
              * Format: date-time
              */
             recorded_at: string;
+            /** Speed Mps */
+            speed_mps?: number | null;
             /** @default UNKNOWN */
             travel_mode: components["schemas"]["TravelMode"];
         };
@@ -1936,6 +1942,10 @@ export interface components {
         TrackSampleResponse: {
             /** Accuracy Meters */
             accuracy_meters: number | null;
+            /** Altitude Meters */
+            altitude_meters: number | null;
+            /** Heading Degrees */
+            heading_degrees: number | null;
             /**
              * Id
              * Format: uuid
@@ -1950,6 +1960,8 @@ export interface components {
              * Format: date-time
              */
             recorded_at: string;
+            /** Speed Mps */
+            speed_mps: number | null;
             travel_mode: components["schemas"]["TravelMode"];
         };
         /** TrackingSessionCreateRequest */

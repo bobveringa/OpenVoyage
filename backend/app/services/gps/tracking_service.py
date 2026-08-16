@@ -363,6 +363,9 @@ class GpsTrackingService:
                     latitude=sample.latitude,
                     longitude=sample.longitude,
                     accuracy_meters=sample.accuracy_meters,
+                    speed_mps=sample.speed_mps,
+                    heading_degrees=sample.heading_degrees,
+                    altitude_meters=sample.altitude_meters,
                     travel_mode=sample.travel_mode,
                 )
             )
