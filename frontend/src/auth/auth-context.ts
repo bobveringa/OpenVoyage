@@ -2,7 +2,11 @@ import { createContext } from 'react'
 
 import type { AuthTokens, CurrentUser } from '@/api/client'
 
-export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated'
+export type AuthStatus =
+  | 'loading'
+  | 'authenticated'
+  | 'unauthenticated'
+  | 'unavailable'
 
 export type SignInInput = {
   email: string

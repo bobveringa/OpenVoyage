@@ -55,7 +55,7 @@ function App() {
 }
 
 function AppRoutes() {
-  const { accessToken, currentUser, signOut, status, updateCurrentUser } = useAuth()
+  const { accessToken, currentUser, error, signOut, status, updateCurrentUser } = useAuth()
   const { location, navigate } = useBrowserLocation()
   const route = useMemo(() => parseRoute(location), [location])
   const currentUsername = getUserUsername(currentUser)
@@ -130,6 +130,10 @@ function AppRoutes() {
   function handleLogout() {
     signOut()
     navigate('/', { replace: true })
+  }
+
+  if (status === 'unavailable') {
+    return <ApiUnavailablePage error={error} />
   }
 
   if (status === 'loading' || initialSetupStatus === 'loading') {
@@ -273,6 +277,21 @@ function LoadingPage() {
       <p className="text-sm text-muted-foreground" role="status">
         Loading OpenVoyage…
       </p>
+    </main>
+  )
+}
+
+function ApiUnavailablePage({ error }: { error: string | null }) {
+  return (
+    <main className="relative isolate grid min-h-dvh place-items-center px-4 text-foreground">
+      <AppBackground />
+      <div className="max-w-md space-y-3 rounded-2xl border border-border bg-card/90 p-6 text-center shadow-lg">
+        <h1 className="text-lg font-semibold">OpenVoyage is unavailable</h1>
+        <p className="text-sm text-muted-foreground">
+          We’ll reconnect automatically when the server is available.
+        </p>
+        {error ? <p className="text-xs text-muted-foreground">{error}</p> : null}
+      </div>
     </main>
   )
 }

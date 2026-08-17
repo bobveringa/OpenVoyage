@@ -44,6 +44,7 @@ api.use({
 
 const API_V1_PREFIX = '/api/v1'
 const SHARE_TOKEN_HEADER = 'X-Trip-Share-Token'
+const API_REQUEST_TIMEOUT_MS = 10 * 1000
 
 export type AuthTokens = components['schemas']['Token']
 export type CurrentUser = components['schemas']['CurrentUserResponse']
@@ -185,6 +186,13 @@ export class ApiError extends Error {
     this.name = 'ApiError'
     this.status = status
     this.detail = detail
+  }
+}
+
+class ApiRequestTimeoutError extends Error {
+  constructor() {
+    super('The server did not respond in time. Please try again shortly.')
+    this.name = 'ApiRequestTimeoutError'
   }
 }
 
@@ -1364,11 +1372,27 @@ async function sendApiRequest(
     body = options.urlEncoded
   }
 
-  return fetch(url, {
-    method: options.method ?? 'GET',
-    headers,
-    body,
-  })
+  const controller = new AbortController()
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    API_REQUEST_TIMEOUT_MS,
+  )
+
+  try {
+    return await fetch(url, {
+      method: options.method ?? 'GET',
+      headers,
+      body,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApiRequestTimeoutError()
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeout)
+  }
 }
 
 function sendMediaUploadRequest(
