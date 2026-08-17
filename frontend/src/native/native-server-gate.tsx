@@ -1,16 +1,33 @@
 import { Compass } from 'lucide-react'
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react'
 
 import { AppBackground } from '@/components/layout/app-background'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { needsNativeServerSetup, setStoredServerUrl } from '@/native/server-config'
+import { NativeServerGateContext } from '@/native/native-server-gate-context'
+import {
+  getStoredServerUrl,
+  needsNativeServerSetup,
+  setStoredServerUrl,
+} from '@/native/server-config'
+import { usePublicSettings } from '@/settings/use-public-settings'
 
 type GateStatus = 'checking' | 'needs-setup' | 'ready'
 
 export function NativeServerGate({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<GateStatus>('checking')
+  // Distinguishes "first run, nothing to go back to" from "user asked to
+  // change an already-working server" so the setup screen can offer Cancel
+  // only in the latter case.
+  const [isChangeFlow, setIsChangeFlow] = useState(false)
+  const publicSettings = usePublicSettings()
 
   useEffect(() => {
     let isCurrent = true
@@ -24,26 +41,89 @@ export function NativeServerGate({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const requestChangeServer = useCallback(() => {
+    setIsChangeFlow(true)
+    setStatus('needs-setup')
+  }, [])
+
   if (status === 'checking') {
     return null
   }
 
   if (status === 'needs-setup') {
-    return <ServerSetupPage onSaved={() => setStatus('ready')} />
+    return (
+      <ServerSetupPage
+        allowCancel={isChangeFlow}
+        onCancel={() => {
+          setIsChangeFlow(false)
+          setStatus('ready')
+        }}
+        onSaved={() => {
+          setIsChangeFlow(false)
+          // The very first fetch (before any server was known) had nothing
+          // reachable to hit; re-fetch now that the real server is set so
+          // branding/theme settings reflect that server, not the default.
+          void publicSettings.refresh()
+          setStatus('ready')
+        }}
+      />
+    )
   }
 
-  return <>{children}</>
+  return (
+    <NativeServerGateContext.Provider value={{ requestChangeServer }}>
+      {children}
+    </NativeServerGateContext.Provider>
+  )
 }
 
 type Protocol = 'https' | 'http'
 
 const CONNECT_TIMEOUT_MS = 8_000
 
-function ServerSetupPage({ onSaved }: { onSaved: () => void }) {
+function splitServerUrl(url: string): { protocol: Protocol; hostAndPort: string } | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return null
+    }
+    return {
+      hostAndPort: parsed.host,
+      protocol: parsed.protocol === 'https:' ? 'https' : 'http',
+    }
+  } catch {
+    return null
+  }
+}
+
+function ServerSetupPage({
+  allowCancel,
+  onCancel,
+  onSaved,
+}: {
+  allowCancel: boolean
+  onCancel: () => void
+  onSaved: () => void
+}) {
   const [protocol, setProtocol] = useState<Protocol>('https')
   const [hostAndPort, setHostAndPort] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isChecking, setIsChecking] = useState(false)
+
+  // Prefill with whatever server is already configured — most visits to
+  // this screen via "Wrong server?" are a typo fix, not a fresh entry.
+  useEffect(() => {
+    void getStoredServerUrl().then((stored) => {
+      if (!stored) {
+        return
+      }
+      const parsed = splitServerUrl(stored)
+      if (parsed) {
+        setProtocol(parsed.protocol)
+        setHostAndPort(parsed.hostAndPort)
+      }
+    })
+  }, [])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -91,11 +171,12 @@ function ServerSetupPage({ onSaved }: { onSaved: () => void }) {
           </span>
           <div className="space-y-2">
             <h1 className="text-2xl font-semibold tracking-normal">
-              Connect to your server
+              {allowCancel ? 'Change server' : 'Connect to your server'}
             </h1>
             <p className="text-sm text-muted-foreground">
-              OpenVoyage is self-hosted. Enter the address you'd normally open
-              in a browser to reach your instance.
+              {allowCancel
+                ? "Enter the address of the OpenVoyage server you'd like to switch to."
+                : "OpenVoyage is self-hosted. Enter the address you'd normally open in a browser to reach your instance."}
             </p>
           </div>
         </div>
@@ -133,9 +214,21 @@ function ServerSetupPage({ onSaved }: { onSaved: () => void }) {
             </p>
           ) : null}
 
-          <Button disabled={isChecking} type="submit">
-            {isChecking ? 'Checking…' : 'Continue'}
-          </Button>
+          <div className="flex gap-2">
+            {allowCancel ? (
+              <Button
+                disabled={isChecking}
+                onClick={onCancel}
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+            ) : null}
+            <Button className="flex-1" disabled={isChecking} type="submit">
+              {isChecking ? 'Checking…' : 'Continue'}
+            </Button>
+          </div>
         </form>
       </section>
     </main>

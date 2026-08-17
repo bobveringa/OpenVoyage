@@ -3213,6 +3213,7 @@ function TripManagementDialog({
                 canManageLiveSharing={canManageLiveSharing}
                 onTrackingChanged={onTrackingChanged}
                 tripId={tripId}
+                tripTitle={trip.name}
               />
             ) : null}
             {effectiveSection === 'gps' && (!accessToken || !tripId) ? (

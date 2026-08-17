@@ -10,6 +10,7 @@ import { NativeServerGate } from '@/native/native-server-gate'
 import { isNativePlatform } from '@/native/platform'
 import { AdminPage } from '@/pages/admin-page'
 import { AccountSecurityPage } from '@/pages/account-security-page'
+import { ActiveTrackingPage } from '@/pages/active-tracking-page'
 import { LoginPage } from '@/pages/login-page'
 import { PlaceholderPage } from '@/pages/placeholder-page'
 import { ProfileSettingsPage } from '@/pages/profile-settings-page'
@@ -28,6 +29,7 @@ type Route =
   | { name: 'profile-settings' }
   | { name: 'security-settings' }
   | { name: 'setup' }
+  | { name: 'tracking-active' }
   | { name: 'tracking-settings' }
   | { name: 'trip-detail'; tripId: string }
   | { name: 'user-overview'; username: string }
@@ -39,18 +41,22 @@ type NavigateOptions = {
 type InitialSetupStatus = 'complete' | 'loading' | 'required' | 'unknown'
 
 function App() {
+  // Theming wraps the server gate (not the other way around) so the
+  // server-selection screen picks up the same light/dark mode as the rest
+  // of the app instead of flashing to the unthemed default the instant
+  // ThemeProvider mounts afterward.
   return (
-    <NativeServerGate>
-      <PublicSettingsProvider>
-        <ThemeProvider>
+    <PublicSettingsProvider>
+      <ThemeProvider>
+        <NativeServerGate>
           <AuthProvider>
             <TrackingProvider>
               <AppRoutes />
             </TrackingProvider>
           </AuthProvider>
-        </ThemeProvider>
-      </PublicSettingsProvider>
-    </NativeServerGate>
+        </NativeServerGate>
+      </ThemeProvider>
+    </PublicSettingsProvider>
   )
 }
 
@@ -230,6 +236,8 @@ function renderRoute(route: Route, context: RouteRenderContext) {
           onNavigate={context.onNavigate}
         />
       )
+    case 'tracking-active':
+      return <ActiveTrackingPage onNavigate={context.onNavigate} />
     case 'tracking-settings':
       return isNativePlatform() ? (
         <TrackingSettingsPage />
@@ -368,6 +376,10 @@ function parseRoute(location: string): Route {
 
   if (pathname === '/settings/tracking') {
     return { name: 'tracking-settings' }
+  }
+
+  if (pathname === '/tracking/active') {
+    return { name: 'tracking-active' }
   }
 
   return { name: 'not-found' }

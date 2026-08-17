@@ -18,8 +18,8 @@ import { useAuth } from '@/auth/use-auth'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Select } from '@/components/ui/select'
-import type { UploaderStatus } from '@/tracking/uploader'
 import { TRAVEL_MODE_OPTIONS } from '@/tracking/travel-mode-options'
+import { describeUploaderStatus } from '@/tracking/uploader-status'
 import { useTracking } from '@/tracking/use-tracking'
 
 const SAMPLE_PAGE_SIZE = 500
@@ -29,27 +29,11 @@ type TrackingManagementPanelProps = {
   canManageLiveSharing: boolean
   onTrackingChanged: () => void
   tripId: string
+  tripTitle: string
 }
 
 function formatMoment(value: string) {
   return new Date(value).toLocaleString()
-}
-
-function describeUploaderStatus(status: UploaderStatus): string {
-  switch (status) {
-    case 'idle':
-      return 'synced'
-    case 'syncing':
-      return 'syncing…'
-    case 'waiting-retry':
-      return 'retrying…'
-    case 'paused-sign-in-required':
-      return 'paused — sign in again to resume'
-    case 'paused-account-mismatch':
-      return 'paused — sign in as the recording account to resume'
-    case 'terminated':
-      return 'stopped'
-  }
 }
 
 function RecordingControl({
@@ -58,12 +42,14 @@ function RecordingControl({
   onSessionsChanged,
   onTrackingChanged,
   tripId,
+  tripTitle,
 }: {
   accessToken: string
   currentUserId: string | null
   onSessionsChanged: () => void
   onTrackingChanged: () => void
   tripId: string
+  tripTitle: string
 }) {
   const tracking = useTracking()
   const activeSession = tracking.activeSession
@@ -86,27 +72,33 @@ function RecordingControl({
 
       {isOtherTripActive ? (
         <p className="text-sm text-muted-foreground">
-          A recording is already in progress for another trip on this device.
-          Stop it before starting one here.
+          {activeSession?.endedAt
+            ? 'Still syncing a recording from another trip on this device. Wait for it to finish before starting here.'
+            : 'A recording is already in progress for another trip on this device. Stop it before starting one here.'}
         </p>
-      ) : isThisTripActive ? (
+      ) : isThisTripActive && activeSession ? (
         <div className="space-y-1.5 rounded-lg border border-border px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-medium text-foreground">Recording…</p>
-            <Button
-              disabled={tracking.status === 'stopping'}
-              onClick={() => void tracking.stopTracking()}
-              size="sm"
-              type="button"
-              variant="destructive"
-            >
-              <Square className="size-4" />
-              {tracking.status === 'stopping' ? 'Stopping…' : 'Stop'}
-            </Button>
+            <p className="text-sm font-medium text-foreground">
+              {activeSession.endedAt ? 'Finishing sync…' : 'Recording…'}
+            </p>
+            {activeSession.endedAt ? null : (
+              <Button
+                disabled={tracking.status === 'stopping'}
+                onClick={() => void tracking.stopTracking()}
+                size="sm"
+                type="button"
+                variant="destructive"
+              >
+                <Square className="size-4" />
+                {tracking.status === 'stopping' ? 'Stopping…' : 'Stop'}
+              </Button>
+            )}
           </div>
           <p className="text-xs text-muted-foreground">
             {tracking.queueStats?.sampleCount ?? 0} point
-            {tracking.queueStats?.sampleCount === 1 ? '' : 's'} queued
+            {tracking.queueStats?.sampleCount === 1 ? '' : 's'}{' '}
+            {activeSession.endedAt ? 'still syncing' : 'queued'}
             {tracking.queueStats && tracking.queueStats.droppedLocallyCount > 0
               ? ` · ${tracking.queueStats.droppedLocallyCount} dropped locally`
               : ''}
@@ -122,7 +114,7 @@ function RecordingControl({
             if (!currentUserId) {
               return
             }
-            void tracking.startTracking({ accessToken, currentUserId, tripId })
+            void tracking.startTracking({ accessToken, currentUserId, tripId, tripTitle })
           }}
           size="sm"
           type="button"
@@ -146,6 +138,7 @@ export function TrackingManagementPanel({
   canManageLiveSharing,
   onTrackingChanged,
   tripId,
+  tripTitle,
 }: TrackingManagementPanelProps) {
   const { currentUser } = useAuth()
   const [sessions, setSessions] = useState<readonly TrackingSession[]>([])
@@ -414,6 +407,7 @@ export function TrackingManagementPanel({
           onSessionsChanged={() => void loadOverview()}
           onTrackingChanged={onTrackingChanged}
           tripId={tripId}
+          tripTitle={tripTitle}
         />
 
         <section className="space-y-2">

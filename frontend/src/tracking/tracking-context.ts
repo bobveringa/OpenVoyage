@@ -8,15 +8,25 @@ export type TrackingStatus =
   | 'starting'
   | 'recording'
   | 'stopping'
+  // Recording has ended locally but the local queue hasn't been confirmed
+  // fully synced yet (offline, or the upload just hasn't caught up). The
+  // session stays visible in this state rather than disappearing the
+  // instant Stop is tapped, so "stopped while offline" doesn't read as
+  // "the recording was lost".
+  | 'syncing'
 
 export type ActiveTrackingSession = {
   sessionId: string
   tripId: string
+  tripTitle: string | null
   startedAt: string
+  // Set once Stop has been tapped; null while still actively recording.
+  endedAt: string | null
 }
 
 export type StartTrackingInput = {
   tripId: string
+  tripTitle: string
   accessToken: string
   currentUserId: string
 }

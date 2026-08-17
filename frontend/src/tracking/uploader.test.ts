@@ -242,6 +242,24 @@ describe('SessionUploader terminal handling', () => {
     expect(snapshots[snapshots.length - 1]?.status).toBe('terminated')
   })
 
+  it('purges the queue and stops retrying on a batch-upload 404 (trip deleted)', async () => {
+    mockListSamplesForUpload.mockResolvedValueOnce(sampleBatch(2))
+    mockUploadTrackSamples.mockRejectedValue(new ApiError(404, 'Not Found', null))
+
+    const { snapshots, terminations, uploader } = makeUploader()
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockPurgeSession).toHaveBeenCalledWith('session-1')
+    expect(terminations).toEqual([
+      'This recording was deleted or conflicted on the server.',
+    ])
+    expect(snapshots[snapshots.length - 1]?.status).toBe('terminated')
+    // Confirms this doesn't fall into the generic retry/backoff path, which
+    // would keep hitting the same 404 forever since the trip is gone.
+    expect(mockUploadTrackSamples).toHaveBeenCalledTimes(1)
+  })
+
   it('purges the queue on a session-end 409', async () => {
     mockGetPendingSession.mockResolvedValue(
       session({ endAcked: false, endedAt: '2026-08-16T10:00:00.000Z' }),
@@ -254,6 +272,40 @@ describe('SessionUploader terminal handling', () => {
 
     expect(mockPurgeSession).toHaveBeenCalledWith('session-1')
     expect(terminations).toHaveLength(1)
+  })
+})
+
+describe('SessionUploader completion signal', () => {
+  it('fires onFullySynced once the end PATCH is ACKed and the local record is purged', async () => {
+    mockGetPendingSession.mockResolvedValue(
+      session({ endAcked: false, endedAt: '2026-08-16T10:00:00.000Z' }),
+    )
+    mockEndTrackingSession.mockResolvedValue({
+      ended_at: '2026-08-16T10:00:00.000Z',
+      id: 'session-1',
+      recorded_by_user_id: 'user-1',
+      sample_count: 0,
+      started_at: '2026-08-16T09:00:00.000Z',
+    })
+
+    let fullySyncedCount = 0
+    const { uploader } = makeUploader({ onFullySynced: () => (fullySyncedCount += 1) })
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(deletePendingSession).toHaveBeenCalledWith('session-1')
+    expect(fullySyncedCount).toBe(1)
+  })
+
+  it('does not fire onFullySynced while the session is still open (no endedAt)', async () => {
+    let fullySyncedCount = 0
+    const { uploader } = makeUploader({ onFullySynced: () => (fullySyncedCount += 1) })
+    uploader.start()
+
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(fullySyncedCount).toBe(0)
   })
 })
 

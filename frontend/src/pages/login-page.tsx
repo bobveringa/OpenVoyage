@@ -6,6 +6,9 @@ import { getErrorMessage } from '@/api/client'
 import { useAuth } from '@/auth/use-auth'
 import { LoginForm, type LoginFormValues } from '@/components/auth/login-form'
 import { AppBackground } from '@/components/layout/app-background'
+import { useNativeServerGate } from '@/native/native-server-gate-context'
+import { isNativePlatform } from '@/native/platform'
+import { getCurrentServerUrl } from '@/native/server-config'
 
 type LoginPageProps = {
   onAuthenticated: (user: CurrentUser) => void
@@ -15,6 +18,8 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
   const { signIn } = useAuth()
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const nativeServerGate = useNativeServerGate()
+  const showServerSwitch = isNativePlatform() && nativeServerGate !== null
 
   async function handleSubmit(values: LoginFormValues) {
     setIsSubmitting(true)
@@ -49,6 +54,19 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
           isSubmitting={isSubmitting}
           onSubmit={handleSubmit}
         />
+
+        {showServerSwitch ? (
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            Connected to {getCurrentServerUrl()}.{' '}
+            <button
+              className="font-medium text-foreground underline-offset-2 hover:underline"
+              onClick={() => nativeServerGate?.requestChangeServer()}
+              type="button"
+            >
+              Wrong server?
+            </button>
+          </p>
+        ) : null}
       </section>
     </main>
   )

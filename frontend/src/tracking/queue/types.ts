@@ -17,6 +17,10 @@ export type QueuedSample = {
 export type PendingSession = {
   sessionId: string
   tripId: string
+  // Optional: lets a resumed/offline session show a human-readable name
+  // (trips list badge, global tracking indicator) without a network fetch.
+  // Absent for sessions written before this field existed.
+  tripTitle?: string | null
   recordedByUserId: string
   startedAt: string
   endedAt: string | null

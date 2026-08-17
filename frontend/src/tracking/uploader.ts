@@ -51,6 +51,11 @@ export type UploaderDeps = {
   // the position watcher and surfacing `message` to the user.
   onTerminated: (message: string) => void
   onSnapshotChange: (snapshot: UploaderSnapshot) => void
+  // Fires exactly once, only for a session that had been ended (has
+  // endedAt set): every sample uploaded, the end PATCH ACKed, and the local
+  // record purged. Lets the caller distinguish "stopped, still syncing"
+  // from "fully done" instead of treating Stop itself as completion.
+  onFullySynced?: () => void
 }
 
 type RequestOutcome<T, Converge extends boolean> =
@@ -247,6 +252,7 @@ export class SessionUploader {
         queueDepth: 0,
         status: 'idle',
       })
+      this.deps.onFullySynced?.()
       return
     }
 
@@ -412,6 +418,13 @@ async function classify<T, Converge extends boolean>(
     if (error instanceof ApiError) {
       if (error.status === 401) {
         return { kind: 'unauthorized' }
+      }
+      // A 404 means the trip or session no longer exists (e.g. the trip was
+      // deleted) — there's nothing to converge on and no legitimate retry
+      // path, unlike 409. Recreating the session would defeat the point of
+      // it having been removed, so this is terminal just like 409.
+      if (error.status === 404) {
+        return { kind: 'terminal' }
       }
       if (error.status === 409) {
         return (

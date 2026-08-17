@@ -18,6 +18,7 @@ const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS pending_sessions (
   session_id TEXT PRIMARY KEY,
   trip_id TEXT NOT NULL,
+  trip_title TEXT,
   recorded_by_user_id TEXT NOT NULL,
   started_at TEXT NOT NULL,
   ended_at TEXT,
@@ -52,6 +53,7 @@ const DROPPED_COUNT_KEY = 'droppedLocallyCount'
 type SessionRow = {
   session_id: string
   trip_id: string
+  trip_title: string | null
   recorded_by_user_id: string
   started_at: string
   ended_at: string | null
@@ -82,6 +84,7 @@ function sessionFromRow(row: SessionRow): PendingSession {
     sessionId: row.session_id,
     startedAt: row.started_at,
     tripId: row.trip_id,
+    tripTitle: row.trip_title,
   }
 }
 
@@ -126,6 +129,16 @@ export class SqliteQueueBackend implements QueueBackend {
 
     await this.db.open()
     await this.db.execute(SCHEMA_SQL)
+    // Upgrade path for devices whose pending_sessions table predates this
+    // column: CREATE TABLE IF NOT EXISTS above is a no-op against an
+    // existing table, so add it explicitly. Fails harmlessly (duplicate
+    // column) once the table already has it, including on every fresh
+    // install created by the CREATE TABLE above.
+    try {
+      await this.db.execute('ALTER TABLE pending_sessions ADD COLUMN trip_title TEXT')
+    } catch {
+      // Column already exists.
+    }
   }
 
   private get connection(): SQLiteDBConnection {
@@ -138,10 +151,11 @@ export class SqliteQueueBackend implements QueueBackend {
   async putPendingSession(session: PendingSession): Promise<void> {
     await this.connection.run(
       `INSERT INTO pending_sessions
-        (session_id, trip_id, recorded_by_user_id, started_at, ended_at, create_acked, end_acked)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+        (session_id, trip_id, trip_title, recorded_by_user_id, started_at, ended_at, create_acked, end_acked)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(session_id) DO UPDATE SET
         trip_id = excluded.trip_id,
+        trip_title = excluded.trip_title,
         recorded_by_user_id = excluded.recorded_by_user_id,
         started_at = excluded.started_at,
         ended_at = excluded.ended_at,
@@ -150,6 +164,7 @@ export class SqliteQueueBackend implements QueueBackend {
       [
         session.sessionId,
         session.tripId,
+        session.tripTitle ?? null,
         session.recordedByUserId,
         session.startedAt,
         session.endedAt,

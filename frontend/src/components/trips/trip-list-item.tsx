@@ -1,9 +1,10 @@
-import { CalendarDays, ImageIcon } from 'lucide-react'
+import { CalendarDays, CloudUpload, ImageIcon, Radio } from 'lucide-react'
 
 import type { Trip } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { MediaImage } from '@/components/ui/media-image'
 import { formatDateRange } from '@/lib/dates'
+import { useTracking } from '@/tracking/use-tracking'
 
 import { TripStatusBadge } from './trip-status-badge'
 
@@ -16,6 +17,10 @@ export function TripListItem({
   showStatusBadge = false,
   trip,
 }: TripListItemProps) {
+  const { activeSession } = useTracking()
+  const isRecording = activeSession?.tripId === trip.id && !activeSession.endedAt
+  const isSyncing = activeSession?.tripId === trip.id && Boolean(activeSession.endedAt)
+
   return (
     <a
       className="group overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition hover:-translate-y-1 hover:border-input hover:shadow-xl hover:shadow-foreground/10"
@@ -35,6 +40,18 @@ export function TripListItem({
             surface="overlay"
             trip={trip}
           />
+        ) : null}
+        {isRecording ? (
+          <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-white/60 bg-destructive/90 px-3 py-1 text-xs font-semibold text-destructive-foreground shadow-sm backdrop-blur-md">
+            <Radio className="size-3.5 animate-pulse" aria-hidden="true" />
+            Recording
+          </span>
+        ) : null}
+        {isSyncing ? (
+          <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-white/60 bg-amber-600/90 px-3 py-1 text-xs font-semibold text-white shadow-sm backdrop-blur-md">
+            <CloudUpload className="size-3.5" aria-hidden="true" />
+            Syncing
+          </span>
         ) : null}
       </div>
 

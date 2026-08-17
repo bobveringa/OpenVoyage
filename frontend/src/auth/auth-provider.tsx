@@ -22,8 +22,11 @@ import {
 } from '@/api/client'
 import { AuthContext, type AuthContextValue, type AuthStatus } from '@/auth/auth-context'
 import {
+  clearCachedCurrentUser,
   clearStoredAuthTokens,
+  readCachedCurrentUser,
   readStoredAuthTokens,
+  writeCachedCurrentUser,
   writeStoredAuthTokens,
 } from '@/auth/auth-storage'
 
@@ -53,6 +56,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const clearSession = useCallback(() => {
     void clearStoredAuthTokens()
+    void clearCachedCurrentUser()
     tokensRef.current = null
     refreshPromiseRef.current = null
     setTokens(null)
@@ -63,6 +67,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const updateCurrentUser = useCallback((user: CurrentUser) => {
     setCurrentUser(user)
+    void writeCachedCurrentUser(user)
   }, [])
 
   const refreshSession = useCallback(
@@ -174,6 +179,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setCurrentUser(user)
         setStatus('authenticated')
         setError(null)
+        void writeCachedCurrentUser(user)
       } catch (restoreError) {
         if (!isCurrent) {
           return
@@ -184,11 +190,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return
         }
 
+        // The API is unreachable (offline launch, server down). Rather than
+        // blocking the whole app on that — which would also strand anything
+        // that only needs local state, like stopping an in-progress GPS
+        // recording — fall back to the last-known profile so the app is
+        // still usable, and keep retrying in the background for fresh data.
+        const cachedUser = await readCachedCurrentUser()
+        if (!isCurrent) {
+          return
+        }
+        if (cachedUser) {
+          setCurrentUser(cachedUser)
+          setStatus('authenticated')
+          setError(null)
+        } else {
+          // No cached profile to fall back to (e.g. first-ever launch was
+          // offline) — nothing meaningful to render yet.
+          setError(getErrorMessage(restoreError))
+          setStatus('unavailable')
+        }
+
         // Keep the saved tokens while the API is unreachable and wait for it
         // to return. The retry also covers native clients, where a server
         // restart does not necessarily trigger the browser's online event.
-        setError(getErrorMessage(restoreError))
-        setStatus('unavailable')
         retryTimeout = window.setTimeout(() => {
           void restoreSession()
         }, SESSION_RESTORE_RETRY_MS)
@@ -266,6 +290,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setCurrentUser(user)
         setStatus('authenticated')
         setError(null)
+        void writeCachedCurrentUser(user)
         return user
       } catch (signInError) {
         clearSession()
