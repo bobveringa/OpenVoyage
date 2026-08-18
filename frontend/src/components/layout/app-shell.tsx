@@ -5,6 +5,7 @@ import type { CurrentUser } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
 import { Button } from '@/components/ui/button'
 import { AppBackground } from '@/components/layout/app-background'
+import { PullToRefresh } from '@/components/layout/pull-to-refresh'
 import { ThemeModeToggle } from '@/components/layout/theme-mode-toggle'
 import { UserMenu } from '@/components/layout/user-menu'
 import { cn } from '@/lib/utils'
@@ -99,7 +100,7 @@ export function AppShell({
           !showHeader && 'max-w-none px-0 sm:px-0 lg:px-0',
         )}
       >
-        {children}
+        <PullToRefresh>{children}</PullToRefresh>
       </main>
     </div>
   )

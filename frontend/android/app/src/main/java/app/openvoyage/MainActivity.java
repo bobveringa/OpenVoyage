@@ -8,5 +8,6 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(TrackingOnboardingPlugin.class);
         super.onCreate(savedInstanceState);
+        getBridge().setWebViewClient(new SpaFallbackWebViewClient(getBridge()));
     }
 }
