@@ -283,8 +283,8 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
             call.getFloat("distanceFilterMeters", 0f)
         );
         intent.putExtra(
-            TrackingService.EXTRA_HIGH_ACCURACY,
-            Boolean.TRUE.equals(call.getBoolean("highAccuracy", true))
+            TrackingService.EXTRA_POWER_LEVEL,
+            call.getString("powerLevel", "high")
         );
         intent.putExtra(
             TrackingService.EXTRA_LOCATION_SOURCE,
@@ -314,7 +314,7 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
         );
         result.put("startedAtMs", service == null ? 0 : service.getStartedAtMs());
         result.put("intervalSeconds", service == null ? 0 : service.getIntervalMs() / 1000.0);
-        result.put("highAccuracy", service == null || service.isHighAccuracy());
+        result.put("powerLevel", service == null ? null : service.getPowerLevel());
         TrackingFixBuffer buffer = service == null ? null : service.getBuffer();
         result.put("bufferedFixes", buffer == null ? 0 : buffer.size());
         result.put("engine", service == null ? null : service.getEngineName());

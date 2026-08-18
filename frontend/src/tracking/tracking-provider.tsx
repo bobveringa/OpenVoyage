@@ -36,6 +36,7 @@ import {
   purgeSession,
   putPendingSession,
   resetDroppedLocallyCount,
+  sweepOrphanedSamples,
   type QueueStats,
 } from '@/tracking/sample-queue'
 import {
@@ -264,7 +265,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
 
       return {
         distanceFilterMeters: decision.distanceFilterMeters,
-        highAccuracy: decision.highAccuracy,
+        powerLevel: decision.powerLevel,
         intervalSeconds: decision.intervalSeconds,
         locationSource: decision.locationSource,
         notificationMessage: notification.message,
@@ -325,6 +326,8 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       } catch {
         powerRef.current = UNKNOWN_POWER_STATE
       }
+
+      await sweepOrphanedSamples().catch(() => 0)
 
       const pending = await listPendingSessions()
       if (cancelled || capturingRef.current || uploaderRef.current) {

@@ -64,6 +64,12 @@ export interface QueueBackend {
     now: string
   }): Promise<number>
 
+  // Samples whose session no longer exists. They can never be uploaded (the
+  // uploader works per session) and nothing else removes them, so without a
+  // sweep they accumulate forever against the capacity cap. Created by a fix
+  // landing just after its session was purged on full sync.
+  deleteOrphanedSamples(): Promise<number>
+
   getDroppedLocallyCount(): Promise<number>
   addDroppedLocallyCount(delta: number): Promise<void>
   resetDroppedLocallyCount(): Promise<void>

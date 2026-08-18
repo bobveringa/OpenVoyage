@@ -298,33 +298,57 @@ export class SqliteQueueBackend implements QueueBackend {
       Date.parse(options.now) - options.maxAgeMs,
     ).toISOString()
 
-    const beforeResult = await this.connection.query(
-      'SELECT COUNT(*) as count FROM pending_samples',
+    // Deliberately selects the rows it is about to remove and counts those,
+    // rather than diffing COUNT(*) before and after. The uploader deletes
+    // uploaded rows on its own schedule — and it is woken by the very
+    // enqueue that calls this — so a before/after difference attributed a
+    // successful upload to "dropped locally", which is how a brand new
+    // recording reported a dropped point on its first fix.
+    const agedResult = await this.connection.query(
+      'SELECT id FROM pending_samples WHERE enqueued_at < ?',
+      [cutoff],
     )
-    const before =
-      (beforeResult.values as Array<{ count: number }> | undefined)?.[0]?.count ?? 0
-
-    await this.connection.run('DELETE FROM pending_samples WHERE enqueued_at < ?', [
-      cutoff,
-    ])
-
-    const afterAgeResult = await this.connection.query(
-      'SELECT COUNT(*) as count FROM pending_samples',
+    const agedIds = ((agedResult.values as Array<{ id: string }>) ?? []).map(
+      (row) => row.id,
     )
-    const afterAge =
-      (afterAgeResult.values as Array<{ count: number }> | undefined)?.[0]?.count ?? 0
-    const overCapacity = Math.max(0, afterAge - options.capacitySamples)
-
-    if (overCapacity > 0) {
-      await this.connection.run(
-        `DELETE FROM pending_samples WHERE id IN (
-           SELECT id FROM pending_samples ORDER BY recorded_at ASC LIMIT ?
-         )`,
-        [overCapacity],
-      )
+    if (agedIds.length > 0) {
+      await this.deleteSamples(agedIds)
     }
 
-    return before - afterAge + overCapacity
+    const countResult = await this.connection.query(
+      'SELECT COUNT(*) as count FROM pending_samples',
+    )
+    const remaining =
+      (countResult.values as Array<{ count: number }> | undefined)?.[0]?.count ?? 0
+    const overCapacity = Math.max(0, remaining - options.capacitySamples)
+
+    let capacityIds: string[] = []
+    if (overCapacity > 0) {
+      const oldestResult = await this.connection.query(
+        'SELECT id FROM pending_samples ORDER BY recorded_at ASC LIMIT ?',
+        [overCapacity],
+      )
+      capacityIds = ((oldestResult.values as Array<{ id: string }>) ?? []).map(
+        (row) => row.id,
+      )
+      if (capacityIds.length > 0) {
+        await this.deleteSamples(capacityIds)
+      }
+    }
+
+    return agedIds.length + capacityIds.length
+  }
+
+  async deleteOrphanedSamples(): Promise<number> {
+    const result = await this.connection.query(
+      `SELECT id FROM pending_samples
+       WHERE session_id NOT IN (SELECT session_id FROM pending_sessions)`,
+    )
+    const ids = ((result.values as Array<{ id: string }>) ?? []).map((row) => row.id)
+    if (ids.length > 0) {
+      await this.deleteSamples(ids)
+    }
+    return ids.length
   }
 
   async getDroppedLocallyCount(): Promise<number> {

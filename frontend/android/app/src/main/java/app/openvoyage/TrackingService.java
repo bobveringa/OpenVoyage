@@ -61,7 +61,7 @@ public class TrackingService extends Service {
     static final String EXTRA_INTERVAL_MS = "intervalMs";
     static final String EXTRA_MIN_INTERVAL_MS = "minIntervalMs";
     static final String EXTRA_DISTANCE_FILTER_M = "distanceFilterMeters";
-    static final String EXTRA_HIGH_ACCURACY = "highAccuracy";
+    static final String EXTRA_POWER_LEVEL = "powerLevel";
     static final String EXTRA_TITLE = "title";
     static final String EXTRA_TEXT = "text";
     static final String EXTRA_STARTED_AT = "startedAtMs";
@@ -78,6 +78,14 @@ public class TrackingService extends Service {
      */
     private static final long MIN_NO_FIX_WARNING_MS = 60_000L;
     private static final long NO_FIX_CHECK_INTERVAL_MS = 15_000L;
+    // The wait for the *first* fix deliberately does not scale with the
+    // interval: a cold GPS fix takes the same 30-90s outdoors whether the user
+    // asked for a point every 10s or every 5 minutes. Scaling it meant a
+    // "Max battery" recording (300s interval) that could produce no fix at all
+    // -- a low-power request on a device with no coarse-location backend -- hid
+    // that for ten minutes before warning. A subsequent gap, by contrast, is
+    // only meaningful relative to the interval, so that one still scales.
+    private static final long FIRST_FIX_WARNING_MS = 90_000L;
 
     static final String CHANNEL_ID = "openvoyage.tracking";
     private static final int NOTIFICATION_ID = 4711;
@@ -115,7 +123,7 @@ public class TrackingService extends Service {
     private long intervalMs = 30_000L;
     private long minIntervalMs = 10_000L;
     private float distanceFilterMeters = 0f;
-    private boolean highAccuracy = true;
+    private LocationEngine.Power power = LocationEngine.Power.HIGH;
     private long startedAtMs = 0L;
     private String notificationTitle = "Recording trip";
     private String notificationText = "Starting…";
@@ -152,8 +160,8 @@ public class TrackingService extends Service {
         return intervalMs;
     }
 
-    boolean isHighAccuracy() {
-        return highAccuracy;
+    String getPowerLevel() {
+        return power.wireName();
     }
 
     String getEngineName() {
@@ -302,7 +310,9 @@ public class TrackingService extends Service {
         intervalMs = intent.getLongExtra(EXTRA_INTERVAL_MS, intervalMs);
         minIntervalMs = intent.getLongExtra(EXTRA_MIN_INTERVAL_MS, Math.min(minIntervalMs, intervalMs));
         distanceFilterMeters = intent.getFloatExtra(EXTRA_DISTANCE_FILTER_M, distanceFilterMeters);
-        highAccuracy = intent.getBooleanExtra(EXTRA_HIGH_ACCURACY, highAccuracy);
+        if (intent.hasExtra(EXTRA_POWER_LEVEL)) {
+            power = LocationEngine.Power.parse(intent.getStringExtra(EXTRA_POWER_LEVEL));
+        }
         if (intent.hasExtra(EXTRA_LOCATION_SOURCE)) {
             locationSource = intent.getStringExtra(EXTRA_LOCATION_SOURCE);
         }
@@ -320,7 +330,7 @@ public class TrackingService extends Service {
                 .putLong(EXTRA_INTERVAL_MS, intervalMs)
                 .putLong(EXTRA_MIN_INTERVAL_MS, minIntervalMs)
                 .putFloat(EXTRA_DISTANCE_FILTER_M, distanceFilterMeters)
-                .putBoolean(EXTRA_HIGH_ACCURACY, highAccuracy)
+                .putString(EXTRA_POWER_LEVEL, power.wireName())
                 .putString(EXTRA_LOCATION_SOURCE, locationSource)
                 .putLong(EXTRA_STARTED_AT, startedAtMs)
                 .putString(EXTRA_TITLE, notificationTitle)
@@ -332,7 +342,9 @@ public class TrackingService extends Service {
         intervalMs = prefs.getLong(EXTRA_INTERVAL_MS, intervalMs);
         minIntervalMs = prefs.getLong(EXTRA_MIN_INTERVAL_MS, minIntervalMs);
         distanceFilterMeters = prefs.getFloat(EXTRA_DISTANCE_FILTER_M, distanceFilterMeters);
-        highAccuracy = prefs.getBoolean(EXTRA_HIGH_ACCURACY, highAccuracy);
+        power = LocationEngine.Power.parse(
+                prefs.getString(EXTRA_POWER_LEVEL, power.wireName())
+        );
         locationSource = prefs.getString(EXTRA_LOCATION_SOURCE, locationSource);
         startedAtMs = prefs.getLong(EXTRA_STARTED_AT, System.currentTimeMillis());
         notificationTitle = prefs.getString(EXTRA_TITLE, notificationTitle);
@@ -367,7 +379,7 @@ public class TrackingService extends Service {
                         intervalMs,
                         Math.min(minIntervalMs, intervalMs),
                         distanceFilterMeters,
-                        highAccuracy
+                        power
                 ),
                 new LocationEngine.Callback() {
                     @Override
@@ -407,15 +419,18 @@ public class TrackingService extends Service {
                 if (!tracking) {
                     return;
                 }
+                boolean hadFirstFix = lastFixAtMs > 0;
                 long since = System.currentTimeMillis()
-                        - (lastFixAtMs > 0 ? lastFixAtMs : startedAtMs);
-                long threshold = Math.max(MIN_NO_FIX_WARNING_MS, intervalMs * 2);
+                        - (hadFirstFix ? lastFixAtMs : startedAtMs);
+                long threshold = hadFirstFix
+                        ? Math.max(MIN_NO_FIX_WARNING_MS, intervalMs * 2)
+                        : FIRST_FIX_WARNING_MS;
                 if (since > threshold) {
                     // Leads with the ordinary explanation, because indoors
                     // is far and away the common cause; the engine hint is
                     // only added where it could actually be the problem.
                     setWarning(
-                            lastFixAtMs > 0
+                            hadFirstFix
                                     ? "No GPS signal right now — still recording."
                                     : "Waiting for a GPS fix. This can take a minute outdoors, longer indoors."
                                             + (SOURCE_GMS.equals(getEngineName())

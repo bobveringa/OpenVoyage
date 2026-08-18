@@ -1,4 +1,4 @@
-import { Loader2, MapPinned, Save, Server } from 'lucide-react'
+import { ChevronDown, Loader2, MapPinned, Save, Server, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -14,26 +14,34 @@ import { LoadingState } from '@/components/ui/empty-state'
 import { Select } from '@/components/ui/select'
 import { getCurrentServerUrl, setStoredServerUrl } from '@/native/server-config'
 import {
-  BATTERY_SAVER_INTERVAL_FLOOR_SECONDS,
-  TRACKING_INTERVAL_OPTIONS_SECONDS,
+  MANUAL_INTERVAL_OPTIONS_SECONDS,
+  PRECISION_PRESETS,
+  precisionPreset,
   readTrackingSettings,
   writeTrackingSettings,
   type LocationSource,
   type NotificationDetail,
+  type PowerLevel,
+  type PrecisionLevel,
+  type TrackingMode,
   type TrackingSettings,
 } from '@/tracking/tracking-settings'
 import { TRAVEL_MODE_OPTIONS } from '@/tracking/travel-mode-options'
 import { useTracking } from '@/tracking/use-tracking'
 
-const INTERVAL_OPTIONS = TRACKING_INTERVAL_OPTIONS_SECONDS.map((seconds) => ({
-  label: seconds < 60 ? `${seconds} seconds` : `${seconds / 60} minute${seconds === 60 ? '' : 's'}`,
+const INTERVAL_OPTIONS = MANUAL_INTERVAL_OPTIONS_SECONDS.map((seconds) => ({
+  label:
+    seconds < 60 ? `${seconds} seconds` : `${seconds / 60} minute${seconds === 60 ? '' : 's'}`,
   value: String(seconds),
 }))
 
-const LOCATION_SOURCE_OPTIONS: ReadonlyArray<{
-  label: string
-  value: LocationSource
-}> = [
+const POWER_OPTIONS: ReadonlyArray<{ label: string; value: PowerLevel }> = [
+  { label: 'Battery saving', value: 'low' },
+  { label: 'Balanced', value: 'balanced' },
+  { label: 'High precision', value: 'high' },
+]
+
+const LOCATION_SOURCE_OPTIONS: ReadonlyArray<{ label: string; value: LocationSource }> = [
   { label: 'Automatic (recommended)', value: 'auto' },
   { label: 'Google Play Services', value: 'gms' },
   { label: "This device's own GPS", value: 'platform' },
@@ -46,6 +54,15 @@ const NOTIFICATION_DETAIL_OPTIONS: ReadonlyArray<{
   { label: 'Detailed (show queue depth)', value: 'detailed' },
   { label: 'Minimal', value: 'minimal' },
 ]
+
+function describePrecision(level: PrecisionLevel): string {
+  const preset = precisionPreset(level)
+  const spacing =
+    preset.baselineSeconds < 60
+      ? `${preset.baselineSeconds} seconds`
+      : `${preset.baselineSeconds / 60} minute${preset.baselineSeconds === 60 ? '' : 's'}`
+  return `About a point every ${spacing} while walking — closer together as you speed up, further apart while you're parked.`
+}
 
 export function TrackingSettingsPage() {
   const { activeSession, queueStats } = useTracking()
@@ -106,10 +123,6 @@ export function TrackingSettingsPage() {
     }
   }
 
-  const effectiveInterval = settings.batterySaver
-    ? Math.max(settings.intervalSeconds, BATTERY_SAVER_INTERVAL_FLOOR_SECONDS)
-    : settings.intervalSeconds
-
   return (
     <div className="space-y-6 py-6 sm:py-8 lg:py-10">
       <div className="space-y-2">
@@ -142,144 +155,70 @@ export function TrackingSettingsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-xl">
             <MapPinned className="size-5" aria-hidden="true" />
-            Recording
+            How your route is recorded
           </CardTitle>
           <CardDescription>
-            Smart tracking varies the interval with your speed and battery
-            level. Turn it off to hold the interval you pick exactly.
+            Smart tracking adjusts itself as you move. Manual keeps one fixed
+            interval, whatever you're doing.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="grid gap-5 sm:grid-cols-2">
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium text-foreground">Interval</span>
-              <Select
-                ariaLabel="Recording interval"
-                onValueChange={(value) =>
-                  updateSettings({ intervalSeconds: Number(value) })
-                }
-                options={INTERVAL_OPTIONS}
-                value={String(settings.intervalSeconds)}
-              />
-              {settings.batterySaver && effectiveInterval !== settings.intervalSeconds ? (
+        <CardContent className="space-y-6">
+          <ModeTabs mode={settings.mode} onChange={(mode) => updateSettings({ mode })} />
+
+          {settings.mode === 'smart' ? (
+            <PrecisionSlider
+              level={settings.smartPrecision}
+              onChange={(smartPrecision) => updateSettings({ smartPrecision })}
+            />
+          ) : (
+            <div className="grid gap-5 sm:grid-cols-2">
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium text-foreground">Record a point every</span>
+                <Select
+                  ariaLabel="Recording interval"
+                  onValueChange={(value) =>
+                    updateSettings({ manualIntervalSeconds: Number(value) })
+                  }
+                  options={INTERVAL_OPTIONS}
+                  value={String(settings.manualIntervalSeconds)}
+                />
                 <span className="block text-xs text-muted-foreground">
-                  Battery saver raises this to {effectiveInterval} seconds while
-                  it's on.
+                  Kept exactly, whether you're walking, driving, or standing
+                  still.
                 </span>
-              ) : null}
-              {settings.adaptiveTracking ? (
+              </label>
+
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium text-foreground">Power use</span>
+                <Select
+                  ariaLabel="Power use"
+                  onValueChange={(value) =>
+                    updateSettings({ manualPowerLevel: value as PowerLevel })
+                  }
+                  options={POWER_OPTIONS}
+                  value={settings.manualPowerLevel}
+                />
                 <span className="block text-xs text-muted-foreground">
-                  Smart tracking treats this as a baseline: denser while you're
-                  moving fast, sparser while you're parked.
+                  How hard the phone works for each point. Lower settings can be
+                  less accurate indoors and away from towns.
                 </span>
-              ) : null}
-            </label>
+              </label>
+            </div>
+          )}
 
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium text-foreground">Default travel mode</span>
-              <Select
-                ariaLabel="Default travel mode"
-                onValueChange={(value) =>
-                  updateSettings({ defaultTravelMode: value as TrackingSettings['defaultTravelMode'] })
-                }
-                options={TRAVEL_MODE_OPTIONS}
-                value={settings.defaultTravelMode}
-              />
-            </label>
-
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium text-foreground">
-                Distance filter (meters)
-              </span>
-              <Input
-                min={0}
-                onChange={(event) =>
-                  updateSettings({
-                    distanceFilterMeters: Number(event.target.value),
-                  })
-                }
-                type="number"
-                value={settings.distanceFilterMeters}
-              />
-              <span className="block text-xs text-muted-foreground">
-                {settings.adaptiveTracking
-                  ? 'Not used while smart tracking is on — the speed-based interval already spaces points out.'
-                  : '0 disables distance-based filtering.'}
-              </span>
-            </label>
-
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium text-foreground">
-                Accuracy cutoff (meters)
-              </span>
-              <Input
-                min={1}
-                onChange={(event) =>
-                  updateSettings({
-                    accuracyThresholdMeters: Number(event.target.value),
-                  })
-                }
-                type="number"
-                value={settings.accuracyThresholdMeters}
-              />
-              <span className="block text-xs text-muted-foreground">
-                Fixes less accurate than this are dropped before they're queued.
-              </span>
-            </label>
-
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium text-foreground">Location source</span>
-              <Select
-                ariaLabel="Location source"
-                disabled={Boolean(activeSession)}
-                onValueChange={(value) =>
-                  updateSettings({ locationSource: value as LocationSource })
-                }
-                options={LOCATION_SOURCE_OPTIONS}
-                value={settings.locationSource}
-              />
-              <span className="block text-xs text-muted-foreground">
-                {settings.locationSource === 'platform'
-                  ? "Uses Android's own location provider. Works without Google Play Services, but battery-saver mode has no cheaper sensor to fall back to on some devices."
-                  : settings.locationSource === 'gms'
-                    ? 'Requires Google Play Services. Recording will refuse to start on a device without it.'
-                    : 'Uses Google Play Services where available and falls back to the device’s own provider where it is not.'}
-              </span>
-              {activeSession ? (
-                <span className="block text-xs text-amber-700">
-                  Stop the active recording to change this.
-                </span>
-              ) : null}
-            </label>
-
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium text-foreground">Notification</span>
-              <Select
-                ariaLabel="Notification detail"
-                onValueChange={(value) =>
-                  updateSettings({ notificationDetail: value as NotificationDetail })
-                }
-                options={NOTIFICATION_DETAIL_OPTIONS}
-                value={settings.notificationDetail}
-              />
-            </label>
-          </div>
-
-          <SettingToggle
-            description="Varies the interval with your speed and stretches it when the battery gets low. Off pins the interval above exactly."
-            enabled={settings.adaptiveTracking}
-            id="tracking-adaptive"
-            label="Smart tracking"
-            onToggle={() => updateSettings({ adaptiveTracking: !settings.adaptiveTracking })}
-          />
-
-          <SettingToggle
-            description={`Uses balanced-power location and raises the interval floor to ${BATTERY_SAVER_INTERVAL_FLOOR_SECONDS} seconds.`}
-            enabled={settings.batterySaver}
-            id="tracking-battery-saver"
-            label="Battery saver"
-            onToggle={() => updateSettings({ batterySaver: !settings.batterySaver })}
-          />
+          <label className="block max-w-sm space-y-1.5 text-sm">
+            <span className="font-medium text-foreground">Default travel mode</span>
+            <Select
+              ariaLabel="Default travel mode"
+              onValueChange={(value) =>
+                updateSettings({
+                  defaultTravelMode: value as TrackingSettings['defaultTravelMode'],
+                })
+              }
+              options={TRAVEL_MODE_OPTIONS}
+              value={settings.defaultTravelMode}
+            />
+          </label>
 
           <div>
             <Button disabled={isSaving} onClick={() => void handleSave()} type="button">
@@ -291,6 +230,12 @@ export function TrackingSettingsPage() {
               {isSaving ? 'Saving…' : 'Save settings'}
             </Button>
           </div>
+
+          <AdvancedSection
+            activeSession={Boolean(activeSession)}
+            onChange={updateSettings}
+            settings={settings}
+          />
         </CardContent>
       </Card>
 
@@ -341,49 +286,182 @@ export function TrackingSettingsPage() {
   )
 }
 
-function SettingToggle({
-  description,
-  enabled,
-  id,
-  label,
-  onToggle,
+function ModeTabs({
+  mode,
+  onChange,
 }: {
-  description: string
-  enabled: boolean
-  id: string
-  label: string
-  onToggle: () => void
+  mode: TrackingMode
+  onChange: (mode: TrackingMode) => void
+}) {
+  const options: ReadonlyArray<{ label: string; value: TrackingMode }> = [
+    { label: 'Smart', value: 'smart' },
+    { label: 'Manual', value: 'manual' },
+  ]
+
+  return (
+    <div
+      aria-label="Tracking mode"
+      className="inline-grid grid-cols-2 gap-1 rounded-2xl border border-border bg-muted p-1"
+      role="tablist"
+    >
+      {options.map((option) => (
+        <button
+          aria-selected={mode === option.value}
+          className={`rounded-xl px-6 py-2 text-sm font-medium transition-colors ${
+            mode === option.value
+              ? 'bg-card text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          role="tab"
+          type="button"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function PrecisionSlider({
+  level,
+  onChange,
+}: {
+  level: PrecisionLevel
+  onChange: (level: PrecisionLevel) => void
+}) {
+  const preset = precisionPreset(level)
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm font-medium text-foreground">Precision</span>
+        <span className="text-sm font-semibold text-primary">{preset.label}</span>
+      </div>
+
+      <input
+        aria-label="Precision"
+        aria-valuetext={preset.label}
+        className="w-full accent-primary"
+        list="precision-marks"
+        max={PRECISION_PRESETS.length}
+        min={1}
+        onChange={(event) => onChange(Number(event.target.value) as PrecisionLevel)}
+        step={1}
+        type="range"
+        value={level}
+      />
+      <datalist id="precision-marks">
+        {PRECISION_PRESETS.map((mark) => (
+          <option key={mark.level} value={mark.level} />
+        ))}
+      </datalist>
+
+      <div className="flex justify-between text-[11px] leading-4 text-muted-foreground">
+        <span>Save battery</span>
+        <span>More detail</span>
+      </div>
+
+      <p className="text-xs leading-5 text-muted-foreground">{describePrecision(level)}</p>
+    </div>
+  )
+}
+
+function AdvancedSection({
+  activeSession,
+  settings,
+  onChange,
+}: {
+  activeSession: boolean
+  settings: TrackingSettings
+  onChange: (patch: Partial<TrackingSettings>) => void
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-lg border border-border px-4 py-3">
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        <p className="text-xs leading-5 text-muted-foreground">{description}</p>
-      </div>
-      <input
-        aria-label={label}
-        checked={enabled}
-        className="peer sr-only"
-        id={id}
-        onChange={onToggle}
-        role="switch"
-        type="checkbox"
-      />
-      <label
-        className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border p-0.5 transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background ${
-          enabled ? 'border-primary bg-primary' : 'border-input bg-muted'
-        }`}
-        htmlFor={id}
-      >
-        <span
-          className={`size-5 rounded-full bg-card shadow-sm transition-transform ${
-            enabled ? 'translate-x-5' : 'translate-x-0'
-          }`}
-        />
-        <span className="sr-only">
-          {enabled ? `${label} is on` : `${label} is off`}
+    <details className="group rounded-xl border border-border">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-foreground">
+        <span className="flex items-center gap-2">
+          <SlidersHorizontal className="size-4" aria-hidden="true" />
+          Advanced
         </span>
-      </label>
-    </div>
+        <ChevronDown
+          aria-hidden="true"
+          className="size-4 transition-transform group-open:rotate-180"
+        />
+      </summary>
+
+      <div className="grid gap-5 border-t border-border px-4 py-4 sm:grid-cols-2">
+        <label className="space-y-1.5 text-sm">
+          <span className="font-medium text-foreground">
+            Ignore points less accurate than
+          </span>
+          <Input
+            min={1}
+            onChange={(event) =>
+              onChange({ accuracyThresholdMeters: Number(event.target.value) })
+            }
+            type="number"
+            value={settings.accuracyThresholdMeters}
+          />
+          <span className="block text-xs text-muted-foreground">
+            In metres. Applies to both smart and manual recording.
+          </span>
+        </label>
+
+        <label className="space-y-1.5 text-sm">
+          <span className="font-medium text-foreground">
+            Minimum distance between points
+          </span>
+          <Input
+            min={0}
+            onChange={(event) =>
+              onChange({ distanceFilterMeters: Number(event.target.value) })
+            }
+            type="number"
+            value={settings.distanceFilterMeters}
+          />
+          <span className="block text-xs text-muted-foreground">
+            {settings.mode === 'smart'
+              ? 'Not used in smart mode — the speed-based interval already spaces points out.'
+              : 'In metres. 0 records on the interval alone.'}
+          </span>
+        </label>
+
+        <label className="space-y-1.5 text-sm">
+          <span className="font-medium text-foreground">Location source</span>
+          <Select
+            ariaLabel="Location source"
+            disabled={activeSession}
+            onValueChange={(value) => onChange({ locationSource: value as LocationSource })}
+            options={LOCATION_SOURCE_OPTIONS}
+            value={settings.locationSource}
+          />
+          <span className="block text-xs text-muted-foreground">
+            {settings.locationSource === 'platform'
+              ? "Android's own provider. Works without Google Play Services."
+              : settings.locationSource === 'gms'
+                ? 'Requires Google Play Services; recording refuses to start without it.'
+                : 'Google Play Services where available, the device’s own provider where not.'}
+          </span>
+          {activeSession ? (
+            <span className="block text-xs text-amber-700">
+              Stop the active recording to change this.
+            </span>
+          ) : null}
+        </label>
+
+        <label className="space-y-1.5 text-sm">
+          <span className="font-medium text-foreground">Notification</span>
+          <Select
+            ariaLabel="Notification detail"
+            onValueChange={(value) =>
+              onChange({ notificationDetail: value as NotificationDetail })
+            }
+            options={NOTIFICATION_DETAIL_OPTIONS}
+            value={settings.notificationDetail}
+          />
+        </label>
+      </div>
+    </details>
   )
 }

@@ -38,7 +38,7 @@ final class PlatformLocationEngine implements LocationEngine {
 
     static boolean isAvailable(Context context) {
         LocationManager manager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
-        return manager != null && pickProvider(manager, true) != null;
+        return manager != null && pickProvider(manager, Power.HIGH) != null;
     }
 
     /**
@@ -51,10 +51,10 @@ final class PlatformLocationEngine implements LocationEngine {
      * request, so a high-accuracy recording asks GPS directly rather than
      * going through fused and hoping it powers the receiver up.
      */
-    private static String pickProvider(LocationManager manager, boolean highAccuracy) {
+    private static String pickProvider(LocationManager manager, Power power) {
         List<String> providers = manager.getAllProviders();
 
-        if (!highAccuracy
+        if (power != Power.HIGH
                 && providers.contains(LocationManager.NETWORK_PROVIDER)
                 && manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
             return LocationManager.NETWORK_PROVIDER;
@@ -79,6 +79,18 @@ final class PlatformLocationEngine implements LocationEngine {
         return "platform";
     }
 
+    private static int quality(Power power) {
+        switch (power) {
+            case LOW:
+                return LocationRequest.QUALITY_LOW_POWER;
+            case BALANCED:
+                return LocationRequest.QUALITY_BALANCED_POWER_ACCURACY;
+            case HIGH:
+            default:
+                return LocationRequest.QUALITY_HIGH_ACCURACY;
+        }
+    }
+
     @Override
     public void start(Config config, Callback callback) {
         stop();
@@ -88,7 +100,7 @@ final class PlatformLocationEngine implements LocationEngine {
             return;
         }
 
-        String provider = pickProvider(locationManager, config.highAccuracy);
+        String provider = pickProvider(locationManager, config.power);
         if (provider == null) {
             callback.onFailure("No location provider is available on this device.");
             return;
@@ -124,11 +136,7 @@ final class PlatformLocationEngine implements LocationEngine {
                                 Math.min(config.minIntervalMs, config.intervalMs)
                         )
                         .setMinUpdateDistanceMeters(config.minDistanceMeters)
-                        .setQuality(
-                                config.highAccuracy
-                                        ? LocationRequest.QUALITY_HIGH_ACCURACY
-                                        : LocationRequest.QUALITY_BALANCED_POWER_ACCURACY
-                        )
+                        .setQuality(quality(config.power))
                         .build();
                 locationManager.requestLocationUpdates(
                         provider,
@@ -148,7 +156,7 @@ final class PlatformLocationEngine implements LocationEngine {
             Log.i(
                     TAG,
                     "Requested platform location updates from " + provider
-                            + " (highAccuracy=" + config.highAccuracy + ")"
+                            + " (power=" + config.power + ")"
             );
         } catch (SecurityException exception) {
             callback.onFailure("Location permission was denied or revoked.");

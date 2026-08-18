@@ -55,12 +55,21 @@ final class FusedLocationEngine implements LocationEngine {
     public void start(Config config, Callback callback) {
         stop();
 
-        LocationRequest request = new LocationRequest.Builder(
-                config.highAccuracy
-                        ? Priority.PRIORITY_HIGH_ACCURACY
-                        : Priority.PRIORITY_BALANCED_POWER_ACCURACY,
-                config.intervalMs
-        )
+        int priority;
+        switch (config.power) {
+            case LOW:
+                priority = Priority.PRIORITY_LOW_POWER;
+                break;
+            case BALANCED:
+                priority = Priority.PRIORITY_BALANCED_POWER_ACCURACY;
+                break;
+            case HIGH:
+            default:
+                priority = Priority.PRIORITY_HIGH_ACCURACY;
+                break;
+        }
+
+        LocationRequest request = new LocationRequest.Builder(priority, config.intervalMs)
                 // The OS may hand us a fix sooner than intervalMs when another
                 // app has already woken the GPS; taking it is free accuracy.
                 .setMinUpdateIntervalMillis(Math.min(config.minIntervalMs, config.intervalMs))
@@ -68,7 +77,7 @@ final class FusedLocationEngine implements LocationEngine {
                 // Batching lets the modem sleep between fixes, but delivery
                 // delayed past one interval is no longer timely for upload.
                 .setMaxUpdateDelayMillis(config.intervalMs)
-                .setWaitForAccurateLocation(config.highAccuracy)
+                .setWaitForAccurateLocation(config.power == Power.HIGH)
                 .build();
 
         locationCallback = new LocationCallback() {

@@ -227,6 +227,21 @@ export class IndexedDbQueueBackend implements QueueBackend {
     await txDone(tx)
   }
 
+  async deleteOrphanedSamples(): Promise<number> {
+    const sessions = await this.listPendingSessions()
+    const known = new Set(sessions.map((session) => session.sessionId))
+
+    const tx = this.connection.transaction(SAMPLES_STORE, 'readwrite')
+    const store = tx.objectStore(SAMPLES_STORE)
+    const all = await promisify(store.getAll() as IDBRequest<QueuedSample[]>)
+    const orphans = all.filter((sample) => !known.has(sample.sessionId))
+    for (const sample of orphans) {
+      store.delete(sample.id)
+    }
+    await txDone(tx)
+    return orphans.length
+  }
+
   async resetDroppedLocallyCount(): Promise<void> {
     const tx = this.connection.transaction(META_STORE, 'readwrite')
     tx.objectStore(META_STORE).delete(DROPPED_COUNT_KEY)

@@ -25,17 +25,38 @@ interface LocationEngine {
 
     void stop();
 
+    /** Lowest to highest effort per fix. */
+    enum Power {
+        LOW,
+        BALANCED,
+        HIGH;
+
+        static Power parse(String value) {
+            if ("low".equals(value)) {
+                return LOW;
+            }
+            if ("balanced".equals(value)) {
+                return BALANCED;
+            }
+            return HIGH;
+        }
+
+        String wireName() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+    }
+
     final class Config {
         final long intervalMs;
         final long minIntervalMs;
         final float minDistanceMeters;
-        final boolean highAccuracy;
+        final Power power;
 
-        Config(long intervalMs, long minIntervalMs, float minDistanceMeters, boolean highAccuracy) {
+        Config(long intervalMs, long minIntervalMs, float minDistanceMeters, Power power) {
             this.intervalMs = intervalMs;
             this.minIntervalMs = minIntervalMs;
             this.minDistanceMeters = minDistanceMeters;
-            this.highAccuracy = highAccuracy;
+            this.power = power;
         }
     }
 

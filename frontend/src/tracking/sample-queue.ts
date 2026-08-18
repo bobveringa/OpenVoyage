@@ -204,6 +204,14 @@ export async function purgeSession(sessionId: string): Promise<void> {
 // The counter is a property of the queue, not of a session, so it has to be
 // cleared explicitly when a new recording starts. Left running it reported
 // evictions from days-old recordings as if the current one were overflowing.
+// Run once at launch: clears samples left behind by a fix that landed just
+// after its session was purged. They are unuploadable and invisible, and only
+// ever grow.
+export async function sweepOrphanedSamples(): Promise<number> {
+  const store = await getBackend()
+  return store.deleteOrphanedSamples()
+}
+
 export async function resetDroppedLocallyCount(): Promise<void> {
   const store = await getBackend()
   await store.resetDroppedLocallyCount()

@@ -2,7 +2,7 @@ import { registerPlugin } from '@capacitor/core'
 
 import { isNativePlatform } from '@/native/platform'
 import { haversineMeters } from '@/tracking/geo'
-import type { LocationSource } from '@/tracking/tracking-settings'
+import type { LocationSource, PowerLevel } from '@/tracking/tracking-settings'
 
 export type PositionFix = {
   recordedAt: string
@@ -17,7 +17,7 @@ export type PositionFix = {
 export type PositionSourceConfig = {
   intervalSeconds: number
   distanceFilterMeters: number
-  highAccuracy: boolean
+  powerLevel: PowerLevel
   locationSource: LocationSource
 }
 
@@ -60,7 +60,7 @@ export type NativeTrackingState = {
   trackingIntent: boolean
   startedAtMs: number
   intervalSeconds: number
-  highAccuracy: boolean
+  powerLevel: PowerLevel
   bufferedFixes: number
   locationEnabled: boolean
   permissionGranted: boolean
@@ -100,7 +100,7 @@ interface TrackingPlugin {
     intervalSeconds: number
     minIntervalSeconds: number
     distanceFilterMeters: number
-    highAccuracy: boolean
+    powerLevel: PowerLevel
     locationSource: LocationSource
     title: string
     text: string
@@ -109,7 +109,7 @@ interface TrackingPlugin {
     intervalSeconds: number
     minIntervalSeconds: number
     distanceFilterMeters: number
-    highAccuracy: boolean
+    powerLevel: PowerLevel
     locationSource: LocationSource
   }): Promise<NativeTrackingState>
   updateStatus(options: { title: string; text: string }): Promise<void>
@@ -148,13 +148,13 @@ function nativeCadence(config: PositionSourceConfig): {
   intervalSeconds: number
   minIntervalSeconds: number
   distanceFilterMeters: number
-  highAccuracy: boolean
+  powerLevel: PowerLevel
   locationSource: LocationSource
 } {
   const speedup = config.distanceFilterMeters > 0 ? MAX_DISTANCE_TRIGGER_SPEEDUP : 1
   return {
     distanceFilterMeters: 0,
-    highAccuracy: config.highAccuracy,
+    powerLevel: config.powerLevel,
     intervalSeconds: config.intervalSeconds,
     locationSource: config.locationSource,
     minIntervalSeconds: Math.max(

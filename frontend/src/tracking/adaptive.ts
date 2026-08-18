@@ -1,15 +1,16 @@
 import type { PositionSourceConfig, PowerState } from '@/tracking/position-source'
 import {
-  BATTERY_SAVER_INTERVAL_FLOOR_SECONDS,
+  baselineFor,
+  type PowerLevel,
   type TrackingSettings,
 } from '@/tracking/tracking-settings'
 
 /**
  * §8 Phase 3 — smart tracking.
  *
- * Kept as a pure function of (speed, power, settings) so the policy can be
- * unit-tested exhaustively; the provider only decides *when* to re-evaluate it
- * and hands the result to the native service.
+ * Kept as a pure function of (speed, movement, power, settings) so the policy
+ * can be unit-tested exhaustively; the provider only decides *when* to
+ * re-evaluate it and hands the result to the native service.
  */
 
 // Below this the device is treated as parked rather than moving slowly: GPS
@@ -22,22 +23,21 @@ export const STATIONARY_SPEED_MPS = 0.5
 // light and then miss the pull-away.
 export const STATIONARY_DWELL_MS = 90_000
 
-// The base interval is calibrated at walking pace: whatever spacing between
-// points the user's chosen interval gives while walking is the spacing the
-// adaptive mode tries to hold at every speed.
+// The baseline is calibrated at walking pace: whatever spacing between points
+// the chosen precision gives while walking is the spacing smart mode tries to
+// hold at every speed.
 const REFERENCE_SPEED_MPS = 1.4
 
-// Hard bounds, independent of the base interval. The floor keeps a fast
-// vehicle from pinning the GPS at its maximum rate; the ceiling keeps a long
+// Hard bounds, independent of the baseline. The floor keeps a fast vehicle
+// from pinning the GPS at its maximum rate; the ceiling keeps a long
 // stationary stretch from looking like the recording died.
 const MIN_INTERVAL_SECONDS = 5
 const MAX_INTERVAL_SECONDS = 300
 
-// How far the adaptive interval may stray from what the user picked. Without
-// this, a 10 s interval could silently become 5 minutes. The densification
-// bound is deliberately tighter than the stretching one: recording six times
-// more points than asked for is a battery and quota surprise, whereas
-// stretching a parked stretch out costs the user nothing.
+// How far the adaptive interval may stray from the chosen baseline. The
+// densification bound is deliberately tighter than the stretching one:
+// recording four times more points than asked for is a battery and quota
+// surprise, whereas stretching a parked stretch out costs the user nothing.
 const MIN_INTERVAL_FACTOR = 1 / 4
 const MAX_INTERVAL_FACTOR = 6
 
@@ -59,7 +59,6 @@ export type AdaptiveReason =
   | 'fixed'
   | 'stationary'
   | 'moving'
-  | 'battery-saver'
   | 'battery-low'
   | 'battery-critical'
   | 'power-save-mode'
@@ -100,38 +99,40 @@ export function createMovementDetector() {
   }
 }
 
+function degrade(level: PowerLevel): PowerLevel {
+  return level === 'high' ? 'balanced' : 'low'
+}
+
 export function decideTracking({
   settings,
   speedMps,
   movement,
   power,
 }: AdaptiveInput): AdaptiveDecision {
-  const baseSeconds = settings.batterySaver
-    ? Math.max(settings.intervalSeconds, BATTERY_SAVER_INTERVAL_FLOOR_SECONDS)
-    : settings.intervalSeconds
+  const baseline = baselineFor(settings)
+  const baseSeconds = baseline.intervalSeconds
 
   let seconds = baseSeconds
-  let reason: AdaptiveReason = settings.batterySaver ? 'battery-saver' : 'fixed'
-  let highAccuracy = !settings.batterySaver
-  // The distance filter and the adaptive interval solve the same problem —
-  // keeping points evenly spaced along the route — so running both compounds
-  // them: a speed-shortened interval and a distance trigger that fires on
-  // every fix at speed together produce far more points than either asked
-  // for. Adaptive mode owns the spacing and switches the distance filter off.
-  const distanceFilterMeters = settings.adaptiveTracking ? 0 : settings.distanceFilterMeters
+  let powerLevel = baseline.powerLevel
+  let reason: AdaptiveReason = 'fixed'
 
-  if (settings.adaptiveTracking) {
+  // The distance filter and a speed-derived interval solve the same problem —
+  // keeping points evenly spaced along the route — so running both compounds
+  // them. Smart mode owns the spacing and leaves the filter off.
+  const distanceFilterMeters =
+    settings.mode === 'smart' ? 0 : settings.distanceFilterMeters
+
+  if (settings.mode === 'smart') {
     if (movement === 'stationary') {
       // Parked: a point every few minutes is enough to prove the device was
-      // still there, and balanced power lets the GPS receiver sleep.
+      // still there, and a lower power tier lets the receiver sleep.
       seconds = baseSeconds * MAX_INTERVAL_FACTOR
-      highAccuracy = false
+      powerLevel = degrade(powerLevel)
       reason = 'stationary'
     } else if (speedMps !== null && speedMps > STATIONARY_SPEED_MPS) {
       // Hold roughly constant spacing between points as speed rises, so a
       // road or rail track keeps its shape without oversampling a walk.
-      const targetSpacingMeters = baseSeconds * REFERENCE_SPEED_MPS
-      seconds = targetSpacingMeters / speedMps
+      seconds = (baseSeconds * REFERENCE_SPEED_MPS) / speedMps
       reason = 'moving'
     }
 
@@ -143,32 +144,32 @@ export function decideTracking({
   }
 
   // Battery-aware degradation, applied last so it can override anything the
-  // movement policy asked for — including a fixed interval the user pinned,
+  // movement policy asked for — including a manual interval the user pinned,
   // since running the battery flat mid-trip loses far more of the track than
   // a stretched interval does.
   if (!power.charging) {
     if (power.batteryLevel !== null && power.batteryLevel <= CRITICAL_BATTERY_LEVEL) {
       seconds *= 4
-      highAccuracy = false
+      powerLevel = 'low'
       reason = 'battery-critical'
     } else if (power.batteryLevel !== null && power.batteryLevel <= LOW_BATTERY_LEVEL) {
       seconds *= 2
-      highAccuracy = false
+      powerLevel = degrade(powerLevel)
       reason = 'battery-low'
     } else if (power.powerSaveMode) {
       seconds *= 2
-      highAccuracy = false
+      powerLevel = degrade(powerLevel)
       reason = 'power-save-mode'
     }
   }
 
   return {
     distanceFilterMeters,
-    highAccuracy,
-    // Carried through rather than decided here: which engine records is the
-    // user's choice, not something the cadence policy has any say in.
+    intervalSeconds: Math.round(
+      clamp(seconds, MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS),
+    ),
     locationSource: settings.locationSource,
-    intervalSeconds: Math.round(clamp(seconds, MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS)),
+    powerLevel,
     reason,
   }
 }
@@ -179,8 +180,6 @@ export function describeAdaptiveReason(decision: AdaptiveDecision): string {
       return `stationary — every ${decision.intervalSeconds}s`
     case 'moving':
       return `moving — every ${decision.intervalSeconds}s`
-    case 'battery-saver':
-      return `battery saver — every ${decision.intervalSeconds}s`
     case 'battery-low':
       return `battery low — every ${decision.intervalSeconds}s`
     case 'battery-critical':
@@ -201,7 +200,7 @@ export function isMeaningfulChange(
   current: PositionSourceConfig,
   next: PositionSourceConfig,
 ): boolean {
-  if (current.highAccuracy !== next.highAccuracy) {
+  if (current.powerLevel !== next.powerLevel) {
     return true
   }
   if (current.distanceFilterMeters !== next.distanceFilterMeters) {
