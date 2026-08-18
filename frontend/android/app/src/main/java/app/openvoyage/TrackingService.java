@@ -14,6 +14,7 @@ import android.content.pm.ServiceInfo;
 import android.location.Location;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
@@ -21,13 +22,6 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.ServiceCompat;
 import androidx.core.content.ContextCompat;
 
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationAvailability;
-import com.google.android.gms.location.LocationCallback;
-import com.google.android.gms.location.LocationRequest;
-import com.google.android.gms.location.LocationResult;
-import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.location.Priority;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -71,6 +65,19 @@ public class TrackingService extends Service {
     static final String EXTRA_TITLE = "title";
     static final String EXTRA_TEXT = "text";
     static final String EXTRA_STARTED_AT = "startedAtMs";
+    static final String EXTRA_LOCATION_SOURCE = "locationSource";
+
+    static final String SOURCE_AUTO = "auto";
+    static final String SOURCE_GMS = "gms";
+    static final String SOURCE_PLATFORM = "platform";
+
+    /**
+     * A cold GPS fix legitimately takes 30-60s outdoors and longer indoors,
+     * so the no-fix warning has to be generous or it cries wolf in every
+     * building. It warns; it never stops the recording.
+     */
+    private static final long MIN_NO_FIX_WARNING_MS = 60_000L;
+    private static final long NO_FIX_CHECK_INTERVAL_MS = 15_000L;
 
     static final String CHANNEL_ID = "openvoyage.tracking";
     private static final int NOTIFICATION_ID = 4711;
@@ -90,13 +97,19 @@ public class TrackingService extends Service {
         void onFixBuffered();
 
         void onStopRequestedFromNotification();
+
+        /** Soft: the engine has gone quiet. null clears the warning. */
+        void onEngineWarning(String message);
+
+        /** Hard: the engine cannot deliver fixes at all. */
+        void onEngineFailed(String message);
     }
 
     private static volatile Listener listener = null;
 
-    private FusedLocationProviderClient client;
-    private LocationCallback locationCallback;
+    private LocationEngine engine;
     private TrackingFixBuffer buffer;
+    private Handler handler;
 
     private boolean tracking = false;
     private long intervalMs = 30_000L;
@@ -106,6 +119,12 @@ public class TrackingService extends Service {
     private long startedAtMs = 0L;
     private String notificationTitle = "Recording trip";
     private String notificationText = "Starting…";
+    private String locationSource = SOURCE_AUTO;
+
+    /** Non-null while the engine is failing or has gone quiet. */
+    private String warningText = null;
+    private long lastFixAtMs = 0L;
+    private Runnable noFixCheck = null;
 
     static TrackingService getInstance() {
         return instance;
@@ -137,6 +156,25 @@ public class TrackingService extends Service {
         return highAccuracy;
     }
 
+    String getEngineName() {
+        return engine == null ? "none" : engine.getName();
+    }
+
+    String getWarningText() {
+        return warningText;
+    }
+
+    /** Resolves the configured preference to the engine that will be used. */
+    static String resolveEngineName(Context context, String source) {
+        if (SOURCE_PLATFORM.equals(source)) {
+            return SOURCE_PLATFORM;
+        }
+        if (SOURCE_GMS.equals(source)) {
+            return SOURCE_GMS;
+        }
+        return FusedLocationEngine.isAvailable(context) ? SOURCE_GMS : SOURCE_PLATFORM;
+    }
+
     TrackingFixBuffer getBuffer() {
         return buffer;
     }
@@ -144,7 +182,7 @@ public class TrackingService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        client = LocationServices.getFusedLocationProviderClient(this);
+        handler = new Handler(Looper.getMainLooper());
         buffer = new TrackingFixBuffer(this);
         createNotificationChannel();
         // Published last, and only once this instance is fully built: the
@@ -265,6 +303,9 @@ public class TrackingService extends Service {
         minIntervalMs = intent.getLongExtra(EXTRA_MIN_INTERVAL_MS, Math.min(minIntervalMs, intervalMs));
         distanceFilterMeters = intent.getFloatExtra(EXTRA_DISTANCE_FILTER_M, distanceFilterMeters);
         highAccuracy = intent.getBooleanExtra(EXTRA_HIGH_ACCURACY, highAccuracy);
+        if (intent.hasExtra(EXTRA_LOCATION_SOURCE)) {
+            locationSource = intent.getStringExtra(EXTRA_LOCATION_SOURCE);
+        }
         if (intent.hasExtra(EXTRA_TITLE)) {
             notificationTitle = intent.getStringExtra(EXTRA_TITLE);
         }
@@ -280,6 +321,7 @@ public class TrackingService extends Service {
                 .putLong(EXTRA_MIN_INTERVAL_MS, minIntervalMs)
                 .putFloat(EXTRA_DISTANCE_FILTER_M, distanceFilterMeters)
                 .putBoolean(EXTRA_HIGH_ACCURACY, highAccuracy)
+                .putString(EXTRA_LOCATION_SOURCE, locationSource)
                 .putLong(EXTRA_STARTED_AT, startedAtMs)
                 .putString(EXTRA_TITLE, notificationTitle)
                 .putString(EXTRA_TEXT, notificationText)
@@ -291,6 +333,7 @@ public class TrackingService extends Service {
         minIntervalMs = prefs.getLong(EXTRA_MIN_INTERVAL_MS, minIntervalMs);
         distanceFilterMeters = prefs.getFloat(EXTRA_DISTANCE_FILTER_M, distanceFilterMeters);
         highAccuracy = prefs.getBoolean(EXTRA_HIGH_ACCURACY, highAccuracy);
+        locationSource = prefs.getString(EXTRA_LOCATION_SOURCE, locationSource);
         startedAtMs = prefs.getLong(EXTRA_STARTED_AT, System.currentTimeMillis());
         notificationTitle = prefs.getString(EXTRA_TITLE, notificationTitle);
         notificationText = prefs.getString(EXTRA_TEXT, notificationText);
@@ -298,56 +341,165 @@ public class TrackingService extends Service {
 
     private void requestLocationUpdates() {
         if (!hasLocationPermission()) {
-            Log.w(TAG, "Location permission missing; not requesting updates");
+            onEngineFailure("Location permission has not been granted.");
             return;
         }
 
         removeLocationUpdates();
 
-        int priority = highAccuracy
-                ? Priority.PRIORITY_HIGH_ACCURACY
-                : Priority.PRIORITY_BALANCED_POWER_ACCURACY;
-
-        LocationRequest request = new LocationRequest.Builder(priority, intervalMs)
-                // The OS may hand us a fix sooner than intervalMs if another
-                // app is already asking for one; taking it is free accuracy.
-                .setMinUpdateIntervalMillis(Math.min(minIntervalMs, intervalMs))
-                .setMinUpdateDistanceMeters(distanceFilterMeters)
-                // Batching windows let the modem sleep between fixes, but they
-                // also delay delivery past the point where an upload would
-                // still be timely, so cap the slack at one interval.
-                .setMaxUpdateDelayMillis(intervalMs)
-                .setWaitForAccurateLocation(highAccuracy)
-                .build();
-
-        locationCallback = new LocationCallback() {
-            @Override
-            public void onLocationResult(LocationResult result) {
-                for (Location location : result.getLocations()) {
-                    onFix(location);
-                }
-            }
-
-            @Override
-            public void onLocationAvailability(LocationAvailability availability) {
-                if (!availability.isLocationAvailable()) {
-                    Log.d(TAG, "Location temporarily unavailable");
-                }
-            }
-        };
-
-        try {
-            client.requestLocationUpdates(request, locationCallback, Looper.getMainLooper());
-        } catch (SecurityException exception) {
-            Log.e(TAG, "Location permission revoked mid-recording", exception);
+        String resolved = resolveEngineName(this, locationSource);
+        if (SOURCE_GMS.equals(resolved) && !FusedLocationEngine.isAvailable(this)) {
+            // Only reachable when the user pinned "Google Play Services" on a
+            // device that does not have it. Saying so beats failing quietly.
+            onEngineFailure("Google Play Services is not available on this device.");
+            return;
         }
+
+        engine = SOURCE_GMS.equals(resolved)
+                ? new FusedLocationEngine(this)
+                : new PlatformLocationEngine(this);
+
+        clearWarning();
+        lastFixAtMs = 0L;
+
+        engine.start(
+                new LocationEngine.Config(
+                        intervalMs,
+                        Math.min(minIntervalMs, intervalMs),
+                        distanceFilterMeters,
+                        highAccuracy
+                ),
+                new LocationEngine.Callback() {
+                    @Override
+                    public void onLocation(Location location) {
+                        onFix(location);
+                    }
+
+                    @Override
+                    public void onFailure(String message) {
+                        onEngineFailure(message);
+                    }
+                }
+        );
+
+        scheduleNoFixCheck();
     }
 
     private void removeLocationUpdates() {
-        if (locationCallback != null) {
-            client.removeLocationUpdates(locationCallback);
-            locationCallback = null;
+        cancelNoFixCheck();
+        if (engine != null) {
+            engine.stop();
+            engine = null;
         }
+    }
+
+    /**
+     * The engine has gone quiet without failing. Ambiguous — a cold fix, a
+     * tunnel, a basement — so this warns and leaves the recording running.
+     * Ending it here would close a session that cannot be reopened, turning a
+     * gap in a track into two separate tracks.
+     */
+    private void scheduleNoFixCheck() {
+        cancelNoFixCheck();
+        noFixCheck = new Runnable() {
+            @Override
+            public void run() {
+                if (!tracking) {
+                    return;
+                }
+                long since = System.currentTimeMillis()
+                        - (lastFixAtMs > 0 ? lastFixAtMs : startedAtMs);
+                long threshold = Math.max(MIN_NO_FIX_WARNING_MS, intervalMs * 2);
+                if (since > threshold) {
+                    // Leads with the ordinary explanation, because indoors
+                    // is far and away the common cause; the engine hint is
+                    // only added where it could actually be the problem.
+                    setWarning(
+                            lastFixAtMs > 0
+                                    ? "No GPS signal right now — still recording."
+                                    : "Waiting for a GPS fix. This can take a minute outdoors, longer indoors."
+                                            + (SOURCE_GMS.equals(getEngineName())
+                                                    ? ""
+                                                    : " If it never arrives, try another Location source in tracking settings.")
+                    );
+                } else {
+                    clearWarning();
+                }
+                handler.postDelayed(this, NO_FIX_CHECK_INTERVAL_MS);
+            }
+        };
+        handler.postDelayed(noFixCheck, NO_FIX_CHECK_INTERVAL_MS);
+    }
+
+    private void cancelNoFixCheck() {
+        if (noFixCheck != null) {
+            handler.removeCallbacks(noFixCheck);
+            noFixCheck = null;
+        }
+    }
+
+    private void setWarning(String message) {
+        if (message.equals(warningText)) {
+            return;
+        }
+        warningText = message;
+        if (tracking) {
+            postNotification();
+        }
+        Listener current = listener;
+        if (current != null) {
+            current.onEngineWarning(message);
+        }
+    }
+
+    private void clearWarning() {
+        if (warningText == null) {
+            return;
+        }
+        warningText = null;
+        if (tracking) {
+            postNotification();
+        }
+        Listener current = listener;
+        if (current != null) {
+            current.onEngineWarning(null);
+        }
+    }
+
+    /**
+     * A hard failure: no fix will ever arrive from this engine. Location
+     * updates stop, the flag is cleared so a relaunch does not think a
+     * recording is still live, and the notification is detached rather than
+     * removed so the reason survives the service — otherwise the recording
+     * would simply vanish with no explanation on a device where JS is not
+     * running to receive the event.
+     */
+    private void onEngineFailure(String message) {
+        Log.e(TAG, "Location engine failed: " + message);
+        cancelNoFixCheck();
+        if (engine != null) {
+            engine.stop();
+            engine = null;
+        }
+        tracking = false;
+        // The failure is the notification's whole content below, so leaving
+        // it in warningText too would render it twice ("... · ...").
+        warningText = null;
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(PREF_TRACKING, false)
+                .apply();
+
+        notificationTitle = "Tracking stopped";
+        notificationText = message;
+        postNotification();
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH);
+
+        Listener current = listener;
+        if (current != null) {
+            current.onEngineFailed(message);
+        }
+        stopSelf();
     }
 
     private void onFix(Location location) {
@@ -366,6 +518,8 @@ public class TrackingService extends Service {
             return;
         }
 
+        lastFixAtMs = System.currentTimeMillis();
+        clearWarning();
         buffer.append(fix);
 
         Listener current = listener;
@@ -376,6 +530,7 @@ public class TrackingService extends Service {
 
     private void stopTracking() {
         tracking = false;
+        warningText = null;
         removeLocationUpdates();
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
@@ -453,10 +608,14 @@ public class TrackingService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
+        String text = warningText == null
+                ? notificationText
+                : warningText + " · " + notificationText;
+
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle(notificationTitle)
-                .setContentText(notificationText)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText(notificationText))
+                .setContentText(text)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
                 .setSmallIcon(R.drawable.ic_stat_tracking)
                 .setOngoing(true)
                 .setSilent(true)

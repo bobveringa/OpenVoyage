@@ -165,6 +165,9 @@ export function decideTracking({
   return {
     distanceFilterMeters,
     highAccuracy,
+    // Carried through rather than decided here: which engine records is the
+    // user's choice, not something the cadence policy has any say in.
+    locationSource: settings.locationSource,
     intervalSeconds: Math.round(clamp(seconds, MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS)),
     reason,
   }

@@ -3,6 +3,14 @@ import { getItem, setItem } from '@/native/kv-storage'
 
 export type NotificationDetail = 'minimal' | 'detailed'
 
+// Which location API the native service records with. 'auto' picks Google
+// Play Services where it exists and the framework's own provider where it
+// doesn't, so a de-Googled device works without the user knowing what any of
+// this means; the explicit values are the escape hatch for devices where the
+// automatic choice guesses wrong (microG reports Play Services as present but
+// implements the fused API only partially).
+export type LocationSource = 'auto' | 'gms' | 'platform'
+
 export type TrackingSettings = {
   intervalSeconds: number
   // §8 Phase 3: when on, intervalSeconds is the baseline that speed and
@@ -14,6 +22,7 @@ export type TrackingSettings = {
   defaultTravelMode: TravelMode
   batterySaver: boolean
   notificationDetail: NotificationDetail
+  locationSource: LocationSource
 }
 
 export const TRACKING_INTERVAL_OPTIONS_SECONDS = [10, 30, 60, 120, 300] as const
@@ -30,6 +39,7 @@ export const DEFAULT_TRACKING_SETTINGS: TrackingSettings = {
   defaultTravelMode: 'UNKNOWN',
   distanceFilterMeters: 10,
   intervalSeconds: 30,
+  locationSource: 'auto',
   notificationDetail: 'detailed',
 }
 

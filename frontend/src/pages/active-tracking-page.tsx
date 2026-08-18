@@ -105,6 +105,12 @@ export function ActiveTrackingPage({ onNavigate }: ActiveTrackingPageProps) {
         />
       </div>
 
+      {!isSyncing && tracking.locationWarning ? (
+        <p className="text-center text-sm font-medium text-amber-700" role="status">
+          {tracking.locationWarning}
+        </p>
+      ) : null}
+
       {!isSyncing && tracking.adaptiveDecision ? (
         <p className="text-center text-xs text-muted-foreground">
           Recording {describeAdaptiveReason(tracking.adaptiveDecision)}

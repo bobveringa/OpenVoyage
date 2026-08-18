@@ -138,6 +138,19 @@ describe('decideTracking', () => {
     expect(decision.highAccuracy).toBe(false)
   })
 
+  // Which engine records is a user choice; the cadence policy has no
+  // business overriding it, so it must survive every branch untouched.
+  it('carries the location source through unchanged', () => {
+    for (const source of ['auto', 'gms', 'platform'] as const) {
+      const settings = { ...DEFAULT_TRACKING_SETTINGS, locationSource: source }
+      expect(decide({ settings, speedMps: 20 }).locationSource).toBe(source)
+      expect(decide({ movement: 'stationary', settings }).locationSource).toBe(source)
+      expect(
+        decide({ power: { ...HEALTHY_POWER, batteryLevel: 0.02 }, settings }).locationSource,
+      ).toBe(source)
+    }
+  })
+
   it('keeps the battery-saver floor as the adaptive baseline', () => {
     const decision = decide({
       settings: {
@@ -180,7 +193,12 @@ describe('createMovementDetector', () => {
 })
 
 describe('isMeaningfulChange', () => {
-  const base = { distanceFilterMeters: 10, highAccuracy: true, intervalSeconds: 30 }
+  const base = {
+    distanceFilterMeters: 10,
+    highAccuracy: true,
+    intervalSeconds: 30,
+    locationSource: 'auto' as const,
+  }
 
   it('ignores drift too small to be worth a GPS re-acquisition', () => {
     expect(isMeaningfulChange(base, { ...base, intervalSeconds: 32 })).toBe(false)

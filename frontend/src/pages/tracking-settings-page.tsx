@@ -18,6 +18,7 @@ import {
   TRACKING_INTERVAL_OPTIONS_SECONDS,
   readTrackingSettings,
   writeTrackingSettings,
+  type LocationSource,
   type NotificationDetail,
   type TrackingSettings,
 } from '@/tracking/tracking-settings'
@@ -28,6 +29,15 @@ const INTERVAL_OPTIONS = TRACKING_INTERVAL_OPTIONS_SECONDS.map((seconds) => ({
   label: seconds < 60 ? `${seconds} seconds` : `${seconds / 60} minute${seconds === 60 ? '' : 's'}`,
   value: String(seconds),
 }))
+
+const LOCATION_SOURCE_OPTIONS: ReadonlyArray<{
+  label: string
+  value: LocationSource
+}> = [
+  { label: 'Automatic (recommended)', value: 'auto' },
+  { label: 'Google Play Services', value: 'gms' },
+  { label: "This device's own GPS", value: 'platform' },
+]
 
 const NOTIFICATION_DETAIL_OPTIONS: ReadonlyArray<{
   label: string
@@ -215,6 +225,31 @@ export function TrackingSettingsPage() {
               <span className="block text-xs text-muted-foreground">
                 Fixes less accurate than this are dropped before they're queued.
               </span>
+            </label>
+
+            <label className="space-y-1.5 text-sm">
+              <span className="font-medium text-foreground">Location source</span>
+              <Select
+                ariaLabel="Location source"
+                disabled={Boolean(activeSession)}
+                onValueChange={(value) =>
+                  updateSettings({ locationSource: value as LocationSource })
+                }
+                options={LOCATION_SOURCE_OPTIONS}
+                value={settings.locationSource}
+              />
+              <span className="block text-xs text-muted-foreground">
+                {settings.locationSource === 'platform'
+                  ? "Uses Android's own location provider. Works without Google Play Services, but battery-saver mode has no cheaper sensor to fall back to on some devices."
+                  : settings.locationSource === 'gms'
+                    ? 'Requires Google Play Services. Recording will refuse to start on a device without it.'
+                    : 'Uses Google Play Services where available and falls back to the device’s own provider where it is not.'}
+              </span>
+              {activeSession ? (
+                <span className="block text-xs text-amber-700">
+                  Stop the active recording to change this.
+                </span>
+              ) : null}
             </label>
 
             <label className="space-y-1.5 text-sm">

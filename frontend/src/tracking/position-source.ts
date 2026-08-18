@@ -2,6 +2,7 @@ import { registerPlugin } from '@capacitor/core'
 
 import { isNativePlatform } from '@/native/platform'
 import { haversineMeters } from '@/tracking/geo'
+import type { LocationSource } from '@/tracking/tracking-settings'
 
 export type PositionFix = {
   recordedAt: string
@@ -17,6 +18,14 @@ export type PositionSourceConfig = {
   intervalSeconds: number
   distanceFilterMeters: number
   highAccuracy: boolean
+  locationSource: LocationSource
+}
+
+export type ProbeResult = {
+  ok: boolean
+  engine: 'gms' | 'platform'
+  reason?: 'permission' | 'location-disabled' | 'engine-unavailable'
+  message?: string
 }
 
 export type PositionSourceOptions = PositionSourceConfig & {
@@ -28,6 +37,12 @@ export type PositionSourceOptions = PositionSourceConfig & {
   // to be closed and flushed by the same code path as an in-app Stop, so
   // this is surfaced rather than handled natively.
   onStopRequested?: () => void
+  // Soft: the engine has gone quiet (cold fix, tunnel, basement). Advisory
+  // only — null clears it. Never ends the recording.
+  onEngineWarning?: (message: string | null) => void
+  // Hard: no fix will ever arrive from this engine. The recording has to be
+  // wound up rather than left running against nothing.
+  onEngineFailed?: (message: string) => void
 }
 
 export type PowerState = {
@@ -52,6 +67,9 @@ export type NativeTrackingState = {
 }
 
 export interface PositionSource {
+  // Answers "could a recording start right now?" without starting one, so a
+  // device that cannot track never persists a session or spawns a service.
+  probe(locationSource: LocationSource): Promise<ProbeResult>
   start(options: PositionSourceOptions): Promise<void>
   stop(): Promise<void>
   // Adopts a recording the native service is already running (after a
@@ -77,11 +95,13 @@ type NativeFix = {
 
 interface TrackingPlugin {
   getState(): Promise<NativeTrackingState>
+  probe(options: { locationSource: LocationSource }): Promise<ProbeResult>
   start(options: {
     intervalSeconds: number
     minIntervalSeconds: number
     distanceFilterMeters: number
     highAccuracy: boolean
+    locationSource: LocationSource
     title: string
     text: string
   }): Promise<NativeTrackingState>
@@ -90,6 +110,7 @@ interface TrackingPlugin {
     minIntervalSeconds: number
     distanceFilterMeters: number
     highAccuracy: boolean
+    locationSource: LocationSource
   }): Promise<NativeTrackingState>
   updateStatus(options: { title: string; text: string }): Promise<void>
   stop(): Promise<void>
@@ -98,6 +119,10 @@ interface TrackingPlugin {
   addListener(
     event: 'fixAvailable' | 'stopRequested',
     handler: () => void,
+  ): Promise<{ remove: () => Promise<void> }>
+  addListener(
+    event: 'engineWarning' | 'engineFailed',
+    handler: (data: { message: string | null }) => void,
   ): Promise<{ remove: () => Promise<void> }>
 }
 
@@ -124,12 +149,14 @@ function nativeCadence(config: PositionSourceConfig): {
   minIntervalSeconds: number
   distanceFilterMeters: number
   highAccuracy: boolean
+  locationSource: LocationSource
 } {
   const speedup = config.distanceFilterMeters > 0 ? MAX_DISTANCE_TRIGGER_SPEEDUP : 1
   return {
     distanceFilterMeters: 0,
     highAccuracy: config.highAccuracy,
     intervalSeconds: config.intervalSeconds,
+    locationSource: config.locationSource,
     minIntervalSeconds: Math.max(
       MIN_INTERVAL_FLOOR_SECONDS,
       config.intervalSeconds / speedup,
@@ -181,6 +208,10 @@ class NativePositionSource implements PositionSource {
   private shouldAccept = createFixGate(30, 0)
   private options: PositionSourceOptions | null = null
 
+  async probe(locationSource: LocationSource): Promise<ProbeResult> {
+    return Tracking.probe({ locationSource })
+  }
+
   async start(options: PositionSourceOptions): Promise<void> {
     await this.detach()
     this.shouldAccept = createFixGate(options.intervalSeconds, options.distanceFilterMeters)
@@ -229,6 +260,16 @@ class NativePositionSource implements PositionSource {
     this.listeners.push(
       await Tracking.addListener('stopRequested', () => {
         options.onStopRequested?.()
+      }),
+    )
+    this.listeners.push(
+      await Tracking.addListener('engineWarning', ({ message }) => {
+        options.onEngineWarning?.(message)
+      }),
+    )
+    this.listeners.push(
+      await Tracking.addListener('engineFailed', ({ message }) => {
+        options.onEngineFailed?.(message ?? 'Location tracking is unavailable.')
       }),
     )
 
@@ -311,6 +352,18 @@ class NativePositionSource implements PositionSource {
 
 class WebPositionSource implements PositionSource {
   private watchId: number | null = null
+
+  // The browser has one geolocation API and no engine choice to make.
+  async probe(): Promise<ProbeResult> {
+    return 'geolocation' in navigator
+      ? { engine: 'platform', ok: true }
+      : {
+          engine: 'platform',
+          message: 'Geolocation is not available in this browser.',
+          ok: false,
+          reason: 'engine-unavailable',
+        }
+  }
 
   // Foreground only: the web build has no service-worker/background
   // delivery mechanism, matching the design doc's stated web fallback.

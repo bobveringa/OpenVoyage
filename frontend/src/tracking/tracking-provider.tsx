@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import { getErrorMessage, listTrackingSessionsWithServerDate } from '@/api/client'
+import {
+  deleteTrackingSession,
+  getErrorMessage,
+  listTrackingSessionsWithServerDate,
+} from '@/api/client'
 import { useAuth } from '@/auth/use-auth'
 import {
   requestBackgroundLocation,
@@ -29,6 +33,7 @@ import {
   getPendingSession,
   getQueueStats,
   listPendingSessions,
+  purgeSession,
   putPendingSession,
   resetDroppedLocallyCount,
   type QueueStats,
@@ -69,6 +74,8 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   const [queueStats, setQueueStats] = useState<QueueStats | null>(null)
   const [uploaderSnapshot, setUploaderSnapshot] = useState<UploaderSnapshot | null>(null)
   const [adaptiveDecision, setAdaptiveDecision] = useState<AdaptiveDecision | null>(null)
+  // Advisory only: the engine has gone quiet but the recording continues.
+  const [locationWarning, setLocationWarning] = useState<string | null>(null)
 
   const accessTokenRef = useRef<string | null>(accessToken)
   const currentUserIdRef = useRef<string | null>(currentUser?.id ?? null)
@@ -218,6 +225,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     capturingRef.current = false
     decisionRef.current = null
     setAdaptiveDecision(null)
+    setLocationWarning(null)
     try {
       await getSource().stop()
     } catch (stopError) {
@@ -236,6 +244,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   )
 
   const stopTrackingRef = useRef<() => Promise<void>>(async () => {})
+  const engineFailedRef = useRef<(message: string) => Promise<void>>(async () => {})
 
   const buildSourceOptions = useCallback(
     (
@@ -257,8 +266,11 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         distanceFilterMeters: decision.distanceFilterMeters,
         highAccuracy: decision.highAccuracy,
         intervalSeconds: decision.intervalSeconds,
+        locationSource: decision.locationSource,
         notificationMessage: notification.message,
         notificationTitle: notification.title,
+        onEngineFailed: (message) => void engineFailedRef.current(message),
+        onEngineWarning: (message) => setLocationWarning(message),
         onError: (positionError) => setError(positionError.message),
         onFix: (fix) => handleFix(sessionId, startedAt, fix),
         onStopRequested: () => {
@@ -526,6 +538,19 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
 
         const settings = await readTrackingSettings()
         settingsRef.current = settings
+
+        // Probe before committing anything. A device that cannot track — no
+        // Play Services with the fused engine pinned, location switched off,
+        // permission missing — must not end up with a persisted session, a
+        // zero-point recording on the server, or a foreground service that
+        // will never produce a fix.
+        const probe = await getSource().probe(settings.locationSource)
+        if (!probe.ok) {
+          setError(probe.message ?? 'Location tracking is unavailable on this device.')
+          setStatus('idle')
+          return
+        }
+
         try {
           powerRef.current = await getSource().getPowerState()
         } catch {
@@ -572,15 +597,21 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         capturingRef.current = true
         setAdaptiveDecision(decisionRef.current)
 
-        // Best-effort, and only meaningful once foreground location is
-        // granted (which the successful start() above confirms); the
-        // foreground service above is what actually keeps location flowing
-        // in the background, so a "no" here doesn't block starting.
-        await requestBackgroundLocation()
-
+        // The recording is live the moment start() resolves, so publish it
+        // now. Awaiting the background-location prompt first left the UI
+        // stuck on "Starting…" — with no Stop button — for as long as that
+        // prompt went unanswered, while the service was already recording.
+        // On Android 11+ that prompt is a full settings screen the user can
+        // simply walk away from, so "as long as" can be forever.
         setActiveSession({ endedAt: null, sessionId, startedAt, tripId, tripTitle })
         setStatus('recording')
         void refreshQueueStats(sessionId)
+
+        // Best-effort, and only meaningful once foreground location is
+        // granted (which the successful start() above confirms); the
+        // foreground service is what actually keeps location flowing in the
+        // background, so a "no" here doesn't affect the recording.
+        void requestBackgroundLocation()
       } catch (startError) {
         // Starting failed partway through, which may still have left the
         // native service running. Tearing it down here is what keeps a
@@ -603,6 +634,71 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       stopCapture,
     ],
   )
+
+  // A recording that captured nothing has no value and leaving it behind
+  // just litters the trip's recordings list with 0-point rows. Anything with
+  // points in it is wound up normally instead — never discard real data.
+  const finishSession = useCallback(
+    async (session: ActiveTrackingSession) => {
+      const stats = await getQueueStats(session.sessionId).catch(() => null)
+      const pending = await getPendingSession(session.sessionId)
+      if ((stats?.sampleCount ?? 0) === 0) {
+        const token = accessTokenRef.current
+        // Only worth a DELETE if the server has actually heard of it; an
+        // un-ACKed create has nothing on the other end to remove.
+        if (pending?.createAcked && token) {
+          try {
+            await deleteTrackingSession({
+              accessToken: token,
+              sessionId: session.sessionId,
+              tripId: session.tripId,
+            })
+          } catch {
+            // Best effort. A failed delete leaves an empty session on the
+            // server, which is untidy but harmless.
+          }
+        }
+        await purgeSession(session.sessionId)
+        replaceUploader(null)
+        setActiveSession(null)
+        setStatus('idle')
+        return
+      }
+
+      const endedAt = new Date().toISOString()
+      if (pending) {
+        await putPendingSession({ ...pending, endAcked: false, endedAt })
+      }
+      uploaderRef.current?.requestSync()
+      setActiveSession({ ...session, endedAt })
+      setStatus('syncing')
+    },
+    [replaceUploader],
+  )
+
+  // Hard failure: the engine cannot deliver fixes and will not recover. The
+  // recording is wound up rather than left running against nothing, which is
+  // the silent-nothing outcome the whole engine split exists to prevent.
+  const handleEngineFailed = useCallback(
+    async (message: string) => {
+      capturingRef.current = false
+      decisionRef.current = null
+      setAdaptiveDecision(null)
+      setLocationWarning(null)
+      setError(message)
+
+      const session = activeSession
+      if (!session || session.endedAt !== null) {
+        return
+      }
+      await finishSession(session)
+    },
+    [activeSession, finishSession],
+  )
+
+  useEffect(() => {
+    engineFailedRef.current = handleEngineFailed
+  }, [handleEngineFailed])
 
   const stopTracking = useCallback(async () => {
     const session = activeSession
@@ -642,6 +738,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       activeSession,
       adaptiveDecision,
       error,
+      locationWarning,
       queueStats,
       startTracking,
       status,
@@ -652,6 +749,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       activeSession,
       adaptiveDecision,
       error,
+      locationWarning,
       queueStats,
       startTracking,
       status,

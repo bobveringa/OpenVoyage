@@ -73,6 +73,89 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
         notifyListeners("stopRequested", new JSObject());
     }
 
+    @Override
+    public void onEngineWarning(String message) {
+        JSObject data = new JSObject();
+        data.put("message", message);
+        notifyListeners("engineWarning", data);
+    }
+
+    @Override
+    public void onEngineFailed(String message) {
+        JSObject data = new JSObject();
+        data.put("message", message);
+        notifyListeners("engineFailed", data);
+    }
+
+    /**
+     * Answers "could a recording start right now?" without starting one, so a
+     * device that cannot track never persists a session, never creates a
+     * zero-point recording on the server and never shows a foreground service.
+     */
+    @PluginMethod
+    public void probe(PluginCall call) {
+        // Asking for the permission is part of probing, not something to
+        // report back as a failure: the probe replaced start() as the first
+        // thing a recording does, so if it only reported "not granted" the
+        // user would be told they lack a permission with nothing offering to
+        // grant it.
+        if (getPermissionState(LOCATION_ALIAS) != PermissionState.GRANTED) {
+            requestPermissionForAlias(LOCATION_ALIAS, call, "probePermissionCallback");
+            return;
+        }
+        resolveProbe(call);
+    }
+
+    @PermissionCallback
+    private void probePermissionCallback(PluginCall call) {
+        resolveProbe(call);
+    }
+
+    private void resolveProbe(PluginCall call) {
+        String source = call.getString("locationSource", TrackingService.SOURCE_AUTO);
+        JSObject result = new JSObject();
+        String engine = TrackingService.resolveEngineName(getContext(), source);
+        result.put("engine", engine);
+
+        if (getPermissionState(LOCATION_ALIAS) != PermissionState.GRANTED) {
+            result.put("ok", false);
+            result.put("reason", "permission");
+            result.put(
+                "message",
+                "OpenVoyage needs location permission to record a trip. Grant it in Android's app settings to start recording."
+            );
+            call.resolve(result);
+            return;
+        }
+        if (!isLocationEnabled()) {
+            result.put("ok", false);
+            result.put("reason", "location-disabled");
+            result.put("message", "Location services are turned off on this device.");
+            call.resolve(result);
+            return;
+        }
+        if (TrackingService.SOURCE_GMS.equals(engine) && !FusedLocationEngine.isAvailable(getContext())) {
+            result.put("ok", false);
+            result.put("reason", "engine-unavailable");
+            result.put(
+                "message",
+                "Google Play Services is not available on this device. Change Location source in tracking settings to use the device's own GPS."
+            );
+            call.resolve(result);
+            return;
+        }
+        if (TrackingService.SOURCE_PLATFORM.equals(engine) && !PlatformLocationEngine.isAvailable(getContext())) {
+            result.put("ok", false);
+            result.put("reason", "engine-unavailable");
+            result.put("message", "No usable location provider is available on this device.");
+            call.resolve(result);
+            return;
+        }
+
+        result.put("ok", true);
+        call.resolve(result);
+    }
+
     @PluginMethod
     public void getState(PluginCall call) {
         call.resolve(describeState());
@@ -203,6 +286,10 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
             TrackingService.EXTRA_HIGH_ACCURACY,
             Boolean.TRUE.equals(call.getBoolean("highAccuracy", true))
         );
+        intent.putExtra(
+            TrackingService.EXTRA_LOCATION_SOURCE,
+            call.getString("locationSource", TrackingService.SOURCE_AUTO)
+        );
         if (call.getString("title") != null) {
             intent.putExtra(TrackingService.EXTRA_TITLE, call.getString("title"));
         }
@@ -230,6 +317,8 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
         result.put("highAccuracy", service == null || service.isHighAccuracy());
         TrackingFixBuffer buffer = service == null ? null : service.getBuffer();
         result.put("bufferedFixes", buffer == null ? 0 : buffer.size());
+        result.put("engine", service == null ? null : service.getEngineName());
+        result.put("warning", service == null ? null : service.getWarningText());
         result.put("locationEnabled", isLocationEnabled());
         result.put(
             "permissionGranted",

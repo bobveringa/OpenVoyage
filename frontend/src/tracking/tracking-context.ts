@@ -41,6 +41,9 @@ export type TrackingContextValue = {
   // The cadence the Phase 3 policy currently has the OS running at, or null
   // when nothing is recording.
   adaptiveDecision: AdaptiveDecision | null
+  // The engine has gone quiet (cold fix, tunnel, basement). Advisory: the
+  // recording is still running. Hard failures land in `error` instead.
+  locationWarning: string | null
   startTracking: (input: StartTrackingInput) => Promise<void>
   stopTracking: () => Promise<void>
 }
