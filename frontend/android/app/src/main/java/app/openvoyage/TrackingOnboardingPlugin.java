@@ -16,7 +16,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 
 /**
- * Prompts the background-geolocation plugin doesn't cover itself: exempting
+ * Prompts {@link TrackingPlugin} doesn't cover itself: exempting
  * the app from battery optimization, (Android 13+) granting
  * POST_NOTIFICATIONS so the foreground-service notification is visible, and
  * (Android 10+) granting ACCESS_BACKGROUND_LOCATION as a belt-and-suspenders

@@ -347,4 +347,10 @@ export class SqliteQueueBackend implements QueueBackend {
       [DROPPED_COUNT_KEY, String(current + delta)],
     )
   }
+
+  async resetDroppedLocallyCount(): Promise<void> {
+    await this.connection.run('DELETE FROM queue_meta WHERE key = ?', [
+      DROPPED_COUNT_KEY,
+    ])
+  }
 }

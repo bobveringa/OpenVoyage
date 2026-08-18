@@ -103,3 +103,52 @@ describe('checkSanityFilter', () => {
     expect(result).toEqual({ ok: false, reason: 'gps-jump' })
   })
 })
+
+describe('checkSanityFilter — session window', () => {
+  const startedAt = '2026-08-18T12:00:00.000Z'
+
+  // The fused provider's first callback commonly replays a cached fix from
+  // before the recording began. The server discards those silently, so the
+  // first point of every recording used to vanish with no trace.
+  it('rejects a fix recorded before the session started', () => {
+    const result = checkSanityFilter(
+      {
+        accuracyMeters: 5,
+        latitude: 51.45,
+        longitude: 5.46,
+        recordedAt: '2026-08-18T11:59:57.000Z',
+      },
+      null,
+      100,
+      startedAt,
+    )
+
+    expect(result).toEqual({ ok: false, reason: 'before-session' })
+  })
+
+  it('accepts a fix recorded exactly at the session start', () => {
+    const result = checkSanityFilter(
+      { accuracyMeters: 5, latitude: 51.45, longitude: 5.46, recordedAt: startedAt },
+      null,
+      100,
+      startedAt,
+    )
+
+    expect(result).toEqual({ ok: true })
+  })
+
+  it('skips the window check when no session start is supplied', () => {
+    const result = checkSanityFilter(
+      {
+        accuracyMeters: 5,
+        latitude: 51.45,
+        longitude: 5.46,
+        recordedAt: '1999-01-01T00:00:00.000Z',
+      },
+      null,
+      100,
+    )
+
+    expect(result).toEqual({ ok: true })
+  })
+})

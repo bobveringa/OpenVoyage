@@ -135,8 +135,8 @@ export function TrackingSettingsPage() {
             Recording
           </CardTitle>
           <CardDescription>
-            A fixed interval keeps battery use predictable. Smart, speed-based
-            intervals are planned for a later release.
+            Smart tracking varies the interval with your speed and battery
+            level. Turn it off to hold the interval you pick exactly.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -155,6 +155,12 @@ export function TrackingSettingsPage() {
                 <span className="block text-xs text-muted-foreground">
                   Battery saver raises this to {effectiveInterval} seconds while
                   it's on.
+                </span>
+              ) : null}
+              {settings.adaptiveTracking ? (
+                <span className="block text-xs text-muted-foreground">
+                  Smart tracking treats this as a baseline: denser while you're
+                  moving fast, sparser while you're parked.
                 </span>
               ) : null}
             </label>
@@ -186,7 +192,9 @@ export function TrackingSettingsPage() {
                 value={settings.distanceFilterMeters}
               />
               <span className="block text-xs text-muted-foreground">
-                0 disables distance-based filtering.
+                {settings.adaptiveTracking
+                  ? 'Not used while smart tracking is on — the speed-based interval already spaces points out.'
+                  : '0 disables distance-based filtering.'}
               </span>
             </label>
 
@@ -222,8 +230,19 @@ export function TrackingSettingsPage() {
             </label>
           </div>
 
-          <BatterySaverToggle
+          <SettingToggle
+            description="Varies the interval with your speed and stretches it when the battery gets low. Off pins the interval above exactly."
+            enabled={settings.adaptiveTracking}
+            id="tracking-adaptive"
+            label="Smart tracking"
+            onToggle={() => updateSettings({ adaptiveTracking: !settings.adaptiveTracking })}
+          />
+
+          <SettingToggle
+            description={`Uses balanced-power location and raises the interval floor to ${BATTERY_SAVER_INTERVAL_FLOOR_SECONDS} seconds.`}
             enabled={settings.batterySaver}
+            id="tracking-battery-saver"
+            label="Battery saver"
             onToggle={() => updateSettings({ batterySaver: !settings.batterySaver })}
           />
 
@@ -287,27 +306,30 @@ export function TrackingSettingsPage() {
   )
 }
 
-function BatterySaverToggle({
+function SettingToggle({
+  description,
   enabled,
+  id,
+  label,
   onToggle,
 }: {
+  description: string
   enabled: boolean
+  id: string
+  label: string
   onToggle: () => void
 }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-lg border border-border px-4 py-3">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-foreground">Battery saver</p>
-        <p className="text-xs leading-5 text-muted-foreground">
-          Uses balanced-power location and raises the interval floor to{' '}
-          {BATTERY_SAVER_INTERVAL_FLOOR_SECONDS} seconds.
-        </p>
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        <p className="text-xs leading-5 text-muted-foreground">{description}</p>
       </div>
       <input
-        aria-label="Battery saver"
+        aria-label={label}
         checked={enabled}
         className="peer sr-only"
-        id="tracking-battery-saver"
+        id={id}
         onChange={onToggle}
         role="switch"
         type="checkbox"
@@ -316,7 +338,7 @@ function BatterySaverToggle({
         className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border p-0.5 transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background ${
           enabled ? 'border-primary bg-primary' : 'border-input bg-muted'
         }`}
-        htmlFor="tracking-battery-saver"
+        htmlFor={id}
       >
         <span
           className={`size-5 rounded-full bg-card shadow-sm transition-transform ${
@@ -324,10 +346,9 @@ function BatterySaverToggle({
           }`}
         />
         <span className="sr-only">
-          {enabled ? 'Battery saver is on' : 'Battery saver is off'}
+          {enabled ? `${label} is on` : `${label} is off`}
         </span>
       </label>
     </div>
   )
 }
-

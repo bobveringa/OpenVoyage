@@ -49,14 +49,30 @@ export type SanityFilterCandidate = {
 
 export type SanityFilterResult =
   | { ok: true }
-  | { ok: false; reason: 'accuracy' | 'coordinates' | 'out-of-order' | 'gps-jump' }
+  | {
+      ok: false
+      reason: 'accuracy' | 'coordinates' | 'out-of-order' | 'gps-jump' | 'before-session'
+    }
 
 // §5.2: reject a fix before it ever reaches the queue.
 export function checkSanityFilter(
   candidate: SanityFilterCandidate,
   previous: QueuedSample | null,
   accuracyThresholdMeters: number,
+  sessionStartedAt?: string,
 ): SanityFilterResult {
+  // The fused provider's first callback often carries a fix it had already
+  // cached, timestamped before the recording began. The server discards
+  // anything outside [started_at, now) without saying which sample it was,
+  // so catching it here saves a pointless upload and keeps the discard
+  // counter meaningful.
+  if (
+    sessionStartedAt !== undefined &&
+    Date.parse(candidate.recordedAt) < Date.parse(sessionStartedAt)
+  ) {
+    return { ok: false, reason: 'before-session' }
+  }
+
   if (
     candidate.accuracyMeters !== null &&
     candidate.accuracyMeters > accuracyThresholdMeters
@@ -183,6 +199,14 @@ export async function purgeSession(sessionId: string): Promise<void> {
   const store = await getBackend()
   await store.deleteSamplesForSession(sessionId)
   await store.deletePendingSession(sessionId)
+}
+
+// The counter is a property of the queue, not of a session, so it has to be
+// cleared explicitly when a new recording starts. Left running it reported
+// evictions from days-old recordings as if the current one were overflowing.
+export async function resetDroppedLocallyCount(): Promise<void> {
+  const store = await getBackend()
+  await store.resetDroppedLocallyCount()
 }
 
 export async function getQueueStats(sessionId: string): Promise<QueueStats> {

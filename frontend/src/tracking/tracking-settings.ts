@@ -5,6 +5,10 @@ export type NotificationDetail = 'minimal' | 'detailed'
 
 export type TrackingSettings = {
   intervalSeconds: number
+  // §8 Phase 3: when on, intervalSeconds is the baseline that speed and
+  // battery state adapt around; when off it is honored exactly (the
+  // "pin a fixed interval" toggle the phase requires).
+  adaptiveTracking: boolean
   distanceFilterMeters: number
   accuracyThresholdMeters: number
   defaultTravelMode: TravelMode
@@ -21,6 +25,7 @@ export const BATTERY_SAVER_INTERVAL_FLOOR_SECONDS = 60
 
 export const DEFAULT_TRACKING_SETTINGS: TrackingSettings = {
   accuracyThresholdMeters: 100,
+  adaptiveTracking: true,
   batterySaver: false,
   defaultTravelMode: 'UNKNOWN',
   distanceFilterMeters: 10,

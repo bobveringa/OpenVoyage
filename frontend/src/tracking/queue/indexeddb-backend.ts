@@ -227,6 +227,12 @@ export class IndexedDbQueueBackend implements QueueBackend {
     await txDone(tx)
   }
 
+  async resetDroppedLocallyCount(): Promise<void> {
+    const tx = this.connection.transaction(META_STORE, 'readwrite')
+    tx.objectStore(META_STORE).delete(DROPPED_COUNT_KEY)
+    await txDone(tx)
+  }
+
   private async samplesForSession(sessionId: string): Promise<QueuedSample[]> {
     const tx = this.connection.transaction(SAMPLES_STORE, 'readonly')
     const index = tx.objectStore(SAMPLES_STORE).index('sessionId')

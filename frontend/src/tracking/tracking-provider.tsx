@@ -7,11 +7,20 @@ import {
   requestIgnoreBatteryOptimizations,
   requestNotificationPermission,
 } from '@/native/tracking-onboarding'
+import {
+  createMovementDetector,
+  decideTracking,
+  describeAdaptiveReason,
+  isMeaningfulChange,
+  type AdaptiveDecision,
+} from '@/tracking/adaptive'
 import { checkClockSkew } from '@/tracking/clock-skew'
 import {
   createPositionSource,
   type PositionFix,
   type PositionSource,
+  type PositionSourceOptions,
+  type PowerState,
 } from '@/tracking/position-source'
 import {
   checkSanityFilter,
@@ -21,11 +30,11 @@ import {
   getQueueStats,
   listPendingSessions,
   putPendingSession,
+  resetDroppedLocallyCount,
   type QueueStats,
 } from '@/tracking/sample-queue'
 import {
   DEFAULT_TRACKING_SETTINGS,
-  effectiveIntervalSeconds,
   readTrackingSettings,
   type TrackingSettings,
 } from '@/tracking/tracking-settings'
@@ -36,28 +45,58 @@ import {
   type TrackingStatus,
 } from '@/tracking/tracking-context'
 import { SessionUploader, type UploaderSnapshot } from '@/tracking/uploader'
+import { describeUploaderStatus } from '@/tracking/uploader-status'
 
 type TrackingProviderProps = {
   children: ReactNode
 }
 
+const UNKNOWN_POWER_STATE: PowerState = {
+  batteryLevel: null,
+  charging: false,
+  powerSaveMode: false,
+}
+
+// Battery level and power-save mode change slowly; polling them more often
+// than this would cost more than the adaptation saves.
+const POWER_POLL_MS = 60_000
+
 export function TrackingProvider({ children }: TrackingProviderProps) {
   const { accessToken, currentUser } = useAuth()
-  const [activeSession, setActiveSession] = useState<ActiveTrackingSession | null>(
-    null,
-  )
+  const [activeSession, setActiveSession] = useState<ActiveTrackingSession | null>(null)
   const [status, setStatus] = useState<TrackingStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [queueStats, setQueueStats] = useState<QueueStats | null>(null)
-  const [uploaderSnapshot, setUploaderSnapshot] = useState<UploaderSnapshot | null>(
-    null,
-  )
+  const [uploaderSnapshot, setUploaderSnapshot] = useState<UploaderSnapshot | null>(null)
+  const [adaptiveDecision, setAdaptiveDecision] = useState<AdaptiveDecision | null>(null)
 
   const accessTokenRef = useRef<string | null>(accessToken)
   const currentUserIdRef = useRef<string | null>(currentUser?.id ?? null)
-  const positionSourceRef = useRef<PositionSource | null>(null)
   const uploaderRef = useRef<SessionUploader | null>(null)
+  // Recovery can start uploaders for sessions other than the visible one;
+  // they have to be stoppable too, or they outlive the sign-in that created
+  // them and keep polling forever.
+  const backgroundUploadersRef = useRef<SessionUploader[]>([])
+  // Claimed synchronously, before the first await: the "already recovering?"
+  // checks below all sit behind awaits, so without this two runs of the
+  // effect can both pass them and set up two uploaders for one session.
+  const recoveryClaimedRef = useRef(false)
   const settingsRef = useRef<TrackingSettings>(DEFAULT_TRACKING_SETTINGS)
+
+  // One source for the whole app lifetime. The native side owns "am I
+  // recording", so this object is a handle to it, not the recording itself.
+  const sourceRef = useRef<PositionSource | null>(null)
+  const capturingRef = useRef(false)
+  const movementRef = useRef(createMovementDetector())
+  const powerRef = useRef<PowerState>(UNKNOWN_POWER_STATE)
+  const decisionRef = useRef<AdaptiveDecision | null>(null)
+
+  const getSource = useCallback((): PositionSource => {
+    if (!sourceRef.current) {
+      sourceRef.current = createPositionSource()
+    }
+    return sourceRef.current
+  }, [])
 
   useEffect(() => {
     accessTokenRef.current = accessToken
@@ -66,6 +105,15 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   useEffect(() => {
     currentUserIdRef.current = currentUser?.id ?? null
   }, [currentUser?.id])
+
+  // Two uploaders on one session both list the same queue rows before
+  // either deletes them, so every sample gets uploaded twice — harmless on
+  // the server (the duplicate bucket absorbs it) but it doubles traffic and
+  // makes the queue look like it is not draining.
+  const replaceUploader = useCallback((next: SessionUploader | null) => {
+    uploaderRef.current?.stop()
+    uploaderRef.current = next
+  }, [])
 
   const refreshQueueStats = useCallback(async (sessionId: string) => {
     try {
@@ -98,13 +146,46 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     setStatus('idle')
   }, [])
 
+  // Re-evaluates the Phase 3 policy and, when the cadence has genuinely
+  // moved, pushes it down to the OS location request. Doing this natively
+  // (rather than discarding unwanted fixes in JS, as the old implementation
+  // did) is what makes a long interval actually cost less battery.
+  const applyAdaptivePolicy = useCallback(
+    async (speedMps: number | null) => {
+      if (!capturingRef.current) {
+        return
+      }
+      const decision = decideTracking({
+        movement: movementRef.current.getState(),
+        power: powerRef.current,
+        settings: settingsRef.current,
+        speedMps,
+      })
+
+      const previous = decisionRef.current
+      if (previous && !isMeaningfulChange(previous, decision)) {
+        return
+      }
+      decisionRef.current = decision
+      setAdaptiveDecision(decision)
+
+      try {
+        await getSource().configure(decision)
+      } catch (configureError) {
+        setError(getErrorMessage(configureError))
+      }
+    },
+    [getSource],
+  )
+
   const handleFix = useCallback(
-    async (sessionId: string, fix: PositionFix) => {
+    async (sessionId: string, startedAt: string, fix: PositionFix) => {
       const previous = await getLastQueuedSample(sessionId)
       const filterResult = checkSanityFilter(
         fix,
         previous,
         settingsRef.current.accuracyThresholdMeters,
+        startedAt,
       )
       if (!filterResult.ok) {
         return
@@ -124,30 +205,90 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         travelMode: settingsRef.current.defaultTravelMode,
       })
 
+      movementRef.current.observe(fix.speedMps, Date.parse(fix.recordedAt))
+      void applyAdaptivePolicy(fix.speedMps)
+
       uploaderRef.current?.requestSync()
       void refreshQueueStats(sessionId)
     },
-    [refreshQueueStats],
+    [applyAdaptivePolicy, refreshQueueStats],
   )
 
-  const handleTerminated = useCallback((message: string) => {
-    setError(message)
-    setActiveSession(null)
-    setStatus('idle')
-    void positionSourceRef.current?.stop()
-    positionSourceRef.current = null
-  }, [])
+  const stopCapture = useCallback(async () => {
+    capturingRef.current = false
+    decisionRef.current = null
+    setAdaptiveDecision(null)
+    try {
+      await getSource().stop()
+    } catch (stopError) {
+      setError(getErrorMessage(stopError))
+    }
+  }, [getSource])
 
-  // Boot recovery: the webview (and its React state) can die at any time —
-  // process kill, force-stop, low-memory eviction — while pending_sessions
-  // still has a session on disk, open or just stopped-and-not-yet-synced.
-  // Without this, a killed app leaves a "ghost" recording that keeps
-  // costing battery/storage (if still open) or looks silently abandoned (if
-  // stopped) with no UI anywhere able to see or act on it, since
-  // activeSession only ever lived in memory. This resumes capture for a
-  // still-open session, or just re-attaches to a stopped-but-syncing one so
-  // it stays visible until sync completes, and restarts a plain uploader
-  // for every other session of this user's that hasn't fully synced yet.
+  const handleTerminated = useCallback(
+    (message: string) => {
+      setError(message)
+      setActiveSession(null)
+      setStatus('idle')
+      void stopCapture()
+    },
+    [stopCapture],
+  )
+
+  const stopTrackingRef = useRef<() => Promise<void>>(async () => {})
+
+  const buildSourceOptions = useCallback(
+    (
+      sessionId: string,
+      startedAt: string,
+      notification: { title: string; message: string },
+    ): PositionSourceOptions => {
+      const decision =
+        decisionRef.current ??
+        decideTracking({
+          movement: 'unknown',
+          power: powerRef.current,
+          settings: settingsRef.current,
+          speedMps: null,
+        })
+      decisionRef.current = decision
+
+      return {
+        distanceFilterMeters: decision.distanceFilterMeters,
+        highAccuracy: decision.highAccuracy,
+        intervalSeconds: decision.intervalSeconds,
+        notificationMessage: notification.message,
+        notificationTitle: notification.title,
+        onError: (positionError) => setError(positionError.message),
+        onFix: (fix) => handleFix(sessionId, startedAt, fix),
+        onStopRequested: () => {
+          // Stopping from the notification has to run the same lifecycle as
+          // the in-app button — end the session, flush the queue, send the
+          // PATCH — not just silence the GPS.
+          void stopTrackingRef.current()
+        },
+      }
+    },
+    [handleFix],
+  )
+
+  const notificationTitleFor = useCallback(
+    (session: { tripTitle: string | null }) =>
+      session.tripTitle ? `Recording ${session.tripTitle}` : 'Recording trip',
+    [],
+  )
+
+  // Boot recovery and reconciliation. The webview (and its React state) can
+  // die at any time — process kill, force-stop, low-memory eviction,
+  // pull-to-refresh — while pending_sessions still has a session on disk and
+  // the native service is still recording. Two invariants are restored here:
+  //
+  //   1. a session that should still be recording is re-adopted (never
+  //      re-started alongside the running one, which used to orphan the
+  //      original watcher and leave location on with no way to stop it);
+  //   2. if this app does not believe it should be recording, the native
+  //      service is told to stop — so an orphan can't outlive the belief
+  //      that created it.
   useEffect(() => {
     const userId = currentUser?.id
     if (!userId) {
@@ -155,14 +296,39 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     }
 
     let cancelled = false
+    if (recoveryClaimedRef.current) {
+      return
+    }
+    recoveryClaimedRef.current = true
 
     void (async () => {
+      const settings = await readTrackingSettings()
+      if (cancelled) {
+        return
+      }
+      settingsRef.current = settings
+
+      try {
+        powerRef.current = await getSource().getPowerState()
+      } catch {
+        powerRef.current = UNKNOWN_POWER_STATE
+      }
+
       const pending = await listPendingSessions()
-      if (cancelled || positionSourceRef.current || uploaderRef.current) {
+      if (cancelled || capturingRef.current || uploaderRef.current) {
         return
       }
 
       const mine = pending.filter((session) => session.recordedByUserId === userId)
+      const stillOpen = mine.find((session) => session.endedAt === null) ?? null
+
+      if (!stillOpen) {
+        // Invariant 2. Cheap no-op when nothing is running natively, and the
+        // one thing that guarantees a leaked recording can never survive a
+        // relaunch.
+        await getSource().stop()
+      }
+
       if (mine.length === 0) {
         return
       }
@@ -171,32 +337,27 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       // show whichever stopped-but-unsynced session comes first — either
       // way there's normally at most one, per the one-session-per-device
       // rule enforced by startTracking()'s status gate.
-      const stillOpen = mine.find((session) => session.endedAt === null) ?? null
       const toShow = stillOpen ?? mine[0] ?? null
 
       for (const session of mine) {
         if (session === toShow) {
           continue
         }
-        new SessionUploader({
+        const backgroundUploader = new SessionUploader({
           getAccessToken: () => accessTokenRef.current,
           getCurrentUserId: () => currentUserIdRef.current,
           onSnapshotChange: () => {},
           onTerminated: () => {},
           sessionId: session.sessionId,
           tripId: session.tripId,
-        }).start()
+        })
+        backgroundUploadersRef.current.push(backgroundUploader)
+        backgroundUploader.start()
       }
 
       if (!toShow) {
         return
       }
-
-      const settings = await readTrackingSettings()
-      if (cancelled || positionSourceRef.current) {
-        return
-      }
-      settingsRef.current = settings
 
       const uploader = new SessionUploader({
         getAccessToken: () => accessTokenRef.current,
@@ -207,24 +368,25 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         sessionId: toShow.sessionId,
         tripId: toShow.tripId,
       })
-      uploaderRef.current = uploader
+      replaceUploader(uploader)
       uploader.start()
 
       if (stillOpen) {
-        const source = createPositionSource()
-        positionSourceRef.current = source
+        movementRef.current = createMovementDetector()
+        decisionRef.current = null
+        const options = buildSourceOptions(toShow.sessionId, toShow.startedAt, {
+          message: 'Reattaching…',
+          title: notificationTitleFor({ tripTitle: toShow.tripTitle ?? null }),
+        })
         try {
-          await source.start({
-            distanceFilterMeters: settings.distanceFilterMeters,
-            intervalSeconds: effectiveIntervalSeconds(settings),
-            notificationMessage:
-              settings.notificationDetail === 'detailed'
-                ? 'Recording your route for this trip.'
-                : 'OpenVoyage is tracking your location.',
-            notificationTitle: 'Recording trip',
-            onError: (positionError) => setError(positionError.message),
-            onFix: (fix) => void handleFix(toShow.sessionId, fix),
-          })
+          // Adopts the still-running native recording when there is one and
+          // only starts a fresh one when there genuinely isn't.
+          const resumed = await getSource().resume(options)
+          if (!resumed) {
+            await getSource().start(options)
+          }
+          capturingRef.current = true
+          setAdaptiveDecision(decisionRef.current)
         } catch (resumeError) {
           setError(getErrorMessage(resumeError))
         }
@@ -248,6 +410,71 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     // a killed recording is a launch-time concern.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id])
+
+  // Battery state moves slowly but it does move; without this poll a
+  // recording that started at 80% would still be asking for high-accuracy
+  // fixes at 4%.
+  useEffect(() => {
+    if (status !== 'recording') {
+      return undefined
+    }
+    const timer = window.setInterval(() => {
+      void (async () => {
+        try {
+          powerRef.current = await getSource().getPowerState()
+        } catch {
+          return
+        }
+        await applyAdaptivePolicy(null)
+      })()
+    }, POWER_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [applyAdaptivePolicy, getSource, status])
+
+  // Keeps the ongoing notification honest. It used to be built once when the
+  // recording started and never touched again, so it kept claiming
+  // "Recording your route" while the queue backed up, the uploader paused
+  // for re-authentication, or the recording had already been stopped.
+  useEffect(() => {
+    if (!activeSession || (status !== 'recording' && status !== 'syncing')) {
+      return
+    }
+
+    const title =
+      status === 'syncing'
+        ? 'Finishing sync'
+        : notificationTitleFor({ tripTitle: activeSession.tripTitle })
+
+    let text: string
+    if (settingsRef.current.notificationDetail === 'minimal') {
+      text = status === 'syncing' ? 'Uploading the last points.' : 'Recording your route.'
+    } else {
+      const queued = queueStats?.sampleCount ?? uploaderSnapshot?.queueDepth ?? 0
+      const parts = [
+        `${queued} queued`,
+        describeUploaderStatus(uploaderSnapshot?.status ?? 'idle'),
+      ]
+      if (status === 'recording' && adaptiveDecision) {
+        parts.push(describeAdaptiveReason(adaptiveDecision))
+      }
+      text = parts.join(' · ')
+    }
+
+    void getSource()
+      .updateStatus({ text, title })
+      .catch(() => {
+        // A failed notification refresh is cosmetic; the recording itself is
+        // unaffected and the next state change will try again.
+      })
+  }, [
+    activeSession,
+    adaptiveDecision,
+    getSource,
+    notificationTitleFor,
+    queueStats,
+    status,
+    uploaderSnapshot,
+  ])
 
   const startTracking = useCallback(
     async ({
@@ -299,6 +526,15 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
 
         const settings = await readTrackingSettings()
         settingsRef.current = settings
+        try {
+          powerRef.current = await getSource().getPowerState()
+        } catch {
+          powerRef.current = UNKNOWN_POWER_STATE
+        }
+        movementRef.current = createMovementDetector()
+        decisionRef.current = null
+
+        await resetDroppedLocallyCount()
 
         const sessionId = crypto.randomUUID()
         const startedAt = new Date().toISOString()
@@ -324,58 +560,60 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
           sessionId,
           tripId,
         })
-        uploaderRef.current = uploader
+        replaceUploader(uploader)
         uploader.start()
 
-        const source = createPositionSource()
-        positionSourceRef.current = source
-        await source.start({
-          distanceFilterMeters: settings.distanceFilterMeters,
-          intervalSeconds: effectiveIntervalSeconds(settings),
-          notificationMessage:
-            settings.notificationDetail === 'detailed'
-              ? 'Recording your route for this trip.'
-              : 'OpenVoyage is tracking your location.',
-          notificationTitle: 'Recording trip',
-          onError: (positionError) => setError(positionError.message),
-          onFix: (fix) => void handleFix(sessionId, fix),
-        })
+        await getSource().start(
+          buildSourceOptions(sessionId, startedAt, {
+            message: 'Starting…',
+            title: notificationTitleFor({ tripTitle }),
+          }),
+        )
+        capturingRef.current = true
+        setAdaptiveDecision(decisionRef.current)
 
         // Best-effort, and only meaningful once foreground location is
-        // granted (which the successful source.start() above confirms);
-        // the foreground service above is what actually keeps location
-        // flowing in the background, so a "no" here doesn't block starting.
+        // granted (which the successful start() above confirms); the
+        // foreground service above is what actually keeps location flowing
+        // in the background, so a "no" here doesn't block starting.
         await requestBackgroundLocation()
 
         setActiveSession({ endedAt: null, sessionId, startedAt, tripId, tripTitle })
         setStatus('recording')
         void refreshQueueStats(sessionId)
       } catch (startError) {
+        // Starting failed partway through, which may still have left the
+        // native service running. Tearing it down here is what keeps a
+        // failed start from becoming an untouchable background recording.
+        await stopCapture()
         setError(getErrorMessage(startError))
         setStatus('idle')
       }
     },
     [
-      handleFix,
+      buildSourceOptions,
+      getSource,
       handleFullySynced,
       handleTerminated,
       handleUploaderSnapshot,
+      notificationTitleFor,
       refreshQueueStats,
+      replaceUploader,
       status,
+      stopCapture,
     ],
   )
 
   const stopTracking = useCallback(async () => {
     const session = activeSession
-    if (!session || status !== 'recording') {
+    if (!session || (status !== 'recording' && status !== 'starting')) {
       return
     }
     setStatus('stopping')
 
     // Stop capturing immediately (§3.2); syncing what was already captured
     // happens asynchronously via the still-running uploader.
-    await positionSourceRef.current?.stop()
-    positionSourceRef.current = null
+    await stopCapture()
 
     const endedAt = new Date().toISOString()
     const pending = await getPendingSession(session.sessionId)
@@ -390,11 +628,19 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     // were actually still safely queued and waiting to sync.
     setActiveSession({ ...session, endedAt })
     setStatus('syncing')
-  }, [activeSession, status])
+  }, [activeSession, status, stopCapture])
+
+  // Lets the notification's Stop action reach the current stopTracking
+  // without rebuilding (and re-registering) the native listeners every time
+  // the callback identity changes.
+  useEffect(() => {
+    stopTrackingRef.current = stopTracking
+  }, [stopTracking])
 
   const value = useMemo(
     () => ({
       activeSession,
+      adaptiveDecision,
       error,
       queueStats,
       startTracking,
@@ -402,7 +648,16 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       stopTracking,
       uploaderSnapshot,
     }),
-    [activeSession, error, queueStats, startTracking, status, stopTracking, uploaderSnapshot],
+    [
+      activeSession,
+      adaptiveDecision,
+      error,
+      queueStats,
+      startTracking,
+      status,
+      stopTracking,
+      uploaderSnapshot,
+    ],
   )
 
   return <TrackingContext.Provider value={value}>{children}</TrackingContext.Provider>

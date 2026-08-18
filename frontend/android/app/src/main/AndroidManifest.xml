@@ -25,6 +25,15 @@
 
         </activity>
 
+        <!-- Not exported: nothing outside the app has any business starting or
+        stopping a recording. (The community plugin this replaced declared its
+        service exported, which let any app on the device drive it.) -->
+        <service
+            android:name=".TrackingService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -37,17 +46,24 @@
     </application>
 
     <!-- Permissions -->
-    <!-- Fine/coarse location, FOREGROUND_SERVICE(_LOCATION), and
-    POST_NOTIFICATIONS are declared by
-    @capacitor-community/background-geolocation's own manifest and merged in
-    automatically; only add what that plugin doesn't cover. -->
-
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- The foreground service (and its ongoing notification) is what keeps
+    location flowing while the app is backgrounded; Android 14+ additionally
+    requires the typed FOREGROUND_SERVICE_LOCATION permission to start it. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Android 13+ gates the notification itself behind a runtime grant. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- The foreground service (with its persistent notification) is what
-    actually keeps location flowing while backgrounded and does not require
-    this permission. It's requested anyway, after foreground location is
-    granted, as a belt-and-suspenders measure: some OEM battery managers are
-    unreliable about honoring the foreground-service exemption alone. -->
+    <!-- Requested after foreground location is granted as a belt-and-suspenders
+    measure: some OEM battery managers are unreliable about honoring the
+    foreground-service exemption alone. -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>

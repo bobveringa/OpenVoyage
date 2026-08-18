@@ -29,7 +29,21 @@ describe('createFixGate', () => {
 
     // ~0.0001 degrees of latitude is roughly 11 meters.
     const moved = { latitude: STATIONARY.latitude + 0.0001, longitude: STATIONARY.longitude }
-    expect(gate({ atMs: 5_000, ...moved })).toBe(true)
+    expect(gate({ atMs: 7_500, ...moved })).toBe(true)
+  })
+
+  // The distance filter is meant to add detail through corners, not to
+  // hand back the raw fix stream: a fast enough device satisfies "moved 10
+  // metres" every second or two, which is how a 30 s interval used to end
+  // up recording a point every ~2 s at full GPS power.
+  it('caps how much denser than the interval the distance trigger can make it', () => {
+    const gate = createFixGate(30, 10)
+    gate({ atMs: 0, ...STATIONARY })
+
+    const farAway = { latitude: STATIONARY.latitude + 0.01, longitude: STATIONARY.longitude }
+    expect(gate({ atMs: 1_000, ...farAway })).toBe(false)
+    expect(gate({ atMs: 7_499, ...farAway })).toBe(false)
+    expect(gate({ atMs: 7_500, ...farAway })).toBe(true)
   })
 
   it('ignores movement as a trigger when the distance filter is 0 (disabled)', () => {

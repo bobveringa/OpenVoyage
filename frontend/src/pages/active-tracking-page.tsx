@@ -2,6 +2,7 @@ import { CloudUpload, MapPinned, Radio, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { describeAdaptiveReason } from '@/tracking/adaptive'
 import { EmptyState } from '@/components/ui/empty-state'
 import { describeUploaderStatus } from '@/tracking/uploader-status'
 import { useTracking } from '@/tracking/use-tracking'
@@ -104,11 +105,17 @@ export function ActiveTrackingPage({ onNavigate }: ActiveTrackingPageProps) {
         />
       </div>
 
+      {!isSyncing && tracking.adaptiveDecision ? (
+        <p className="text-center text-xs text-muted-foreground">
+          Recording {describeAdaptiveReason(tracking.adaptiveDecision)}
+        </p>
+      ) : null}
+
       {tracking.queueStats && tracking.queueStats.droppedLocallyCount > 0 ? (
         <p className="text-center text-xs text-muted-foreground">
           {tracking.queueStats.droppedLocallyCount} point
           {tracking.queueStats.droppedLocallyCount === 1 ? '' : 's'} dropped locally
-          (queue full)
+          to stay inside the offline storage limit
         </p>
       ) : null}
 

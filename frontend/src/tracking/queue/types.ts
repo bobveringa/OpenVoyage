@@ -66,4 +66,5 @@ export interface QueueBackend {
 
   getDroppedLocallyCount(): Promise<number>
   addDroppedLocallyCount(delta: number): Promise<void>
+  resetDroppedLocallyCount(): Promise<void>
 }

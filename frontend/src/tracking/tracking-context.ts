@@ -1,5 +1,6 @@
 import { createContext } from 'react'
 
+import type { AdaptiveDecision } from '@/tracking/adaptive'
 import type { QueueStats } from '@/tracking/sample-queue'
 import type { UploaderSnapshot } from '@/tracking/uploader'
 
@@ -37,6 +38,9 @@ export type TrackingContextValue = {
   error: string | null
   queueStats: QueueStats | null
   uploaderSnapshot: UploaderSnapshot | null
+  // The cadence the Phase 3 policy currently has the OS running at, or null
+  // when nothing is recording.
+  adaptiveDecision: AdaptiveDecision | null
   startTracking: (input: StartTrackingInput) => Promise<void>
   stopTracking: () => Promise<void>
 }

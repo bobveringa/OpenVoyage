@@ -22,7 +22,6 @@
     "android:apk": "npm run cap:sync && node scripts/build-android.mjs"
   },
   "dependencies": {
-    "@capacitor-community/background-geolocation": "^1.2.26",
     "@capacitor-community/sqlite": "^8.1.1",
     "@capacitor/android": "^8.5.0",
     "@capacitor/app": "^8.1.1",

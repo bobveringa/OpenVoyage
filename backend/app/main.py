@@ -36,6 +36,13 @@ if settings.all_cors_origins:
         allow_credentials=True,
         allow_methods=['*'],
         allow_headers=['*'],
+        # Date is not a CORS-safelisted response header, so without this the
+        # native app (served from http://localhost, talking cross-origin to
+        # the API) reads null for it and its pre-start clock-skew check
+        # silently passes no matter how wrong the device clock is. Samples
+        # recorded with a skewed clock fall outside [started_at, now) and the
+        # server discards them without complaint, so the check has to work.
+        expose_headers=['Date'],
     )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
