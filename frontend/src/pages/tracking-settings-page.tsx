@@ -65,7 +65,7 @@ function describePrecision(level: PrecisionLevel): string {
 }
 
 export function TrackingSettingsPage() {
-  const { activeSession, queueStats } = useTracking()
+  const { activeSession, notifySettingsChanged, queueStats } = useTracking()
   const [settings, setSettings] = useState<TrackingSettings | null>(null)
   const [serverUrl, setServerUrl] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -98,6 +98,9 @@ export function TrackingSettingsPage() {
     setSuccess(null)
     try {
       await writeTrackingSettings(settings)
+      // Applies immediately to a recording in progress rather than only the
+      // next one (B8) — a no-op when nothing is recording.
+      notifySettingsChanged(settings)
       setSuccess('Tracking settings saved.')
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Failed to save settings')

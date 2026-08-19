@@ -8,10 +8,16 @@ export type PositionFix = {
   recordedAt: string
   latitude: number
   longitude: number
-  accuracyMeters: number
+  // null means "unknown", not "infinitely bad" (B6) — a fix with no accuracy
+  // reading is not automatically the worst possible fix.
+  accuracyMeters: number | null
   speedMps: number | null
   headingDegrees: number | null
   altitudeMeters: number | null
+  // Reported by the OS as coming from a mock-location provider (B3). Carried
+  // through so the sanity filter can reject it outright rather than letting
+  // it enter the track indistinguishably from a real fix.
+  simulated: boolean
 }
 
 export type PositionSourceConfig = {
@@ -26,6 +32,12 @@ export type ProbeResult = {
   engine: 'gms' | 'platform'
   reason?: 'permission' | 'location-disabled' | 'engine-unavailable'
   message?: string
+  // Whether the resolved engine can still deliver fixes at a degraded power
+  // tier (B7): true for the fused engine (always), or for the platform
+  // engine when a network location provider exists. Dropping the power tier
+  // when this is false can make the recording go permanently silent — see
+  // adaptive.ts's battery branch.
+  coarseLocationAvailable: boolean
 }
 
 export type PositionSourceOptions = PositionSourceConfig & {
@@ -43,6 +55,10 @@ export type PositionSourceOptions = PositionSourceConfig & {
   // Hard: no fix will ever arrive from this engine. The recording has to be
   // wound up rather than left running against nothing.
   onEngineFailed?: (message: string) => void
+  // The native fix buffer overflowed and dropped fixes before JS ever saw
+  // them (B4) — the same failure mode as the local SQLite queue's own
+  // overflow eviction, just further upstream.
+  onFixesDropped?: (count: number) => void
 }
 
 export type PowerState = {
@@ -195,12 +211,13 @@ export function createFixGate(intervalSeconds: number, distanceFilterMeters: num
 
 function toPositionFix(fix: NativeFix): PositionFix {
   return {
-    accuracyMeters: fix.accuracy ?? Number.POSITIVE_INFINITY,
+    accuracyMeters: fix.accuracy,
     altitudeMeters: fix.altitude,
     headingDegrees: fix.bearing,
     latitude: fix.latitude,
     longitude: fix.longitude,
     recordedAt: new Date(fix.time).toISOString(),
+    simulated: fix.simulated,
     speedMps: fix.speed,
   }
 }
@@ -299,7 +316,10 @@ class NativePositionSource implements PositionSource {
     try {
       do {
         this.drainAgain = false
-        const { fixes } = await Tracking.drain()
+        const { fixes, droppedCount } = await Tracking.drain()
+        if (droppedCount > 0) {
+          options.onFixesDropped?.(droppedCount)
+        }
         for (const fix of fixes) {
           if (
             !this.shouldAccept({
@@ -364,8 +384,9 @@ class WebPositionSource implements PositionSource {
   // The browser has one geolocation API and no engine choice to make.
   async probe(): Promise<ProbeResult> {
     return 'geolocation' in navigator
-      ? { engine: 'platform', ok: true }
+      ? { coarseLocationAvailable: false, engine: 'platform', ok: true }
       : {
+          coarseLocationAvailable: false,
           engine: 'platform',
           message: 'Geolocation is not available in this browser.',
           ok: false,
@@ -404,6 +425,8 @@ class WebPositionSource implements PositionSource {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           recordedAt: new Date(recordedAtMs).toISOString(),
+          // The browser Geolocation API has no mock-location signal.
+          simulated: false,
           speedMps: position.coords.speed,
         })
       },

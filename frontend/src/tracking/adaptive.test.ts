@@ -23,6 +23,7 @@ const BALANCED = { ...DEFAULT_TRACKING_SETTINGS, smartPrecision: 3 as const }
 
 function decide(overrides: Partial<AdaptiveInput> = {}) {
   return decideTracking({
+    coarseLocationAvailable: true,
     movement: 'moving',
     power: HEALTHY_POWER,
     settings: BALANCED,
@@ -113,6 +114,7 @@ describe('decideTracking — manual mode', () => {
   it('honors the interval and power exactly, at any speed', () => {
     for (const speedMps of [0, 1.4, 25, 250]) {
       const decision = decideTracking({
+        coarseLocationAvailable: true,
         movement: 'moving',
         power: HEALTHY_POWER,
         settings: manual,
@@ -126,6 +128,7 @@ describe('decideTracking — manual mode', () => {
 
   it('does not stretch the interval while stationary', () => {
     const decision = decideTracking({
+      coarseLocationAvailable: true,
       movement: 'stationary',
       power: HEALTHY_POWER,
       settings: manual,
@@ -136,6 +139,7 @@ describe('decideTracking — manual mode', () => {
 
   it('keeps the distance filter the user configured', () => {
     const decision = decideTracking({
+      coarseLocationAvailable: true,
       movement: 'moving',
       power: HEALTHY_POWER,
       settings: manual,
@@ -181,6 +185,41 @@ describe('decideTracking — battery safety net', () => {
     const decision = decide({ power: { ...HEALTHY_POWER, powerSaveMode: true } })
     expect(decision.reason).toBe('power-save-mode')
     expect(decision.powerLevel).toBe('balanced')
+  })
+
+  // B7 regression: a device with no coarse-location backend (offline, rural,
+  // de-Googled) produces no fixes at all below the HIGH tier. Dropping the
+  // tier there strands the recording exactly when it matters most — late in
+  // a long trip, far from home. The interval stretch is safe either way and
+  // must still apply; only the tier drop is gated.
+  describe('when no coarse-location fallback exists', () => {
+    it('still stretches the interval on low battery, but keeps the power tier', () => {
+      const decision = decide({
+        coarseLocationAvailable: false,
+        power: { ...HEALTHY_POWER, batteryLevel: 0.1 },
+      })
+      expect(decision.reason).toBe('battery-low')
+      expect(decision.intervalSeconds).toBe(decide({ coarseLocationAvailable: false }).intervalSeconds * 2)
+      expect(decision.powerLevel).toBe('high')
+    })
+
+    it('still stretches the interval on critical battery, but keeps the power tier', () => {
+      const decision = decide({
+        coarseLocationAvailable: false,
+        power: { ...HEALTHY_POWER, batteryLevel: 0.03 },
+      })
+      expect(decision.reason).toBe('battery-critical')
+      expect(decision.powerLevel).toBe('high')
+    })
+
+    it('still stretches the interval in power-save mode, but keeps the power tier', () => {
+      const decision = decide({
+        coarseLocationAvailable: false,
+        power: { ...HEALTHY_POWER, powerSaveMode: true },
+      })
+      expect(decision.reason).toBe('power-save-mode')
+      expect(decision.powerLevel).toBe('high')
+    })
   })
 })
 

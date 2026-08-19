@@ -42,6 +42,22 @@ final class PlatformLocationEngine implements LocationEngine {
     }
 
     /**
+     * Whether this device has a location backend that keeps producing fixes
+     * below the HIGH power tier (B7). On bare AOSP with no network provider,
+     * anything below HIGH resolves to nothing at all — see pickProvider — so
+     * the battery-aware degradation in adaptive.ts must not drop the tier
+     * unless this is true.
+     */
+    static boolean hasCoarseLocationBackend(Context context) {
+        LocationManager manager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+        if (manager == null) {
+            return false;
+        }
+        return manager.getAllProviders().contains(LocationManager.NETWORK_PROVIDER)
+                && manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+    }
+
+    /**
      * Prefers the platform fused provider (API 31+, and only when the device
      * actually has one) and falls back to GPS. For balanced power a network
      * provider is used when one exists, since it is the only cheaper option

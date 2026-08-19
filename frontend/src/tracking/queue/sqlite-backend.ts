@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS queue_meta (
 `
 
 const DROPPED_COUNT_KEY = 'droppedLocallyCount'
+const SIMULATED_REJECTED_COUNT_KEY = 'simulatedRejectedCount'
 
 type SessionRow = {
   session_id: string
@@ -375,6 +376,33 @@ export class SqliteQueueBackend implements QueueBackend {
   async resetDroppedLocallyCount(): Promise<void> {
     await this.connection.run('DELETE FROM queue_meta WHERE key = ?', [
       DROPPED_COUNT_KEY,
+    ])
+  }
+
+  async getSimulatedRejectedCount(): Promise<number> {
+    const result = await this.connection.query(
+      'SELECT value FROM queue_meta WHERE key = ?',
+      [SIMULATED_REJECTED_COUNT_KEY],
+    )
+    const row = (result.values as Array<{ value: string }> | undefined)?.[0]
+    return row ? Number.parseInt(row.value, 10) : 0
+  }
+
+  async addSimulatedRejectedCount(delta: number): Promise<void> {
+    if (delta === 0) {
+      return
+    }
+    const current = await this.getSimulatedRejectedCount()
+    await this.connection.run(
+      `INSERT INTO queue_meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [SIMULATED_REJECTED_COUNT_KEY, String(current + delta)],
+    )
+  }
+
+  async resetSimulatedRejectedCount(): Promise<void> {
+    await this.connection.run('DELETE FROM queue_meta WHERE key = ?', [
+      SIMULATED_REJECTED_COUNT_KEY,
     ])
   }
 }

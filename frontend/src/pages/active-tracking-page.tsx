@@ -125,6 +125,32 @@ export function ActiveTrackingPage({ onNavigate }: ActiveTrackingPageProps) {
         </p>
       ) : null}
 
+      {tracking.queueStats && tracking.queueStats.simulatedRejectedCount > 0 ? (
+        <p className="text-center text-xs font-medium text-amber-700" role="status">
+          {tracking.queueStats.simulatedRejectedCount} point
+          {tracking.queueStats.simulatedRejectedCount === 1 ? '' : 's'} rejected because
+          {tracking.queueStats.simulatedRejectedCount === 1 ? ' it came' : ' they came'} from a
+          mock-location app. Turn off mock locations to record a real track.
+        </p>
+      ) : null}
+
+      {tracking.uploaderSnapshot && tracking.uploaderSnapshot.discardedCount > 0 ? (
+        <p className="text-center text-xs font-medium text-amber-700" role="status">
+          {tracking.uploaderSnapshot.discardedCount} point
+          {tracking.uploaderSnapshot.discardedCount === 1 ? ' was' : 's were'} rejected by the
+          server, usually because this device's clock is off. Check date &amp; time.
+        </p>
+      ) : null}
+
+      {tracking.uploaderSnapshot && tracking.uploaderSnapshot.filteredCount > 0 ? (
+        <p className="text-center text-xs text-muted-foreground">
+          {tracking.uploaderSnapshot.filteredCount} point
+          {tracking.uploaderSnapshot.filteredCount === 1 ? '' : 's'} fell inside one of your
+          privacy zones and {tracking.uploaderSnapshot.filteredCount === 1 ? 'was' : 'were'} not
+          stored.
+        </p>
+      ) : null}
+
       {tracking.error ? (
         <p className="text-center text-sm font-medium text-destructive" role="alert">
           {tracking.error}

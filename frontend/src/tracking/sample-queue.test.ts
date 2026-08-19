@@ -19,7 +19,13 @@ const BASE_SAMPLE: QueuedSample = {
 describe('checkSanityFilter', () => {
   it('accepts a plausible first fix with no prior sample', () => {
     const result = checkSanityFilter(
-      { accuracyMeters: 10, latitude: 51.5, longitude: 5.5, recordedAt: BASE_SAMPLE.recordedAt },
+      {
+        accuracyMeters: 10,
+        latitude: 51.5,
+        longitude: 5.5,
+        recordedAt: BASE_SAMPLE.recordedAt,
+        simulated: false,
+      },
       null,
       100,
     )
@@ -28,7 +34,13 @@ describe('checkSanityFilter', () => {
 
   it('rejects a fix less accurate than the configured threshold', () => {
     const result = checkSanityFilter(
-      { accuracyMeters: 150, latitude: 51.5, longitude: 5.5, recordedAt: BASE_SAMPLE.recordedAt },
+      {
+        accuracyMeters: 150,
+        latitude: 51.5,
+        longitude: 5.5,
+        recordedAt: BASE_SAMPLE.recordedAt,
+        simulated: false,
+      },
       null,
       100,
     )
@@ -37,7 +49,13 @@ describe('checkSanityFilter', () => {
 
   it('accepts a fix with a null accuracy (accuracy unknown)', () => {
     const result = checkSanityFilter(
-      { accuracyMeters: null, latitude: 51.5, longitude: 5.5, recordedAt: BASE_SAMPLE.recordedAt },
+      {
+        accuracyMeters: null,
+        latitude: 51.5,
+        longitude: 5.5,
+        recordedAt: BASE_SAMPLE.recordedAt,
+        simulated: false,
+      },
       null,
       100,
     )
@@ -52,7 +70,7 @@ describe('checkSanityFilter', () => {
     ['exactly (0, 0)', { latitude: 0, longitude: 0 }],
   ])('rejects out-of-range coordinates: %s', (_label, coords) => {
     const result = checkSanityFilter(
-      { accuracyMeters: 10, recordedAt: BASE_SAMPLE.recordedAt, ...coords },
+      { accuracyMeters: 10, recordedAt: BASE_SAMPLE.recordedAt, simulated: false, ...coords },
       null,
       100,
     )
@@ -66,6 +84,7 @@ describe('checkSanityFilter', () => {
         latitude: 51.5001,
         longitude: 5.5001,
         recordedAt: '2026-08-16T08:59:59.000Z',
+        simulated: false,
       },
       BASE_SAMPLE,
       100,
@@ -81,6 +100,7 @@ describe('checkSanityFilter', () => {
         latitude: 51.500126,
         longitude: 5.5,
         recordedAt: '2026-08-16T09:00:10.000Z',
+        simulated: false,
       },
       BASE_SAMPLE,
       100,
@@ -96,11 +116,47 @@ describe('checkSanityFilter', () => {
         latitude: 52.5,
         longitude: 5.5,
         recordedAt: '2026-08-16T09:00:01.000Z',
+        simulated: false,
       },
       BASE_SAMPLE,
       100,
     )
     expect(result).toEqual({ ok: false, reason: 'gps-jump' })
+  })
+})
+
+describe('checkSanityFilter — mock locations (B3)', () => {
+  it('rejects a fix flagged as coming from a mock-location provider', () => {
+    const result = checkSanityFilter(
+      {
+        accuracyMeters: 5,
+        latitude: 51.5,
+        longitude: 5.5,
+        recordedAt: BASE_SAMPLE.recordedAt,
+        simulated: true,
+      },
+      null,
+      100,
+    )
+    expect(result).toEqual({ ok: false, reason: 'simulated' })
+  })
+
+  // A simulated fix is wrong, not merely imprecise — it must never win out
+  // over the accuracy cutoff or the coordinate/order checks. Checked here as
+  // a priority ordering: an otherwise-perfect fix is still rejected.
+  it('rejects a simulated fix even when everything else about it is plausible', () => {
+    const result = checkSanityFilter(
+      {
+        accuracyMeters: 3,
+        latitude: 51.500126,
+        longitude: 5.5,
+        recordedAt: '2026-08-16T09:00:10.000Z',
+        simulated: true,
+      },
+      BASE_SAMPLE,
+      100,
+    )
+    expect(result).toEqual({ ok: false, reason: 'simulated' })
   })
 })
 
@@ -117,6 +173,7 @@ describe('checkSanityFilter — session window', () => {
         latitude: 51.45,
         longitude: 5.46,
         recordedAt: '2026-08-18T11:59:57.000Z',
+        simulated: false,
       },
       null,
       100,
@@ -128,7 +185,13 @@ describe('checkSanityFilter — session window', () => {
 
   it('accepts a fix recorded exactly at the session start', () => {
     const result = checkSanityFilter(
-      { accuracyMeters: 5, latitude: 51.45, longitude: 5.46, recordedAt: startedAt },
+      {
+        accuracyMeters: 5,
+        latitude: 51.45,
+        longitude: 5.46,
+        recordedAt: startedAt,
+        simulated: false,
+      },
       null,
       100,
       startedAt,
@@ -144,6 +207,7 @@ describe('checkSanityFilter — session window', () => {
         latitude: 51.45,
         longitude: 5.46,
         recordedAt: '1999-01-01T00:00:00.000Z',
+        simulated: false,
       },
       null,
       100,
@@ -165,6 +229,7 @@ describe('checkSanityFilter — GPS jump guard against the last accepted fix', (
         latitude: 51.5786,
         longitude: 5.36015,
         recordedAt: '2026-08-18T22:06:50.000Z',
+        simulated: false,
       },
       {
         latitude: 51.44995,
@@ -184,6 +249,7 @@ describe('checkSanityFilter — GPS jump guard against the last accepted fix', (
         latitude: 51.44811,
         longitude: 5.45207,
         recordedAt: '2026-08-18T22:39:33.000Z',
+        simulated: false,
       },
       {
         latitude: 51.5786,

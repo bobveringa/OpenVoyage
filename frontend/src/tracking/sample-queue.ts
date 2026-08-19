@@ -45,13 +45,20 @@ export type SanityFilterCandidate = {
   latitude: number
   longitude: number
   accuracyMeters: number | null
+  simulated: boolean
 }
 
 export type SanityFilterResult =
   | { ok: true }
   | {
       ok: false
-      reason: 'accuracy' | 'coordinates' | 'out-of-order' | 'gps-jump' | 'before-session'
+      reason:
+        | 'accuracy'
+        | 'coordinates'
+        | 'out-of-order'
+        | 'gps-jump'
+        | 'before-session'
+        | 'simulated'
     }
 
 // §5.2: reject a fix before it ever reaches the queue.
@@ -82,6 +89,17 @@ export function checkSanityFilter(
     return { ok: false, reason: 'before-session' }
   }
 
+  // A mock-location fix is wrong, not merely imprecise — the same category as
+  // impossible coordinates or a GPS jump. It must never reach the queue
+  // indistinguishably from a real fix, and must never be rescued by
+  // shouldRescueRejectedFix (B3).
+  if (candidate.simulated) {
+    return { ok: false, reason: 'simulated' }
+  }
+
+  // Accuracy unknown (null) is deliberately accepted rather than rejected:
+  // the cutoff exists to judge a number, and there is nothing here for it to
+  // judge (B6).
   if (
     candidate.accuracyMeters !== null &&
     candidate.accuracyMeters > accuracyThresholdMeters
@@ -226,12 +244,38 @@ export async function resetDroppedLocallyCount(): Promise<void> {
   await store.resetDroppedLocallyCount()
 }
 
+// Exported separately from enqueueSample's own internal overflow accounting
+// (B4): the native fix buffer can drop fixes for the same "ran out of local
+// storage" reason, and needs to add to the same counter from the drain path.
+export async function addDroppedLocallyCount(count: number): Promise<void> {
+  if (count <= 0) {
+    return
+  }
+  const store = await getBackend()
+  await store.addDroppedLocallyCount(count)
+}
+
+export async function addSimulatedRejectedCount(count: number): Promise<void> {
+  if (count <= 0) {
+    return
+  }
+  const store = await getBackend()
+  await store.addSimulatedRejectedCount(count)
+}
+
+export async function resetSimulatedRejectedCount(): Promise<void> {
+  const store = await getBackend()
+  await store.resetSimulatedRejectedCount()
+}
+
 export async function getQueueStats(sessionId: string): Promise<QueueStats> {
   const store = await getBackend()
-  const [sampleCount, oldestSampleAt, droppedLocallyCount] = await Promise.all([
-    store.countSamplesForSession(sessionId),
-    store.oldestSampleTimestamp(sessionId),
-    store.getDroppedLocallyCount(),
-  ])
-  return { droppedLocallyCount, oldestSampleAt, sampleCount }
+  const [sampleCount, oldestSampleAt, droppedLocallyCount, simulatedRejectedCount] =
+    await Promise.all([
+      store.countSamplesForSession(sessionId),
+      store.oldestSampleTimestamp(sessionId),
+      store.getDroppedLocallyCount(),
+      store.getSimulatedRejectedCount(),
+    ])
+  return { droppedLocallyCount, oldestSampleAt, sampleCount, simulatedRejectedCount }
 }

@@ -115,30 +115,48 @@ public class TrackingService extends Service {
 
     private static volatile Listener listener = null;
 
-    private LocationEngine engine;
+    // buffer is assigned once in onCreate, before `instance` is published (a
+    // volatile write), so its reference is safely published to other threads
+    // without needing to be volatile itself (B9).
     private TrackingFixBuffer buffer;
     private Handler handler;
 
-    private boolean tracking = false;
-    private long intervalMs = 30_000L;
-    private long minIntervalMs = 10_000L;
-    private float distanceFilterMeters = 0f;
-    private LocationEngine.Power power = LocationEngine.Power.HIGH;
-    private long startedAtMs = 0L;
-    private String notificationTitle = "Recording trip";
-    private String notificationText = "Starting…";
-    private String locationSource = SOURCE_AUTO;
+    // Written from the main looper (engine callbacks, the watchdog Handler,
+    // onStartCommand) and read from the Capacitor plugin thread
+    // (describeState(), isTracking(), getWarningText(), noteSampleAccepted()).
+    // volatile makes each individual read/write correct; snapshot() below
+    // additionally synchronizes the handful of writer transitions that touch
+    // several of these together, so a describeState() read can't observe a
+    // torn mix of old and new values (B9).
+    private volatile LocationEngine engine;
+    private volatile boolean tracking = false;
+    private volatile long intervalMs = 30_000L;
+    private volatile long minIntervalMs = 10_000L;
+    private volatile float distanceFilterMeters = 0f;
+    private volatile LocationEngine.Power power = LocationEngine.Power.HIGH;
+    private volatile long startedAtMs = 0L;
+    private volatile String notificationTitle = "Recording trip";
+    private volatile String notificationText = "Starting…";
+    private volatile String locationSource = SOURCE_AUTO;
 
     /** Non-null while the engine is failing or has gone quiet. */
-    private String warningText = null;
-    private long lastFixAtMs = 0L;
+    private volatile String warningText = null;
+    private volatile long lastFixAtMs = 0L;
     // Distinct from lastFixAtMs on purpose. A fix arriving is not the same as a
     // point being recorded: the JS side still applies an accuracy cutoff, and
     // when that rejects everything the recording silently stops producing
     // anything while raw fixes keep resetting the watchdog. Tracking both lets
     // the two failures be told apart and reported differently.
-    private long lastAcceptedAtMs = 0L;
-    private boolean listenerAttached = false;
+    private volatile long lastAcceptedAtMs = 0L;
+    // Baseline the no-fix/no-accept watchdog measures against (B1/B2).
+    // Distinct from startedAtMs, which must stay the session's real start
+    // (the notification chronometer depends on it and a restore must not
+    // move it). This instead resets to "now" every time location updates are
+    // (re)started — a genuine start *and* a reconfigure — so a cadence change
+    // or a process-kill restart doesn't inherit a stale baseline and
+    // immediately read as a cold-start timeout.
+    private volatile long watchdogBaseMs = 0L;
+    private volatile boolean listenerAttached = false;
     private Runnable noFixCheck = null;
 
     static TrackingService getInstance() {
@@ -208,6 +226,55 @@ public class TrackingService extends Service {
         return buffer;
     }
 
+    /** Immutable bundle of everything describeState() needs (B9). */
+    static final class Snapshot {
+        final boolean tracking;
+        final long startedAtMs;
+        final long intervalMs;
+        final String powerLevel;
+        final String engineName;
+        final String warningText;
+        final int bufferedFixes;
+
+        private Snapshot(
+                boolean tracking,
+                long startedAtMs,
+                long intervalMs,
+                String powerLevel,
+                String engineName,
+                String warningText,
+                int bufferedFixes
+        ) {
+            this.tracking = tracking;
+            this.startedAtMs = startedAtMs;
+            this.intervalMs = intervalMs;
+            this.powerLevel = powerLevel;
+            this.engineName = engineName;
+            this.warningText = warningText;
+            this.bufferedFixes = bufferedFixes;
+        }
+    }
+
+    /**
+     * A single consistent read of every field the plugin's describeState()
+     * needs, taken under the same lock the writer transitions below use, so
+     * the fields describing one state transition can never be observed half
+     * from before it and half from after (B9).
+     */
+    Snapshot snapshot() {
+        synchronized (this) {
+            return new Snapshot(
+                    tracking,
+                    startedAtMs,
+                    intervalMs,
+                    power.wireName(),
+                    engine == null ? "none" : engine.getName(),
+                    warningText,
+                    buffer == null ? 0 : buffer.size()
+            );
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -272,10 +339,24 @@ public class TrackingService extends Service {
 
     private void handleStart(Intent intent) {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        boolean freshStart = intent != null && intent.hasExtra(EXTRA_INTERVAL_MS);
 
-        if (intent != null && intent.hasExtra(EXTRA_INTERVAL_MS)) {
-            readConfig(intent);
-            startedAtMs = intent.getLongExtra(EXTRA_STARTED_AT, System.currentTimeMillis());
+        synchronized (this) {
+            if (freshStart) {
+                readConfig(intent);
+                startedAtMs = intent.getLongExtra(EXTRA_STARTED_AT, System.currentTimeMillis());
+            } else {
+                restoreConfig(prefs);
+            }
+            tracking = true;
+            lastAcceptedAtMs = 0L;
+            // Reset only on a genuine start, not on a reconfigure (B1): a
+            // reconfigure keeps whatever fix history it already had, so a
+            // cadence change mid-recording doesn't read as "no fix yet".
+            lastFixAtMs = 0L;
+        }
+
+        if (freshStart) {
             persistConfig(prefs);
             // A fresh start, so anything still buffered belongs to a recording
             // that has already finished. Draining it into the new session
@@ -283,12 +364,8 @@ public class TrackingService extends Service {
             // with times before its started_at — which the server discards
             // silently, taking the real points of the batch with them.
             buffer.drain();
-        } else {
-            restoreConfig(prefs);
         }
 
-        tracking = true;
-        lastAcceptedAtMs = 0L;
         prefs.edit().putBoolean(PREF_TRACKING, true).apply();
 
         postNotificationAsForeground();
@@ -299,7 +376,9 @@ public class TrackingService extends Service {
         if (!tracking || intent == null) {
             return;
         }
-        readConfig(intent);
+        synchronized (this) {
+            readConfig(intent);
+        }
         persistConfig(getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE));
         requestLocationUpdates();
     }
@@ -389,12 +468,19 @@ public class TrackingService extends Service {
             return;
         }
 
-        engine = SOURCE_GMS.equals(resolved)
+        LocationEngine newEngine = SOURCE_GMS.equals(resolved)
                 ? new FusedLocationEngine(this)
                 : new PlatformLocationEngine(this);
 
+        synchronized (this) {
+            engine = newEngine;
+            // Location updates are (re)starting now, so the watchdog measures
+            // "no fix yet" / "nothing accepted yet" from this moment, not
+            // from startedAtMs (B1/B2) — a reconfigure or a process-kill
+            // restart must not immediately read as a cold-start timeout.
+            watchdogBaseMs = System.currentTimeMillis();
+        }
         clearWarning();
-        lastFixAtMs = 0L;
 
         engine.start(
                 new LocationEngine.Config(
@@ -441,35 +527,35 @@ public class TrackingService extends Service {
                 if (!tracking) {
                     return;
                 }
-                long now = System.currentTimeMillis();
-                boolean hadFirstFix = lastFixAtMs > 0;
-                long sinceFix = now - (hadFirstFix ? lastFixAtMs : startedAtMs);
-                long fixThreshold = hadFirstFix
-                        ? Math.max(MIN_NO_FIX_WARNING_MS, intervalMs * 2)
-                        : FIRST_FIX_WARNING_MS;
 
-                if (sinceFix > fixThreshold) {
-                    setWarning(
-                            hadFirstFix
-                                    ? "No GPS signal right now - still recording."
-                                    : "Waiting for a GPS fix. This can take a minute outdoors, longer indoors."
-                                            + (SOURCE_GMS.equals(getEngineName())
-                                                    ? ""
-                                                    : " If it never arrives, try another Location source in tracking settings.")
-                    );
-                    handler.postDelayed(this, NO_FIX_CHECK_INTERVAL_MS);
-                    return;
-                }
+                WarningKind kind = computeWarningKind(
+                        System.currentTimeMillis(),
+                        watchdogBaseMs,
+                        lastFixAtMs,
+                        lastAcceptedAtMs,
+                        intervalMs,
+                        listenerAttached
+                );
 
-                // Fixes are arriving but nothing is being recorded. Only
-                // meaningful while a webview is attached to do the accepting;
-                // with none attached, fixes are simply buffered for later.
-                long sinceAccepted = now - (lastAcceptedAtMs > 0 ? lastAcceptedAtMs : startedAtMs);
-                long acceptThreshold = Math.max(MIN_NO_FIX_WARNING_MS, intervalMs * 3);
-                if (listenerAttached && hadFirstFix && sinceAccepted > acceptThreshold) {
-                    setWarning("GPS signal is too weak to record accurately - some points are being skipped.");
-                } else {
-                    clearWarning();
+                switch (kind) {
+                    case WAITING_FOR_FIRST_FIX:
+                        setWarning(
+                                "Waiting for a GPS fix. This can take a minute outdoors, longer indoors."
+                                        + (SOURCE_GMS.equals(getEngineName())
+                                                ? ""
+                                                : " If it never arrives, try another Location source in tracking settings.")
+                        );
+                        break;
+                    case NO_SIGNAL:
+                        setWarning("No GPS signal right now - still recording.");
+                        break;
+                    case SIGNAL_TOO_WEAK:
+                        setWarning("GPS signal is too weak to record accurately - some points are being skipped.");
+                        break;
+                    case NONE:
+                    default:
+                        clearWarning();
+                        break;
                 }
                 handler.postDelayed(this, NO_FIX_CHECK_INTERVAL_MS);
             }
@@ -482,6 +568,50 @@ public class TrackingService extends Service {
             handler.removeCallbacks(noFixCheck);
             noFixCheck = null;
         }
+    }
+
+    /** What the no-fix watchdog should report, before it is turned into text. */
+    enum WarningKind {
+        NONE,
+        WAITING_FOR_FIRST_FIX,
+        NO_SIGNAL,
+        SIGNAL_TOO_WEAK,
+    }
+
+    /**
+     * Pure threshold selection extracted out of the watchdog Runnable so it
+     * can be unit-tested without a Service (T2). Covers both B1 (a
+     * reconfigure must not look like a cold start) and B2 (a process-kill
+     * restart must not either) via watchdogBaseMs, which the caller resets
+     * whenever location updates are (re)started — see requestLocationUpdates.
+     */
+    static WarningKind computeWarningKind(
+            long now,
+            long watchdogBaseMs,
+            long lastFixAtMs,
+            long lastAcceptedAtMs,
+            long intervalMs,
+            boolean listenerAttached
+    ) {
+        boolean hadFirstFix = lastFixAtMs > 0;
+        long sinceFix = now - (hadFirstFix ? lastFixAtMs : watchdogBaseMs);
+        long fixThreshold = hadFirstFix
+                ? Math.max(MIN_NO_FIX_WARNING_MS, intervalMs * 2)
+                : FIRST_FIX_WARNING_MS;
+
+        if (sinceFix > fixThreshold) {
+            return hadFirstFix ? WarningKind.NO_SIGNAL : WarningKind.WAITING_FOR_FIRST_FIX;
+        }
+
+        // Fixes are arriving but nothing is being recorded. Only meaningful
+        // while a webview is attached to do the accepting; with none
+        // attached, fixes are simply buffered for later.
+        long sinceAccepted = now - (lastAcceptedAtMs > 0 ? lastAcceptedAtMs : watchdogBaseMs);
+        long acceptThreshold = Math.max(MIN_NO_FIX_WARNING_MS, intervalMs * 3);
+        if (listenerAttached && hadFirstFix && sinceAccepted > acceptThreshold) {
+            return WarningKind.SIGNAL_TOO_WEAK;
+        }
+        return WarningKind.NONE;
     }
 
     private void setWarning(String message) {
@@ -523,14 +653,16 @@ public class TrackingService extends Service {
     private void onEngineFailure(String message) {
         Log.e(TAG, "Location engine failed: " + message);
         cancelNoFixCheck();
-        if (engine != null) {
-            engine.stop();
-            engine = null;
+        synchronized (this) {
+            if (engine != null) {
+                engine.stop();
+                engine = null;
+            }
+            tracking = false;
+            // The failure is the notification's whole content below, so
+            // leaving it in warningText too would render it twice ("... · ...").
+            warningText = null;
         }
-        tracking = false;
-        // The failure is the notification's whole content below, so leaving
-        // it in warningText too would render it twice ("... · ...").
-        warningText = null;
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean(PREF_TRACKING, false)
@@ -574,8 +706,10 @@ public class TrackingService extends Service {
     }
 
     private void stopTracking() {
-        tracking = false;
-        warningText = null;
+        synchronized (this) {
+            tracking = false;
+            warningText = null;
+        }
         removeLocationUpdates();
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()

@@ -40,6 +40,14 @@ export type UploaderSnapshot = {
   queueDepth: number
   lastSyncAt: string | null
   lastErrorMessage: string | null
+  // Cumulative, for this session, from the server's four-bucket batch
+  // response (B5). discardedCount is almost always a clock-skew symptom;
+  // filteredCount is expected whenever a privacy zone is in play. The
+  // duplicate bucket has no user-facing counterpart — a persistently
+  // non-zero value only means the retire-on-ok logic has a bug, so it is
+  // logged rather than surfaced here.
+  discardedCount: number
+  filteredCount: number
 }
 
 export type UploaderDeps = {
@@ -73,6 +81,8 @@ export class SessionUploader {
   private cycleInFlight = false
   private networkListenerHandle: { remove: () => void } | null = null
   private snapshot: UploaderSnapshot = {
+    discardedCount: 0,
+    filteredCount: 0,
     lastErrorMessage: null,
     lastSyncAt: null,
     queueDepth: 0,
@@ -341,7 +351,19 @@ export class SessionUploader {
         // per sample, so the whole slice is retired unconditionally.
         await deleteUploadedSamples(batch.map((sample) => sample.id))
         const stats = await getQueueStats(this.deps.sessionId)
-        this.updateSnapshot({ queueDepth: stats.sampleCount })
+        if (result.value.duplicate_samples > 0) {
+          // No user-facing text for this bucket: a persistently non-zero
+          // value only means the retire-on-ok logic has a bug, which is a
+          // developer concern, not a recording-quality one.
+          console.warn(
+            `Uploader: server reported ${result.value.duplicate_samples} duplicate sample(s) for session ${this.deps.sessionId}`,
+          )
+        }
+        this.updateSnapshot({
+          discardedCount: this.snapshot.discardedCount + result.value.discarded_samples,
+          filteredCount: this.snapshot.filteredCount + result.value.filtered_samples,
+          queueDepth: stats.sampleCount,
+        })
         if (batch.length < BATCH_SIZE) {
           return 'ok'
         }

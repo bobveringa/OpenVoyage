@@ -20,9 +20,12 @@ vi.mock('@/tracking/sample-queue', () => ({
   deletePendingSession: vi.fn().mockResolvedValue(undefined),
   deleteUploadedSamples: vi.fn().mockResolvedValue(undefined),
   getPendingSession: vi.fn(),
-  getQueueStats: vi
-    .fn()
-    .mockResolvedValue({ droppedLocallyCount: 0, oldestSampleAt: null, sampleCount: 0 }),
+  getQueueStats: vi.fn().mockResolvedValue({
+    droppedLocallyCount: 0,
+    oldestSampleAt: null,
+    sampleCount: 0,
+    simulatedRejectedCount: 0,
+  }),
   listSamplesForUpload: vi.fn().mockResolvedValue([]),
   markSessionCreateAcked: vi.fn().mockResolvedValue(undefined),
   markSessionEndAcked: vi.fn().mockResolvedValue(undefined),
@@ -158,6 +161,40 @@ describe('SessionUploader batching', () => {
     expect(mockDeleteUploadedSamples).toHaveBeenCalledWith(
       batch.map((item) => item.id),
     )
+  })
+
+  // B5: the four-bucket response used to be discarded entirely. discarded and
+  // filtered are user-visible (clock skew / privacy zone respectively) and
+  // must accumulate across every batch and cycle of the session, not just
+  // reflect the last response.
+  it('accumulates discarded and filtered counts from the server response across cycles', async () => {
+    mockListSamplesForUpload
+      .mockResolvedValueOnce(sampleBatch(2))
+      .mockResolvedValueOnce(sampleBatch(2))
+    mockUploadTrackSamples
+      .mockResolvedValueOnce({
+        accepted_samples: 1,
+        discarded_samples: 1,
+        duplicate_samples: 0,
+        filtered_samples: 0,
+      })
+      .mockResolvedValueOnce({
+        accepted_samples: 1,
+        discarded_samples: 0,
+        duplicate_samples: 0,
+        filtered_samples: 1,
+      })
+
+    const { snapshots, uploader } = makeUploader()
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    uploader.requestSync()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const last = snapshots[snapshots.length - 1]
+    expect(last?.discardedCount).toBe(1)
+    expect(last?.filteredCount).toBe(1)
   })
 })
 

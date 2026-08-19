@@ -10,6 +10,7 @@ const SESSIONS_STORE = 'pending_sessions'
 const SAMPLES_STORE = 'pending_samples'
 const META_STORE = 'meta'
 const DROPPED_COUNT_KEY = 'droppedLocallyCount'
+const SIMULATED_REJECTED_COUNT_KEY = 'simulatedRejectedCount'
 
 function promisify<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -245,6 +246,35 @@ export class IndexedDbQueueBackend implements QueueBackend {
   async resetDroppedLocallyCount(): Promise<void> {
     const tx = this.connection.transaction(META_STORE, 'readwrite')
     tx.objectStore(META_STORE).delete(DROPPED_COUNT_KEY)
+    await txDone(tx)
+  }
+
+  async getSimulatedRejectedCount(): Promise<number> {
+    const tx = this.connection.transaction(META_STORE, 'readonly')
+    const result = await promisify(
+      tx.objectStore(META_STORE).get(SIMULATED_REJECTED_COUNT_KEY) as IDBRequest<
+        { key: string; value: number } | undefined
+      >,
+    )
+    return result?.value ?? 0
+  }
+
+  async addSimulatedRejectedCount(delta: number): Promise<void> {
+    if (delta === 0) {
+      return
+    }
+    const current = await this.getSimulatedRejectedCount()
+    const tx = this.connection.transaction(META_STORE, 'readwrite')
+    tx.objectStore(META_STORE).put({
+      key: SIMULATED_REJECTED_COUNT_KEY,
+      value: current + delta,
+    })
+    await txDone(tx)
+  }
+
+  async resetSimulatedRejectedCount(): Promise<void> {
+    const tx = this.connection.transaction(META_STORE, 'readwrite')
+    tx.objectStore(META_STORE).delete(SIMULATED_REJECTED_COUNT_KEY)
     await txDone(tx)
   }
 

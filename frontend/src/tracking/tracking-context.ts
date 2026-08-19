@@ -2,6 +2,7 @@ import { createContext } from 'react'
 
 import type { AdaptiveDecision } from '@/tracking/adaptive'
 import type { QueueStats } from '@/tracking/sample-queue'
+import type { TrackingSettings } from '@/tracking/tracking-settings'
 import type { UploaderSnapshot } from '@/tracking/uploader'
 
 export type TrackingStatus =
@@ -46,6 +47,11 @@ export type TrackingContextValue = {
   locationWarning: string | null
   startTracking: (input: StartTrackingInput) => Promise<void>
   stopTracking: () => Promise<void>
+  // Settings just saved from the settings page (B8). Applies immediately to
+  // a live recording — re-evaluates the adaptive policy and, if the cadence
+  // genuinely changed, pushes it to the native service — rather than only
+  // taking effect on the next recording.
+  notifySettingsChanged: (settings: TrackingSettings) => void
 }
 
 export const TrackingContext = createContext<TrackingContextValue | null>(null)

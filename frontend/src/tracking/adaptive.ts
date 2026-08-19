@@ -115,6 +115,13 @@ export type AdaptiveInput = {
   speedMps: number | null
   movement: MovementState
   power: PowerState
+  // Whether dropping the power tier can still produce fixes on this device
+  // (B7): true for the fused engine, or for the platform engine when a
+  // network location provider exists. False (the safe default when unknown)
+  // means the battery branch may still stretch the interval but must not
+  // touch the tier — see the stationary branch's comment for why a tier drop
+  // that yields no fixes is a trap, not a saving.
+  coarseLocationAvailable: boolean
 }
 
 export type AdaptiveReason =
@@ -234,6 +241,7 @@ export function decideTracking({
   speedMps,
   movement,
   power,
+  coarseLocationAvailable,
 }: AdaptiveInput): AdaptiveDecision {
   const baseline = baselineFor(settings)
   const baseSeconds = baseline.intervalSeconds
@@ -289,18 +297,32 @@ export function decideTracking({
   // movement policy asked for — including a manual interval the user pinned,
   // since running the battery flat mid-trip loses far more of the track than
   // a stretched interval does.
+  //
+  // The interval multiplier always applies — that is where nearly all the
+  // saving is, and it cannot make the engine go silent. The power *tier*
+  // drop is the dangerous part: on a device with no coarse-location backend,
+  // dropping below HIGH switches the platform engine to a provider that
+  // produces no fixes at all, and movement can only be noticed from a fix —
+  // so the recording goes dark and cannot recover. Same reasoning as the
+  // stationary branch above; see its comment for the reproduced case.
   if (!power.charging) {
     if (power.batteryLevel !== null && power.batteryLevel <= CRITICAL_BATTERY_LEVEL) {
       seconds *= 4
-      powerLevel = 'low'
+      if (coarseLocationAvailable) {
+        powerLevel = 'low'
+      }
       reason = 'battery-critical'
     } else if (power.batteryLevel !== null && power.batteryLevel <= LOW_BATTERY_LEVEL) {
       seconds *= 2
-      powerLevel = degrade(powerLevel)
+      if (coarseLocationAvailable) {
+        powerLevel = degrade(powerLevel)
+      }
       reason = 'battery-low'
     } else if (power.powerSaveMode) {
       seconds *= 2
-      powerLevel = degrade(powerLevel)
+      if (coarseLocationAvailable) {
+        powerLevel = degrade(powerLevel)
+      }
       reason = 'power-save-mode'
     }
   }

@@ -29,6 +29,8 @@ import {
   type PowerState,
 } from '@/tracking/position-source'
 import {
+  addDroppedLocallyCount,
+  addSimulatedRejectedCount,
   checkSanityFilter,
   enqueueSample,
   getLastQueuedSample,
@@ -39,6 +41,7 @@ import {
   purgeSession,
   putPendingSession,
   resetDroppedLocallyCount,
+  resetSimulatedRejectedCount,
   sweepOrphanedSamples,
   type QueueStats,
 } from '@/tracking/sample-queue'
@@ -94,6 +97,16 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   // effect can both pass them and set up two uploaders for one session.
   const recoveryClaimedRef = useRef(false)
   const settingsRef = useRef<TrackingSettings>(DEFAULT_TRACKING_SETTINGS)
+  // Bumped every time settingsRef is written (B8). The ref itself is the read
+  // path for synchronous code like handleFix, but a bare ref is invisible to
+  // a useEffect's dependency array — this gives effects (the notification
+  // text, most notably) something to depend on so they actually re-run when
+  // settings change mid-recording.
+  const [settingsVersion, setSettingsVersion] = useState(0)
+  // Whether the current engine can still deliver fixes at a degraded power
+  // tier (B7) — see adaptive.ts's battery branch. False until a probe says
+  // otherwise, which is the safe default.
+  const coarseLocationAvailableRef = useRef(false)
 
   // One source for the whole app lifetime. The native side owns "am I
   // recording", so this object is a handle to it, not the recording itself.
@@ -115,6 +128,13 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       sourceRef.current = createPositionSource()
     }
     return sourceRef.current
+  }, [])
+
+  // The one place settingsRef is ever written (B8) — pairs the ref update
+  // with a version bump so effects depending on settings can see it.
+  const updateSettingsRef = useCallback((next: TrackingSettings) => {
+    settingsRef.current = next
+    setSettingsVersion((version) => version + 1)
   }, [])
 
   useEffect(() => {
@@ -175,6 +195,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         return
       }
       const decision = decideTracking({
+        coarseLocationAvailable: coarseLocationAvailableRef.current,
         movement: movementRef.current.getState(),
         power: powerRef.current,
         settings: settingsRef.current,
@@ -216,6 +237,11 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
           reason: filterResult.reason,
         })
       ) {
+        if (filterResult.reason === 'simulated') {
+          // A user who left a mock-location app enabled needs to be told —
+          // otherwise the recording just appears to produce nothing (B3).
+          void addSimulatedRejectedCount(1).then(() => refreshQueueStats(sessionId))
+        }
         return
       }
 
@@ -240,7 +266,9 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         recordedAt: fix.recordedAt,
       }
       movementRef.current.observe({
-        accuracyMeters: Number.isFinite(fix.accuracyMeters) ? fix.accuracyMeters : null,
+        // No Number.isFinite guard needed: accuracyMeters is null end-to-end
+        // for "unknown" rather than Number.POSITIVE_INFINITY (B6).
+        accuracyMeters: fix.accuracyMeters,
         atMs: Date.parse(fix.recordedAt),
         latitude: fix.latitude,
         longitude: fix.longitude,
@@ -293,6 +321,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       const decision =
         decisionRef.current ??
         decideTracking({
+          coarseLocationAvailable: coarseLocationAvailableRef.current,
           movement: 'unknown',
           power: powerRef.current,
           settings: settingsRef.current,
@@ -311,6 +340,12 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         onEngineWarning: (message) => setLocationWarning(message),
         onError: (positionError) => setError(positionError.message),
         onFix: (fix) => handleFix(sessionId, startedAt, fix),
+        onFixesDropped: (count) => {
+          // The native fix buffer overflowed before JS ever saw these fixes
+          // (B4) — the same failure mode the queue's own overflow eviction
+          // already surfaces, so it feeds the same counter and UI copy.
+          void addDroppedLocallyCount(count).then(() => refreshQueueStats(sessionId))
+        },
         onStopRequested: () => {
           // Stopping from the notification has to run the same lifecycle as
           // the in-app button — end the session, flush the queue, send the
@@ -319,7 +354,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         },
       }
     },
-    [handleFix],
+    [handleFix, refreshQueueStats],
   )
 
   const notificationTitleFor = useCallback(
@@ -356,7 +391,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       if (cancelled) {
         return
       }
-      settingsRef.current = settings
+      updateSettingsRef(settings)
 
       try {
         powerRef.current = await getSource().getPowerState()
@@ -426,6 +461,14 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       if (stillOpen) {
         movementRef.current = createMovementDetector()
         decisionRef.current = null
+        try {
+          const probe = await getSource().probe(settings.locationSource)
+          coarseLocationAvailableRef.current = probe.ok
+            ? probe.coarseLocationAvailable
+            : false
+        } catch {
+          coarseLocationAvailableRef.current = false
+        }
         const options = buildSourceOptions(toShow.sessionId, toShow.startedAt, {
           message: 'Reattaching…',
           title: notificationTitleFor({ tripTitle: toShow.tripTitle ?? null }),
@@ -524,9 +567,22 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     getSource,
     notificationTitleFor,
     queueStats,
+    settingsVersion,
     status,
     uploaderSnapshot,
   ])
+
+  // Settings just saved from the settings page (B8). Previously the page
+  // wrote to storage and nothing else happened until the *next* recording —
+  // silently, with no indication in the UI that the change had no effect on
+  // the one currently running.
+  const notifySettingsChanged = useCallback(
+    (next: TrackingSettings) => {
+      updateSettingsRef(next)
+      void applyAdaptivePolicy(movementRef.current.getSpeedMps())
+    },
+    [applyAdaptivePolicy, updateSettingsRef],
+  )
 
   const startTracking = useCallback(
     async ({
@@ -577,7 +633,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         }
 
         const settings = await readTrackingSettings()
-        settingsRef.current = settings
+        updateSettingsRef(settings)
 
         // Probe before committing anything. A device that cannot track — no
         // Play Services with the fused engine pinned, location switched off,
@@ -590,6 +646,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
           setStatus('idle')
           return
         }
+        coarseLocationAvailableRef.current = probe.coarseLocationAvailable
 
         try {
           powerRef.current = await getSource().getPowerState()
@@ -600,6 +657,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         decisionRef.current = null
 
         await resetDroppedLocallyCount()
+        await resetSimulatedRejectedCount()
 
         const sessionId = crypto.randomUUID()
         const startedAt = new Date().toISOString()
@@ -672,6 +730,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       replaceUploader,
       status,
       stopCapture,
+      updateSettingsRef,
     ],
   )
 
@@ -779,6 +838,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       adaptiveDecision,
       error,
       locationWarning,
+      notifySettingsChanged,
       queueStats,
       startTracking,
       status,
@@ -790,6 +850,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       adaptiveDecision,
       error,
       locationWarning,
+      notifySettingsChanged,
       queueStats,
       startTracking,
       status,

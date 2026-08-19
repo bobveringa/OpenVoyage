@@ -32,6 +32,11 @@ export type QueueStats = {
   sampleCount: number
   oldestSampleAt: string | null
   droppedLocallyCount: number
+  // Fixes rejected by the sanity filter because they came from a mock
+  // location provider (B3) — tracked separately from droppedLocallyCount so
+  // the two very different causes ("ran out of local storage" vs. "a
+  // mock-location app is enabled") get distinct, actionable messages.
+  simulatedRejectedCount: number
 }
 
 // A durable local FIFO for one device's in-flight tracking session(s).
@@ -73,4 +78,8 @@ export interface QueueBackend {
   getDroppedLocallyCount(): Promise<number>
   addDroppedLocallyCount(delta: number): Promise<void>
   resetDroppedLocallyCount(): Promise<void>
+
+  getSimulatedRejectedCount(): Promise<number>
+  addSimulatedRejectedCount(delta: number): Promise<void>
+  resetSimulatedRejectedCount(): Promise<void>
 }

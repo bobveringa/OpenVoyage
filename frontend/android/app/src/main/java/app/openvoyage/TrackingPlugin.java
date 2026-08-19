@@ -116,6 +116,14 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
         JSObject result = new JSObject();
         String engine = TrackingService.resolveEngineName(getContext(), source);
         result.put("engine", engine);
+        // B7: whether dropping the power tier can still produce fixes on this
+        // device. The fused engine always can; the platform engine only when
+        // a network provider backs it up.
+        result.put(
+            "coarseLocationAvailable",
+            TrackingService.SOURCE_GMS.equals(engine)
+                || PlatformLocationEngine.hasCoarseLocationBackend(getContext())
+        );
 
         if (getPermissionState(LOCATION_ALIAS) != PermissionState.GRANTED) {
             result.put("ok", false);
@@ -315,7 +323,14 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
     private JSObject describeState() {
         TrackingService service = TrackingService.getInstance();
         JSObject result = new JSObject();
-        boolean tracking = service != null && service.isTracking();
+        // A single synchronized read of every service field describeState()
+        // needs (B9), rather than six separate getter calls each racing
+        // independently against the service's main-looper thread — this is
+        // the sole input to "am I already recording?" on every launch and
+        // reattach, so a torn read here is the difference between adopting a
+        // live recording and starting a second one.
+        TrackingService.Snapshot snapshot = service == null ? null : service.snapshot();
+        boolean tracking = snapshot != null && snapshot.tracking;
         result.put("tracking", tracking);
         // The service is gone but the flag survived: the process was killed
         // mid-recording and the system has not restarted the service yet. JS
@@ -325,13 +340,12 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
             "trackingIntent",
             tracking || TrackingService.isTrackingKnownFromPrefs(getContext())
         );
-        result.put("startedAtMs", service == null ? 0 : service.getStartedAtMs());
-        result.put("intervalSeconds", service == null ? 0 : service.getIntervalMs() / 1000.0);
-        result.put("powerLevel", service == null ? null : service.getPowerLevel());
-        TrackingFixBuffer buffer = service == null ? null : service.getBuffer();
-        result.put("bufferedFixes", buffer == null ? 0 : buffer.size());
-        result.put("engine", service == null ? null : service.getEngineName());
-        result.put("warning", service == null ? null : service.getWarningText());
+        result.put("startedAtMs", snapshot == null ? 0 : snapshot.startedAtMs);
+        result.put("intervalSeconds", snapshot == null ? 0 : snapshot.intervalMs / 1000.0);
+        result.put("powerLevel", snapshot == null ? null : snapshot.powerLevel);
+        result.put("bufferedFixes", snapshot == null ? 0 : snapshot.bufferedFixes);
+        result.put("engine", snapshot == null ? null : snapshot.engineName);
+        result.put("warning", snapshot == null ? null : snapshot.warningText);
         result.put("locationEnabled", isLocationEnabled());
         result.put(
             "permissionGranted",
