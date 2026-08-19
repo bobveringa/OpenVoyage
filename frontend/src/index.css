@@ -220,6 +220,47 @@
       0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent);
   }
 
+  .trip-map-gps-post-candidate {
+    appearance: none;
+    box-sizing: border-box;
+    display: grid;
+    width: 1.25rem;
+    height: 1.25rem;
+    padding: 0;
+    place-items: center;
+    border: 2px solid var(--card);
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    cursor: pointer;
+    font: 800 1rem/1 var(--app-font-sans);
+    box-shadow:
+      0 8px 18px -12px color-mix(in srgb, var(--foreground) 82%, transparent),
+      0 0 0 2px color-mix(in srgb, var(--primary) 16%, transparent);
+    transition:
+      box-shadow 150ms ease,
+      transform 150ms ease;
+  }
+
+  .trip-map-gps-post-candidate:hover,
+  .trip-map-gps-post-candidate:focus-visible {
+    box-shadow:
+      0 12px 24px -12px color-mix(in srgb, var(--foreground) 88%, transparent),
+      0 0 0 4px color-mix(in srgb, var(--primary) 24%, transparent);
+    outline: 0;
+    transform: scale(1.18);
+  }
+
+  .trip-map-gps-post-candidate > svg {
+    display: block;
+    width: 0.75rem;
+    height: 0.75rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-width: 2;
+  }
+
   .trip-post-media-strip {
     scrollbar-gutter: auto;
     -webkit-overflow-scrolling: touch;
@@ -262,6 +303,23 @@ body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar {
   border-radius: 0.75rem;
   background: var(--card);
   box-shadow: 0 1px 2px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+
+body .trip-leaflet-map .leaflet-tooltip.trip-map-gps-post-tooltip {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 10px 24px -14px color-mix(in srgb, var(--foreground) 65%, transparent);
+  font-family: var(--app-font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+  padding: 0.4rem 0.6rem;
+}
+
+body .trip-leaflet-map .leaflet-tooltip-top.trip-map-gps-post-tooltip::before {
+  border-top-color: var(--border);
 }
 
 body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar a {

@@ -89,6 +89,7 @@ import {
   geocodePlaces,
   getErrorMessage,
   getItinerary,
+  listGpsPostCandidates,
   getPostTimeline,
   getTrip,
   listTripMembers,
@@ -109,6 +110,7 @@ import {
   uploadMediaWithProgress,
   type CurrentUser,
   type GeoJsonLineString,
+  type GpsPostCandidate,
   type Itinerary,
   type ItineraryStopCreatePayload,
   type ItineraryStopUpdatePayload,
@@ -927,6 +929,11 @@ export function TripDetailPage({
   const [trackingGeometry, setTrackingGeometry] = useState<TripTrackingGeometry>(
     EMPTY_TRACKING_GEOMETRY,
   )
+  const [gpsPostCandidates, setGpsPostCandidates] = useState<
+    readonly GpsPostCandidate[]
+  >([])
+  const [selectedGpsPostCandidate, setSelectedGpsPostCandidate] =
+    useState<GpsPostCandidate | null>(null)
   const [travelingView, setTravelingView] = useState<TravelingView>(
     initialUrlState.travelingView,
   )
@@ -1023,6 +1030,20 @@ export function TripDetailPage({
     }
   }, [accessToken, shareToken, tripId])
 
+  const fetchGpsPostCandidates = useCallback(async () => {
+    if (!tripId || !accessToken) {
+      return []
+    }
+
+    // This request intentionally fails closed for viewers and roles that
+    // cannot create posts: individual GPS timestamps never reach their map.
+    try {
+      return await listGpsPostCandidates({ accessToken, tripId })
+    } catch {
+      return []
+    }
+  }, [accessToken, tripId])
+
   const loadTripDetail = useCallback(
     async (options: { isCurrent: () => boolean }) => {
       if (!tripId) {
@@ -1039,12 +1060,19 @@ export function TripDetailPage({
       setMutationError(null)
 
       try {
-        const [loadedTrip, loadedItinerary, loadedTimeline, loadedMembers] =
+        const [
+          loadedTrip,
+          loadedItinerary,
+          loadedTimeline,
+          loadedMembers,
+          loadedGpsPostCandidates,
+        ] =
           await Promise.all([
             getTrip({ accessToken, shareToken, tripId }),
             getItinerary({ accessToken, shareToken, tripId }),
             fetchTravelTimeline(),
             listTripMembers({ accessToken, shareToken, tripId }),
+            fetchGpsPostCandidates(),
           ])
         const { posts: loadedPosts, trackingGeometry: loadedTrackingGeometry } =
           loadedTimeline
@@ -1066,6 +1094,7 @@ export function TripDetailPage({
         setTripMembers(loadedTripMembers)
         setTravelPosts(loadedPosts)
         setTrackingGeometry(loadedTrackingGeometry)
+        setGpsPostCandidates(loadedGpsPostCandidates)
         loadedTripIdRef.current = tripId
         setLoadState({ error: null, status: 'success' })
 
@@ -1095,6 +1124,7 @@ export function TripDetailPage({
       accessToken,
       applyItinerary,
       currentUserId,
+      fetchGpsPostCandidates,
       fetchTravelTimeline,
       loadTripManagement,
       shareToken,
@@ -1802,6 +1832,7 @@ export function TripDetailPage({
         setTrackingGeometry(trackingGeometry)
 
         setDraftPostLocation(null)
+        setSelectedGpsPostCandidate(null)
         navigateTripDetailUrlState(
           {
             editingPostId: null,
@@ -1824,6 +1855,7 @@ export function TripDetailPage({
       ])
     }
     setDraftPostLocation(null)
+    setSelectedGpsPostCandidate(null)
     navigateTripDetailUrlState(
       {
         editingPostId: null,
@@ -1841,6 +1873,7 @@ export function TripDetailPage({
       const draftLocation = createDraftMapPointLocation(coordinates, target)
 
       if (target === 'post') {
+        setSelectedGpsPostCandidate(null)
         setDraftPostLocation(draftLocation)
         navigateTripDetailUrlState({
           editingPostId: urlStateRef.current.editingPostId,
@@ -1905,6 +1938,19 @@ export function TripDetailPage({
     [shouldUseMobileMapPicker],
   )
 
+  const handleGpsPostCandidateSelect = useCallback(
+    (candidate: GpsPostCandidate) => {
+      const coordinates: L.LatLngTuple = [candidate.latitude, candidate.longitude]
+
+      setFocusedPostId(null)
+      applyDraftMapPointLocation('post', coordinates)
+      // Location follows the ordinary map-click path. This is only the
+      // timestamp seed that distinguishes a retained GPS measurement.
+      setSelectedGpsPostCandidate(candidate)
+    },
+    [applyDraftMapPointLocation],
+  )
+
   const handleModeChange = useCallback(
     (nextMode: TripMode) => {
       setFocusedPostId(null)
@@ -1936,6 +1982,12 @@ export function TripDetailPage({
 
   const handleTravelingViewChange = useCallback(
     (nextView: TravelingView) => {
+      if (nextView !== 'create-post') {
+        setSelectedGpsPostCandidate(null)
+      } else {
+        setDraftPostLocation(null)
+        setSelectedGpsPostCandidate(null)
+      }
       navigateTripDetailUrlState(
         {
           editingPostId: null,
@@ -1951,6 +2003,7 @@ export function TripDetailPage({
 
   const handleEditPost = useCallback(
     (postId: string) => {
+      setSelectedGpsPostCandidate(null)
       setFocusedPostId(getMapFocusedPostId(postId, travelPosts))
       navigateTripDetailUrlState({
         editingPostId: postId,
@@ -2115,6 +2168,8 @@ export function TripDetailPage({
               currentUserId={currentUser?.id ?? null}
               draftPostLocation={draftPostLocation}
               draftStopLocation={draftStopLocation}
+              gpsPostCandidates={gpsPostCandidates}
+              gpsPostCandidate={selectedGpsPostCandidate}
               focusedPostId={focusedPostId}
               isMutating={isMutating}
               isApiBacked={isApiBacked}
@@ -2122,6 +2177,7 @@ export function TripDetailPage({
               mode={visibleMode}
               mutationError={activeDialog === null ? mutationError : null}
               onMapPointTargetChange={handleMapPointTargetChange}
+              onGpsPostCandidateSelect={handleGpsPostCandidateSelect}
               onPostMarkerSelect={handleMapPostSelect}
               onCreateStop={handleCreateStop}
               onFocusedPostChange={handleFocusedPostChange}
@@ -2155,7 +2211,9 @@ export function TripDetailPage({
               draftMapLocation={activeDraftMapLocation}
               mapPointEnabled={mapPointTarget !== null}
               focusedPostId={focusedPostId}
+              gpsPostCandidates={gpsPostCandidates}
               onDraftMapPointSelect={handleDraftMapPointSelect}
+              onGpsPostCandidateSelect={handleGpsPostCandidateSelect}
               onPostMarkerSelect={handleMapPostSelect}
               routeMode={mapRouteMode}
               stops={visibleStops}
@@ -2186,10 +2244,13 @@ export function TripDetailPage({
           onTrackingChanged={() => {
             // Mode edits and deletions change public geometry, so reload the
             // authoritative timeline rather than patching it locally.
-            void fetchTravelTimeline().then(({ posts, trackingGeometry }) => {
-              setTravelPosts(posts)
-              setTrackingGeometry(trackingGeometry)
-            })
+            void Promise.all([fetchTravelTimeline(), fetchGpsPostCandidates()]).then(
+              ([{ posts, trackingGeometry }, candidates]) => {
+                setTravelPosts(posts)
+                setTrackingGeometry(trackingGeometry)
+                setGpsPostCandidates(candidates)
+              },
+            )
           }}
           onUpdateMemberRole={handleMemberRoleChange}
           onSaveSettings={handleTripSettingsSave}
@@ -3622,6 +3683,8 @@ function TripSidebar({
   currentUserId,
   draftPostLocation,
   draftStopLocation,
+  gpsPostCandidate,
+  gpsPostCandidates,
   editingPostId,
   focusedPostId,
   isApiBacked,
@@ -3632,6 +3695,7 @@ function TripSidebar({
   mode,
   onEditPost,
   onFocusedPostChange,
+  onGpsPostCandidateSelect,
   onMapPointTargetChange,
   onPostMarkerSelect,
   onOpenManagement,
@@ -3662,6 +3726,8 @@ function TripSidebar({
   currentUserId: string | null
   draftPostLocation: DraftPostLocation | null
   draftStopLocation: DraftPostLocation | null
+  gpsPostCandidate: GpsPostCandidate | null
+  gpsPostCandidates: readonly GpsPostCandidate[]
   editingPostId: string | null
   focusedPostId: string | null
   isApiBacked: boolean
@@ -3672,6 +3738,7 @@ function TripSidebar({
   mode: TripMode
   onEditPost: (postId: string) => void
   onFocusedPostChange: (postId: string | null) => void
+  onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
   onPostMarkerSelect: (postId: string) => void
   onOpenManagement: (section: TripManagementSection) => void
@@ -3797,6 +3864,7 @@ function TripSidebar({
           <PostFormPanel
             accessToken={accessToken}
             draftLocation={draftPostLocation}
+            gpsPostCandidate={gpsPostCandidate}
             isApiBacked={isApiBacked}
             isSubmitting={isMutating}
             mapPointActive={mapPointTarget === 'post'}
@@ -3809,6 +3877,7 @@ function TripSidebar({
           <PostFormPanel
             accessToken={accessToken}
             draftLocation={draftPostLocation}
+            gpsPostCandidate={gpsPostCandidate}
             isApiBacked={isApiBacked}
             isSubmitting={isMutating}
             mapPointActive={mapPointTarget === 'post'}
@@ -3822,8 +3891,10 @@ function TripSidebar({
           <TravelingPanel
             canMutate={canMutate}
             focusedPostId={focusedPostId}
+            gpsPostCandidates={gpsPostCandidates}
             onEditPost={editPost}
             onFocusedPostChange={onFocusedPostChange}
+            onGpsPostCandidateSelect={onGpsPostCandidateSelect}
             onPostMarkerSelect={onPostMarkerSelect}
             onNewPost={() => {
               onMapPointTargetChange(null)
@@ -4631,6 +4702,8 @@ function CreateStopPanel({
 
 function MobileTravelMap({
   focusedPostId,
+  gpsPostCandidates,
+  onGpsPostCandidateSelect,
   onPostMarkerSelect,
   stops,
   trackingGeometry,
@@ -4638,6 +4711,8 @@ function MobileTravelMap({
   travelPosts,
 }: {
   focusedPostId: string | null
+  gpsPostCandidates: readonly GpsPostCandidate[]
+  onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onPostMarkerSelect: (postId: string) => void
   stops: readonly Stop[]
   trackingGeometry: TripTrackingGeometry
@@ -4651,8 +4726,10 @@ function MobileTravelMap({
       <TripLeafletMap
         draftMapLocation={null}
         fitMode="mobile-travel"
+        gpsPostCandidates={gpsPostCandidates}
         mapPointEnabled={false}
         onDraftMapPointSelect={() => undefined}
+        onGpsPostCandidateSelect={onGpsPostCandidateSelect}
         onPostMarkerSelect={onPostMarkerSelect}
         resetNonce={resetNonce}
         routeMode="travel-timeline"
@@ -4683,7 +4760,9 @@ function MobileTravelMap({
 function TravelingPanel({
   canMutate,
   focusedPostId,
+  gpsPostCandidates,
   onFocusedPostChange,
+  onGpsPostCandidateSelect,
   onEditPost,
   onNewPost,
   onPostMarkerSelect,
@@ -4697,7 +4776,9 @@ function TravelingPanel({
 }: {
   canMutate: boolean
   focusedPostId: string | null
+  gpsPostCandidates: readonly GpsPostCandidate[]
   onFocusedPostChange: (postId: string | null) => void
+  onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onEditPost: (postId: string) => void
   onNewPost: () => void
   onPostMarkerSelect: (postId: string) => void
@@ -4803,6 +4884,8 @@ function TravelingPanel({
             <>
               <MobileTravelMap
                 focusedPostId={focusedPostId}
+                gpsPostCandidates={gpsPostCandidates}
+                onGpsPostCandidateSelect={onGpsPostCandidateSelect}
                 onPostMarkerSelect={onPostMarkerSelect}
                 stops={stops}
                 travelLegs={travelLegs}
@@ -4902,6 +4985,7 @@ function TravelingPanel({
 function PostFormPanel({
   accessToken,
   draftLocation,
+  gpsPostCandidate,
   isApiBacked,
   isSubmitting,
   mapPointActive,
@@ -4913,6 +4997,7 @@ function PostFormPanel({
 }: {
   accessToken?: string | null
   draftLocation: DraftPostLocation | null
+  gpsPostCandidate: GpsPostCandidate | null
   isApiBacked: boolean
   isSubmitting: boolean
   mapPointActive: boolean
@@ -4957,8 +5042,24 @@ function PostFormPanel({
     editingPost?.excerpt ?? '',
   )
   const [title, setTitle] = useState(editingPost?.title ?? '')
-  const selectedMapLocation =
-    locationSource === 'map' && mapPointActive ? draftLocation : null
+
+  useEffect(() => {
+    if (!gpsPostCandidate) {
+      return
+    }
+
+    setLocationSource('map')
+    const recordedAt = new Date(gpsPostCandidate.recorded_at)
+    setOccurredAt(
+      formatDateTimeInputValue(
+        Number.isNaN(recordedAt.getTime()) ? null : recordedAt,
+      ),
+    )
+  }, [gpsPostCandidate])
+  // The map selection belongs to the page-level map. Treat it as the source
+  // of truth so the form cannot briefly fall back to its local search state
+  // while the side panel is opening after a map click.
+  const selectedMapLocation = mapPointActive ? draftLocation : null
   const selectedSearchCoordinates = selectedSearchPlace
     ? getPlaceCoordinates(selectedSearchPlace)
     : getSearchLocationCoordinates(searchValue, 'post')
@@ -4982,7 +5083,7 @@ function PostFormPanel({
   )
   const hasLocation =
     selectedLocationLabel.length > 0 &&
-    (locationSource === 'map'
+    (mapPointActive
       ? Boolean(selectedMapLocation)
       : Boolean(selectedSearchPlace || editingPost))
   const canSubmit =
@@ -5465,7 +5566,7 @@ function PostFormPanel({
         />
 
         <LocationOptionCard
-          active={locationSource === 'search' && !mapPointActive}
+          active={!mapPointActive && locationSource === 'search'}
           detail={
             selectedSearchPlace
               ? formatPlaceDetail(selectedSearchPlace)
@@ -5484,11 +5585,11 @@ function PostFormPanel({
         />
 
         <LocationOptionCard
-          active={locationSource === 'map' && mapPointActive}
+          active={mapPointActive}
           detail={
-            locationSource === 'map' && mapPointActive && draftLocation
+            mapPointActive && draftLocation
               ? `Map point · ${formatCoordinates(draftLocation.coordinates)}`
-              : locationSource === 'map' && mapPointActive
+              : mapPointActive
                 ? 'Click on the map to select an exact point.'
                 : 'Map placement disabled'
           }
@@ -5496,7 +5597,7 @@ function PostFormPanel({
           label={draftLocation?.label ?? 'Map point'}
           onClick={selectMapLocation}
           source={
-            locationSource === 'map' && mapPointActive
+            mapPointActive
               ? 'Active map source'
               : 'Exact point'
           }
@@ -7159,8 +7260,10 @@ function TravelLegEditDialog({
 function MapWorkspace({
   draftMapLocation,
   focusedPostId,
+  gpsPostCandidates,
   mapPointEnabled,
   onDraftMapPointSelect,
+  onGpsPostCandidateSelect,
   onPostMarkerSelect,
   routeMode,
   stops,
@@ -7170,8 +7273,10 @@ function MapWorkspace({
 }: {
   draftMapLocation: DraftPostLocation | null
   focusedPostId: string | null
+  gpsPostCandidates: readonly GpsPostCandidate[]
   mapPointEnabled: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
+  onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onPostMarkerSelect: (postId: string) => void
   routeMode: MapRouteMode
   stops: readonly Stop[]
@@ -7186,8 +7291,10 @@ function MapWorkspace({
       <TripLeafletMap
         draftMapLocation={draftMapLocation}
         focusedPostId={focusedPostId}
+        gpsPostCandidates={gpsPostCandidates}
         mapPointEnabled={mapPointEnabled}
         onDraftMapPointSelect={onDraftMapPointSelect}
+        onGpsPostCandidateSelect={onGpsPostCandidateSelect}
         onPostMarkerSelect={onPostMarkerSelect}
         resetNonce={resetNonce}
         routeMode={routeMode}
@@ -7217,8 +7324,10 @@ function TripLeafletMap({
   draftMapLocation,
   fitMode = 'workspace',
   focusedPostId = null,
+  gpsPostCandidates = [],
   mapPointEnabled,
   onDraftMapPointSelect,
+  onGpsPostCandidateSelect,
   onPostMarkerSelect,
   resetNonce,
   routeMode = 'itinerary',
@@ -7230,8 +7339,10 @@ function TripLeafletMap({
   draftMapLocation: DraftPostLocation | null
   fitMode?: RouteFitMode
   focusedPostId?: string | null
+  gpsPostCandidates?: readonly GpsPostCandidate[]
   mapPointEnabled: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
+  onGpsPostCandidateSelect?: (candidate: GpsPostCandidate) => void
   onPostMarkerSelect?: (postId: string) => void
   resetNonce: number
   routeMode?: MapRouteMode
@@ -7249,10 +7360,12 @@ function TripLeafletMap({
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const draftMarkerRef = useRef<L.Marker | null>(null)
   const latestLocationSelectRef = useRef(onDraftMapPointSelect)
+  const latestGpsPostCandidateSelectRef = useRef(onGpsPostCandidateSelect)
   const latestPostMarkerSelectRef = useRef(onPostMarkerSelect)
   const mapPointEnabledRef = useRef(mapPointEnabled)
   const mapRef = useRef<L.Map | null>(null)
   const postMarkerLayerRef = useRef<L.LayerGroup | null>(null)
+  const gpsPostCandidateLayerRef = useRef<L.LayerGroup | null>(null)
   const routeLayerRef = useRef<L.LayerGroup | null>(null)
   const tileLayerRef = useRef<L.TileLayer | null>(null)
   const focusedPostIdRef = useRef<string | null>(focusedPostId)
@@ -7260,6 +7373,7 @@ function TripLeafletMap({
   const stopsRef = useRef(stops)
   const travelLegsRef = useRef(travelLegs)
   const trackingGeometryRef = useRef(trackingGeometry)
+  const gpsPostCandidatesRef = useRef(gpsPostCandidates)
   const routeEndpointLayerRef = useRef<L.LayerGroup | null>(null)
   const routeKey = createRouteKey(
     routeMode,
@@ -7272,12 +7386,17 @@ function TripLeafletMap({
   focusedPostIdRef.current = focusedPostId
   travelPostsRef.current = travelPosts
   trackingGeometryRef.current = trackingGeometry
+  gpsPostCandidatesRef.current = gpsPostCandidates
   stopsRef.current = stops
   travelLegsRef.current = travelLegs
 
   useEffect(() => {
     latestLocationSelectRef.current = onDraftMapPointSelect
   }, [onDraftMapPointSelect])
+
+  useEffect(() => {
+    latestGpsPostCandidateSelectRef.current = onGpsPostCandidateSelect
+  }, [onGpsPostCandidateSelect])
 
   useEffect(() => {
     latestPostMarkerSelectRef.current = onPostMarkerSelect
@@ -7327,6 +7446,7 @@ function TripLeafletMap({
 
     routeLayerRef.current = L.layerGroup().addTo(map)
     postMarkerLayerRef.current = L.layerGroup().addTo(map)
+    gpsPostCandidateLayerRef.current = L.layerGroup().addTo(map)
     routeEndpointLayerRef.current = L.layerGroup().addTo(map)
 
     window.requestAnimationFrame(() => map.invalidateSize())
@@ -7338,6 +7458,7 @@ function TripLeafletMap({
       mapRef.current = null
       routeEndpointLayerRef.current = null
       postMarkerLayerRef.current = null
+      gpsPostCandidateLayerRef.current = null
       routeLayerRef.current = null
       tileLayerRef.current = null
     }
@@ -7376,6 +7497,24 @@ function TripLeafletMap({
       )
     }
   }, [focusedPostId, routeMode, routeKey])
+
+  useEffect(() => {
+    const candidateLayer = gpsPostCandidateLayerRef.current
+    if (!candidateLayer) {
+      return
+    }
+
+    candidateLayer.clearLayers()
+    if (routeMode !== 'travel-timeline') {
+      return
+    }
+
+    renderGpsPostCandidateLayer(
+      candidateLayer,
+      gpsPostCandidatesRef.current,
+      (candidate) => latestGpsPostCandidateSelectRef.current?.(candidate),
+    )
+  }, [gpsPostCandidates, routeMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -7644,6 +7783,10 @@ function createRouteEndpointBubbleHtml(travelMode: TravelMode) {
   ].join('')
 }
 
+function createGpsPostCandidateHtml() {
+  return '<button class="trip-map-gps-post-candidate" aria-label="Create post from GPS point" type="button"><svg aria-hidden="true" viewBox="0 0 12 12"><path d="M6 2v8M2 6h8" /></svg></button>'
+}
+
 function renderPostMarkerLayer(
   postMarkerLayer: L.LayerGroup,
   travelPosts: readonly TravelPost[],
@@ -7669,6 +7812,36 @@ function renderPostMarkerLayer(
     }).addTo(postMarkerLayer)
 
     marker.on('click', () => onPostMarkerSelect(post.id))
+  }
+}
+
+function renderGpsPostCandidateLayer(
+  layer: L.LayerGroup,
+  candidates: readonly GpsPostCandidate[],
+  onSelect: (candidate: GpsPostCandidate) => void,
+) {
+  for (const candidate of candidates) {
+    const coordinates: L.LatLngTuple = [candidate.latitude, candidate.longitude]
+    const marker = L.marker(coordinates, {
+      icon: L.divIcon({
+        className: 'trip-map-div-icon',
+        html: createGpsPostCandidateHtml(),
+        iconAnchor: [10, 10],
+        iconSize: [20, 20],
+      }),
+      keyboard: true,
+      zIndexOffset: 300,
+    }).addTo(layer)
+
+    marker.bindTooltip(
+      `Create post · ${escapeHtml(formatGpsCandidateTime(candidate.recorded_at))}`,
+      {
+        className: 'trip-map-gps-post-tooltip',
+        direction: 'top',
+        offset: [0, -10],
+      },
+    )
+    marker.on('click', () => onSelect(candidate))
   }
 }
 
@@ -9515,6 +9688,22 @@ function formatMonthDayLabel(date: Date) {
 function formatDateTimeLabel(value: string) {
   const date = parseDateTime(value)
   if (!date) {
+    return value
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date)
+}
+
+function formatGpsCandidateTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
     return value
   }
 

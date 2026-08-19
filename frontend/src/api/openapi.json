@@ -547,6 +547,37 @@
         "title": "GeoJsonLineString",
         "type": "object"
       },
+      "GpsPostCandidateResponse": {
+        "description": "A deliberately sparse GPS point that can seed a new trip post.\n\nThis is distinct from the raw-sample response: it contains only the\nfields needed by the map, is bounded server-side, and is never exposed to\nviewers or share-link readers.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "recorded_at",
+          "latitude",
+          "longitude"
+        ],
+        "title": "GpsPostCandidateResponse",
+        "type": "object"
+      },
       "GpsPrivacyZoneEnvelope": {
         "description": "Creation and replacement wrap the zone, matching the spec's examples.",
         "properties": {
@@ -7182,6 +7213,59 @@
         "summary": "Update Share Link",
         "tags": [
           "trips"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/tracking/post-candidates": {
+      "get": {
+        "description": "Return a bounded set of member-only GPS points for creating posts.",
+        "operationId": "list_post_candidates_api_v1_trips__trip_id__tracking_post_candidates_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GpsPostCandidateResponse"
+                  },
+                  "title": "Response List Post Candidates Api V1 Trips  Trip Id  Tracking Post Candidates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Post Candidates",
+        "tags": [
+          "tracking"
         ]
       }
     },

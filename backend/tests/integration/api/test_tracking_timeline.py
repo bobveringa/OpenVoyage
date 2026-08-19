@@ -175,6 +175,56 @@ def test_two_posts_with_no_gps_produce_the_plain_straight_line(
 
 
 @pytest.mark.integration
+def test_post_candidates_are_sparse_and_member_only(
+    client,
+    api_prefix,
+    db_session,
+    trip,
+    owner,
+) -> None:
+    session_id = _open_session(client, api_prefix, trip_id=trip.id, user=owner)
+    _upload(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        session_id=session_id,
+        points=[
+            (0, 52.00, 5.00, 'WALK'),
+            (300, 52.00, 5.00, 'WALK'),
+            (600, 52.00, 5.00, 'WALK'),
+            (660, 52.00, 5.00, 'WALK'),
+            (1200, 52.00, 5.003, 'WALK'),
+        ],
+    )
+
+    response = client.get(
+        f'{api_prefix}/trips/{trip.id}/tracking/post-candidates',
+        headers=_auth_headers(owner),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers['Cache-Control'] == 'no-store'
+    assert [candidate['recorded_at'] for candidate in response.json()] == [
+        _iso(START),
+        _iso(START + timedelta(minutes=20)),
+    ]
+
+    viewer = create_user(db_session, password='ViewerPass123!')
+    add_trip_viewer(
+        db_session,
+        trip_id=trip.id,
+        user_id=viewer.id,
+        created_by=owner.id,
+    )
+    forbidden = client.get(
+        f'{api_prefix}/trips/{trip.id}/tracking/post-candidates',
+        headers=_auth_headers(viewer),
+    )
+    assert forbidden.status_code == 403
+
+
+@pytest.mark.integration
 def test_gps_points_become_anchors_and_split_by_mode(
     client,
     api_prefix,

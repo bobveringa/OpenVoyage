@@ -118,6 +118,7 @@ export type TripLiveLocationSettings =
   components['schemas']['TripLiveLocationSettingsResponse']
 export type TrackingSession = components['schemas']['TrackingSessionResponse']
 export type TrackSample = components['schemas']['TrackSampleResponse']
+export type GpsPostCandidate = components['schemas']['GpsPostCandidateResponse']
 export type TrackSamplePage =
   components['schemas']['CursorPaginatedResponse_TrackSampleResponse_']
 export type TrackSampleBatchResult =
@@ -1139,6 +1140,16 @@ export async function listTrackingSessions(options: {
     { accessToken: options.accessToken },
   )
   return result.sessions
+}
+
+export async function listGpsPostCandidates(options: {
+  tripId: string
+  accessToken: string
+}): Promise<GpsPostCandidate[]> {
+  return requestJson<GpsPostCandidate[]>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/post-candidates`,
+    { accessToken: options.accessToken },
+  )
 }
 
 // Same request as listTrackingSessions, but also surfaces the response's

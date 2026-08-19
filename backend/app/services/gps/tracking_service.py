@@ -6,6 +6,7 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from math import asin, cos, radians, sin, sqrt
 
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from models.api.geojson import GeoJsonLineString
 from models.api.posts import PostTimelineRouteSegmentResponse
 from models.api.tracking import (
+    MAX_POST_CANDIDATES,
     TrackSampleRequest,
     TrackingSessionCreateRequest,
     TrackingSessionEndRequest,
@@ -441,6 +443,119 @@ class GpsTrackingService:
             last = rows[-1]
             return rows, self._encode_cursor(last.recorded_at, last.id)
         return rows, None
+
+    def list_post_candidates(
+        self,
+        *,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+    ) -> list[GpsTrackSample]:
+        """Return a small, useful set of GPS samples for starting posts.
+
+        The raw recording can contain many thousands of points. Candidates are
+        retained every ten minutes or kilometre, while keeping each session's
+        candidates at least 200 metres apart. They are then uniformly thinned
+        to a hard UI-safe limit. Both tracking-read and post-create permissions
+        are required: timestamps are private tracking data, and the map only
+        presents them as post actions.
+        """
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.GET_TRACKING,
+        )
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.CREATE_POST,
+        )
+        samples = list(
+            self.db.execute(
+                select(GpsTrackSample)
+                .where(GpsTrackSample.trip_id == trip_id)
+                .order_by(
+                    GpsTrackSample.recorded_at.asc(),
+                    GpsTrackSample.session_id.asc(),
+                    GpsTrackSample.id.asc(),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return self._select_post_candidates(samples)
+
+    @staticmethod
+    def _select_post_candidates(
+        samples: list[GpsTrackSample],
+    ) -> list[GpsTrackSample]:
+        selected: list[GpsTrackSample] = []
+        selected_by_session: dict[uuid.UUID, list[GpsTrackSample]] = {}
+        last_selected_by_session: dict[uuid.UUID, GpsTrackSample] = {}
+
+        for sample in samples:
+            last_selected = last_selected_by_session.get(sample.session_id)
+            if last_selected is None:
+                selected.append(sample)
+                selected_by_session[sample.session_id] = [sample]
+                last_selected_by_session[sample.session_id] = sample
+                continue
+
+            elapsed_seconds = (
+                sample.recorded_at - last_selected.recorded_at
+            ).total_seconds()
+            distance_meters = GpsTrackingService._distance_meters(
+                last_selected.latitude,
+                last_selected.longitude,
+                sample.latitude,
+                sample.longitude,
+            )
+            if elapsed_seconds < 600 and distance_meters < 1_000:
+                continue
+
+            is_too_close_to_session_candidate = any(
+                GpsTrackingService._distance_meters(
+                    candidate.latitude,
+                    candidate.longitude,
+                    sample.latitude,
+                    sample.longitude,
+                ) < 200
+                for candidate in selected_by_session[sample.session_id]
+            )
+            if is_too_close_to_session_candidate:
+                continue
+
+            selected.append(sample)
+            selected_by_session[sample.session_id].append(sample)
+            last_selected_by_session[sample.session_id] = sample
+
+        if len(selected) <= MAX_POST_CANDIDATES:
+            return selected
+
+        # Keep the trip's temporal spread even for exceptionally long
+        # recordings. Leaflet can render this many small interactive markers
+        # without crowding out the actual post markers.
+        step = (len(selected) - 1) / (MAX_POST_CANDIDATES - 1)
+        return [
+            selected[round(index * step)]
+            for index in range(MAX_POST_CANDIDATES)
+        ]
+
+    @staticmethod
+    def _distance_meters(
+        latitude_a: float,
+        longitude_a: float,
+        latitude_b: float,
+        longitude_b: float,
+    ) -> float:
+        latitude_delta = radians(latitude_b - latitude_a)
+        longitude_delta = radians(longitude_b - longitude_a)
+        a = (
+            sin(latitude_delta / 2) ** 2
+            + cos(radians(latitude_a))
+            * cos(radians(latitude_b))
+            * sin(longitude_delta / 2) ** 2
+        )
+        return 6_371_000 * 2 * asin(sqrt(a))
 
     @staticmethod
     def _encode_cursor(recorded_at: datetime, sample_id: uuid.UUID) -> str:
