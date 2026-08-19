@@ -525,7 +525,7 @@ def test_speed_heading_altitude_round_trip_and_default_to_null(tracking) -> None
         offset_seconds=60,
         speed_mps=1.4,
         heading_degrees=180.0,
-        altitude_meters=42.0,
+        altitude_meters=42.1234,
     )
     without_motion = _sample(offset_seconds=120)
     result = tracking.upload(session_id, [with_motion, without_motion]).json()
@@ -537,7 +537,7 @@ def test_speed_heading_altitude_round_trip_and_default_to_null(tracking) -> None
     }
     assert stored[with_motion['id']]['speed_mps'] == 1.4
     assert stored[with_motion['id']]['heading_degrees'] == 180.0
-    assert stored[with_motion['id']]['altitude_meters'] == 42.0
+    assert stored[with_motion['id']]['altitude_meters'] == 42.12
     assert stored[without_motion['id']]['speed_mps'] is None
     assert stored[without_motion['id']]['heading_degrees'] is None
     assert stored[without_motion['id']]['altitude_meters'] is None

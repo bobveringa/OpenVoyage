@@ -56,6 +56,13 @@ class TrackSampleRequest(BaseModel):
     altitude_meters: float | None = None
     travel_mode: TravelMode = TravelMode.UNKNOWN
 
+    @field_validator('altitude_meters')
+    @classmethod
+    def round_altitude(cls, altitude_meters: float | None) -> float | None:
+        if altitude_meters is None:
+            return None
+        return round(altitude_meters, 2)
+
 
 class TrackSampleBatchRequest(BaseModel):
     samples: list[TrackSampleRequest] = Field(
