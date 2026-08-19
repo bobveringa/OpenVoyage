@@ -12,7 +12,9 @@ import {
   requestNotificationPermission,
 } from '@/native/tracking-onboarding'
 import {
+  accuracyCutoffFor,
   createMovementDetector,
+  shouldRescueRejectedFix,
   decideTracking,
   describeAdaptiveReason,
   isMeaningfulChange,
@@ -31,6 +33,7 @@ import {
   enqueueSample,
   getLastQueuedSample,
   getPendingSession,
+  type SanityFilterPrevious,
   getQueueStats,
   listPendingSessions,
   purgeSession,
@@ -67,6 +70,7 @@ const UNKNOWN_POWER_STATE: PowerState = {
 // than this would cost more than the adaptation saves.
 const POWER_POLL_MS = 60_000
 
+
 export function TrackingProvider({ children }: TrackingProviderProps) {
   const { accessToken, currentUser } = useAuth()
   const [activeSession, setActiveSession] = useState<ActiveTrackingSession | null>(null)
@@ -98,6 +102,13 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   const movementRef = useRef(createMovementDetector())
   const powerRef = useRef<PowerState>(UNKNOWN_POWER_STATE)
   const decisionRef = useRef<AdaptiveDecision | null>(null)
+  const lastAcceptedAtRef = useRef<number | null>(null)
+  // The last fix that was actually recorded, held in memory. Reading it back
+  // from the queue instead meant the out-of-order and 350 m/s jump guards were
+  // inert whenever the uploader was keeping up: it drains rows faster than
+  // fixes arrive, so the lookup returned null and every fix was compared
+  // against nothing. A 16 km jump in 4 s was accepted in testing.
+  const lastAcceptedFixRef = useRef<SanityFilterPrevious | null>(null)
 
   const getSource = useCallback((): PositionSource => {
     if (!sourceRef.current) {
@@ -188,14 +199,23 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
 
   const handleFix = useCallback(
     async (sessionId: string, startedAt: string, fix: PositionFix) => {
-      const previous = await getLastQueuedSample(sessionId)
-      const filterResult = checkSanityFilter(
-        fix,
-        previous,
-        settingsRef.current.accuracyThresholdMeters,
-        startedAt,
-      )
-      if (!filterResult.ok) {
+      // Prefer the in-memory record; fall back to the queue only on the first
+      // fix after a start or a re-attach, when there is nothing in memory yet.
+      const previous =
+        lastAcceptedFixRef.current ?? (await getLastQueuedSample(sessionId))
+      const decision = decisionRef.current
+      const cutoff = accuracyCutoffFor(decision?.powerLevel ?? 'high')
+      const filterResult = checkSanityFilter(fix, previous, cutoff, startedAt)
+
+      if (
+        !filterResult.ok &&
+        !shouldRescueRejectedFix({
+          intervalSeconds: decision?.intervalSeconds ?? 60,
+          msSinceAccepted:
+            Date.now() - (lastAcceptedAtRef.current ?? Date.parse(startedAt)),
+          reason: filterResult.reason,
+        })
+      ) {
         return
       }
 
@@ -213,18 +233,35 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         travelMode: settingsRef.current.defaultTravelMode,
       })
 
-      movementRef.current.observe(fix.speedMps, Date.parse(fix.recordedAt))
-      void applyAdaptivePolicy(fix.speedMps)
+      lastAcceptedAtRef.current = Date.now()
+      lastAcceptedFixRef.current = {
+        latitude: fix.latitude,
+        longitude: fix.longitude,
+        recordedAt: fix.recordedAt,
+      }
+      movementRef.current.observe({
+        accuracyMeters: Number.isFinite(fix.accuracyMeters) ? fix.accuracyMeters : null,
+        atMs: Date.parse(fix.recordedAt),
+        latitude: fix.latitude,
+        longitude: fix.longitude,
+        speedMps: fix.speedMps,
+      })
+      // The detector's displacement-derived speed, not the fix's own field —
+      // see createMovementDetector for why the latter cannot be trusted.
+      void applyAdaptivePolicy(movementRef.current.getSpeedMps())
+      void getSource().noteSampleAccepted()
 
       uploaderRef.current?.requestSync()
       void refreshQueueStats(sessionId)
     },
-    [applyAdaptivePolicy, refreshQueueStats],
+    [applyAdaptivePolicy, getSource, refreshQueueStats],
   )
 
   const stopCapture = useCallback(async () => {
     capturingRef.current = false
     decisionRef.current = null
+    lastAcceptedAtRef.current = null
+    lastAcceptedFixRef.current = null
     setAdaptiveDecision(null)
     setLocationWarning(null)
     try {

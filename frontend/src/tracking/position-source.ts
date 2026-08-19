@@ -80,6 +80,9 @@ export interface PositionSource {
   configure(config: PositionSourceConfig): Promise<void>
   updateStatus(status: { title: string; text: string }): Promise<void>
   getPowerState(): Promise<PowerState>
+  // Tells the native watchdog a fix actually made it into the queue, so
+  // "no signal" can be told apart from "signal too poor to record".
+  noteSampleAccepted(): Promise<void>
 }
 
 type NativeFix = {
@@ -114,6 +117,7 @@ interface TrackingPlugin {
   }): Promise<NativeTrackingState>
   updateStatus(options: { title: string; text: string }): Promise<void>
   stop(): Promise<void>
+  noteSampleAccepted(): Promise<void>
   drain(): Promise<{ fixes: NativeFix[]; droppedCount: number }>
   getPowerState(): Promise<PowerState>
   addListener(
@@ -336,6 +340,10 @@ class NativePositionSource implements PositionSource {
     return Tracking.getPowerState()
   }
 
+  async noteSampleAccepted(): Promise<void> {
+    await Tracking.noteSampleAccepted()
+  }
+
   async stop(): Promise<void> {
     // Take whatever the service captured between the last fix event and this
     // call before tearing it down — those are the final seconds of the
@@ -417,6 +425,9 @@ class WebPositionSource implements PositionSource {
   async getPowerState(): Promise<PowerState> {
     return { batteryLevel: null, charging: false, powerSaveMode: false }
   }
+
+  // No native watchdog on web.
+  async noteSampleAccepted(): Promise<void> {}
 
   async stop(): Promise<void> {
     if (this.watchId !== null) {

@@ -132,6 +132,13 @@ public class TrackingService extends Service {
     /** Non-null while the engine is failing or has gone quiet. */
     private String warningText = null;
     private long lastFixAtMs = 0L;
+    // Distinct from lastFixAtMs on purpose. A fix arriving is not the same as a
+    // point being recorded: the JS side still applies an accuracy cutoff, and
+    // when that rejects everything the recording silently stops producing
+    // anything while raw fixes keep resetting the watchdog. Tracking both lets
+    // the two failures be told apart and reported differently.
+    private long lastAcceptedAtMs = 0L;
+    private boolean listenerAttached = false;
     private Runnable noFixCheck = null;
 
     static TrackingService getInstance() {
@@ -140,6 +147,20 @@ public class TrackingService extends Service {
 
     static void setListener(Listener value) {
         listener = value;
+        TrackingService current = instance;
+        if (current != null) {
+            current.listenerAttached = value != null;
+            if (value != null) {
+                // A freshly attached webview has not had a chance to accept
+                // anything yet; don't hold its predecessor's silence against it.
+                current.lastAcceptedAtMs = System.currentTimeMillis();
+            }
+        }
+    }
+
+    void noteSampleAccepted() {
+        lastAcceptedAtMs = System.currentTimeMillis();
+        clearWarning();
     }
 
     static boolean isTrackingKnownFromPrefs(Context context) {
@@ -267,6 +288,7 @@ public class TrackingService extends Service {
         }
 
         tracking = true;
+        lastAcceptedAtMs = 0L;
         prefs.edit().putBoolean(PREF_TRACKING, true).apply();
 
         postNotificationAsForeground();
@@ -419,24 +441,33 @@ public class TrackingService extends Service {
                 if (!tracking) {
                     return;
                 }
+                long now = System.currentTimeMillis();
                 boolean hadFirstFix = lastFixAtMs > 0;
-                long since = System.currentTimeMillis()
-                        - (hadFirstFix ? lastFixAtMs : startedAtMs);
-                long threshold = hadFirstFix
+                long sinceFix = now - (hadFirstFix ? lastFixAtMs : startedAtMs);
+                long fixThreshold = hadFirstFix
                         ? Math.max(MIN_NO_FIX_WARNING_MS, intervalMs * 2)
                         : FIRST_FIX_WARNING_MS;
-                if (since > threshold) {
-                    // Leads with the ordinary explanation, because indoors
-                    // is far and away the common cause; the engine hint is
-                    // only added where it could actually be the problem.
+
+                if (sinceFix > fixThreshold) {
                     setWarning(
                             hadFirstFix
-                                    ? "No GPS signal right now — still recording."
+                                    ? "No GPS signal right now - still recording."
                                     : "Waiting for a GPS fix. This can take a minute outdoors, longer indoors."
                                             + (SOURCE_GMS.equals(getEngineName())
                                                     ? ""
                                                     : " If it never arrives, try another Location source in tracking settings.")
                     );
+                    handler.postDelayed(this, NO_FIX_CHECK_INTERVAL_MS);
+                    return;
+                }
+
+                // Fixes are arriving but nothing is being recorded. Only
+                // meaningful while a webview is attached to do the accepting;
+                // with none attached, fixes are simply buffered for later.
+                long sinceAccepted = now - (lastAcceptedAtMs > 0 ? lastAcceptedAtMs : startedAtMs);
+                long acceptThreshold = Math.max(MIN_NO_FIX_WARNING_MS, intervalMs * 3);
+                if (listenerAttached && hadFirstFix && sinceAccepted > acceptThreshold) {
+                    setWarning("GPS signal is too weak to record accurately - some points are being skipped.");
                 } else {
                     clearWarning();
                 }
@@ -534,7 +565,6 @@ public class TrackingService extends Service {
         }
 
         lastFixAtMs = System.currentTimeMillis();
-        clearWarning();
         buffer.append(fix);
 
         Listener current = listener;

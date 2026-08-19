@@ -393,23 +393,6 @@ function AdvancedSection({
       <div className="grid gap-5 border-t border-border px-4 py-4 sm:grid-cols-2">
         <label className="space-y-1.5 text-sm">
           <span className="font-medium text-foreground">
-            Ignore points less accurate than
-          </span>
-          <Input
-            min={1}
-            onChange={(event) =>
-              onChange({ accuracyThresholdMeters: Number(event.target.value) })
-            }
-            type="number"
-            value={settings.accuracyThresholdMeters}
-          />
-          <span className="block text-xs text-muted-foreground">
-            In metres. Applies to both smart and manual recording.
-          </span>
-        </label>
-
-        <label className="space-y-1.5 text-sm">
-          <span className="font-medium text-foreground">
             Minimum distance between points
           </span>
           <Input

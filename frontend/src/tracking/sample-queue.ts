@@ -55,9 +55,18 @@ export type SanityFilterResult =
     }
 
 // §5.2: reject a fix before it ever reaches the queue.
+// Only the fields the jump/ordering guards actually read, so the caller can
+// pass an in-memory record of the last accepted fix rather than a row that may
+// already have been uploaded and deleted.
+export type SanityFilterPrevious = {
+  recordedAt: string
+  latitude: number
+  longitude: number
+}
+
 export function checkSanityFilter(
   candidate: SanityFilterCandidate,
-  previous: QueuedSample | null,
+  previous: SanityFilterPrevious | null,
   accuracyThresholdMeters: number,
   sessionStartedAt?: string,
 ): SanityFilterResult {

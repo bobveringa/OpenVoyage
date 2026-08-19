@@ -227,6 +227,19 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
         call.resolve();
     }
 
+    /**
+     * JS accepted a fix into its durable queue. Feeds the watchdog that tells
+     * "no signal" apart from "signal too poor to record".
+     */
+    @PluginMethod
+    public void noteSampleAccepted(PluginCall call) {
+        TrackingService service = TrackingService.getInstance();
+        if (service != null) {
+            service.noteSampleAccepted();
+        }
+        call.resolve();
+    }
+
     @PluginMethod
     public void drain(PluginCall call) {
         TrackingService service = TrackingService.getInstance();

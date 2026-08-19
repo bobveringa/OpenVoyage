@@ -152,3 +152,47 @@ describe('checkSanityFilter — session window', () => {
     expect(result).toEqual({ ok: true })
   })
 })
+
+describe('checkSanityFilter — GPS jump guard against the last accepted fix', () => {
+  // Observed live: a route point and a 16 km-distant point four seconds apart
+  // were both recorded, because `previous` was read back from the queue and
+  // the uploader had already drained it. The guard only works when it is
+  // compared against what was actually last accepted.
+  it('rejects a 16 km jump four seconds after the previous fix', () => {
+    const result = checkSanityFilter(
+      {
+        accuracyMeters: 5,
+        latitude: 51.5786,
+        longitude: 5.36015,
+        recordedAt: '2026-08-18T22:06:50.000Z',
+      },
+      {
+        latitude: 51.44995,
+        longitude: 5.46092,
+        recordedAt: '2026-08-18T22:06:46.000Z',
+      },
+      100,
+    )
+
+    expect(result).toEqual({ ok: false, reason: 'gps-jump' })
+  })
+
+  it('still accepts a plausible 57 km/h step between fixes', () => {
+    const result = checkSanityFilter(
+      {
+        accuracyMeters: 20,
+        latitude: 51.44811,
+        longitude: 5.45207,
+        recordedAt: '2026-08-18T22:39:33.000Z',
+      },
+      {
+        latitude: 51.5786,
+        longitude: 5.36015,
+        recordedAt: '2026-08-18T22:22:46.000Z',
+      },
+      100,
+    )
+
+    expect(result).toEqual({ ok: true })
+  })
+})

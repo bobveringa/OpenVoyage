@@ -54,15 +54,16 @@ export type TrackingSettings = {
   manualIntervalSeconds: number
   manualPowerLevel: PowerLevel
   defaultTravelMode: TravelMode
-  // Advanced — applies to both modes.
+  // Advanced — applies to both modes. The accuracy cutoff is deliberately not
+  // here: it is derived from the active power tier (see accuracyCutoffFor),
+  // because the right value depends on what that tier can deliver rather than
+  // on anything the user can sensibly judge.
   distanceFilterMeters: number
-  accuracyThresholdMeters: number
   locationSource: LocationSource
   notificationDetail: NotificationDetail
 }
 
 export const DEFAULT_TRACKING_SETTINGS: TrackingSettings = {
-  accuracyThresholdMeters: 100,
   defaultTravelMode: 'UNKNOWN',
   distanceFilterMeters: 0,
   locationSource: 'auto',
@@ -130,7 +131,6 @@ function sanitize(settings: TrackingSettings): TrackingSettings {
 
   return {
     ...settings,
-    accuracyThresholdMeters: Math.max(1, settings.accuracyThresholdMeters),
     distanceFilterMeters: Math.max(0, settings.distanceFilterMeters),
     manualIntervalSeconds: Math.max(1, settings.manualIntervalSeconds),
     smartPrecision: level,
