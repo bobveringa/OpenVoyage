@@ -15,8 +15,7 @@
           const cached = raw ? JSON.parse(raw) : null
           const palette = cached && cached.cache_version === 1 && cached.palette && cached.palette.schema_version === 1 && validColors(cached.palette.light) && validColors(cached.palette.dark) ? cached.palette : null
           const savedMode = localStorage.getItem('openvoyage.theme-mode.v1')
-          const preference = savedMode === 'light' || savedMode === 'dark' || savedMode === 'system' ? savedMode : 'system'
-          const mode = preference === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : preference
+          const mode = savedMode === 'dark' ? 'dark' : 'light'
           if (!palette) return
           for (const paletteMode of ['light', 'dark']) for (const role of roles) document.documentElement.style.setProperty('--theme-' + paletteMode + '-' + names[role], palette[paletteMode][role])
           document.documentElement.classList.toggle('dark', mode === 'dark')

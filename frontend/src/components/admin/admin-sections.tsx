@@ -273,7 +273,7 @@ function SettingsAdminSections({
     return (
       <section {...panelProps} className="space-y-6">
         <SectionHeading
-          description="Publish shared light and dark palettes. Visitors choose light, dark, or system mode from the top bar."
+          description="Publish shared light and dark palettes. Visitors choose light or dark mode from the top bar."
           eyebrow="Public experience"
           title="Appearance"
         />

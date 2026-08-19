@@ -5,7 +5,6 @@ import { ThemeContext } from '@/theme/theme-context'
 import {
   DEFAULT_THEME_PALETTE,
   parseThemePalette,
-  resolveThemeMode,
   THEME_PALETTE_KEY,
   type ThemeModePreference,
   type ThemePalette,
@@ -22,8 +21,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const { settings } = usePublicSettings()
   const [palette, setPalette] = useState<ThemePalette>(() => readCachedTheme() ?? DEFAULT_THEME_PALETTE)
   const [preference, setPreferenceState] = useState<ThemeModePreference>(readThemeModePreference)
-  const [prefersDark, setPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
-  const mode = resolveThemeMode(preference, prefersDark)
+  const mode = preference
 
   useEffect(() => {
     const nextPalette = parseThemePalette(settings[THEME_PALETTE_KEY])
@@ -31,13 +29,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setPalette(nextPalette)
     writeCachedTheme(nextPalette)
   }, [settings])
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const update = () => setPrefersDark(media.matches)
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [])
 
   // Leaflet reads these CSS values when it creates its route layers. Apply the
   // selected theme during the layout phase so child effects never see the

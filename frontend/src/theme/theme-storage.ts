@@ -45,11 +45,9 @@ export function writeCachedTheme(palette: ThemePalette) {
 export function readThemeModePreference(): ThemeModePreference {
   try {
     const value = window.localStorage.getItem(THEME_MODE_KEY)
-    return value === 'light' || value === 'dark' || value === 'system'
-      ? value
-      : 'system'
+    return value === 'dark' ? 'dark' : 'light'
   } catch {
-    return 'system'
+    return 'light'
   }
 }
 
