@@ -5022,7 +5022,6 @@ function PostFormPanel({
     number | null
   >(null)
   const [mediaNotice, setMediaNotice] = useState<string | null>(null)
-  const [mediaToolsOpen, setMediaToolsOpen] = useState(false)
   const [pendingSubmit, setPendingSubmit] = useState<PendingPostSubmit | null>(
     null,
   )
@@ -5226,7 +5225,6 @@ function PostFormPanel({
     setSelectedSearchPlace(null)
     setPlaceResultsOpen(false)
     setMediaNotice(null)
-    setMediaToolsOpen(false)
     setPendingSubmit(null)
     setOccurredAt(
       editingPost
@@ -5646,17 +5644,30 @@ function PostFormPanel({
           </div>
           <Button
             disabled={formDisabled}
-            onClick={() => setMediaToolsOpen((current) => !current)}
+            onClick={() => fileInputRef.current?.click()}
             size="sm"
             type="button"
             variant="outline"
           >
             <Upload className="size-4" aria-hidden="true" />
-            Add
+            Add media
           </Button>
         </div>
 
         {mediaNotice ? <MockNotice>{mediaNotice}</MockNotice> : null}
+
+        <input
+          accept="image/*,video/*"
+          className="sr-only"
+          disabled={formDisabled}
+          multiple
+          onChange={(event) => {
+            handleUploadFiles(event.currentTarget.files)
+            event.currentTarget.value = ''
+          }}
+          ref={fileInputRef}
+          type="file"
+        />
 
         <div className="trip-post-media-strip scrollbar-subtle flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain pb-1">
           {draftMedia.length === 0 ? (
@@ -5666,7 +5677,7 @@ function PostFormPanel({
                 mediaStripHeightClassName,
               )}
               disabled={formDisabled}
-              onClick={() => setMediaToolsOpen(true)}
+              onClick={() => fileInputRef.current?.click()}
               type="button"
             >
               <span className="grid justify-items-center gap-2 text-sm font-semibold">
@@ -5742,7 +5753,7 @@ function PostFormPanel({
               mediaStripHeightClassName,
             )}
             disabled={formDisabled}
-            onClick={() => setMediaToolsOpen(true)}
+            onClick={() => fileInputRef.current?.click()}
             type="button"
           >
             <span className="grid justify-items-center gap-2 text-sm font-semibold">
@@ -5752,48 +5763,6 @@ function PostFormPanel({
           </button>
         </div>
 
-        {mediaToolsOpen ? (
-          <div className="space-y-3 rounded-[1.25rem] border border-border bg-muted/70 p-3">
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button
-                disabled={formDisabled}
-                onClick={() => fileInputRef.current?.click()}
-                type="button"
-                variant="outline"
-              >
-                <Upload className="size-4" aria-hidden="true" />
-                Upload files
-              </Button>
-              <Button
-                disabled={formDisabled}
-                onClick={() => fileInputRef.current?.click()}
-                type="button"
-                variant="outline"
-              >
-                <Camera className="size-4" aria-hidden="true" />
-                Use camera roll
-              </Button>
-            </div>
-
-            <input
-              accept="image/*,video/*"
-              className="sr-only"
-              multiple
-              disabled={formDisabled}
-              onChange={(event) => {
-                handleUploadFiles(event.currentTarget.files)
-                event.currentTarget.value = ''
-              }}
-              ref={fileInputRef}
-              type="file"
-            />
-
-            <p className="rounded-[1.1rem] bg-card/75 px-3 py-2 text-sm text-muted-foreground">
-              Select photos or videos. New uploads are added to the end of the
-              strip and can be reordered before publishing.
-            </p>
-          </div>
-        ) : null}
       </section>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
