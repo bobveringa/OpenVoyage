@@ -40,6 +40,14 @@ const SESSION_RESTORE_RETRY_MS = 5 * 1000
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [tokens, setTokens] = useState<AuthTokens | null>(null)
+  // The token handed to the rest of the app. It is pinned for the lifetime of
+  // a session instead of tracking every rotation: consumers pass it to the API
+  // client, which resolves it to the live token on each request (see
+  // configureAuthTokenRefresh below). A value that changed every ~13 minutes
+  // ended up in effect dependency arrays, so a silent background refresh
+  // re-ran every page's data load and flashed the whole screen back to its
+  // loading state.
+  const [sessionAccessToken, setSessionAccessToken] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [status, setStatus] = useState<AuthStatus>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -52,6 +60,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     void writeStoredAuthTokens(nextTokens)
     tokensRef.current = nextTokens
     setTokens(nextTokens)
+    setSessionAccessToken((current) => current ?? nextTokens.access_token)
   }, [])
 
   const clearSession = useCallback(() => {
@@ -60,6 +69,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     tokensRef.current = null
     refreshPromiseRef.current = null
     setTokens(null)
+    setSessionAccessToken(null)
     setCurrentUser(null)
     setStatus('unauthenticated')
     setError(null)
@@ -127,7 +137,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return null
       }
       if (currentTokens.access_token !== accessToken) {
-        return currentTokens.access_token
+        // The caller holds the session's pinned token rather than the newest
+        // one. A rotation that already happened satisfies a forced refresh;
+        // otherwise still top up the live token when it is close to expiring,
+        // so requests keep being sent with a valid one.
+        if (forceRefresh) {
+          return currentTokens.access_token
+        }
+        const nextTokens = await refreshSession()
+        return nextTokens?.access_token ?? currentTokens.access_token
       }
 
       const nextTokens = await refreshSession({ force: forceRefresh })
@@ -163,6 +181,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       tokensRef.current = storedTokens
       setTokens(storedTokens)
+      setSessionAccessToken((current) => current ?? storedTokens.access_token)
 
       try {
         const sessionTokens = shouldRefreshAccessToken(storedTokens.access_token)
@@ -342,7 +361,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      accessToken: tokens?.access_token ?? null,
+      accessToken: sessionAccessToken,
       changePassword,
       currentUser,
       error,
@@ -359,6 +378,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       currentUser,
       error,
       signIn,
+      sessionAccessToken,
       signOutAll,
       status,
       tokens,

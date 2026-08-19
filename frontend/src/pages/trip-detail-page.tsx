@@ -951,6 +951,9 @@ export function TripDetailPage({
   const [draftStopLocation, setDraftStopLocation] =
     useState<DraftPostLocation | null>(null)
   const urlStateRef = useRef<TripDetailUrlState>(initialUrlState)
+  // Which trip the rendered content belongs to, so a reload of the trip
+  // already on screen can keep showing it instead of blanking out.
+  const loadedTripIdRef = useRef<string | null>(null)
   const shareToken = useMemo(readShareTokenFromUrl, [])
   const currentUserId = currentUser?.id ?? null
   const currentTripMembership = useMemo(() => {
@@ -1026,7 +1029,13 @@ export function TripDetailPage({
         return
       }
 
-      setLoadState({ error: null, status: 'loading' })
+      // Re-running this for the same trip (a background refresh, a session
+      // token rotation) must not drop back to the full-page spinner: that
+      // read as the whole screen flashing. Only an empty or different trip
+      // has nothing worth keeping on screen while the request is in flight.
+      if (loadedTripIdRef.current !== tripId) {
+        setLoadState({ error: null, status: 'loading' })
+      }
       setMutationError(null)
 
       try {
@@ -1057,6 +1066,7 @@ export function TripDetailPage({
         setTripMembers(loadedTripMembers)
         setTravelPosts(loadedPosts)
         setTrackingGeometry(loadedTrackingGeometry)
+        loadedTripIdRef.current = tripId
         setLoadState({ error: null, status: 'success' })
 
         if (accessToken && loadedCurrentMembership?.role === 'OWNER') {
@@ -1074,6 +1084,7 @@ export function TripDetailPage({
           return
         }
 
+        loadedTripIdRef.current = null
         setLoadState({
           error: getErrorMessage(loadError),
           status: 'error',
@@ -7597,17 +7608,30 @@ function getTravelTimelineRouteEndpoint(
   openingRoute: TravelPostRoute | null,
 ): RouteEndpoint | null {
   const postsInRouteOrder = getTravelPostsInRouteOrder(travelPosts)
-  const finalRoute = postsInRouteOrder[postsInRouteOrder.length - 1]?.routeAfter
-  // A postless trip exposes its current path as `opening_route`, rather than
-  // `route_after`. Use it as the live endpoint source when there is no final
-  // post route, which covers viewers and trip members alike.
-  const route = finalRoute ?? openingRoute
+  const finalPost = postsInRouteOrder[postsInRouteOrder.length - 1] ?? null
+  // Live points after a post belong to that post's `route_after`.  Once there
+  // is a newer post, its own route is the only possible live source; never
+  // fall back to the pre-first-post `opening_route`.
+  const route = finalPost ? finalPost.routeAfter : openingRoute
   const lastSegment = route?.segments[route.segments.length - 1]
   const coordinates = lastSegment?.coordinates[lastSegment.coordinates.length - 1]
 
   return coordinates
     ? { coordinates, travelMode: lastSegment.travelMode }
     : null
+}
+
+function getTravelTimelineRouteOrigin(
+  travelPosts: readonly TravelPost[],
+  openingRoute: TravelPostRoute | null,
+): L.LatLngTuple | null {
+  const liveEndpoint = getTravelTimelineRouteEndpoint(travelPosts, openingRoute)
+  if (liveEndpoint) {
+    return liveEndpoint.coordinates
+  }
+
+  const postsInRouteOrder = getTravelPostsInRouteOrder(travelPosts)
+  return postsInRouteOrder[postsInRouteOrder.length - 1]?.coordinates ?? null
 }
 
 function createRouteEndpointBubbleHtml(travelMode: TravelMode) {
@@ -8059,13 +8083,13 @@ function getTravelTimelineRouteSegments(
     ...toPostRouteSegments(openingRoute),
     ...getBackendTravelPostRouteSegments(postsInRouteOrder),
   ]
-  const finalPost = postsInRouteOrder[postsInRouteOrder.length - 1] ?? null
+  const origin = getTravelTimelineRouteOrigin(travelPosts, openingRoute)
   const upcomingStop = stops[0] ?? null
 
-  if (finalPost && upcomingStop) {
+  if (origin && upcomingStop) {
     segments.push({
       coordinates: getPointToPointRouteCoordinates(
-        finalPost.coordinates,
+        origin,
         getStopCoordinates(upcomingStop),
       ),
       kind: 'post-to-stop',

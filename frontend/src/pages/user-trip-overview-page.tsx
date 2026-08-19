@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 
 import {
@@ -105,17 +105,24 @@ export function UserTripOverviewPage({
   username,
 }: UserTripOverviewPageProps) {
   const [state, setState] = useState<OverviewState>(initialState)
+  // Whose trips the rendered content belongs to — see loadOverview below.
+  const loadedUsernameRef = useRef<string | null>(null)
   const [createTripOpen, setCreateTripOpen] = useState(false)
 
   const loadOverview = useCallback(
     async (options: { isCurrent: () => boolean }) => {
-      setState({
-        error: null,
-        sections: createEmptySections(),
-        status: 'loading',
-        total: 0,
-        user: null,
-      })
+      // Reloading the list already on screen (a background refresh, a session
+      // token rotation) keeps it visible: swapping it for the spinner made the
+      // page flash. A different user has nothing reusable to show.
+      if (loadedUsernameRef.current !== username) {
+        setState({
+          error: null,
+          sections: createEmptySections(),
+          status: 'loading',
+          total: 0,
+          user: null,
+        })
+      }
 
       try {
         const loadedUser = await getUserByUsername(username)
@@ -148,6 +155,7 @@ export function UserTripOverviewPage({
           }
         }
 
+        loadedUsernameRef.current = username
         setState({
           error: null,
           sections,
@@ -160,6 +168,7 @@ export function UserTripOverviewPage({
           return
         }
 
+        loadedUsernameRef.current = null
         setState({
           error: getErrorMessage(loadError),
           sections: createEmptySections(),
