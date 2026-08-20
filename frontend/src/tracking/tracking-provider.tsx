@@ -4,6 +4,7 @@ import {
   deleteTrackingSession,
   getErrorMessage,
   listTrackingSessionsWithServerDate,
+  type TravelMode,
 } from '@/api/client'
 import { useAuth } from '@/auth/use-auth'
 import {
@@ -42,6 +43,7 @@ import {
   putPendingSession,
   resetDroppedLocallyCount,
   resetSimulatedRejectedCount,
+  setSessionTravelMode,
   sweepOrphanedSamples,
   type QueueStats,
 } from '@/tracking/sample-queue'
@@ -54,8 +56,10 @@ import {
   TrackingContext,
   type ActiveTrackingSession,
   type StartTrackingInput,
+  type StartTrackingOutcome,
   type TrackingStatus,
 } from '@/tracking/tracking-context'
+import { describeTravelMode } from '@/tracking/travel-mode-options'
 import { SessionUploader, type UploaderSnapshot } from '@/tracking/uploader'
 import { describeUploaderStatus } from '@/tracking/uploader-status'
 
@@ -84,6 +88,13 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   const [adaptiveDecision, setAdaptiveDecision] = useState<AdaptiveDecision | null>(null)
   // Advisory only: the engine has gone quiet but the recording continues.
   const [locationWarning, setLocationWarning] = useState<string | null>(null)
+  // U1: a live re-check (triggered by the uploader on a non-zero discarded
+  // count) still finds the clock off. Self-heals to null once discards stop.
+  const [clockSkewWarningSeconds, setClockSkewWarningSeconds] = useState<number | null>(
+    null,
+  )
+  // U2: the travel mode new samples are being stamped with right now.
+  const [currentTravelMode, setCurrentTravelModeState] = useState<TravelMode>('UNKNOWN')
 
   const accessTokenRef = useRef<string | null>(accessToken)
   const currentUserIdRef = useRef<string | null>(currentUser?.id ?? null)
@@ -122,6 +133,10 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   // fixes arrive, so the lookup returned null and every fix was compared
   // against nothing. A 16 km jump in 4 s was accepted in testing.
   const lastAcceptedFixRef = useRef<SanityFilterPrevious | null>(null)
+  // Sync read path for handleFix (U2), mirroring settingsRef's pattern —
+  // the state above is for display, this ref is what actually gets stamped
+  // onto each sample without needing handleFix to depend on React state.
+  const currentTravelModeRef = useRef<TravelMode>('UNKNOWN')
 
   const getSource = useCallback((): PositionSource => {
     if (!sourceRef.current) {
@@ -135,6 +150,13 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   const updateSettingsRef = useCallback((next: TrackingSettings) => {
     settingsRef.current = next
     setSettingsVersion((version) => version + 1)
+  }, [])
+
+  // Pairs the ref (handleFix's synchronous read path) with the state
+  // (display) update, mirroring updateSettingsRef above (U2).
+  const updateCurrentTravelMode = useCallback((mode: TravelMode) => {
+    currentTravelModeRef.current = mode
+    setCurrentTravelModeState(mode)
   }, [])
 
   useEffect(() => {
@@ -183,7 +205,9 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   const handleFullySynced = useCallback(() => {
     setActiveSession(null)
     setStatus('idle')
-  }, [])
+    setClockSkewWarningSeconds(null)
+    updateCurrentTravelMode('UNKNOWN')
+  }, [updateCurrentTravelMode])
 
   // Re-evaluates the Phase 3 policy and, when the cadence has genuinely
   // moved, pushes it down to the OS location request. Doing this natively
@@ -256,7 +280,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         recordedAt: fix.recordedAt,
         sessionId,
         speedMps: fix.speedMps,
-        travelMode: settingsRef.current.defaultTravelMode,
+        travelMode: currentTravelModeRef.current,
       })
 
       lastAcceptedAtRef.current = Date.now()
@@ -433,6 +457,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         const backgroundUploader = new SessionUploader({
           getAccessToken: () => accessTokenRef.current,
           getCurrentUserId: () => currentUserIdRef.current,
+          getWifiOnlyUpload: () => settingsRef.current.wifiOnlyUpload,
           onSnapshotChange: () => {},
           onTerminated: () => {},
           sessionId: session.sessionId,
@@ -449,6 +474,8 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       const uploader = new SessionUploader({
         getAccessToken: () => accessTokenRef.current,
         getCurrentUserId: () => currentUserIdRef.current,
+        getWifiOnlyUpload: () => settingsRef.current.wifiOnlyUpload,
+        onClockSkewChecked: setClockSkewWarningSeconds,
         onFullySynced: handleFullySynced,
         onSnapshotChange: (snapshot) => handleUploaderSnapshot(toShow.sessionId, snapshot),
         onTerminated: handleTerminated,
@@ -457,6 +484,8 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       })
       replaceUploader(uploader)
       uploader.start()
+
+      updateCurrentTravelMode(toShow.currentTravelMode ?? 'UNKNOWN')
 
       if (stillOpen) {
         movementRef.current = createMovementDetector()
@@ -552,6 +581,11 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       if (status === 'recording' && adaptiveDecision) {
         parts.push(describeAdaptiveReason(adaptiveDecision))
       }
+      // U2: visible without unlocking into the app, since the mode switcher
+      // is the one piece of state the user is now responsible for.
+      if (status === 'recording') {
+        parts.push(describeTravelMode(currentTravelMode))
+      }
       text = parts.join(' · ')
     }
 
@@ -564,6 +598,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   }, [
     activeSession,
     adaptiveDecision,
+    currentTravelMode,
     getSource,
     notificationTitleFor,
     queueStats,
@@ -584,15 +619,36 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     [applyAdaptivePolicy, updateSettingsRef],
   )
 
+  // U2: only affects samples enqueued from this point on — handleFix reads
+  // currentTravelModeRef fresh on every fix, and nothing here touches
+  // samples already sitting in the queue. Persisted on the session's own
+  // row so it survives a reload or a process kill, unlike a plain ref.
+  const setTravelMode = useCallback(
+    async (mode: TravelMode) => {
+      const session = activeSession
+      if (!session || session.endedAt !== null) {
+        return
+      }
+      updateCurrentTravelMode(mode)
+      try {
+        await setSessionTravelMode(session.sessionId, mode)
+      } catch (travelModeError) {
+        setError(getErrorMessage(travelModeError))
+      }
+    },
+    [activeSession, updateCurrentTravelMode],
+  )
+
   const startTracking = useCallback(
     async ({
       tripId,
       tripTitle,
       accessToken: startAccessToken,
       currentUserId,
-    }: StartTrackingInput) => {
+      acknowledgeClockSkew,
+    }: StartTrackingInput): Promise<StartTrackingOutcome> => {
       if (status !== 'idle') {
-        return
+        return { kind: 'ok' }
       }
       setStatus('starting')
       setError(null)
@@ -608,19 +664,16 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
           tripId,
         })
 
-        if (serverDate) {
+        if (serverDate && !acknowledgeClockSkew) {
           const skew = checkClockSkew(serverDate)
           if (!skew.withinTolerance) {
-            const skewSeconds = Math.round(Math.abs(skew.skewMs) / 1000)
-            const proceed = window.confirm(
-              `Your device clock looks like it is off by about ${skewSeconds} seconds ` +
-                'from the server. Points recorded while your clock is this far off can ' +
-                'be silently rejected.\n\nFix your device’s date & time for reliable ' +
-                'results. Start anyway?',
-            )
-            if (!proceed) {
-              setStatus('idle')
-              return
+            // Can't render a confirmation dialog from here (U1) — the
+            // caller shows one and re-enters with acknowledgeClockSkew:
+            // true if the user wants to proceed anyway.
+            setStatus('idle')
+            return {
+              kind: 'clock-skew-confirmation-required',
+              skewSeconds: Math.round(Math.abs(skew.skewMs) / 1000),
             }
           }
         }
@@ -629,7 +682,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         if (openSession) {
           setError('A recording is already in progress for this trip.')
           setStatus('idle')
-          return
+          return { kind: 'ok' }
         }
 
         const settings = await readTrackingSettings()
@@ -644,7 +697,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         if (!probe.ok) {
           setError(probe.message ?? 'Location tracking is unavailable on this device.')
           setStatus('idle')
-          return
+          return { kind: 'ok' }
         }
         coarseLocationAvailableRef.current = probe.coarseLocationAvailable
 
@@ -658,6 +711,11 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
 
         await resetDroppedLocallyCount()
         await resetSimulatedRejectedCount()
+        setClockSkewWarningSeconds(null)
+        // U2: always UNKNOWN at the start of a new recording, never carried
+        // over from the device's old defaultTravelMode setting — the mode
+        // is a property of this leg of the trip.
+        updateCurrentTravelMode('UNKNOWN')
 
         const sessionId = crypto.randomUUID()
         const startedAt = new Date().toISOString()
@@ -665,6 +723,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         // Persisted before any network call, per §3.1's durability rule.
         await putPendingSession({
           createAcked: false,
+          currentTravelMode: 'UNKNOWN',
           endAcked: false,
           endedAt: null,
           recordedByUserId: currentUserId,
@@ -677,6 +736,8 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         const uploader = new SessionUploader({
           getAccessToken: () => accessTokenRef.current,
           getCurrentUserId: () => currentUserIdRef.current,
+          getWifiOnlyUpload: () => settingsRef.current.wifiOnlyUpload,
+          onClockSkewChecked: setClockSkewWarningSeconds,
           onFullySynced: handleFullySynced,
           onSnapshotChange: (snapshot) => handleUploaderSnapshot(sessionId, snapshot),
           onTerminated: handleTerminated,
@@ -710,6 +771,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         // foreground service is what actually keeps location flowing in the
         // background, so a "no" here doesn't affect the recording.
         void requestBackgroundLocation()
+        return { kind: 'ok' }
       } catch (startError) {
         // Starting failed partway through, which may still have left the
         // native service running. Tearing it down here is what keeps a
@@ -717,6 +779,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         await stopCapture()
         setError(getErrorMessage(startError))
         setStatus('idle')
+        return { kind: 'ok' }
       }
     },
     [
@@ -730,6 +793,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       replaceUploader,
       status,
       stopCapture,
+      updateCurrentTravelMode,
       updateSettingsRef,
     ],
   )
@@ -761,6 +825,8 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         replaceUploader(null)
         setActiveSession(null)
         setStatus('idle')
+        setClockSkewWarningSeconds(null)
+        updateCurrentTravelMode('UNKNOWN')
         return
       }
 
@@ -772,7 +838,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       setActiveSession({ ...session, endedAt })
       setStatus('syncing')
     },
-    [replaceUploader],
+    [replaceUploader, updateCurrentTravelMode],
   )
 
   // Hard failure: the engine cannot deliver fixes and will not recover. The
@@ -836,10 +902,13 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     () => ({
       activeSession,
       adaptiveDecision,
+      clockSkewWarningSeconds,
+      currentTravelMode,
       error,
       locationWarning,
       notifySettingsChanged,
       queueStats,
+      setTravelMode,
       startTracking,
       status,
       stopTracking,
@@ -848,10 +917,13 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     [
       activeSession,
       adaptiveDecision,
+      clockSkewWarningSeconds,
+      currentTravelMode,
       error,
       locationWarning,
       notifySettingsChanged,
       queueStats,
+      setTravelMode,
       startTracking,
       status,
       stopTracking,

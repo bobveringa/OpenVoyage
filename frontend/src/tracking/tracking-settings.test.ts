@@ -51,11 +51,20 @@ describe('read/writeTrackingSettings', () => {
   it('round-trips a saved value', async () => {
     const settings = {
       ...DEFAULT_TRACKING_SETTINGS,
-      defaultTravelMode: 'BIKE' as const,
       smartPrecision: 5 as const,
     }
     await writeTrackingSettings(settings)
     expect(await readTrackingSettings()).toEqual(settings)
+  })
+
+  // U2: no longer a device preference — travel mode lives on the recording's
+  // own state instead, so a stray write here must never survive a save.
+  it('ignores a defaultTravelMode value on save, pinning it to UNKNOWN', async () => {
+    await writeTrackingSettings({
+      ...DEFAULT_TRACKING_SETTINGS,
+      defaultTravelMode: 'BIKE',
+    })
+    expect((await readTrackingSettings()).defaultTravelMode).toBe('UNKNOWN')
   })
 
   it('falls back to defaults for corrupt stored JSON', async () => {

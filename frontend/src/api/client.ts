@@ -1220,13 +1220,17 @@ export async function deleteTrackingSession(options: {
   )
 }
 
+// Also surfaces the response's Date header (same pattern as
+// listTrackingSessionsWithServerDate) so the uploader can re-check clock
+// skew whenever a batch comes back with a non-zero discarded count, without
+// a second round trip (U1).
 export async function uploadTrackSamples(options: {
   tripId: string
   sessionId: string
   samples: TrackSampleInput[]
   accessToken: string
-}): Promise<TrackSampleBatchResult> {
-  return requestJson<TrackSampleBatchResult>(
+}): Promise<{ result: TrackSampleBatchResult; serverDate: Date | null }> {
+  const { data, response } = await requestJsonResponse<TrackSampleBatchResult>(
     `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/sessions/${encodeURIComponent(options.sessionId)}/samples/batch`,
     {
       method: 'POST',
@@ -1234,6 +1238,12 @@ export async function uploadTrackSamples(options: {
       json: { samples: options.samples },
     },
   )
+  const dateHeader = response.headers.get('Date')
+  const serverDate = dateHeader ? new Date(dateHeader) : null
+  return {
+    result: data,
+    serverDate: serverDate && !Number.isNaN(serverDate.getTime()) ? serverDate : null,
+  }
 }
 
 export async function listTrackSamples(options: {

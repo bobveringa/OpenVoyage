@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@capacitor/network', () => ({
   Network: {
     addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }),
+    getStatus: vi.fn().mockResolvedValue({ connected: true, connectionType: 'wifi' }),
   },
 }))
 
@@ -31,6 +32,8 @@ vi.mock('@/tracking/sample-queue', () => ({
   markSessionEndAcked: vi.fn().mockResolvedValue(undefined),
   purgeSession: vi.fn().mockResolvedValue(undefined),
 }))
+
+import { Network } from '@capacitor/network'
 
 import {
   ApiError,
@@ -95,6 +98,7 @@ function makeUploader(overrides: Partial<UploaderDeps> = {}) {
   const uploader = new SessionUploader({
     getAccessToken: () => 'token',
     getCurrentUserId: () => 'user-1',
+    getWifiOnlyUpload: () => false,
     onSnapshotChange: (snapshot) => snapshots.push(snapshot),
     onTerminated: (message) => terminations.push(message),
     sessionId: 'session-1',
@@ -116,6 +120,9 @@ beforeEach(() => {
   mockDeleteUploadedSamples.mockReset().mockResolvedValue(undefined)
   vi.mocked(deletePendingSession).mockReset().mockResolvedValue(undefined)
   vi.mocked(markSessionEndAcked).mockReset().mockResolvedValue(undefined)
+  vi.mocked(Network.getStatus)
+    .mockReset()
+    .mockResolvedValue({ connected: true, connectionType: 'wifi' })
 })
 
 afterEach(() => {
@@ -129,10 +136,13 @@ describe('SessionUploader batching', () => {
       .mockResolvedValueOnce(sampleBatch(500))
       .mockResolvedValueOnce([])
     mockUploadTrackSamples.mockResolvedValue({
-      accepted_samples: 1000,
-      discarded_samples: 0,
-      duplicate_samples: 0,
-      filtered_samples: 0,
+      result: {
+        accepted_samples: 1000,
+        discarded_samples: 0,
+        duplicate_samples: 0,
+        filtered_samples: 0,
+      },
+      serverDate: null,
     })
 
     const { uploader } = makeUploader()
@@ -148,10 +158,13 @@ describe('SessionUploader batching', () => {
     const batch = sampleBatch(3)
     mockListSamplesForUpload.mockResolvedValueOnce(batch).mockResolvedValueOnce([])
     mockUploadTrackSamples.mockResolvedValue({
-      accepted_samples: 1,
-      discarded_samples: 1,
-      duplicate_samples: 1,
-      filtered_samples: 0,
+      result: {
+        accepted_samples: 1,
+        discarded_samples: 1,
+        duplicate_samples: 1,
+        filtered_samples: 0,
+      },
+      serverDate: null,
     })
 
     const { uploader } = makeUploader()
@@ -173,16 +186,22 @@ describe('SessionUploader batching', () => {
       .mockResolvedValueOnce(sampleBatch(2))
     mockUploadTrackSamples
       .mockResolvedValueOnce({
-        accepted_samples: 1,
-        discarded_samples: 1,
-        duplicate_samples: 0,
-        filtered_samples: 0,
+        result: {
+          accepted_samples: 1,
+          discarded_samples: 1,
+          duplicate_samples: 0,
+          filtered_samples: 0,
+        },
+        serverDate: null,
       })
       .mockResolvedValueOnce({
-        accepted_samples: 1,
-        discarded_samples: 0,
-        duplicate_samples: 0,
-        filtered_samples: 1,
+        result: {
+          accepted_samples: 1,
+          discarded_samples: 0,
+          duplicate_samples: 0,
+          filtered_samples: 1,
+        },
+        serverDate: null,
       })
 
     const { snapshots, uploader } = makeUploader()
@@ -195,6 +214,156 @@ describe('SessionUploader batching', () => {
     const last = snapshots[snapshots.length - 1]
     expect(last?.discardedCount).toBe(1)
     expect(last?.filteredCount).toBe(1)
+  })
+})
+
+describe('SessionUploader Wi-Fi-only uploads (U3)', () => {
+  it('pauses without attempting the batch request when off Wi-Fi', async () => {
+    vi.mocked(Network.getStatus).mockResolvedValue({
+      connected: true,
+      connectionType: 'cellular',
+    })
+    mockListSamplesForUpload.mockResolvedValueOnce(sampleBatch(2))
+
+    const { snapshots, uploader } = makeUploader({ getWifiOnlyUpload: () => true })
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockUploadTrackSamples).not.toHaveBeenCalled()
+    expect(snapshots[snapshots.length - 1]?.status).toBe('paused-wifi-required')
+  })
+
+  it('proceeds normally once on Wi-Fi', async () => {
+    vi.mocked(Network.getStatus).mockResolvedValue({
+      connected: true,
+      connectionType: 'wifi',
+    })
+    mockListSamplesForUpload.mockResolvedValueOnce(sampleBatch(2)).mockResolvedValueOnce([])
+    mockUploadTrackSamples.mockResolvedValue({
+      result: {
+        accepted_samples: 2,
+        discarded_samples: 0,
+        duplicate_samples: 0,
+        filtered_samples: 0,
+      },
+      serverDate: null,
+    })
+
+    const { snapshots, uploader } = makeUploader({ getWifiOnlyUpload: () => true })
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockUploadTrackSamples).toHaveBeenCalledTimes(1)
+    expect(snapshots.some((snapshot) => snapshot.status === 'paused-wifi-required')).toBe(
+      false,
+    )
+  })
+
+  it('uploads on any connection when the setting is off (default)', async () => {
+    vi.mocked(Network.getStatus).mockResolvedValue({
+      connected: true,
+      connectionType: 'cellular',
+    })
+    mockListSamplesForUpload.mockResolvedValueOnce(sampleBatch(2)).mockResolvedValueOnce([])
+    mockUploadTrackSamples.mockResolvedValue({
+      result: {
+        accepted_samples: 2,
+        discarded_samples: 0,
+        duplicate_samples: 0,
+        filtered_samples: 0,
+      },
+      serverDate: null,
+    })
+
+    const { uploader } = makeUploader({ getWifiOnlyUpload: () => false })
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockUploadTrackSamples).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('SessionUploader clock skew re-check (U1)', () => {
+  it('reports skew when a batch reports non-zero discarded and the response date disagrees', async () => {
+    mockListSamplesForUpload.mockResolvedValueOnce(sampleBatch(2)).mockResolvedValueOnce([])
+    mockUploadTrackSamples.mockResolvedValue({
+      result: {
+        accepted_samples: 1,
+        discarded_samples: 1,
+        duplicate_samples: 0,
+        filtered_samples: 0,
+      },
+      serverDate: new Date('2020-01-01T00:00:00.000Z'),
+    })
+
+    let reportedSkewSeconds: number | null = null
+    const { uploader } = makeUploader({
+      onClockSkewChecked: (skewSeconds) => (reportedSkewSeconds = skewSeconds),
+    })
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(reportedSkewSeconds).not.toBeNull()
+  })
+
+  it('clears a prior skew warning once a batch reports no discards', async () => {
+    mockListSamplesForUpload
+      .mockResolvedValueOnce(sampleBatch(2))
+      .mockResolvedValueOnce(sampleBatch(2))
+    mockUploadTrackSamples
+      .mockResolvedValueOnce({
+        result: {
+          accepted_samples: 1,
+          discarded_samples: 1,
+          duplicate_samples: 0,
+          filtered_samples: 0,
+        },
+        serverDate: new Date('2020-01-01T00:00:00.000Z'),
+      })
+      .mockResolvedValueOnce({
+        result: {
+          accepted_samples: 2,
+          discarded_samples: 0,
+          duplicate_samples: 0,
+          filtered_samples: 0,
+        },
+        serverDate: null,
+      })
+
+    const reported: Array<number | null> = []
+    const { uploader } = makeUploader({
+      onClockSkewChecked: (skewSeconds) => reported.push(skewSeconds),
+    })
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    uploader.requestSync()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(reported[0]).not.toBeNull()
+    expect(reported[reported.length - 1]).toBeNull()
+  })
+
+  it('reports null (not a warning) when nothing was ever discarded', async () => {
+    mockListSamplesForUpload.mockResolvedValueOnce(sampleBatch(2)).mockResolvedValueOnce([])
+    mockUploadTrackSamples.mockResolvedValue({
+      result: {
+        accepted_samples: 2,
+        discarded_samples: 0,
+        duplicate_samples: 0,
+        filtered_samples: 0,
+      },
+      serverDate: new Date('2020-01-01T00:00:00.000Z'),
+    })
+
+    let called = false
+    const { uploader } = makeUploader({ onClockSkewChecked: () => (called = true) })
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Still called (with null) — a batch with zero discards is itself
+    // evidence the clock is fine, which is what lets a prior warning clear.
+    expect(called).toBe(true)
   })
 })
 

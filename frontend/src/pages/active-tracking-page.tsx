@@ -1,11 +1,20 @@
 import { CloudUpload, MapPinned, Radio, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import type { TravelMode } from '@/api/client'
 import { Button } from '@/components/ui/button'
-import { describeAdaptiveReason } from '@/tracking/adaptive'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Select } from '@/components/ui/select'
+import { describeAdaptiveReason } from '@/tracking/adaptive'
+import { getTotalQueuedSampleCount, QUEUE_CAPACITY_SAMPLES } from '@/tracking/sample-queue'
+import { TRAVEL_MODE_OPTIONS } from '@/tracking/travel-mode-options'
 import { describeUploaderStatus } from '@/tracking/uploader-status'
 import { useTracking } from '@/tracking/use-tracking'
+
+// U3: warn once the offline queue is most of the way to the hard capacity
+// cap while paused for Wi-Fi — the one eviction cause that is the user's own
+// setting's fault, so it deserves a heads-up before points start dropping.
+const QUEUE_WARNING_FRACTION = 0.8
 
 type ActiveTrackingPageProps = {
   onNavigate: (to: string) => void
@@ -21,6 +30,7 @@ export function ActiveTrackingPage({ onNavigate }: ActiveTrackingPageProps) {
   const { activeSession } = tracking
   const isSyncing = Boolean(activeSession?.endedAt)
   const [now, setNow] = useState(() => Date.now())
+  const [totalQueuedCount, setTotalQueuedCount] = useState<number | null>(null)
 
   useEffect(() => {
     // Once recording has stopped, the duration is fixed — no need to keep
@@ -31,6 +41,26 @@ export function ActiveTrackingPage({ onNavigate }: ActiveTrackingPageProps) {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [activeSession, isSyncing])
+
+  const uploaderStatus = tracking.uploaderSnapshot?.status ?? null
+  useEffect(() => {
+    // Only worth checking while this is actually the reason nothing is
+    // uploading (U3) — the cross-session total is a separate query from the
+    // per-session queueStats already being refreshed elsewhere.
+    if (uploaderStatus !== 'paused-wifi-required') {
+      setTotalQueuedCount(null)
+      return undefined
+    }
+    let cancelled = false
+    void getTotalQueuedSampleCount().then((count) => {
+      if (!cancelled) {
+        setTotalQueuedCount(count)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [uploaderStatus, tracking.queueStats?.sampleCount])
 
   if (!activeSession) {
     return (
@@ -105,6 +135,24 @@ export function ActiveTrackingPage({ onNavigate }: ActiveTrackingPageProps) {
         />
       </div>
 
+      {isSyncing ? null : (
+        <label className="block space-y-1.5 text-center text-sm">
+          <span className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Travel mode
+          </span>
+          <Select
+            ariaLabel="Travel mode"
+            onValueChange={(value) => void tracking.setTravelMode(value as TravelMode)}
+            options={TRAVEL_MODE_OPTIONS}
+            value={tracking.currentTravelMode}
+          />
+          <span className="block text-xs text-muted-foreground">
+            Applies to points recorded from now on — not to points already
+            queued.
+          </span>
+        </label>
+      )}
+
       {!isSyncing && tracking.locationWarning ? (
         <p className="text-center text-sm font-medium text-amber-700" role="status">
           {tracking.locationWarning}
@@ -134,11 +182,27 @@ export function ActiveTrackingPage({ onNavigate }: ActiveTrackingPageProps) {
         </p>
       ) : null}
 
-      {tracking.uploaderSnapshot && tracking.uploaderSnapshot.discardedCount > 0 ? (
+      {tracking.clockSkewWarningSeconds !== null ? (
+        <p className="text-center text-xs font-medium text-amber-700" role="status">
+          Your device clock looks about {tracking.clockSkewWarningSeconds}s off from
+          the server — new points may be silently rejected. Fix your device's date
+          &amp; time.
+        </p>
+      ) : tracking.uploaderSnapshot && tracking.uploaderSnapshot.discardedCount > 0 ? (
         <p className="text-center text-xs font-medium text-amber-700" role="status">
           {tracking.uploaderSnapshot.discardedCount} point
           {tracking.uploaderSnapshot.discardedCount === 1 ? ' was' : 's were'} rejected by the
           server, usually because this device's clock is off. Check date &amp; time.
+        </p>
+      ) : null}
+
+      {tracking.uploaderSnapshot?.status === 'paused-wifi-required' &&
+      totalQueuedCount !== null &&
+      totalQueuedCount > QUEUE_CAPACITY_SAMPLES * QUEUE_WARNING_FRACTION ? (
+        <p className="text-center text-xs font-medium text-amber-700" role="status">
+          The offline queue is {Math.round((totalQueuedCount / QUEUE_CAPACITY_SAMPLES) * 100)}%
+          full while waiting for Wi-Fi — connect to Wi-Fi soon or older points will
+          start being dropped.
         </p>
       ) : null}
 

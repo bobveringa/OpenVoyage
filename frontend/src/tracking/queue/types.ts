@@ -26,6 +26,12 @@ export type PendingSession = {
   endedAt: string | null
   createAcked: boolean
   endAcked: boolean
+  // U2: the travel mode for samples enqueued *from now on* in this
+  // recording — a property of this leg of the trip, not a device setting.
+  // null until the user picks one; enqueueSample treats null as 'UNKNOWN'.
+  // Absent for sessions written before this field existed, same as
+  // tripTitle above.
+  currentTravelMode?: TravelMode | null
 }
 
 export type QueueStats = {
@@ -58,6 +64,11 @@ export interface QueueBackend {
   deleteSamples(ids: readonly string[]): Promise<void>
   deleteSamplesForSession(sessionId: string): Promise<void>
   countSamplesForSession(sessionId: string): Promise<number>
+  // Across every session, not just the active one — used to warn when the
+  // offline queue is nearing capacity while paused for Wi-Fi-only uploads
+  // (U3), which is the one eviction cause that is the user's own setting's
+  // fault.
+  countAllSamples(): Promise<number>
   oldestSampleTimestamp(sessionId: string): Promise<string | null>
 
   // Overflow eviction (§5.1): drop the oldest rows across every session once

@@ -17,6 +17,7 @@ import {
 import { useAuth } from '@/auth/use-auth'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 import { TRAVEL_MODE_OPTIONS } from '@/tracking/travel-mode-options'
 import { describeUploaderStatus } from '@/tracking/uploader-status'
@@ -55,6 +56,12 @@ function RecordingControl({
   const activeSession = tracking.activeSession
   const isThisTripActive = activeSession?.tripId === tripId
   const isOtherTripActive = activeSession !== null && activeSession?.tripId !== tripId
+  // U1: startTracking can't render its own confirmation UI, so it hands
+  // back the skew and this component shows the dialog and re-enters with
+  // acknowledgeClockSkew: true if the user wants to proceed anyway.
+  const [clockSkewConfirm, setClockSkewConfirm] = useState<{
+    skewSeconds: number
+  } | null>(null)
 
   // The session list (below `onSessionsChanged`) and the trip's public map
   // (`onTrackingChanged`) both only reflect server state, so both need a
@@ -65,6 +72,35 @@ function RecordingControl({
     onTrackingChanged()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isThisTripActive, tracking.uploaderSnapshot?.lastSyncAt])
+
+  const handleStart = async () => {
+    if (!currentUserId) {
+      return
+    }
+    const outcome = await tracking.startTracking({
+      accessToken,
+      currentUserId,
+      tripId,
+      tripTitle,
+    })
+    if (outcome.kind === 'clock-skew-confirmation-required') {
+      setClockSkewConfirm({ skewSeconds: outcome.skewSeconds })
+    }
+  }
+
+  const handleConfirmStartAnyway = async () => {
+    setClockSkewConfirm(null)
+    if (!currentUserId) {
+      return
+    }
+    await tracking.startTracking({
+      accessToken,
+      acknowledgeClockSkew: true,
+      currentUserId,
+      tripId,
+      tripTitle,
+    })
+  }
 
   return (
     <section className="space-y-2">
@@ -110,12 +146,7 @@ function RecordingControl({
       ) : (
         <Button
           disabled={tracking.status !== 'idle' || !currentUserId}
-          onClick={() => {
-            if (!currentUserId) {
-              return
-            }
-            void tracking.startTracking({ accessToken, currentUserId, tripId, tripTitle })
-          }}
+          onClick={() => void handleStart()}
           size="sm"
           type="button"
         >
@@ -129,6 +160,38 @@ function RecordingControl({
           {tracking.error}
         </p>
       ) : null}
+
+      <Modal
+        onClose={() => setClockSkewConfirm(null)}
+        open={clockSkewConfirm !== null}
+        title="Device clock looks off"
+      >
+        <div className="space-y-4 p-2 text-sm">
+          <p className="leading-6 text-foreground">
+            Your device clock looks like it is off by about{' '}
+            {clockSkewConfirm?.skewSeconds ?? 0} seconds from the server. Points
+            recorded while your clock is this far off can be silently
+            rejected.
+          </p>
+          <p className="leading-6 text-muted-foreground">
+            Fix your device’s date &amp; time for reliable results. Start
+            anyway?
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              onClick={() => setClockSkewConfirm(null)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void handleConfirmStartAnyway()} size="sm" type="button">
+              Start anyway
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </section>
   )
 }

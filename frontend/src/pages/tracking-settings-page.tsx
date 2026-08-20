@@ -26,7 +26,6 @@ import {
   type TrackingMode,
   type TrackingSettings,
 } from '@/tracking/tracking-settings'
-import { TRAVEL_MODE_OPTIONS } from '@/tracking/travel-mode-options'
 import { useTracking } from '@/tracking/use-tracking'
 
 const INTERVAL_OPTIONS = MANUAL_INTERVAL_OPTIONS_SECONDS.map((seconds) => ({
@@ -208,20 +207,6 @@ export function TrackingSettingsPage() {
               </label>
             </div>
           )}
-
-          <label className="block max-w-sm space-y-1.5 text-sm">
-            <span className="font-medium text-foreground">Default travel mode</span>
-            <Select
-              ariaLabel="Default travel mode"
-              onValueChange={(value) =>
-                updateSettings({
-                  defaultTravelMode: value as TrackingSettings['defaultTravelMode'],
-                })
-              }
-              options={TRAVEL_MODE_OPTIONS}
-              value={settings.defaultTravelMode}
-            />
-          </label>
 
           <div>
             <Button disabled={isSaving} onClick={() => void handleSave()} type="button">
@@ -446,6 +431,25 @@ function AdvancedSection({
             options={NOTIFICATION_DETAIL_OPTIONS}
             value={settings.notificationDetail}
           />
+        </label>
+
+        <label className="flex items-start gap-2.5 text-sm sm:col-span-2">
+          <input
+            checked={settings.wifiOnlyUpload}
+            className="mt-0.5 size-4 accent-primary"
+            onChange={(event) => onChange({ wifiOnlyUpload: event.target.checked })}
+            type="checkbox"
+          />
+          <span className="space-y-0.5">
+            <span className="block font-medium text-foreground">
+              Only upload over Wi-Fi
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Recording keeps working on cellular data — only the upload
+              waits. Points already recorded stay safely queued and sync
+              automatically once Wi-Fi is back.
+            </span>
+          </span>
         </label>
       </div>
     </details>

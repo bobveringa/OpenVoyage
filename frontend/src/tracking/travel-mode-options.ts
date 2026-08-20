@@ -12,3 +12,7 @@ export const TRAVEL_MODE_OPTIONS = [
   { label: 'Flight', value: 'FLIGHT' },
   { label: 'Other', value: 'OTHER' },
 ] as const satisfies ReadonlyArray<{ label: string; value: TravelMode }>
+
+export function describeTravelMode(mode: TravelMode): string {
+  return TRAVEL_MODE_OPTIONS.find((option) => option.value === mode)?.label ?? mode
+}

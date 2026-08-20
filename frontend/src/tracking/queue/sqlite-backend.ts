@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS pending_sessions (
   started_at TEXT NOT NULL,
   ended_at TEXT,
   create_acked INTEGER NOT NULL DEFAULT 0,
-  end_acked INTEGER NOT NULL DEFAULT 0
+  end_acked INTEGER NOT NULL DEFAULT 0,
+  current_travel_mode TEXT
 );
 CREATE TABLE IF NOT EXISTS pending_samples (
   id TEXT PRIMARY KEY,
@@ -60,6 +61,7 @@ type SessionRow = {
   ended_at: string | null
   create_acked: number
   end_acked: number
+  current_travel_mode: string | null
 }
 
 type SampleRow = {
@@ -79,6 +81,7 @@ type SampleRow = {
 function sessionFromRow(row: SessionRow): PendingSession {
   return {
     createAcked: row.create_acked === 1,
+    currentTravelMode: (row.current_travel_mode as TravelMode | null) ?? null,
     endAcked: row.end_acked === 1,
     endedAt: row.ended_at,
     recordedByUserId: row.recorded_by_user_id,
@@ -140,6 +143,13 @@ export class SqliteQueueBackend implements QueueBackend {
     } catch {
       // Column already exists.
     }
+    try {
+      await this.db.execute(
+        'ALTER TABLE pending_sessions ADD COLUMN current_travel_mode TEXT',
+      )
+    } catch {
+      // Column already exists.
+    }
   }
 
   private get connection(): SQLiteDBConnection {
@@ -152,8 +162,8 @@ export class SqliteQueueBackend implements QueueBackend {
   async putPendingSession(session: PendingSession): Promise<void> {
     await this.connection.run(
       `INSERT INTO pending_sessions
-        (session_id, trip_id, trip_title, recorded_by_user_id, started_at, ended_at, create_acked, end_acked)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (session_id, trip_id, trip_title, recorded_by_user_id, started_at, ended_at, create_acked, end_acked, current_travel_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(session_id) DO UPDATE SET
         trip_id = excluded.trip_id,
         trip_title = excluded.trip_title,
@@ -161,7 +171,8 @@ export class SqliteQueueBackend implements QueueBackend {
         started_at = excluded.started_at,
         ended_at = excluded.ended_at,
         create_acked = excluded.create_acked,
-        end_acked = excluded.end_acked`,
+        end_acked = excluded.end_acked,
+        current_travel_mode = excluded.current_travel_mode`,
       [
         session.sessionId,
         session.tripId,
@@ -171,6 +182,7 @@ export class SqliteQueueBackend implements QueueBackend {
         session.endedAt,
         session.createAcked ? 1 : 0,
         session.endAcked ? 1 : 0,
+        session.currentTravelMode ?? null,
       ],
     )
   }
@@ -275,6 +287,14 @@ export class SqliteQueueBackend implements QueueBackend {
     const result = await this.connection.query(
       'SELECT COUNT(*) as count FROM pending_samples WHERE session_id = ?',
       [sessionId],
+    )
+    const row = (result.values as Array<{ count: number }> | undefined)?.[0]
+    return row?.count ?? 0
+  }
+
+  async countAllSamples(): Promise<number> {
+    const result = await this.connection.query(
+      'SELECT COUNT(*) as count FROM pending_samples',
     )
     const row = (result.values as Array<{ count: number }> | undefined)?.[0]
     return row?.count ?? 0

@@ -4,6 +4,11 @@ import type {
   QueuedSample,
 } from '@/tracking/queue/types'
 
+// PendingSession objects are stored whole (IndexedDB is schemaless), so
+// putPendingSession/getPendingSession need no column migration for new
+// optional fields like currentTravelMode — an old record simply lacks the
+// key, which reads back as undefined.
+
 const DB_NAME = 'openvoyage-tracking'
 const DB_VERSION = 1
 const SESSIONS_STORE = 'pending_sessions'
@@ -159,6 +164,11 @@ export class IndexedDbQueueBackend implements QueueBackend {
   async countSamplesForSession(sessionId: string): Promise<number> {
     const samples = await this.samplesForSession(sessionId)
     return samples.length
+  }
+
+  async countAllSamples(): Promise<number> {
+    const tx = this.connection.transaction(SAMPLES_STORE, 'readonly')
+    return promisify(tx.objectStore(SAMPLES_STORE).count() as IDBRequest<number>)
   }
 
   async oldestSampleTimestamp(sessionId: string): Promise<string | null> {

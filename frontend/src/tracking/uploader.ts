@@ -7,6 +7,7 @@ import {
   uploadTrackSamples,
   type TrackSampleInput,
 } from '@/api/client'
+import { checkClockSkew } from '@/tracking/clock-skew'
 import {
   deletePendingSession,
   deleteUploadedSamples,
@@ -33,6 +34,9 @@ export type UploaderStatus =
   | 'waiting-retry'
   | 'paused-sign-in-required'
   | 'paused-account-mismatch'
+  // U3: wifiOnlyUpload is on and the device isn't currently on Wi-Fi.
+  // Nothing is lost — the queue just holds until Wi-Fi is back.
+  | 'paused-wifi-required'
   | 'terminated'
 
 export type UploaderSnapshot = {
@@ -55,6 +59,9 @@ export type UploaderDeps = {
   sessionId: string
   getAccessToken: () => string | null
   getCurrentUserId: () => string | null
+  // U3: read fresh every cycle, so a settings change takes effect on the
+  // very next sync attempt without needing a separate reconfigure signal.
+  getWifiOnlyUpload: () => boolean
   // 409 anywhere is terminal (§5.3): the caller is responsible for stopping
   // the position watcher and surfacing `message` to the user.
   onTerminated: (message: string) => void
@@ -64,6 +71,14 @@ export type UploaderDeps = {
   // record purged. Lets the caller distinguish "stopped, still syncing"
   // from "fully done" instead of treating Stop itself as completion.
   onFullySynced?: () => void
+  // Fires after every successful batch that reported a non-zero discarded
+  // count, with a fresh clock-skew check against the response's Date header
+  // (U1 follow-up to B5's passive counter) — the same warning the pre-start
+  // dialog shows, re-surfaced mid-recording since the clock can drift or get
+  // corrected *during* a trip. Also fires with null once a batch reports no
+  // discards, so a stale warning clears itself once the clock is fixed
+  // rather than lingering for the rest of the recording.
+  onClockSkewChecked?: (skewSeconds: number | null) => void
 }
 
 type RequestOutcome<T, Converge extends boolean> =
@@ -184,6 +199,19 @@ export class SessionUploader {
     if (!session) {
       this.updateSnapshot({ queueDepth: 0, status: 'idle' })
       return
+    }
+
+    if (this.deps.getWifiOnlyUpload()) {
+      // Reading a fresh status each cycle (rather than only reacting to the
+      // networkStatusChange listener) is what lets a plain settings change
+      // pause the very next cycle even with no connectivity transition to
+      // trigger requestSync().
+      const netStatus = await Network.getStatus()
+      if (netStatus.connectionType !== 'wifi') {
+        this.updateSnapshot({ status: 'paused-wifi-required' })
+        this.scheduleHeartbeat()
+        return
+      }
     }
 
     const currentUserId = this.deps.getCurrentUserId()
@@ -347,21 +375,36 @@ export class SessionUploader {
       )
 
       if (result.kind === 'ok') {
+        const { result: batchResult, serverDate } = result.value
         // The four buckets sum to the request length regardless of outcome
         // per sample, so the whole slice is retired unconditionally.
         await deleteUploadedSamples(batch.map((sample) => sample.id))
         const stats = await getQueueStats(this.deps.sessionId)
-        if (result.value.duplicate_samples > 0) {
+        if (batchResult.duplicate_samples > 0) {
           // No user-facing text for this bucket: a persistently non-zero
           // value only means the retire-on-ok logic has a bug, which is a
           // developer concern, not a recording-quality one.
           console.warn(
-            `Uploader: server reported ${result.value.duplicate_samples} duplicate sample(s) for session ${this.deps.sessionId}`,
+            `Uploader: server reported ${batchResult.duplicate_samples} duplicate sample(s) for session ${this.deps.sessionId}`,
           )
         }
+        if (batchResult.discarded_samples > 0 && serverDate) {
+          // The clock can drift or get corrected *during* a trip, so this
+          // re-checks live rather than relying only on the one-time
+          // pre-start check (U1).
+          const skew = checkClockSkew(serverDate)
+          this.deps.onClockSkewChecked?.(
+            skew.withinTolerance ? null : Math.round(Math.abs(skew.skewMs) / 1000),
+          )
+        } else if (batchResult.discarded_samples === 0) {
+          // Nothing was rejected this batch, so whatever the warning said
+          // before no longer reflects reality — self-heal rather than leave
+          // a stale "clock is off" message up once it's been fixed.
+          this.deps.onClockSkewChecked?.(null)
+        }
         this.updateSnapshot({
-          discardedCount: this.snapshot.discardedCount + result.value.discarded_samples,
-          filteredCount: this.snapshot.filteredCount + result.value.filtered_samples,
+          discardedCount: this.snapshot.discardedCount + batchResult.discarded_samples,
+          filteredCount: this.snapshot.filteredCount + batchResult.filtered_samples,
           queueDepth: stats.sampleCount,
         })
         if (batch.length < BATCH_SIZE) {

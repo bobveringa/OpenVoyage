@@ -12,6 +12,8 @@ export function describeUploaderStatus(status: UploaderStatus): string {
       return 'paused — sign in again to resume'
     case 'paused-account-mismatch':
       return 'paused — sign in as the recording account to resume'
+    case 'paused-wifi-required':
+      return 'paused — waiting for Wi-Fi'
     case 'terminated':
       return 'stopped'
   }

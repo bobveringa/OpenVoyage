@@ -1,3 +1,4 @@
+import type { TravelMode } from '@/api/client'
 import { isNativePlatform } from '@/native/platform'
 import { haversineMeters } from '@/tracking/geo'
 import { IndexedDbQueueBackend } from '@/tracking/queue/indexeddb-backend'
@@ -179,6 +180,22 @@ export async function deletePendingSession(sessionId: string): Promise<void> {
   await store.deletePendingSession(sessionId)
 }
 
+// U2: changes the travel mode for samples enqueued *from now on* — never
+// rewrites samples already in the queue. putPendingSession is an upsert of
+// the whole row, so this reads the current row and writes it back with only
+// that field changed, rather than needing a dedicated column update.
+export async function setSessionTravelMode(
+  sessionId: string,
+  travelMode: TravelMode,
+): Promise<void> {
+  const store = await getBackend()
+  const session = await store.getPendingSession(sessionId)
+  if (!session) {
+    return
+  }
+  await store.putPendingSession({ ...session, currentTravelMode: travelMode })
+}
+
 export async function getLastQueuedSample(
   sessionId: string,
 ): Promise<QueuedSample | null> {
@@ -266,6 +283,14 @@ export async function addSimulatedRejectedCount(count: number): Promise<void> {
 export async function resetSimulatedRejectedCount(): Promise<void> {
   const store = await getBackend()
   await store.resetSimulatedRejectedCount()
+}
+
+// Across every session (U3) — used to warn when the offline queue is
+// nearing capacity while paused for Wi-Fi-only uploads, unlike QueueStats
+// above which is scoped to a single session.
+export async function getTotalQueuedSampleCount(): Promise<number> {
+  const store = await getBackend()
+  return store.countAllSamples()
 }
 
 export async function getQueueStats(sessionId: string): Promise<QueueStats> {

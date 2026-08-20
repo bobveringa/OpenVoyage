@@ -53,6 +53,11 @@ export type TrackingSettings = {
   // Manual mode: exactly what it says, honored as given.
   manualIntervalSeconds: number
   manualPowerLevel: PowerLevel
+  // No longer user-editable (U2): travel mode is a property of the current
+  // leg of the trip, not a device preference, and lives on the recording's
+  // own state instead (see PendingSession.currentTravelMode). Kept here,
+  // pinned to 'UNKNOWN' by sanitize(), only so old stored settings round-trip
+  // without a dedicated migration.
   defaultTravelMode: TravelMode
   // Advanced — applies to both modes. The accuracy cutoff is deliberately not
   // here: it is derived from the active power tier (see accuracyCutoffFor),
@@ -61,6 +66,10 @@ export type TrackingSettings = {
   distanceFilterMeters: number
   locationSource: LocationSource
   notificationDetail: NotificationDetail
+  // U3: when true, the uploader pauses on anything other than Wi-Fi rather
+  // than spending the user's cellular data. Recorded points are never lost —
+  // they stay queued and upload automatically once Wi-Fi is back.
+  wifiOnlyUpload: boolean
 }
 
 export const DEFAULT_TRACKING_SETTINGS: TrackingSettings = {
@@ -72,6 +81,7 @@ export const DEFAULT_TRACKING_SETTINGS: TrackingSettings = {
   mode: 'smart',
   notificationDetail: 'detailed',
   smartPrecision: 3,
+  wifiOnlyUpload: false,
 }
 
 const STORAGE_KEY = 'openvoyage.tracking.settings'
@@ -131,6 +141,9 @@ function sanitize(settings: TrackingSettings): TrackingSettings {
 
   return {
     ...settings,
+    // U2: no longer a device preference. A stored value from before this
+    // change (or from a stray write) is ignored rather than migrated.
+    defaultTravelMode: DEFAULT_TRACKING_SETTINGS.defaultTravelMode,
     distanceFilterMeters: Math.max(0, settings.distanceFilterMeters),
     manualIntervalSeconds: Math.max(1, settings.manualIntervalSeconds),
     smartPrecision: level,
