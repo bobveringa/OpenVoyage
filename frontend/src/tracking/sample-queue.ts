@@ -196,6 +196,23 @@ export async function setSessionTravelMode(
   await store.putPendingSession({ ...session, currentTravelMode: travelMode })
 }
 
+// Pins the device→server clock offset on the session's row so it survives a
+// reload/process kill and is never re-measured (C2/C3). Only ever called once
+// per session, by SessionUploader.ensureClockOffset — either right after
+// startTracking's own measurement, or (a session started fully offline) at
+// the moment the uploader gets its first network contact.
+export async function setSessionClockOffset(
+  sessionId: string,
+  clockOffsetMs: number,
+): Promise<void> {
+  const store = await getBackend()
+  const session = await store.getPendingSession(sessionId)
+  if (!session) {
+    return
+  }
+  await store.putPendingSession({ ...session, clockOffsetMs })
+}
+
 export async function getLastQueuedSample(
   sessionId: string,
 ): Promise<QueuedSample | null> {

@@ -4,9 +4,11 @@ import {
   ApiError,
   createTrackingSession,
   endTrackingSession,
+  listTrackingSessionsWithServerDate,
   uploadTrackSamples,
   type TrackSampleInput,
 } from '@/api/client'
+import { applyClockOffset, estimateClockOffsetMs } from '@/tracking/clock-offset'
 import { checkClockSkew } from '@/tracking/clock-skew'
 import {
   deletePendingSession,
@@ -17,6 +19,7 @@ import {
   markSessionCreateAcked,
   markSessionEndAcked,
   purgeSession,
+  setSessionClockOffset,
   type PendingSession,
 } from '@/tracking/sample-queue'
 
@@ -73,10 +76,12 @@ export type UploaderDeps = {
   onFullySynced?: () => void
   // Fires after every successful batch that reported a non-zero discarded
   // count, with a fresh clock-skew check against the response's Date header
-  // (U1 follow-up to B5's passive counter) — the same warning the pre-start
-  // dialog shows, re-surfaced mid-recording since the clock can drift or get
-  // corrected *during* a trip. Also fires with null once a batch reports no
-  // discards, so a stale warning clears itself once the clock is fixed
+  // (U1 follow-up to B5's passive counter). Outgoing timestamps are
+  // corrected before upload now (C4), so a non-zero discarded count here
+  // means the *correction* is failing, not just that the clock is off —
+  // re-surfaced mid-recording since the offset was pinned once at start and
+  // a large mid-trip clock change can outrun it (see C7). Also fires with
+  // null once a batch reports no discards, so a stale warning clears itself
   // rather than lingering for the rest of the recording.
   onClockSkewChecked?: (skewSeconds: number | null) => void
 }
@@ -232,8 +237,14 @@ export class SessionUploader {
 
     this.updateSnapshot({ status: 'syncing' })
 
+    // Resolved once per cycle, not re-measured (C2): a session started
+    // online already has this pinned from startTracking; a session started
+    // fully offline pins it here, on its first real network contact, before
+    // anything else about the session is transmitted.
+    const offsetMs = await this.ensureClockOffset(session, accessToken)
+
     if (!session.createAcked) {
-      const outcome = await this.ensureCreateAcked(session, accessToken)
+      const outcome = await this.ensureCreateAcked(session, accessToken, offsetMs)
       if (outcome === 'terminated') {
         return
       }
@@ -253,7 +264,7 @@ export class SessionUploader {
       this.updateSnapshot({ lastSyncAt: new Date().toISOString() })
     }
 
-    const drainOutcome = await this.drainSamples(accessToken)
+    const drainOutcome = await this.drainSamples(accessToken, offsetMs)
     if (drainOutcome === 'terminated') {
       return
     }
@@ -269,7 +280,7 @@ export class SessionUploader {
 
     const latestSession = await getPendingSession(this.deps.sessionId)
     if (latestSession?.endedAt && !latestSession.endAcked) {
-      const outcome = await this.ensureEndAcked(latestSession, accessToken)
+      const outcome = await this.ensureEndAcked(latestSession, accessToken, offsetMs)
       if (outcome === 'terminated') {
         return
       }
@@ -308,17 +319,49 @@ export class SessionUploader {
     this.scheduleHeartbeat()
   }
 
+  // C2: a session created online already has clockOffsetMs pinned by
+  // startTracking, so this is a cheap read for the common case. A session
+  // that started fully offline reaches here with it still null — this
+  // measures it (reusing the same list-sessions call startTracking uses, no
+  // new endpoint) and pins it before anything about the session is
+  // transmitted. A failed measurement (still offline) returns 0 for this
+  // cycle only, without persisting it, so the next cycle tries again.
+  private async ensureClockOffset(
+    session: PendingSession,
+    accessToken: string,
+  ): Promise<number> {
+    if (session.clockOffsetMs !== null && session.clockOffsetMs !== undefined) {
+      return session.clockOffsetMs
+    }
+    try {
+      const t0 = Date.now()
+      const { serverDate } = await listTrackingSessionsWithServerDate({
+        accessToken,
+        tripId: this.deps.tripId,
+      })
+      const t1 = Date.now()
+      const offsetMs = serverDate
+        ? estimateClockOffsetMs({ dateHeaderMs: serverDate.getTime(), t0, t1 })
+        : 0
+      await setSessionClockOffset(session.sessionId, offsetMs)
+      return offsetMs
+    } catch {
+      return 0
+    }
+  }
+
   private async ensureCreateAcked(
     session: PendingSession,
     accessToken: string,
+    offsetMs: number,
   ): Promise<'ok' | 'retry' | 'terminated' | 'paused'> {
     const result = await classify(
       () =>
         createTrackingSession({
           accessToken,
-          endedAt: session.endedAt,
+          endedAt: session.endedAt ? applyClockOffset(session.endedAt, offsetMs) : null,
           sessionId: session.sessionId,
-          startedAt: session.startedAt,
+          startedAt: applyClockOffset(session.startedAt, offsetMs),
           tripId: session.tripId,
         }),
       // §3.3: replaying our own create is idempotent convergence, not a
@@ -344,6 +387,7 @@ export class SessionUploader {
 
   private async drainSamples(
     accessToken: string,
+    offsetMs: number,
   ): Promise<'ok' | 'retry' | 'terminated' | 'paused'> {
     for (;;) {
       const batch = await listSamplesForUpload(this.deps.sessionId, BATCH_SIZE)
@@ -358,7 +402,9 @@ export class SessionUploader {
         id: sample.id,
         latitude: sample.latitude,
         longitude: sample.longitude,
-        recorded_at: sample.recordedAt,
+        // C4: the queue itself always holds raw device time — only the
+        // outgoing wire payload is corrected.
+        recorded_at: applyClockOffset(sample.recordedAt, offsetMs),
         speed_mps: sample.speedMps,
         travel_mode: sample.travelMode,
       }))
@@ -428,6 +474,7 @@ export class SessionUploader {
   private async ensureEndAcked(
     session: PendingSession,
     accessToken: string,
+    offsetMs: number,
   ): Promise<'ok' | 'retry' | 'terminated' | 'paused'> {
     if (!session.endedAt) {
       return 'ok'
@@ -437,7 +484,7 @@ export class SessionUploader {
       () =>
         endTrackingSession({
           accessToken,
-          endedAt: session.endedAt as string,
+          endedAt: applyClockOffset(session.endedAt as string, offsetMs),
           sessionId: session.sessionId,
           tripId: session.tripId,
         }),
@@ -445,6 +492,8 @@ export class SessionUploader {
     )
 
     if (result.kind === 'ok') {
+      // Local record stays raw device time (C4) — only the payload above
+      // was corrected.
       await markSessionEndAcked(session.sessionId, session.endedAt)
       return 'ok'
     }

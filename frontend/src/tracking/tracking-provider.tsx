@@ -4,6 +4,7 @@ import {
   deleteTrackingSession,
   getErrorMessage,
   listTrackingSessionsWithServerDate,
+  type TrackingSession,
   type TravelMode,
 } from '@/api/client'
 import { useAuth } from '@/auth/use-auth'
@@ -21,6 +22,7 @@ import {
   isMeaningfulChange,
   type AdaptiveDecision,
 } from '@/tracking/adaptive'
+import { estimateClockOffsetMs } from '@/tracking/clock-offset'
 import { checkClockSkew } from '@/tracking/clock-skew'
 import {
   createPositionSource,
@@ -56,7 +58,6 @@ import {
   TrackingContext,
   type ActiveTrackingSession,
   type StartTrackingInput,
-  type StartTrackingOutcome,
   type TrackingStatus,
 } from '@/tracking/tracking-context'
 import { describeTravelMode } from '@/tracking/travel-mode-options'
@@ -91,6 +92,11 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   // U1: a live re-check (triggered by the uploader on a non-zero discarded
   // count) still finds the clock off. Self-heals to null once discards stop.
   const [clockSkewWarningSeconds, setClockSkewWarningSeconds] = useState<number | null>(
+    null,
+  )
+  // C5: one-time advisory measured when the recording started — never
+  // blocks starting, unlike the old confirmation gate this replaces.
+  const [clockSkewNoticeSeconds, setClockSkewNoticeSeconds] = useState<number | null>(
     null,
   )
   // U2: the travel mode new samples are being stamped with right now.
@@ -206,6 +212,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     setActiveSession(null)
     setStatus('idle')
     setClockSkewWarningSeconds(null)
+    setClockSkewNoticeSeconds(null)
     updateCurrentTravelMode('UNKNOWN')
   }, [updateCurrentTravelMode])
 
@@ -645,10 +652,9 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       tripTitle,
       accessToken: startAccessToken,
       currentUserId,
-      acknowledgeClockSkew,
-    }: StartTrackingInput): Promise<StartTrackingOutcome> => {
+    }: StartTrackingInput): Promise<void> => {
       if (status !== 'idle') {
-        return { kind: 'ok' }
+        return
       }
       setStatus('starting')
       setError(null)
@@ -659,22 +665,44 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         await requestNotificationPermission()
         await requestIgnoreBatteryOptimizations()
 
-        const { sessions, serverDate } = await listTrackingSessionsWithServerDate({
-          accessToken: startAccessToken,
-          tripId,
-        })
+        // C2: this call already exists for the open-session check below, so
+        // its Date header plus this measured round trip is the offset
+        // estimate — no new endpoint, no extra request. A network failure
+        // here means starting fully offline (C2): nothing has been
+        // transmitted yet, so there is nothing to converge on and no open
+        // session to check for; the uploader measures and pins the offset
+        // itself on its first real network contact instead.
+        let sessions: TrackingSession[] = []
+        let serverDate: Date | null = null
+        let t0 = Date.now()
+        let t1 = t0
+        try {
+          t0 = Date.now()
+          const response = await listTrackingSessionsWithServerDate({
+            accessToken: startAccessToken,
+            tripId,
+          })
+          t1 = Date.now()
+          sessions = response.sessions
+          serverDate = response.serverDate
+        } catch {
+          // Offline at start — see comment above.
+        }
 
-        if (serverDate && !acknowledgeClockSkew) {
+        let clockOffsetMs: number | null = null
+        let clockNoticeSeconds: number | null = null
+        if (serverDate) {
+          clockOffsetMs = estimateClockOffsetMs({
+            dateHeaderMs: serverDate.getTime(),
+            t0,
+            t1,
+          })
+          // C5: advisory only now that every outgoing timestamp is
+          // corrected — a device clock this far off is still worth fixing,
+          // but it no longer costs data, so this never blocks the start.
           const skew = checkClockSkew(serverDate)
           if (!skew.withinTolerance) {
-            // Can't render a confirmation dialog from here (U1) — the
-            // caller shows one and re-enters with acknowledgeClockSkew:
-            // true if the user wants to proceed anyway.
-            setStatus('idle')
-            return {
-              kind: 'clock-skew-confirmation-required',
-              skewSeconds: Math.round(Math.abs(skew.skewMs) / 1000),
-            }
+            clockNoticeSeconds = Math.round(Math.abs(skew.skewMs) / 1000)
           }
         }
 
@@ -682,7 +710,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         if (openSession) {
           setError('A recording is already in progress for this trip.')
           setStatus('idle')
-          return { kind: 'ok' }
+          return
         }
 
         const settings = await readTrackingSettings()
@@ -697,7 +725,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         if (!probe.ok) {
           setError(probe.message ?? 'Location tracking is unavailable on this device.')
           setStatus('idle')
-          return { kind: 'ok' }
+          return
         }
         coarseLocationAvailableRef.current = probe.coarseLocationAvailable
 
@@ -712,6 +740,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         await resetDroppedLocallyCount()
         await resetSimulatedRejectedCount()
         setClockSkewWarningSeconds(null)
+        setClockSkewNoticeSeconds(clockNoticeSeconds)
         // U2: always UNKNOWN at the start of a new recording, never carried
         // over from the device's old defaultTravelMode setting — the mode
         // is a property of this leg of the trip.
@@ -722,6 +751,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
 
         // Persisted before any network call, per §3.1's durability rule.
         await putPendingSession({
+          clockOffsetMs,
           createAcked: false,
           currentTravelMode: 'UNKNOWN',
           endAcked: false,
@@ -771,7 +801,6 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         // foreground service is what actually keeps location flowing in the
         // background, so a "no" here doesn't affect the recording.
         void requestBackgroundLocation()
-        return { kind: 'ok' }
       } catch (startError) {
         // Starting failed partway through, which may still have left the
         // native service running. Tearing it down here is what keeps a
@@ -779,7 +808,6 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         await stopCapture()
         setError(getErrorMessage(startError))
         setStatus('idle')
-        return { kind: 'ok' }
       }
     },
     [
@@ -826,6 +854,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         setActiveSession(null)
         setStatus('idle')
         setClockSkewWarningSeconds(null)
+        setClockSkewNoticeSeconds(null)
         updateCurrentTravelMode('UNKNOWN')
         return
       }
@@ -902,6 +931,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     () => ({
       activeSession,
       adaptiveDecision,
+      clockSkewNoticeSeconds,
       clockSkewWarningSeconds,
       currentTravelMode,
       error,
@@ -917,6 +947,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     [
       activeSession,
       adaptiveDecision,
+      clockSkewNoticeSeconds,
       clockSkewWarningSeconds,
       currentTravelMode,
       error,

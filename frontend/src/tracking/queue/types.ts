@@ -32,6 +32,14 @@ export type PendingSession = {
   // Absent for sessions written before this field existed, same as
   // tripTitle above.
   currentTravelMode?: TravelMode | null
+  // Device→server clock offset in ms, measured once near session start and
+  // applied to every timestamp on the way out (see clock-offset.ts). null
+  // when not yet measured (e.g. the session was started fully offline) —
+  // SessionUploader measures and pins it at the moment of first network
+  // contact instead. Pinned for the rest of the session once set; never
+  // re-measured. Absent for sessions written before this field existed,
+  // same as tripTitle/currentTravelMode above.
+  clockOffsetMs?: number | null
 }
 
 export type QueueStats = {

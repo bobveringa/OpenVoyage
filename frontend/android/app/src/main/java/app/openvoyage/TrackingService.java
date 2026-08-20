@@ -16,6 +16,7 @@ import android.os.Build;
 import android.os.IBinder;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
@@ -66,6 +67,8 @@ public class TrackingService extends Service {
     static final String EXTRA_TEXT = "text";
     static final String EXTRA_STARTED_AT = "startedAtMs";
     static final String EXTRA_LOCATION_SOURCE = "locationSource";
+    static final String EXTRA_ANCHOR_ELAPSED_NS = "anchorElapsedNs";
+    static final String EXTRA_ANCHOR_WALL_MS = "anchorWallMs";
 
     static final String SOURCE_AUTO = "auto";
     static final String SOURCE_GMS = "gms";
@@ -158,6 +161,19 @@ public class TrackingService extends Service {
     private volatile long watchdogBaseMs = 0L;
     private volatile boolean listenerAttached = false;
     private Runnable noFixCheck = null;
+
+    // C7 (clock-skew fix): anchors every fix in this session to the
+    // monotonic elapsed-realtime clock instead of trusting the device wall
+    // clock at fix time, so a mid-session wall-clock change (NTP correcting
+    // the phone, a manual date change) cannot retroactively shift already
+    // -anchored fixes. Set once on a genuine start and persisted so a
+    // START_STICKY restart restores the *original* anchor rather than
+    // establishing a new one — see handleStart/persistConfig/restoreConfig.
+    // 0 means "not yet anchored", in which case onFix falls back to the raw
+    // wall-clock reading (e.g. a config left over from before this field
+    // existed).
+    private volatile long anchorElapsedNs = 0L;
+    private volatile long anchorWallMs = 0L;
 
     static TrackingService getInstance() {
         return instance;
@@ -345,6 +361,11 @@ public class TrackingService extends Service {
             if (freshStart) {
                 readConfig(intent);
                 startedAtMs = intent.getLongExtra(EXTRA_STARTED_AT, System.currentTimeMillis());
+                // C7: the anchor pair is captured once, at the same genuine
+                // start that sets startedAtMs — never on a reconfigure or a
+                // process-kill restart, which restore it instead (below).
+                anchorElapsedNs = SystemClock.elapsedRealtimeNanos();
+                anchorWallMs = System.currentTimeMillis();
             } else {
                 restoreConfig(prefs);
             }
@@ -436,6 +457,8 @@ public class TrackingService extends Service {
                 .putLong(EXTRA_STARTED_AT, startedAtMs)
                 .putString(EXTRA_TITLE, notificationTitle)
                 .putString(EXTRA_TEXT, notificationText)
+                .putLong(EXTRA_ANCHOR_ELAPSED_NS, anchorElapsedNs)
+                .putLong(EXTRA_ANCHOR_WALL_MS, anchorWallMs)
                 .apply();
     }
 
@@ -450,6 +473,11 @@ public class TrackingService extends Service {
         startedAtMs = prefs.getLong(EXTRA_STARTED_AT, System.currentTimeMillis());
         notificationTitle = prefs.getString(EXTRA_TITLE, notificationTitle);
         notificationText = prefs.getString(EXTRA_TEXT, notificationText);
+        // C7: restores the *original* session-start anchor rather than
+        // establishing a new one, so a process-kill restart doesn't lose
+        // the point of anchoring in the first place.
+        anchorElapsedNs = prefs.getLong(EXTRA_ANCHOR_ELAPSED_NS, anchorElapsedNs);
+        anchorWallMs = prefs.getLong(EXTRA_ANCHOR_WALL_MS, anchorWallMs);
     }
 
     private void requestLocationUpdates() {
@@ -680,7 +708,33 @@ public class TrackingService extends Service {
         stopSelf();
     }
 
+    /**
+     * The C7 anchor arithmetic, extracted so it can be unit-tested without a
+     * Service (same rationale as computeWarningKind above). anchorWallMs <= 0
+     * means "never anchored" (e.g. a config persisted before this field
+     * existed) — falls back to the fix's own raw wall-clock reading rather
+     * than computing a bogus near-epoch timestamp from a zero anchor.
+     */
+    static long computeAnchoredTimeMs(
+            long anchorElapsedNs,
+            long anchorWallMs,
+            long fixElapsedNs,
+            long rawTimeMs
+    ) {
+        if (anchorWallMs <= 0) {
+            return rawTimeMs;
+        }
+        return anchorWallMs + (fixElapsedNs - anchorElapsedNs) / 1_000_000L;
+    }
+
     private void onFix(Location location) {
+        long anchoredTimeMs = computeAnchoredTimeMs(
+                anchorElapsedNs,
+                anchorWallMs,
+                location.getElapsedRealtimeNanos(),
+                location.getTime()
+        );
+
         JSONObject fix = new JSONObject();
         try {
             fix.put("latitude", location.getLatitude());
@@ -689,7 +743,11 @@ public class TrackingService extends Service {
             fix.put("altitude", location.hasAltitude() ? location.getAltitude() : JSONObject.NULL);
             fix.put("speed", location.hasSpeed() ? location.getSpeed() : JSONObject.NULL);
             fix.put("bearing", location.hasBearing() ? location.getBearing() : JSONObject.NULL);
-            fix.put("time", location.getTime());
+            fix.put("time", anchoredTimeMs);
+            // Diagnostic only (C7): lets a divergence between the anchored
+            // and raw wall-clock reading be spotted in development. Not read
+            // by the JS side.
+            fix.put("rawTime", location.getTime());
             fix.put("simulated", location.isFromMockProvider());
         } catch (JSONException exception) {
             Log.e(TAG, "Could not serialize fix", exception);

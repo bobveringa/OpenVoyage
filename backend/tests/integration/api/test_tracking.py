@@ -477,6 +477,26 @@ def test_deleting_a_session_frees_its_interval(tracking) -> None:
 # Sample upload
 # ---------------------------------------------------------------------------
 @pytest.mark.integration
+def test_a_sample_recorded_right_now_is_accepted_by_a_live_session(tracking) -> None:
+    """Regression test for the clock-skew bug (see
+    private/implementation-specs/clock-skew-fix.md): with a zero-margin
+    comparison this raced against the server's own ``utcnow()`` and was
+    silently discarded whenever the device clock ran even slightly ahead.
+    SAMPLE_TIME_TOLERANCE absorbs that.
+    """
+    session_id = uuid.uuid4()
+    tracking.put_session(session_id, started_at=START)
+
+    device_ahead_by = timedelta(seconds=3)
+    sample = _sample(offset_seconds=0)
+    sample['recorded_at'] = _iso(datetime.now(timezone.utc) + device_ahead_by)
+
+    result = tracking.upload(session_id, [sample]).json()
+    assert result['accepted_samples'] == 1
+    assert result['discarded_samples'] == 0
+
+
+@pytest.mark.integration
 def test_batch_counts_add_up_across_every_bucket(
     tracking,
     client,

@@ -13,6 +13,7 @@ vi.mock('@/api/client', async () => {
     ...actual,
     createTrackingSession: vi.fn(),
     endTrackingSession: vi.fn(),
+    listTrackingSessionsWithServerDate: vi.fn(),
     uploadTrackSamples: vi.fn(),
   }
 })
@@ -31,6 +32,7 @@ vi.mock('@/tracking/sample-queue', () => ({
   markSessionCreateAcked: vi.fn().mockResolvedValue(undefined),
   markSessionEndAcked: vi.fn().mockResolvedValue(undefined),
   purgeSession: vi.fn().mockResolvedValue(undefined),
+  setSessionClockOffset: vi.fn().mockResolvedValue(undefined),
 }))
 
 import { Network } from '@capacitor/network'
@@ -39,6 +41,7 @@ import {
   ApiError,
   createTrackingSession,
   endTrackingSession,
+  listTrackingSessionsWithServerDate,
   uploadTrackSamples,
 } from '@/api/client'
 import {
@@ -49,6 +52,7 @@ import {
   markSessionCreateAcked,
   markSessionEndAcked,
   purgeSession,
+  setSessionClockOffset,
   type PendingSession,
   type QueuedSample,
 } from '@/tracking/sample-queue'
@@ -57,6 +61,7 @@ import { SessionUploader, type UploaderDeps, type UploaderSnapshot } from '@/tra
 const mockCreateTrackingSession = vi.mocked(createTrackingSession)
 const mockEndTrackingSession = vi.mocked(endTrackingSession)
 const mockUploadTrackSamples = vi.mocked(uploadTrackSamples)
+const mockListTrackingSessionsWithServerDate = vi.mocked(listTrackingSessionsWithServerDate)
 const mockGetPendingSession = vi.mocked(getPendingSession)
 const mockListSamplesForUpload = vi.mocked(listSamplesForUpload)
 const mockMarkSessionCreateAcked = vi.mocked(markSessionCreateAcked)
@@ -65,6 +70,7 @@ const mockDeleteUploadedSamples = vi.mocked(deleteUploadedSamples)
 
 function session(overrides: Partial<PendingSession> = {}): PendingSession {
   return {
+    clockOffsetMs: 0,
     createAcked: true,
     endAcked: false,
     endedAt: null,
@@ -115,11 +121,13 @@ beforeEach(() => {
   mockCreateTrackingSession.mockReset()
   mockEndTrackingSession.mockReset()
   mockUploadTrackSamples.mockReset()
+  mockListTrackingSessionsWithServerDate.mockReset()
   mockMarkSessionCreateAcked.mockReset().mockResolvedValue(undefined)
   mockPurgeSession.mockReset().mockResolvedValue(undefined)
   mockDeleteUploadedSamples.mockReset().mockResolvedValue(undefined)
   vi.mocked(deletePendingSession).mockReset().mockResolvedValue(undefined)
   vi.mocked(markSessionEndAcked).mockReset().mockResolvedValue(undefined)
+  vi.mocked(setSessionClockOffset).mockReset().mockResolvedValue(undefined)
   vi.mocked(Network.getStatus)
     .mockReset()
     .mockResolvedValue({ connected: true, connectionType: 'wifi' })
@@ -214,6 +222,157 @@ describe('SessionUploader batching', () => {
     const last = snapshots[snapshots.length - 1]
     expect(last?.discardedCount).toBe(1)
     expect(last?.filteredCount).toBe(1)
+  })
+})
+
+// C1-C4: outgoing timestamps are corrected by the session's pinned clock
+// offset; the local queue itself (mocked here via sample-queue) always keeps
+// raw device time.
+describe('SessionUploader clock offset correction (C4)', () => {
+  it('applies the pinned offset to started_at, recorded_at and ended_at on the wire', async () => {
+    mockGetPendingSession.mockResolvedValue(
+      session({
+        clockOffsetMs: 5_000,
+        createAcked: false,
+        endAcked: false,
+        endedAt: '2026-08-16T10:00:00.000Z',
+      }),
+    )
+    mockCreateTrackingSession.mockResolvedValue({
+      ended_at: null,
+      id: 'session-1',
+      recorded_by_user_id: 'user-1',
+      sample_count: 0,
+      started_at: '2026-08-16T09:00:00.000Z',
+    })
+    mockListSamplesForUpload.mockResolvedValueOnce(sampleBatch(1)).mockResolvedValueOnce([])
+    mockUploadTrackSamples.mockResolvedValue({
+      result: {
+        accepted_samples: 1,
+        discarded_samples: 0,
+        duplicate_samples: 0,
+        filtered_samples: 0,
+      },
+      serverDate: null,
+    })
+    mockEndTrackingSession.mockResolvedValue({
+      ended_at: '2026-08-16T10:00:05.000Z',
+      id: 'session-1',
+      recorded_by_user_id: 'user-1',
+      sample_count: 1,
+      started_at: '2026-08-16T09:00:00.000Z',
+    })
+
+    const { uploader } = makeUploader()
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    // The raw session's startedAt is 09:00:00.000Z; +5s offset on the wire.
+    expect(mockCreateTrackingSession).toHaveBeenCalledWith(
+      expect.objectContaining({ startedAt: '2026-08-16T09:00:05.000Z' }),
+    )
+    // The raw sample's recordedAt (from sampleBatch) is 09:00:00.000Z.
+    expect(mockUploadTrackSamples).toHaveBeenCalledWith(
+      expect.objectContaining({
+        samples: [expect.objectContaining({ recorded_at: '2026-08-16T09:00:05.000Z' })],
+      }),
+    )
+    expect(mockEndTrackingSession).toHaveBeenCalledWith(
+      expect.objectContaining({ endedAt: '2026-08-16T10:00:05.000Z' }),
+    )
+    // The local record stays raw device time — never the corrected value.
+    expect(markSessionEndAcked).toHaveBeenCalledWith(
+      'session-1',
+      '2026-08-16T10:00:00.000Z',
+    )
+  })
+
+  it('sends the raw timestamp unchanged when the offset is 0', async () => {
+    mockGetPendingSession.mockResolvedValue(session({ createAcked: false }))
+    mockCreateTrackingSession.mockResolvedValue({
+      ended_at: null,
+      id: 'session-1',
+      recorded_by_user_id: 'user-1',
+      sample_count: 0,
+      started_at: '2026-08-16T09:00:00.000Z',
+    })
+
+    const { uploader } = makeUploader()
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockCreateTrackingSession).toHaveBeenCalledWith(
+      expect.objectContaining({ startedAt: '2026-08-16T09:00:00.000Z' }),
+    )
+  })
+
+  it('treats a null/unknown offset the same as 0 once measurement fails', async () => {
+    mockGetPendingSession.mockResolvedValue(
+      session({ clockOffsetMs: null, createAcked: false }),
+    )
+    mockListTrackingSessionsWithServerDate.mockRejectedValue(new TypeError('offline'))
+    mockCreateTrackingSession.mockResolvedValue({
+      ended_at: null,
+      id: 'session-1',
+      recorded_by_user_id: 'user-1',
+      sample_count: 0,
+      started_at: '2026-08-16T09:00:00.000Z',
+    })
+
+    const { uploader } = makeUploader()
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockCreateTrackingSession).toHaveBeenCalledWith(
+      expect.objectContaining({ startedAt: '2026-08-16T09:00:00.000Z' }),
+    )
+    // Measurement failed, so nothing is pinned — left to retry next cycle.
+    expect(setSessionClockOffset).not.toHaveBeenCalled()
+  })
+
+  it('measures and pins the offset on first network contact for a session started offline, before the create is sent', async () => {
+    mockGetPendingSession.mockResolvedValue(
+      session({ clockOffsetMs: null, createAcked: false }),
+    )
+    mockListTrackingSessionsWithServerDate.mockResolvedValue({
+      serverDate: new Date('2026-08-16T09:00:10.000Z'),
+      sessions: [],
+    })
+    mockCreateTrackingSession.mockResolvedValue({
+      ended_at: null,
+      id: 'session-1',
+      recorded_by_user_id: 'user-1',
+      sample_count: 0,
+      started_at: '2026-08-16T09:00:00.000Z',
+    })
+
+    const { uploader } = makeUploader()
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockListTrackingSessionsWithServerDate).toHaveBeenCalledTimes(1)
+    expect(setSessionClockOffset).toHaveBeenCalledWith('session-1', expect.any(Number))
+    // The offset measured from the preflight is what corrects the create's
+    // own payload — the whole point of measuring before it is transmitted.
+    const [, pinnedOffsetMs] = vi.mocked(setSessionClockOffset).mock.calls[0] ?? []
+    expect(mockCreateTrackingSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startedAt: new Date(
+          Date.parse('2026-08-16T09:00:00.000Z') + (pinnedOffsetMs as number),
+        ).toISOString(),
+      }),
+    )
+  })
+
+  it('does not re-measure once an offset is already pinned', async () => {
+    mockGetPendingSession.mockResolvedValue(session({ clockOffsetMs: -2_000 }))
+
+    const { uploader } = makeUploader()
+    uploader.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(mockListTrackingSessionsWithServerDate).not.toHaveBeenCalled()
   })
 })
 

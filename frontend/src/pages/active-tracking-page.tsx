@@ -184,15 +184,21 @@ export function ActiveTrackingPage({ onNavigate }: ActiveTrackingPageProps) {
 
       {tracking.clockSkewWarningSeconds !== null ? (
         <p className="text-center text-xs font-medium text-amber-700" role="status">
-          Your device clock looks about {tracking.clockSkewWarningSeconds}s off from
-          the server — new points may be silently rejected. Fix your device's date
-          &amp; time.
+          Points are still being rejected by the server even after correcting
+          for the device clock (about {tracking.clockSkewWarningSeconds}s of
+          residual skew) — check your device's date &amp; time.
         </p>
       ) : tracking.uploaderSnapshot && tracking.uploaderSnapshot.discardedCount > 0 ? (
         <p className="text-center text-xs font-medium text-amber-700" role="status">
           {tracking.uploaderSnapshot.discardedCount} point
           {tracking.uploaderSnapshot.discardedCount === 1 ? ' was' : 's were'} rejected by the
-          server, usually because this device's clock is off. Check date &amp; time.
+          server despite clock correction. Check your device's date &amp; time.
+        </p>
+      ) : !isSyncing && tracking.clockSkewNoticeSeconds !== null ? (
+        <p className="text-center text-xs text-muted-foreground" role="status">
+          Your device clock is about {tracking.clockSkewNoticeSeconds}s off from
+          the server — your recording is unaffected, but you may want to fix
+          your device's date &amp; time.
         </p>
       ) : null}
 

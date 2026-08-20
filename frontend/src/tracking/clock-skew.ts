@@ -5,10 +5,13 @@ export type ClockSkewCheck = {
   skewMs: number
 }
 
-// §3.1/§11: compares the device clock against a server Date header. A large
-// skew makes recorded_at values land outside the server's acceptance window
-// (see the backend's discarded_samples bucket), so this is checked and
-// surfaced *before* a recording starts rather than discovered mid-session.
+// §3.1/§11: a coarse device-vs-server comparison, used only to decide
+// whether a skew is worth mentioning to the user. It is *not* what makes
+// recording correct — clock-offset.ts's RTT-aware estimate is what gets
+// applied to outgoing timestamps (C1-C4). Once that correction exists, a
+// large result here is advisory (worth fixing the device clock) rather than
+// a reason to block starting: see startTracking's non-blocking notice and
+// the uploader's live re-check.
 export function checkClockSkew(
   serverDate: Date,
   deviceNow: Date = new Date(),

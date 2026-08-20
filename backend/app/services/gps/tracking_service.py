@@ -3,9 +3,10 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import asin, cos, radians, sin, sqrt
 
 from sqlalchemy import delete, func, or_, select, update
@@ -29,6 +30,17 @@ from services.gps.privacy_zone_service import GpsPrivacyZoneService
 from services.trip_access import get_membership, get_trip_read_access
 from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
+
+logger = logging.getLogger(__name__)
+
+# Clock-skew fix (see private/implementation-specs/clock-skew-fix.md): the
+# client now corrects every outgoing timestamp by a measured device→server
+# offset before this bound is ever checked, so the residual error left over
+# is only measurement noise, not raw clock skew. This absorbs that residual
+# (Date-header second quantisation, RTT asymmetry, quartz drift over a long
+# session) — it is deliberately far too small to mask a genuinely wrong
+# clock, which after correction is off by minutes or hours, not seconds.
+SAMPLE_TIME_TOLERANCE = timedelta(seconds=5)
 
 
 class TrackingPermissionError(Exception):
@@ -301,13 +313,18 @@ class GpsTrackingService:
                 'Only the recording user may upload samples to this session'
             )
 
-        lower_bound = session.started_at
-        if session.ended_at is not None:
-            upper_bound = session.ended_at
-            upper_inclusive = True
-        else:
-            upper_bound = utcnow()
-            upper_inclusive = False
+        # SAMPLE_TIME_TOLERANCE is applied symmetrically at both ends — see
+        # its own docstring for why a small, named margin belongs here
+        # instead of either a zero-margin comparison or a minutes-wide one.
+        # Both bounds are inclusive once the tolerance is folded in: a sample
+        # landing exactly on the tolerance edge is as legitimate as one a
+        # microsecond inside it.
+        lower_bound = session.started_at - SAMPLE_TIME_TOLERANCE
+        upper_bound = (
+            session.ended_at
+            if session.ended_at is not None
+            else utcnow()
+        ) + SAMPLE_TIME_TOLERANCE
 
         submitted_ids = [sample.id for sample in samples]
         stored = list(
@@ -340,13 +357,25 @@ class GpsTrackingService:
             if sample.id in duplicate_ids:
                 duplicates += 1
                 continue
-            if not self._within_session_bounds(
-                sample.recorded_at,
-                lower_bound,
-                upper_bound,
-                upper_inclusive,
-            ):
+            if not self._within_session_bounds(sample.recorded_at, lower_bound, upper_bound):
                 discarded += 1
+                # C8: the two directions have unrelated causes (a device
+                # clock still wrong despite correction vs. a Stop that
+                # stranded a backlog past ended_at — see §6) and unrelated
+                # user-facing advice, so log which one this was rather than
+                # only exposing one opaque counter to the client.
+                logger.info(
+                    'Discarded GPS sample outside session bounds',
+                    extra={
+                        'direction': (
+                            'before_start'
+                            if sample.recorded_at < lower_bound
+                            else 'after_end'
+                        ),
+                        'session_id': str(session_id),
+                        'trip_id': str(trip_id),
+                    },
+                )
                 continue
             if self.privacy_zones.is_within_any_zone(
                 latitude=sample.latitude,
@@ -386,13 +415,8 @@ class GpsTrackingService:
         recorded_at: datetime,
         lower_bound: datetime,
         upper_bound: datetime,
-        upper_inclusive: bool,
     ) -> bool:
-        if recorded_at < lower_bound:
-            return False
-        if upper_inclusive:
-            return recorded_at <= upper_bound
-        return recorded_at < upper_bound
+        return lower_bound <= recorded_at <= upper_bound
 
     # ------------------------------------------------------------------
     # Raw sample reads

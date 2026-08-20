@@ -32,18 +32,7 @@ export type StartTrackingInput = {
   tripTitle: string
   accessToken: string
   currentUserId: string
-  // Set on the re-entrant call after the user has confirmed they want to
-  // proceed despite a detected clock skew (U1).
-  acknowledgeClockSkew?: boolean
 }
-
-export type StartTrackingOutcome =
-  | { kind: 'ok' }
-  // The device clock disagrees with the server by more than the tolerance.
-  // startTracking does *not* show its own confirmation UI (it can't render
-  // anything) — the caller shows one and re-calls with
-  // acknowledgeClockSkew: true if the user wants to proceed anyway (U1).
-  | { kind: 'clock-skew-confirmation-required'; skewSeconds: number }
 
 export type TrackingContextValue = {
   activeSession: ActiveTrackingSession | null
@@ -59,15 +48,24 @@ export type TrackingContextValue = {
   locationWarning: string | null
   // A live re-check (triggered whenever an upload batch reports a non-zero
   // discarded count) still finds the device clock off by roughly this many
-  // seconds (U1). Distinct from locationWarning: this is a data-quality
-  // problem, not an engine problem, and survives until the clock is fixed or
-  // the recording ends.
+  // seconds (U1). Timestamps are corrected before upload now (C1-C4), so a
+  // non-zero value here means the correction itself failed — a real
+  // data-quality signal, not routine noise — and survives until it stops
+  // recurring or the recording ends.
   clockSkewWarningSeconds: number | null
+  // A one-time, non-blocking notice measured when the recording started:
+  // the device clock looked off by roughly this many seconds at that point.
+  // Purely informational — the recording is unaffected because every
+  // outgoing timestamp is corrected — but a clock this far off is worth the
+  // user fixing. null once nothing was measured, or once a new recording
+  // starts. Distinct from clockSkewWarningSeconds, which reports correction
+  // actually failing mid-recording.
+  clockSkewNoticeSeconds: number | null
   // The travel mode new samples are being stamped with right now (U2) — a
   // property of this recording, not a device setting. 'UNKNOWN' whenever
   // nothing is recording or the user hasn't picked one.
   currentTravelMode: TravelMode
-  startTracking: (input: StartTrackingInput) => Promise<StartTrackingOutcome>
+  startTracking: (input: StartTrackingInput) => Promise<void>
   stopTracking: () => Promise<void>
   // Settings just saved from the settings page (B8). Applies immediately to
   // a live recording — re-evaluates the adaptive policy and, if the cadence

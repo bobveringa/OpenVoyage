@@ -62,6 +62,7 @@ type SessionRow = {
   create_acked: number
   end_acked: number
   current_travel_mode: string | null
+  clock_offset_ms: number | null
 }
 
 type SampleRow = {
@@ -80,6 +81,7 @@ type SampleRow = {
 
 function sessionFromRow(row: SessionRow): PendingSession {
   return {
+    clockOffsetMs: row.clock_offset_ms,
     createAcked: row.create_acked === 1,
     currentTravelMode: (row.current_travel_mode as TravelMode | null) ?? null,
     endAcked: row.end_acked === 1,
@@ -150,6 +152,13 @@ export class SqliteQueueBackend implements QueueBackend {
     } catch {
       // Column already exists.
     }
+    try {
+      await this.db.execute(
+        'ALTER TABLE pending_sessions ADD COLUMN clock_offset_ms REAL',
+      )
+    } catch {
+      // Column already exists.
+    }
   }
 
   private get connection(): SQLiteDBConnection {
@@ -162,8 +171,8 @@ export class SqliteQueueBackend implements QueueBackend {
   async putPendingSession(session: PendingSession): Promise<void> {
     await this.connection.run(
       `INSERT INTO pending_sessions
-        (session_id, trip_id, trip_title, recorded_by_user_id, started_at, ended_at, create_acked, end_acked, current_travel_mode)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (session_id, trip_id, trip_title, recorded_by_user_id, started_at, ended_at, create_acked, end_acked, current_travel_mode, clock_offset_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(session_id) DO UPDATE SET
         trip_id = excluded.trip_id,
         trip_title = excluded.trip_title,
@@ -172,7 +181,8 @@ export class SqliteQueueBackend implements QueueBackend {
         ended_at = excluded.ended_at,
         create_acked = excluded.create_acked,
         end_acked = excluded.end_acked,
-        current_travel_mode = excluded.current_travel_mode`,
+        current_travel_mode = excluded.current_travel_mode,
+        clock_offset_ms = excluded.clock_offset_ms`,
       [
         session.sessionId,
         session.tripId,
@@ -183,6 +193,7 @@ export class SqliteQueueBackend implements QueueBackend {
         session.createAcked ? 1 : 0,
         session.endAcked ? 1 : 0,
         session.currentTravelMode ?? null,
+        session.clockOffsetMs ?? null,
       ],
     )
   }
