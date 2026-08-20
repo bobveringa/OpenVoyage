@@ -3,6 +3,10 @@ import subprocess
 from dataclasses import dataclass
 
 
+VIDEO_THUMBNAIL_MAX_SIZE = (960, 960)
+VIDEO_THUMBNAIL_QUALITY = 90
+
+
 @dataclass
 class VideoInfo:
     width: int
@@ -99,9 +103,10 @@ def generate_video_thumbnail(
     file_path: str,
     dest: str,
     timestamp: float = 1.0,
-    max_size: tuple[int, int] = (480, 480),
+    max_size: tuple[int, int] = VIDEO_THUMBNAIL_MAX_SIZE,
+    quality: int = VIDEO_THUMBNAIL_QUALITY,
 ) -> None:
-    """Extract a single frame from *source* and write it as a JPEG to *dest*.
+    """Extract a single frame from *source* and write it as WebP to *dest*.
 
     Args:
         file_path:    Path to the uploaded video.
@@ -110,6 +115,7 @@ def generate_video_thumbnail(
                    1 second so we skip black/fade-in frames at the start.
         max_size:  Bounding box; the frame is scaled down to fit inside this
                    while preserving aspect ratio.
+        quality:   WebP encoder quality from 0 to 100.
     """
     scale_filter = (
         f"scale='min({max_size[0]},iw)':'min({max_size[1]},ih)'"
@@ -127,8 +133,12 @@ def generate_video_thumbnail(
         '1',  # one frame only
         '-vf',
         scale_filter,
-        '-q:v',
-        '3',  # JPEG quality (2=best … 31=worst)
+        '-c:v',
+        'libwebp',
+        '-preset',
+        'photo',
+        '-quality',
+        str(quality),
         dest,
     ]
 
