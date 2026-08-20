@@ -5003,6 +5003,12 @@ function TravelingPanel({
         </div>
 
         <div className="space-y-5">
+          {trackingGeometry.openingRoute ? (
+            <PostRouteDuration
+              position="before-first-post"
+              route={trackingGeometry.openingRoute}
+            />
+          ) : null}
           {displayedPosts.map((post, index) => (
             <Fragment key={post.id}>
               <TravelPostCard
@@ -5019,6 +5025,10 @@ function TravelingPanel({
                 <PostRouteDuration
                   route={post.routeAfter}
                 />
+              ) : null}
+              {index === displayedPosts.length - 1 &&
+              post.routeAfter?.durationSeconds === null ? (
+                <PostRouteDuration position="after-last-post" route={post.routeAfter} />
               ) : null}
             </Fragment>
           ))}
@@ -6067,10 +6077,31 @@ function TravelPostCard({
   )
 }
 
-function PostRouteDuration({ route }: { route: TravelPostRoute }) {
+function PostRouteDuration({
+  position = 'between-posts',
+  route,
+}: {
+  position?: 'after-last-post' | 'before-first-post' | 'between-posts'
+  route: TravelPostRoute
+}) {
   const label = formatPostRouteDuration(route.durationSeconds ?? 0)
   const travelMode = getPostRouteTravelMode(route)
   const ModeIcon = getTravelModeIcon(travelMode)
+  const copy =
+    position === 'before-first-post'
+      ? {
+          ariaLabel: 'The journey begins',
+          text: 'The journey begins',
+        }
+      : position === 'after-last-post'
+        ? {
+            ariaLabel: 'The journey continues',
+            text: 'The journey continues',
+          }
+        : {
+            ariaLabel: `Traveled for ${label} until the next post`,
+            text: 'Traveled for',
+          }
 
   return (
     <div className="grid grid-cols-[3.25rem_1fr] gap-3 px-1 py-0.5">
@@ -6084,16 +6115,16 @@ function PostRouteDuration({ route }: { route: TravelPostRoute }) {
         </div>
       </div>
       <div
-        aria-label={`Traveled for ${label} until the next post`}
+        aria-label={copy.ariaLabel}
         className="flex min-h-10 items-center gap-2 rounded-[1.1rem] border border-border bg-card/85 px-3 py-2 text-sm shadow-sm"
       >
-        <span className="text-muted-foreground">
-          Traveled for
-        </span>
-        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
-          <Clock className="size-3" aria-hidden="true" />
-          {label}
-        </span>
+        <span className="text-muted-foreground">{copy.text}</span>
+        {position === 'between-posts' ? (
+          <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
+            <Clock className="size-3" aria-hidden="true" />
+            {label}
+          </span>
+        ) : null}
       </div>
     </div>
   )
