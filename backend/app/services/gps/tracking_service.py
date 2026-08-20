@@ -27,6 +27,10 @@ from models.database.travel import TravelMode
 from models.database.trips import Trip, TripMember
 from services.gps.geometry import simplify_line
 from services.gps.privacy_zone_service import GpsPrivacyZoneService
+from services.gps.stationary_compaction import (
+    TimedGpsCoordinate,
+    compact_stationary_indices,
+)
 from services.trip_access import get_membership, get_trip_read_access
 from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
@@ -86,11 +90,14 @@ class _Anchor:
     """One chronological point on the map: a post location or a GPS point."""
 
     sort_key: tuple
+    recorded_at: datetime
     latitude: float
     longitude: float
     travel_mode: TravelMode | None
     is_post: bool
     session_id: uuid.UUID | None = None
+    accuracy_meters: float | None = None
+    speed_mps: float | None = None
 
 
 @dataclass(frozen=True)
@@ -850,6 +857,7 @@ class GpsTrackingService:
         # element is the anchor kind.
         return _Anchor(
             sort_key=(post.occurred_at, 0, post.id),
+            recorded_at=post.occurred_at,
             latitude=post.location.latitude,
             longitude=post.location.longitude,
             travel_mode=None,
@@ -863,6 +871,8 @@ class GpsTrackingService:
                 GpsTrackSample.id,
                 GpsTrackSample.latitude,
                 GpsTrackSample.longitude,
+                GpsTrackSample.accuracy_meters,
+                GpsTrackSample.speed_mps,
                 GpsTrackSample.travel_mode,
                 GpsTrackSample.session_id,
                 GpsTrackingSession.started_at,
@@ -894,11 +904,14 @@ class GpsTrackingService:
                     row.session_id,
                     row.id,
                 ),
+                recorded_at=row.recorded_at,
                 latitude=row.latitude,
                 longitude=row.longitude,
                 travel_mode=TravelMode(row.travel_mode),
                 is_post=False,
                 session_id=row.session_id,
+                accuracy_meters=row.accuracy_meters,
+                speed_mps=row.speed_mps,
             )
             for row in rows
         ]
@@ -960,13 +973,58 @@ class GpsTrackingService:
         return TravelMode.UNKNOWN
 
     @staticmethod
+    def _compact_stationary_anchors(anchors: list[_Anchor]) -> list[_Anchor]:
+        """Compact only consecutive GPS anchors with identical hard boundaries."""
+        compacted: list[_Anchor] = []
+        partition: list[_Anchor] = []
+
+        def flush_partition() -> None:
+            if not partition:
+                return
+            indices = compact_stationary_indices(
+                [
+                    TimedGpsCoordinate(
+                        recorded_at=anchor.recorded_at,
+                        latitude=anchor.latitude,
+                        longitude=anchor.longitude,
+                        accuracy_meters=anchor.accuracy_meters,
+                        speed_mps=anchor.speed_mps,
+                    )
+                    for anchor in partition
+                ],
+            )
+            compacted.extend(partition[index] for index in indices)
+            partition.clear()
+
+        for anchor in anchors:
+            if anchor.is_post:
+                flush_partition()
+                compacted.append(anchor)
+                continue
+            if partition and (
+                anchor.session_id != partition[-1].session_id
+                or anchor.travel_mode != partition[-1].travel_mode
+            ):
+                flush_partition()
+            partition.append(anchor)
+
+        flush_partition()
+        return compacted
+
+    @classmethod
     def _segment(
+        cls,
         travel_mode: TravelMode,
         anchors: list[_Anchor],
         *,
         visible_to_members_only: bool = False,
     ) -> PostTimelineRouteSegmentResponse:
-        coordinates = [(anchor.longitude, anchor.latitude) for anchor in anchors]
+        display_anchors = cls._compact_stationary_anchors(anchors)
+        coordinates = [
+            (anchor.longitude, anchor.latitude) for anchor in display_anchors
+        ]
+        if len(coordinates) == 1:
+            coordinates *= 2
         return PostTimelineRouteSegmentResponse(
             travel_mode=travel_mode,
             geometry=GeoJsonLineString(coordinates=simplify_line(coordinates)),

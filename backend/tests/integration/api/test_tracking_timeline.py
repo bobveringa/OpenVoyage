@@ -501,6 +501,87 @@ def test_postless_opening_route_needs_two_points(
 
 
 @pytest.mark.integration
+def test_postless_stationary_gps_is_compacted_without_changing_raw_samples(
+    client,
+    api_prefix,
+    db_session,
+    trip,
+    owner,
+) -> None:
+    session_id = _open_session(client, api_prefix, trip_id=trip.id, user=owner)
+    points = [
+        (0, 52.0, 5.0, 'WALK'),
+        (90, 52.00005, 5.00005, 'WALK'),
+        (180, 51.99995, 4.99995, 'WALK'),
+    ]
+    _upload(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        session_id=session_id,
+        points=points,
+    )
+
+    stored = client.get(
+        f'{api_prefix}/trips/{trip.id}/tracking/sessions/{session_id}/samples',
+        headers=_auth_headers(owner),
+    ).json()['items']
+    assert [(item['latitude'], item['longitude']) for item in stored] == [
+        (latitude, longitude) for _, latitude, longitude, _ in points
+    ]
+
+    body = _timeline(client, api_prefix, trip.id, user=owner).json()
+    coordinates = _coordinates(body['opening_route']['segments'])[0]
+
+    # The LineString contract needs two coordinates. Both are the same best
+    # observed stationary fix, not a route through the later raw drift points.
+    assert coordinates == [[5.0, 52.0], [5.0, 52.0]]
+
+
+@pytest.mark.integration
+def test_stationary_compaction_keeps_an_authored_post_coordinate(
+    client,
+    api_prefix,
+    db_session,
+    trip,
+    owner,
+) -> None:
+    post_place = create_place(
+        db_session,
+        latitude=52.1,
+        longitude=5.1,
+        name='Post place',
+    )
+    _create_post(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        place=post_place,
+        title='At the stop',
+        occurred_at=START + timedelta(seconds=120),
+    )
+    session_id = _open_session(client, api_prefix, trip_id=trip.id, user=owner)
+    _upload(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        session_id=session_id,
+        points=[
+            (0, 52.0, 5.0, 'WALK'),
+            (90, 52.00005, 5.00005, 'WALK'),
+        ],
+    )
+
+    body = _timeline(client, api_prefix, trip.id).json()
+    coordinates = _coordinates(body['opening_route']['segments'])[0]
+
+    assert coordinates == [[5.0, 52.0], [5.1, 52.1]]
+
+
+@pytest.mark.integration
 def test_final_route_follows_the_live_sharing_switch(
     client,
     api_prefix,
