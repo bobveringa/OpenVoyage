@@ -105,6 +105,14 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
 
     await expect(page.getByRole('heading', { name: 'Travel posts' })).toBeVisible()
     await expect(page.getByText('E2E API post')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Edit E2E API post' }).click()
+    await page.getByRole('button', { name: 'Delete post' }).click()
+    await page
+      .getByRole('dialog', { name: 'Delete post' })
+      .getByRole('button', { name: 'Delete post' })
+      .click()
+    await expect(page.getByText('E2E API post')).toHaveCount(0)
   } finally {
     await deleteTripWithApi(request, tokens, trip.id)
   }

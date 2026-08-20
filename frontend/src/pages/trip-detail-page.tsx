@@ -84,6 +84,7 @@ import {
   createItineraryStop,
   createPost,
   createTripShareLink,
+  deletePost,
   deleteTrip,
   deleteItineraryStop,
   geocodePlaces,
@@ -1867,6 +1868,47 @@ export function TripDetailPage({
     )
   }
 
+  function handlePostDelete(postId: string) {
+    const finishPostDelete = () => {
+      setDraftPostLocation(null)
+      setSelectedGpsPostCandidate(null)
+      setMapPointTarget(null)
+      setMobileMapPickerTarget(null)
+      setFocusedPostId(null)
+      setPostScrollRequest(null)
+      navigateTripDetailUrlState(
+        {
+          editingPostId: null,
+          mode: 'traveling',
+          planningView: 'stops',
+          travelingView: 'posts',
+        },
+        'replace',
+      )
+    }
+
+    if (isApiBacked) {
+      if (!tripId || !accessToken) {
+        setMutationError('Sign in to delete travel posts.')
+        return
+      }
+
+      void runMutation('Deleting post', async () => {
+        await deletePost({ accessToken, postId, tripId })
+        const { posts, trackingGeometry } = await fetchTravelTimeline()
+        setTravelPosts(posts)
+        setTrackingGeometry(trackingGeometry)
+        finishPostDelete()
+      })
+      return
+    }
+
+    setTravelPosts((currentPosts) =>
+      currentPosts.filter((post) => post.id !== postId),
+    )
+    finishPostDelete()
+  }
+
   const applyDraftMapPointLocation = useCallback(
     (target: MapPointTarget, coordinates: L.LatLngTuple) => {
       const selectedTarget = target
@@ -2183,6 +2225,7 @@ export function TripDetailPage({
               onFocusedPostChange={handleFocusedPostChange}
               onOpenManagement={openManagement}
               onEditPost={handleEditPost}
+              onPostDelete={handlePostDelete}
               onPostSubmit={handlePostSubmit}
               onPlanningViewChange={handlePlanningViewChange}
               onRefreshTravelLegRoute={handleTravelLegRouteRefresh}
@@ -3699,6 +3742,7 @@ function TripSidebar({
   onMapPointTargetChange,
   onPostMarkerSelect,
   onOpenManagement,
+  onPostDelete,
   onPostSubmit,
   onPlanningViewChange,
   onRefreshTravelLegRoute,
@@ -3742,6 +3786,7 @@ function TripSidebar({
   onMapPointTargetChange: (target: MapPointTarget | null) => void
   onPostMarkerSelect: (postId: string) => void
   onOpenManagement: (section: TripManagementSection) => void
+  onPostDelete: (postId: string) => void
   onPostSubmit: (postId: string | null, draft: PostSubmitDraft) => void
   onPlanningViewChange: (view: PlanningView) => void
   onRefreshTravelLegRoute: (legId: string) => void
@@ -3883,6 +3928,7 @@ function TripSidebar({
             mapPointActive={mapPointTarget === 'post'}
             mode="edit"
             onCancel={closePostForm}
+            onDelete={() => onPostDelete(editingPost.id)}
             onMapPointTargetChange={onMapPointTargetChange}
             onSubmit={(draft) => onPostSubmit(editingPost.id, draft)}
             post={editingPost}
@@ -4991,6 +5037,7 @@ function PostFormPanel({
   mapPointActive,
   mode,
   onCancel,
+  onDelete,
   onMapPointTargetChange,
   onSubmit,
   post = null,
@@ -5003,6 +5050,7 @@ function PostFormPanel({
   mapPointActive: boolean
   mode: 'create' | 'edit'
   onCancel: () => void
+  onDelete?: () => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
   onSubmit: (draft: PostSubmitDraft) => void
   post?: TravelPost | null
@@ -5025,10 +5073,13 @@ function PostFormPanel({
   const [pendingSubmit, setPendingSubmit] = useState<PendingPostSubmit | null>(
     null,
   )
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false)
   const [occurredAt, setOccurredAt] = useState(() =>
     editingPost
       ? formatDateTimeInputValue(parseDateTime(editingPost.occurred_at))
-      : formatDateTimeInputValue(new Date()),
+      : gpsPostCandidate
+        ? formatGpsPostCandidateOccurredAt(gpsPostCandidate)
+        : formatDateTimeInputValue(new Date()),
   )
   const [searchValue, setSearchValue] = useState(
     editingPost?.location ?? '',
@@ -5042,19 +5093,6 @@ function PostFormPanel({
   )
   const [title, setTitle] = useState(editingPost?.title ?? '')
 
-  useEffect(() => {
-    if (!gpsPostCandidate) {
-      return
-    }
-
-    setLocationSource('map')
-    const recordedAt = new Date(gpsPostCandidate.recorded_at)
-    setOccurredAt(
-      formatDateTimeInputValue(
-        Number.isNaN(recordedAt.getTime()) ? null : recordedAt,
-      ),
-    )
-  }, [gpsPostCandidate])
   // The map selection belongs to the page-level map. Treat it as the source
   // of truth so the form cannot briefly fall back to its local search state
   // while the side panel is opening after a map click.
@@ -5226,6 +5264,7 @@ function PostFormPanel({
     setPlaceResultsOpen(false)
     setMediaNotice(null)
     setPendingSubmit(null)
+    setDeleteConfirmationOpen(false)
     setOccurredAt(
       editingPost
         ? formatDateTimeInputValue(parseDateTime(editingPost.occurred_at))
@@ -5235,6 +5274,15 @@ function PostFormPanel({
     setStory(editingPost?.excerpt ?? '')
     setTitle(editingPost?.title ?? '')
   }, [abortDraftMediaUploads, editingPost, mode])
+
+  useEffect(() => {
+    if (!gpsPostCandidate) {
+      return
+    }
+
+    setLocationSource('map')
+    setOccurredAt(formatGpsPostCandidateOccurredAt(gpsPostCandidate))
+  }, [gpsPostCandidate])
 
   useEffect(() => {
     if (mapPointActive) {
@@ -5766,6 +5814,17 @@ function PostFormPanel({
       </section>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        {mode === 'edit' && onDelete ? (
+          <Button
+            disabled={formDisabled}
+            onClick={() => setDeleteConfirmationOpen(true)}
+            type="button"
+            variant="destructive"
+          >
+            <Trash2 className="size-4" aria-hidden="true" />
+            Delete post
+          </Button>
+        ) : null}
         <Button
           disabled={isSubmitting}
           onClick={handleCancel}
@@ -5803,6 +5862,36 @@ function PostFormPanel({
           </>
         )}
       </div>
+
+      <Modal
+        description={`Permanently delete ${editingPost?.title ?? 'this post'}? This cannot be undone.`}
+        onClose={() => setDeleteConfirmationOpen(false)}
+        open={deleteConfirmationOpen}
+        title="Delete post"
+      >
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            disabled={isSubmitting}
+            onClick={() => setDeleteConfirmationOpen(false)}
+            type="button"
+            variant="outline"
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={formDisabled}
+            onClick={() => {
+              setDeleteConfirmationOpen(false)
+              onDelete?.()
+            }}
+            type="button"
+            variant="destructive"
+          >
+            <Trash2 className="size-4" aria-hidden="true" />
+            {isSubmitting ? 'Deleting post' : 'Delete post'}
+          </Button>
+        </div>
+      </Modal>
 
       <Modal
         description={getFinishingUploadsModalDescription(pendingSubmit?.intent)}
@@ -9714,6 +9803,13 @@ function formatDateTimeInputValue(date: Date | null) {
   }
 
   return `${formatDateInputValue(date)}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+function formatGpsPostCandidateOccurredAt(candidate: GpsPostCandidate) {
+  const recordedAt = new Date(candidate.recorded_at)
+  return formatDateTimeInputValue(
+    Number.isNaN(recordedAt.getTime()) ? null : recordedAt,
+  )
 }
 
 const dayInMs = 24 * 60 * 60 * 1000
