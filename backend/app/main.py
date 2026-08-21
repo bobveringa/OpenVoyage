@@ -7,6 +7,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 
 from api.main import api_router
+from api.routers import health
 from core.config import settings
 from jobs.runtime import JobRuntime
 
@@ -46,6 +47,7 @@ if settings.all_cors_origins:
     )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(health.router)
 
 
 def configure_frontend(app: FastAPI) -> None:
