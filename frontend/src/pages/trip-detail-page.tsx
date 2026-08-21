@@ -7518,6 +7518,10 @@ function TripLeafletMap({
       L.control.zoom({ position: 'bottomright' }).addTo(map)
     }
 
+    map.attributionControl.addAttribution(
+      'Place data &copy; <a href="https://www.geonames.org/">GeoNames</a>, CC BY 4.0',
+    )
+
     function handleMapClick(event: L.LeafletMouseEvent) {
       if (!mapPointEnabledRef.current) {
         return

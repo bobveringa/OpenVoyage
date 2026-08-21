@@ -129,6 +129,13 @@ from `frontend/src/api/client.ts`, shared UI components live under
 `frontend/src/components/`, and all theme color tokens live in
 `frontend/src/styles/theme.css`.
 
+## 📍 Data attribution
+Place search, autocomplete, and reverse geocoding are powered by
+[GeoNames](https://www.geonames.org/) data, used under the
+[Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/)
+license. Map tiles are provided by
+[OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.
+
 ## 🤖 Use of AI
 This project was developed with the assistance of AI tools, which helped with
 code generation, debugging, and documentation. However, all code was reviewed 
