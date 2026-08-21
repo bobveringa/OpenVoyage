@@ -8,6 +8,7 @@ import {
   type TravelMode,
 } from '@/api/client'
 import { useAuth } from '@/auth/use-auth'
+import { isNativePlatform } from '@/native/platform'
 import {
   requestBackgroundLocation,
   requestIgnoreBatteryOptimizations,
@@ -51,6 +52,7 @@ import {
 } from '@/tracking/sample-queue'
 import {
   DEFAULT_TRACKING_SETTINGS,
+  baselineFor,
   readTrackingSettings,
   type TrackingSettings,
 } from '@/tracking/tracking-settings'
@@ -78,6 +80,18 @@ const UNKNOWN_POWER_STATE: PowerState = {
 // than this would cost more than the adaptation saves.
 const POWER_POLL_MS = 60_000
 
+const NATIVE_ADAPTIVE_POLICY = isNativePlatform()
+
+function baselineDecision(settings: TrackingSettings): AdaptiveDecision {
+  const baseline = baselineFor(settings)
+  return {
+    distanceFilterMeters: settings.mode === 'smart' ? 0 : settings.distanceFilterMeters,
+    intervalSeconds: baseline.intervalSeconds,
+    locationSource: settings.locationSource,
+    powerLevel: baseline.powerLevel,
+    reason: 'fixed',
+  }
+}
 
 export function TrackingProvider({ children }: TrackingProviderProps) {
   const { accessToken, currentUser } = useAuth()
@@ -222,7 +236,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   // did) is what makes a long interval actually cost less battery.
   const applyAdaptivePolicy = useCallback(
     async (speedMps: number | null) => {
-      if (!capturingRef.current) {
+      if (!capturingRef.current || NATIVE_ADAPTIVE_POLICY) {
         return
       }
       const decision = decideTracking({
@@ -296,18 +310,20 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         longitude: fix.longitude,
         recordedAt: fix.recordedAt,
       }
-      movementRef.current.observe({
-        // No Number.isFinite guard needed: accuracyMeters is null end-to-end
-        // for "unknown" rather than Number.POSITIVE_INFINITY (B6).
-        accuracyMeters: fix.accuracyMeters,
-        atMs: Date.parse(fix.recordedAt),
-        latitude: fix.latitude,
-        longitude: fix.longitude,
-        speedMps: fix.speedMps,
-      })
-      // The detector's displacement-derived speed, not the fix's own field —
-      // see createMovementDetector for why the latter cannot be trusted.
-      void applyAdaptivePolicy(movementRef.current.getSpeedMps())
+      if (!NATIVE_ADAPTIVE_POLICY) {
+        movementRef.current.observe({
+          // No Number.isFinite guard needed: accuracyMeters is null end-to-end
+          // for "unknown" rather than Number.POSITIVE_INFINITY (B6).
+          accuracyMeters: fix.accuracyMeters,
+          atMs: Date.parse(fix.recordedAt),
+          latitude: fix.latitude,
+          longitude: fix.longitude,
+          speedMps: fix.speedMps,
+        })
+        // The detector's displacement-derived speed, not the fix's own field —
+        // see createMovementDetector for why the latter cannot be trusted.
+        void applyAdaptivePolicy(movementRef.current.getSpeedMps())
+      }
       void getSource().noteSampleAccepted()
 
       uploaderRef.current?.requestSync()
@@ -351,20 +367,26 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     ): PositionSourceOptions => {
       const decision =
         decisionRef.current ??
-        decideTracking({
-          coarseLocationAvailable: coarseLocationAvailableRef.current,
-          movement: 'unknown',
-          power: powerRef.current,
-          settings: settingsRef.current,
-          speedMps: null,
-        })
+        (NATIVE_ADAPTIVE_POLICY
+          ? baselineDecision(settingsRef.current)
+          : decideTracking({
+              coarseLocationAvailable: coarseLocationAvailableRef.current,
+              movement: 'unknown',
+              power: powerRef.current,
+              settings: settingsRef.current,
+              speedMps: null,
+            }))
       decisionRef.current = decision
+      const baseline = baselineFor(settingsRef.current)
 
       return {
+        baselineIntervalSeconds: baseline.intervalSeconds,
+        baselinePowerLevel: baseline.powerLevel,
         distanceFilterMeters: decision.distanceFilterMeters,
         powerLevel: decision.powerLevel,
         intervalSeconds: decision.intervalSeconds,
         locationSource: decision.locationSource,
+        mode: settingsRef.current.mode,
         notificationMessage: notification.message,
         notificationTitle: notification.title,
         onEngineFailed: (message) => void engineFailedRef.current(message),
@@ -376,6 +398,18 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
           // (B4) — the same failure mode the queue's own overflow eviction
           // already surfaces, so it feeds the same counter and UI copy.
           void addDroppedLocallyCount(count).then(() => refreshQueueStats(sessionId))
+        },
+        onAdaptiveStateChanged: (state) => {
+          const next: AdaptiveDecision = {
+            distanceFilterMeters:
+              state.mode === 'smart' ? 0 : settingsRef.current.distanceFilterMeters,
+            intervalSeconds: state.intervalSeconds,
+            locationSource: settingsRef.current.locationSource,
+            powerLevel: state.powerLevel,
+            reason: state.adaptiveReason,
+          }
+          decisionRef.current = next
+          setAdaptiveDecision(next)
         },
         onStopRequested: () => {
           // Stopping from the notification has to run the same lifecycle as
@@ -546,7 +580,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   // recording that started at 80% would still be asking for high-accuracy
   // fixes at 4%.
   useEffect(() => {
-    if (status !== 'recording') {
+    if (NATIVE_ADAPTIVE_POLICY || status !== 'recording') {
       return undefined
     }
     const timer = window.setInterval(() => {
@@ -621,9 +655,24 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   const notifySettingsChanged = useCallback(
     (next: TrackingSettings) => {
       updateSettingsRef(next)
+      if (NATIVE_ADAPTIVE_POLICY) {
+        if (capturingRef.current) {
+          const baseline = baselineFor(next)
+          void getSource()
+            .updatePolicy({
+              baselineIntervalSeconds: baseline.intervalSeconds,
+              baselinePowerLevel: baseline.powerLevel,
+              distanceFilterMeters: next.distanceFilterMeters,
+              locationSource: next.locationSource,
+              mode: next.mode,
+            })
+            .catch((configureError) => setError(getErrorMessage(configureError)))
+        }
+        return
+      }
       void applyAdaptivePolicy(movementRef.current.getSpeedMps())
     },
-    [applyAdaptivePolicy, updateSettingsRef],
+    [applyAdaptivePolicy, getSource, updateSettingsRef],
   )
 
   // U2: only affects samples enqueued from this point on — handleFix reads

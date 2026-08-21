@@ -1,4 +1,3 @@
-import { Compass } from 'lucide-react'
 import { useState } from 'react'
 
 import type { CurrentUser } from '@/api/client'
@@ -9,6 +8,7 @@ import { AppBackground } from '@/components/layout/app-background'
 import { useNativeServerGate } from '@/native/native-server-gate-context'
 import { isNativePlatform } from '@/native/platform'
 import { getCurrentServerUrl } from '@/native/server-config'
+import icon from '../../branding/icon.svg'
 
 type LoginPageProps = {
   onAuthenticated: (user: CurrentUser) => void
@@ -40,8 +40,8 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
       <AppBackground />
       <section className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-soft sm:p-8">
         <div className="mb-8 grid justify-items-center gap-4 text-center">
-          <span className="grid size-12 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-            <Compass className="size-6" aria-hidden="true" />
+          <span className="size-12 overflow-hidden rounded-xl shadow-sm">
+            <img alt="" className="size-full object-cover" src={icon} />
           </span>
           <div className="space-y-2">
             <h1 className="text-2xl font-semibold tracking-normal">Sign in</h1>

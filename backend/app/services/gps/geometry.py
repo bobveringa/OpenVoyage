@@ -177,15 +177,38 @@ def simplify_line(
     Always keeps the first and last coordinate and never invents one, so post
     anchors, segment endpoints, and mode boundaries survive.
     """
-    if len(coordinates) <= 2:
-        return list(coordinates)
+    return [
+        coordinates[index]
+        for index in simplify_line_indices(coordinates, tolerance_meters)
+    ]
 
+
+def simplify_line_indices(
+    coordinates: list[tuple[float, float]],
+    tolerance_meters: float = SIMPLIFY_TOLERANCE_METERS,
+    *,
+    required_indices: set[int] | None = None,
+) -> list[int]:
+    """Return the input indices retained by Douglas-Peucker.
+
+    ``required_indices`` supports semantically meaningful points, such as a
+    long stay, that must remain visible even when they are collinear with the
+    surrounding route. Splitting the simplification at those points preserves
+    the usual tolerance on either side while retaining the exact source point.
+    """
+    if len(coordinates) <= 2:
+        return list(range(len(coordinates)))
+
+    required = {
+        index for index in (required_indices or set()) if 0 <= index < len(coordinates)
+    }
     projected = _project(coordinates)
     keep = [False] * len(coordinates)
-    keep[0] = True
-    keep[-1] = True
+    boundaries = sorted({0, *required, len(coordinates) - 1})
+    for index in boundaries:
+        keep[index] = True
 
-    stack = [(0, len(coordinates) - 1)]
+    stack = list(zip(boundaries, boundaries[1:], strict=False))
     while stack:
         first, last = stack.pop()
         if last <= first + 1:
@@ -208,6 +231,4 @@ def simplify_line(
             stack.append((first, farthest_index))
             stack.append((farthest_index, last))
 
-    return [
-        coordinate for coordinate, kept in zip(coordinates, keep, strict=True) if kept
-    ]
+    return [index for index, kept in enumerate(keep) if kept]

@@ -1,4 +1,3 @@
-import { Compass } from 'lucide-react'
 import {
   useCallback,
   useEffect,
@@ -18,6 +17,7 @@ import {
   setStoredServerUrl,
 } from '@/native/server-config'
 import { usePublicSettings } from '@/settings/use-public-settings'
+import icon from '../../branding/icon.svg'
 
 type GateStatus = 'checking' | 'needs-setup' | 'ready'
 
@@ -166,8 +166,8 @@ function ServerSetupPage({
       <AppBackground />
       <section className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-soft sm:p-8">
         <div className="mb-8 grid justify-items-center gap-4 text-center">
-          <span className="grid size-12 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-            <Compass className="size-6" aria-hidden="true" />
+          <span className="size-12 overflow-hidden rounded-xl shadow-sm">
+            <img alt="" className="size-full object-cover" src={icon} />
           </span>
           <div className="space-y-2">
             <h1 className="text-2xl font-semibold tracking-normal">

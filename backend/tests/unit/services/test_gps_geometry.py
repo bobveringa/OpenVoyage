@@ -9,6 +9,7 @@ from services.gps.geometry import (
     is_within_radius,
     normalize_longitude_delta,
     simplify_line,
+    simplify_line_indices,
 )
 
 # Eindhoven, used as an ordinary mid-latitude reference point.
@@ -222,6 +223,13 @@ def test_simplify_never_invents_a_coordinate() -> None:
 def test_simplify_keeps_a_two_point_line_intact() -> None:
     line = [(4.8952, 52.3702), (5.1214, 52.0907)]
     assert simplify_line(line) == line
+
+
+@pytest.mark.unit
+def test_simplify_keeps_required_collinear_points() -> None:
+    line = [(0.0, 0.0), (0.5, 0.0), (1.0, 0.0)]
+
+    assert simplify_line_indices(line, required_indices={1}) == [0, 1, 2]
 
 
 @pytest.mark.unit

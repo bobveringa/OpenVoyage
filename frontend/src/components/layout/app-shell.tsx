@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Compass, CloudUpload, LogOut, Radio } from 'lucide-react'
+import { CloudUpload, LogOut, Radio } from 'lucide-react'
 
 import type { CurrentUser } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
@@ -11,6 +11,7 @@ import { UserMenu } from '@/components/layout/user-menu'
 import { cn } from '@/lib/utils'
 import { getUserUsername } from '@/lib/users'
 import { useTracking } from '@/tracking/use-tracking'
+import icon from '../../../branding/icon.svg'
 
 type AppShellProps = {
   authStatus?: AuthStatus
@@ -53,8 +54,8 @@ export function AppShell({
               onClick={() => handleNavigate(homePath)}
               type="button"
             >
-              <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <Compass className="size-5" aria-hidden="true" />
+              <span className="size-9 overflow-hidden rounded-xl shadow-sm">
+                <img alt="" className="size-full object-cover" src={icon} />
               </span>
               <span>OpenVoyage</span>
             </button>

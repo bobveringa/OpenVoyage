@@ -6,16 +6,19 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.IntentFilter;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.location.Location;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -69,6 +72,9 @@ public class TrackingService extends Service {
     static final String EXTRA_LOCATION_SOURCE = "locationSource";
     static final String EXTRA_ANCHOR_ELAPSED_NS = "anchorElapsedNs";
     static final String EXTRA_ANCHOR_WALL_MS = "anchorWallMs";
+    static final String EXTRA_TRACKING_MODE = "trackingMode";
+    static final String EXTRA_BASELINE_INTERVAL_MS = "baselineIntervalMs";
+    static final String EXTRA_BASELINE_POWER_LEVEL = "baselinePowerLevel";
 
     static final String SOURCE_AUTO = "auto";
     static final String SOURCE_GMS = "gms";
@@ -81,6 +87,7 @@ public class TrackingService extends Service {
      */
     private static final long MIN_NO_FIX_WARNING_MS = 60_000L;
     private static final long NO_FIX_CHECK_INTERVAL_MS = 15_000L;
+    private static final long POWER_CHECK_INTERVAL_MS = 60_000L;
     // The wait for the *first* fix deliberately does not scale with the
     // interval: a cold GPS fix takes the same 30-90s outdoors whether the user
     // asked for a point every 10s or every 5 minutes. Scaling it meant a
@@ -114,6 +121,9 @@ public class TrackingService extends Service {
 
         /** Hard: the engine cannot deliver fixes at all. */
         void onEngineFailed(String message);
+
+        /** Effective smart-tracking cadence changed in the native service. */
+        void onAdaptiveStateChanged(Snapshot snapshot);
     }
 
     private static volatile Listener listener = null;
@@ -141,6 +151,14 @@ public class TrackingService extends Service {
     private volatile String notificationTitle = "Recording trip";
     private volatile String notificationText = "Starting…";
     private volatile String locationSource = SOURCE_AUTO;
+    // Baseline settings are persisted separately from the effective request.
+    // A sticky restart must restore the policy, not freeze at the last
+    // stationary/battery-adjusted cadence.
+    private volatile NativeAdaptivePolicy.Mode trackingMode = NativeAdaptivePolicy.Mode.MANUAL;
+    private volatile long baselineIntervalMs = 30_000L;
+    private volatile LocationEngine.Power baselinePower = LocationEngine.Power.HIGH;
+    private NativeAdaptivePolicy.Decision adaptiveDecision = null;
+    private NativeMovementDetector movementDetector = new NativeMovementDetector();
 
     /** Non-null while the engine is failing or has gone quiet. */
     private volatile String warningText = null;
@@ -161,6 +179,7 @@ public class TrackingService extends Service {
     private volatile long watchdogBaseMs = 0L;
     private volatile boolean listenerAttached = false;
     private Runnable noFixCheck = null;
+    private Runnable powerCheck = null;
 
     // C7 (clock-skew fix): anchors every fix in this session to the
     // monotonic elapsed-realtime clock instead of trusting the device wall
@@ -248,6 +267,8 @@ public class TrackingService extends Service {
         final long startedAtMs;
         final long intervalMs;
         final String powerLevel;
+        final String trackingMode;
+        final String adaptiveReason;
         final String engineName;
         final String warningText;
         final int bufferedFixes;
@@ -257,6 +278,8 @@ public class TrackingService extends Service {
                 long startedAtMs,
                 long intervalMs,
                 String powerLevel,
+                String trackingMode,
+                String adaptiveReason,
                 String engineName,
                 String warningText,
                 int bufferedFixes
@@ -265,6 +288,8 @@ public class TrackingService extends Service {
             this.startedAtMs = startedAtMs;
             this.intervalMs = intervalMs;
             this.powerLevel = powerLevel;
+            this.trackingMode = trackingMode;
+            this.adaptiveReason = adaptiveReason;
             this.engineName = engineName;
             this.warningText = warningText;
             this.bufferedFixes = bufferedFixes;
@@ -284,6 +309,10 @@ public class TrackingService extends Service {
                     startedAtMs,
                     intervalMs,
                     power.wireName(),
+                    trackingMode.wireName(),
+                    adaptiveDecision == null
+                            ? NativeAdaptivePolicy.Reason.FIXED.wireName()
+                            : adaptiveDecision.reason.wireName(),
                     engine == null ? "none" : engine.getName(),
                     warningText,
                     buffer == null ? 0 : buffer.size()
@@ -361,6 +390,8 @@ public class TrackingService extends Service {
             if (freshStart) {
                 readConfig(intent);
                 startedAtMs = intent.getLongExtra(EXTRA_STARTED_AT, System.currentTimeMillis());
+                movementDetector = new NativeMovementDetector();
+                adaptiveDecision = null;
                 // C7: the anchor pair is captured once, at the same genuine
                 // start that sets startedAtMs — never on a reconfigure or a
                 // process-kill restart, which restore it instead (below).
@@ -378,7 +409,6 @@ public class TrackingService extends Service {
         }
 
         if (freshStart) {
-            persistConfig(prefs);
             // A fresh start, so anything still buffered belongs to a recording
             // that has already finished. Draining it into the new session
             // would file those points under the wrong session and stamp them
@@ -390,7 +420,8 @@ public class TrackingService extends Service {
         prefs.edit().putBoolean(PREF_TRACKING, true).apply();
 
         postNotificationAsForeground();
-        requestLocationUpdates();
+        applyAdaptivePolicy(true);
+        schedulePowerCheck();
     }
 
     private void handleConfigure(Intent intent) {
@@ -400,8 +431,8 @@ public class TrackingService extends Service {
         synchronized (this) {
             readConfig(intent);
         }
-        persistConfig(getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE));
-        requestLocationUpdates();
+        applyAdaptivePolicy(true);
+        schedulePowerCheck();
     }
 
     private void handleUpdateNotification(Intent intent) {
@@ -429,11 +460,21 @@ public class TrackingService extends Service {
     }
 
     private void readConfig(Intent intent) {
-        intervalMs = intent.getLongExtra(EXTRA_INTERVAL_MS, intervalMs);
+        long legacyIntervalMs = intent.getLongExtra(EXTRA_INTERVAL_MS, intervalMs);
+        intervalMs = legacyIntervalMs;
         minIntervalMs = intent.getLongExtra(EXTRA_MIN_INTERVAL_MS, Math.min(minIntervalMs, intervalMs));
         distanceFilterMeters = intent.getFloatExtra(EXTRA_DISTANCE_FILTER_M, distanceFilterMeters);
         if (intent.hasExtra(EXTRA_POWER_LEVEL)) {
             power = LocationEngine.Power.parse(intent.getStringExtra(EXTRA_POWER_LEVEL));
+        }
+        baselineIntervalMs = intent.getLongExtra(EXTRA_BASELINE_INTERVAL_MS, legacyIntervalMs);
+        baselinePower = intent.hasExtra(EXTRA_BASELINE_POWER_LEVEL)
+                ? LocationEngine.Power.parse(intent.getStringExtra(EXTRA_BASELINE_POWER_LEVEL))
+                : power;
+        if (intent.hasExtra(EXTRA_TRACKING_MODE)) {
+            trackingMode = NativeAdaptivePolicy.Mode.parse(
+                    intent.getStringExtra(EXTRA_TRACKING_MODE)
+            );
         }
         if (intent.hasExtra(EXTRA_LOCATION_SOURCE)) {
             locationSource = intent.getStringExtra(EXTRA_LOCATION_SOURCE);
@@ -453,6 +494,9 @@ public class TrackingService extends Service {
                 .putLong(EXTRA_MIN_INTERVAL_MS, minIntervalMs)
                 .putFloat(EXTRA_DISTANCE_FILTER_M, distanceFilterMeters)
                 .putString(EXTRA_POWER_LEVEL, power.wireName())
+                .putString(EXTRA_TRACKING_MODE, trackingMode.wireName())
+                .putLong(EXTRA_BASELINE_INTERVAL_MS, baselineIntervalMs)
+                .putString(EXTRA_BASELINE_POWER_LEVEL, baselinePower.wireName())
                 .putString(EXTRA_LOCATION_SOURCE, locationSource)
                 .putLong(EXTRA_STARTED_AT, startedAtMs)
                 .putString(EXTRA_TITLE, notificationTitle)
@@ -469,6 +513,13 @@ public class TrackingService extends Service {
         power = LocationEngine.Power.parse(
                 prefs.getString(EXTRA_POWER_LEVEL, power.wireName())
         );
+        trackingMode = NativeAdaptivePolicy.Mode.parse(
+                prefs.getString(EXTRA_TRACKING_MODE, trackingMode.wireName())
+        );
+        baselineIntervalMs = prefs.getLong(EXTRA_BASELINE_INTERVAL_MS, intervalMs);
+        baselinePower = LocationEngine.Power.parse(
+                prefs.getString(EXTRA_BASELINE_POWER_LEVEL, power.wireName())
+        );
         locationSource = prefs.getString(EXTRA_LOCATION_SOURCE, locationSource);
         startedAtMs = prefs.getLong(EXTRA_STARTED_AT, System.currentTimeMillis());
         notificationTitle = prefs.getString(EXTRA_TITLE, notificationTitle);
@@ -478,6 +529,117 @@ public class TrackingService extends Service {
         // the point of anchoring in the first place.
         anchorElapsedNs = prefs.getLong(EXTRA_ANCHOR_ELAPSED_NS, anchorElapsedNs);
         anchorWallMs = prefs.getLong(EXTRA_ANCHOR_WALL_MS, anchorWallMs);
+    }
+
+    /** Re-evaluates smart policy on the service's main looper. */
+    private void applyAdaptivePolicy(boolean force) {
+        if (!tracking) {
+            return;
+        }
+
+        NativeAdaptivePolicy.Decision next = NativeAdaptivePolicy.decide(
+                new NativeAdaptivePolicy.Input(
+                        trackingMode,
+                        baselineIntervalMs,
+                        baselinePower,
+                        distanceFilterMeters,
+                        movementDetector.getState(),
+                        movementDetector.getEffectiveSpeedMps(),
+                        batteryLevel(),
+                        isCharging(),
+                        isPowerSaveMode(),
+                        hasCoarseLocationBackend()
+                )
+        );
+
+        if (!force && !NativeAdaptivePolicy.isMeaningfulChange(adaptiveDecision, next)) {
+            return;
+        }
+
+        synchronized (this) {
+            adaptiveDecision = next;
+            intervalMs = next.intervalMs;
+            power = next.power;
+            distanceFilterMeters = next.distanceFilterMeters;
+            // Smart mode controls its own spacing; requesting a faster
+            // delivery here would wake GPS only for JavaScript to drop it.
+            if (trackingMode == NativeAdaptivePolicy.Mode.SMART) {
+                minIntervalMs = next.intervalMs;
+            }
+        }
+        persistConfig(getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE));
+        requestLocationUpdates();
+        Log.i(
+                TAG,
+                "Adaptive policy: mode=" + trackingMode.wireName()
+                        + " interval=" + intervalMs + "ms"
+                        + " power=" + power.wireName()
+                        + " reason=" + next.reason.wireName()
+        );
+
+        Listener current = listener;
+        if (current != null && tracking) {
+            current.onAdaptiveStateChanged(snapshot());
+        }
+    }
+
+    private boolean hasCoarseLocationBackend() {
+        String resolved = resolveEngineName(this, locationSource);
+        return SOURCE_GMS.equals(resolved)
+                || PlatformLocationEngine.hasCoarseLocationBackend(this);
+    }
+
+    private Double batteryLevel() {
+        Intent battery = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        if (battery == null) {
+            return null;
+        }
+        int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+        int scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+        return level >= 0 && scale > 0 ? (double) level / scale : null;
+    }
+
+    private boolean isCharging() {
+        Intent battery = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        if (battery == null) {
+            return false;
+        }
+        int status = battery.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+        return status == BatteryManager.BATTERY_STATUS_CHARGING
+                || status == BatteryManager.BATTERY_STATUS_FULL;
+    }
+
+    private boolean isPowerSaveMode() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            return false;
+        }
+        PowerManager manager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        return manager != null && manager.isPowerSaveMode();
+    }
+
+    private void schedulePowerCheck() {
+        cancelPowerCheck();
+        if (!tracking) {
+            return;
+        }
+        powerCheck = new Runnable() {
+            @Override
+            public void run() {
+                if (!tracking) {
+                    return;
+                }
+                applyAdaptivePolicy(false);
+                handler.postDelayed(this, POWER_CHECK_INTERVAL_MS);
+            }
+        };
+        handler.postDelayed(powerCheck, POWER_CHECK_INTERVAL_MS);
+    }
+
+    private void cancelPowerCheck() {
+        if (powerCheck != null) {
+            handler.removeCallbacks(powerCheck);
+            powerCheck = null;
+        }
     }
 
     private void requestLocationUpdates() {
@@ -513,7 +675,9 @@ public class TrackingService extends Service {
         engine.start(
                 new LocationEngine.Config(
                         intervalMs,
-                        Math.min(minIntervalMs, intervalMs),
+                        trackingMode == NativeAdaptivePolicy.Mode.SMART
+                                ? intervalMs
+                                : Math.min(minIntervalMs, intervalMs),
                         distanceFilterMeters,
                         power
                 ),
@@ -681,6 +845,7 @@ public class TrackingService extends Service {
     private void onEngineFailure(String message) {
         Log.e(TAG, "Location engine failed: " + message);
         cancelNoFixCheck();
+        cancelPowerCheck();
         synchronized (this) {
             if (engine != null) {
                 engine.stop();
@@ -757,6 +922,23 @@ public class TrackingService extends Service {
         lastFixAtMs = System.currentTimeMillis();
         buffer.append(fix);
 
+        // Policy uses the service-owned raw stream so it continues while the
+        // WebView is detached. Mock fixes must never influence cadence.
+        if (tracking && trackingMode == NativeAdaptivePolicy.Mode.SMART
+                && !location.isFromMockProvider()) {
+            long fixElapsedMs = location.getElapsedRealtimeNanos() / 1_000_000L;
+            movementDetector.observe(
+                    location.getLatitude(),
+                    location.getLongitude(),
+                    location.getAccuracy(),
+                    location.hasAccuracy(),
+                    location.getSpeed(),
+                    location.hasSpeed(),
+                    fixElapsedMs
+            );
+            applyAdaptivePolicy(false);
+        }
+
         Listener current = listener;
         if (current != null) {
             current.onFixBuffered();
@@ -769,6 +951,7 @@ public class TrackingService extends Service {
             warningText = null;
         }
         removeLocationUpdates();
+        cancelPowerCheck();
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean(PREF_TRACKING, false)
@@ -784,6 +967,7 @@ public class TrackingService extends Service {
         // outlive the service. Leaking it is the exact failure this class was
         // written to eliminate.
         removeLocationUpdates();
+        cancelPowerCheck();
         if (instance == this) {
             instance = null;
         }

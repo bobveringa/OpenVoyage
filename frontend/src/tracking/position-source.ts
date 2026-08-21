@@ -2,7 +2,7 @@ import { registerPlugin } from '@capacitor/core'
 
 import { isNativePlatform } from '@/native/platform'
 import { haversineMeters } from '@/tracking/geo'
-import type { LocationSource, PowerLevel } from '@/tracking/tracking-settings'
+import type { LocationSource, PowerLevel, TrackingMode } from '@/tracking/tracking-settings'
 
 export type PositionFix = {
   recordedAt: string
@@ -27,6 +27,27 @@ export type PositionSourceConfig = {
   locationSource: LocationSource
 }
 
+export type NativePolicyConfig = {
+  mode: TrackingMode
+  baselineIntervalSeconds: number
+  baselinePowerLevel: PowerLevel
+  distanceFilterMeters: number
+  locationSource: LocationSource
+}
+
+export type NativeAdaptiveState = {
+  mode: TrackingMode
+  intervalSeconds: number
+  powerLevel: PowerLevel
+  adaptiveReason:
+    | 'fixed'
+    | 'stationary'
+    | 'moving'
+    | 'battery-low'
+    | 'battery-critical'
+    | 'power-save-mode'
+}
+
 export type ProbeResult = {
   ok: boolean
   engine: 'gms' | 'platform'
@@ -40,7 +61,8 @@ export type ProbeResult = {
   coarseLocationAvailable: boolean
 }
 
-export type PositionSourceOptions = PositionSourceConfig & {
+export type PositionSourceOptions = PositionSourceConfig &
+  NativePolicyConfig & {
   notificationTitle: string
   notificationMessage: string
   onFix: (fix: PositionFix) => void | Promise<void>
@@ -59,6 +81,7 @@ export type PositionSourceOptions = PositionSourceConfig & {
   // them (B4) — the same failure mode as the local SQLite queue's own
   // overflow eviction, just further upstream.
   onFixesDropped?: (count: number) => void
+  onAdaptiveStateChanged?: (state: NativeAdaptiveState) => void
 }
 
 export type PowerState = {
@@ -77,6 +100,8 @@ export type NativeTrackingState = {
   startedAtMs: number
   intervalSeconds: number
   powerLevel: PowerLevel
+  mode: TrackingMode | null
+  adaptiveReason: NativeAdaptiveState['adaptiveReason'] | null
   bufferedFixes: number
   locationEnabled: boolean
   permissionGranted: boolean
@@ -94,6 +119,7 @@ export interface PositionSource {
   resume(options: PositionSourceOptions): Promise<boolean>
   // Phase 3: change cadence mid-recording without restarting the service.
   configure(config: PositionSourceConfig): Promise<void>
+  updatePolicy(config: NativePolicyConfig): Promise<void>
   updateStatus(status: { title: string; text: string }): Promise<void>
   getPowerState(): Promise<PowerState>
   // Tells the native watchdog a fix actually made it into the queue, so
@@ -121,6 +147,9 @@ interface TrackingPlugin {
     distanceFilterMeters: number
     powerLevel: PowerLevel
     locationSource: LocationSource
+    mode?: TrackingMode
+    baselineIntervalSeconds?: number
+    baselinePowerLevel?: PowerLevel
     title: string
     text: string
   }): Promise<NativeTrackingState>
@@ -130,6 +159,9 @@ interface TrackingPlugin {
     distanceFilterMeters: number
     powerLevel: PowerLevel
     locationSource: LocationSource
+    mode?: TrackingMode
+    baselineIntervalSeconds?: number
+    baselinePowerLevel?: PowerLevel
   }): Promise<NativeTrackingState>
   updateStatus(options: { title: string; text: string }): Promise<void>
   stop(): Promise<void>
@@ -143,6 +175,10 @@ interface TrackingPlugin {
   addListener(
     event: 'engineWarning' | 'engineFailed',
     handler: (data: { message: string | null }) => void,
+  ): Promise<{ remove: () => Promise<void> }>
+  addListener(
+    event: 'adaptiveStateChanged',
+    handler: (data: NativeAdaptiveState) => void,
   ): Promise<{ remove: () => Promise<void> }>
 }
 
@@ -181,6 +217,35 @@ function nativeCadence(config: PositionSourceConfig): {
       MIN_INTERVAL_FLOOR_SECONDS,
       config.intervalSeconds / speedup,
     ),
+  }
+}
+
+function nativePolicyCadence(config: NativePolicyConfig): {
+  intervalSeconds: number
+  minIntervalSeconds: number
+  distanceFilterMeters: number
+  powerLevel: PowerLevel
+  locationSource: LocationSource
+  mode: TrackingMode
+  baselineIntervalSeconds: number
+  baselinePowerLevel: PowerLevel
+} {
+  const speedup =
+    config.mode === 'manual' && config.distanceFilterMeters > 0
+      ? MAX_DISTANCE_TRIGGER_SPEEDUP
+      : 1
+  return {
+    baselineIntervalSeconds: config.baselineIntervalSeconds,
+    baselinePowerLevel: config.baselinePowerLevel,
+    distanceFilterMeters: config.mode === 'smart' ? 0 : config.distanceFilterMeters,
+    intervalSeconds: config.baselineIntervalSeconds,
+    locationSource: config.locationSource,
+    minIntervalSeconds: Math.max(
+      MIN_INTERVAL_FLOOR_SECONDS,
+      config.baselineIntervalSeconds / speedup,
+    ),
+    mode: config.mode,
+    powerLevel: config.baselinePowerLevel,
   }
 }
 
@@ -236,11 +301,17 @@ class NativePositionSource implements PositionSource {
   async start(options: PositionSourceOptions): Promise<void> {
     await this.detach()
     this.shouldAccept = createFixGate(options.intervalSeconds, options.distanceFilterMeters)
-    await Tracking.start({
-      ...nativeCadence(options),
+    const state = await Tracking.start({
+      ...nativePolicyCadence(options),
       text: options.notificationMessage,
       title: options.notificationTitle,
     })
+    if (state.tracking) {
+      this.shouldAccept = createFixGate(
+        state.intervalSeconds,
+        state.mode === 'smart' ? 0 : options.distanceFilterMeters,
+      )
+    }
     await this.attach(options)
   }
 
@@ -255,7 +326,7 @@ class NativePositionSource implements PositionSource {
       // rather than restarting the request (which would drop the GPS fix
       // the receiver has already locked).
       await this.attach(options)
-      await this.configure(options)
+      await this.updatePolicy(options)
       await this.updateStatus({
         text: options.notificationMessage,
         title: options.notificationTitle,
@@ -293,6 +364,30 @@ class NativePositionSource implements PositionSource {
         options.onEngineFailed?.(message ?? 'Location tracking is unavailable.')
       }),
     )
+    this.listeners.push(
+      await Tracking.addListener('adaptiveStateChanged', (state) => {
+        this.shouldAccept = createFixGate(
+          state.intervalSeconds,
+          state.mode === 'smart' ? 0 : options.distanceFilterMeters,
+        )
+        options.onAdaptiveStateChanged?.(state)
+      }),
+    )
+
+    const state = await Tracking.getState()
+    if (state.tracking && state.mode && state.adaptiveReason) {
+      const adaptiveState: NativeAdaptiveState = {
+        adaptiveReason: state.adaptiveReason,
+        intervalSeconds: state.intervalSeconds,
+        mode: state.mode,
+        powerLevel: state.powerLevel,
+      }
+      this.shouldAccept = createFixGate(
+        adaptiveState.intervalSeconds,
+        adaptiveState.mode === 'smart' ? 0 : options.distanceFilterMeters,
+      )
+      options.onAdaptiveStateChanged?.(adaptiveState)
+    }
 
     // Whatever the service buffered while no webview was listening.
     await this.drain(options)
@@ -349,7 +444,23 @@ class NativePositionSource implements PositionSource {
     // stretched interval would keep being enforced at the old, denser
     // spacing (or vice versa) until the next start.
     this.shouldAccept = createFixGate(config.intervalSeconds, config.distanceFilterMeters)
-    await Tracking.configure(nativeCadence(config))
+    await Tracking.configure({
+      ...nativeCadence(config),
+      ...(this.options ? nativePolicyCadence(this.options) : {}),
+    })
+  }
+
+  async updatePolicy(config: NativePolicyConfig): Promise<void> {
+    if (this.options) {
+      this.options = { ...this.options, ...config }
+    }
+    const state = await Tracking.configure(nativePolicyCadence(config))
+    if (state.tracking) {
+      this.shouldAccept = createFixGate(
+        state.intervalSeconds,
+        state.mode === 'smart' ? 0 : config.distanceFilterMeters,
+      )
+    }
   }
 
   async updateStatus(status: { title: string; text: string }): Promise<void> {
@@ -442,6 +553,8 @@ class WebPositionSource implements PositionSource {
   }
 
   async configure(): Promise<void> {}
+
+  async updatePolicy(): Promise<void> {}
 
   async updateStatus(): Promise<void> {}
 

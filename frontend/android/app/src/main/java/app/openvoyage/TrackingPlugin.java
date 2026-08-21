@@ -87,6 +87,16 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
         notifyListeners("engineFailed", data);
     }
 
+    @Override
+    public void onAdaptiveStateChanged(TrackingService.Snapshot snapshot) {
+        JSObject data = new JSObject();
+        data.put("mode", snapshot.trackingMode);
+        data.put("intervalSeconds", snapshot.intervalMs / 1000.0);
+        data.put("powerLevel", snapshot.powerLevel);
+        data.put("adaptiveReason", snapshot.adaptiveReason);
+        notifyListeners("adaptiveStateChanged", data);
+    }
+
     /**
      * Answers "could a recording start right now?" without starting one, so a
      * device that cannot track never persists a session, never creates a
@@ -311,6 +321,18 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
             TrackingService.EXTRA_LOCATION_SOURCE,
             call.getString("locationSource", TrackingService.SOURCE_AUTO)
         );
+        intent.putExtra(
+            TrackingService.EXTRA_TRACKING_MODE,
+            call.getString("mode", "manual")
+        );
+        intent.putExtra(
+            TrackingService.EXTRA_BASELINE_INTERVAL_MS,
+            (long) (call.getDouble("baselineIntervalSeconds", call.getDouble("intervalSeconds", 30.0)) * 1000)
+        );
+        intent.putExtra(
+            TrackingService.EXTRA_BASELINE_POWER_LEVEL,
+            call.getString("baselinePowerLevel", call.getString("powerLevel", "high"))
+        );
         if (call.getString("title") != null) {
             intent.putExtra(TrackingService.EXTRA_TITLE, call.getString("title"));
         }
@@ -343,6 +365,8 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
         result.put("startedAtMs", snapshot == null ? 0 : snapshot.startedAtMs);
         result.put("intervalSeconds", snapshot == null ? 0 : snapshot.intervalMs / 1000.0);
         result.put("powerLevel", snapshot == null ? null : snapshot.powerLevel);
+        result.put("mode", snapshot == null ? null : snapshot.trackingMode);
+        result.put("adaptiveReason", snapshot == null ? null : snapshot.adaptiveReason);
         result.put("bufferedFixes", snapshot == null ? 0 : snapshot.bufferedFixes);
         result.put("engine", snapshot == null ? null : snapshot.engineName);
         result.put("warning", snapshot == null ? null : snapshot.warningText);

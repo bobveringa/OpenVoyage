@@ -175,7 +175,7 @@ def test_two_posts_with_no_gps_produce_the_plain_straight_line(
 
 
 @pytest.mark.integration
-def test_post_candidates_are_sparse_and_member_only(
+def test_post_candidates_follow_displayed_track_and_are_member_only(
     client,
     api_prefix,
     db_session,
@@ -205,10 +205,9 @@ def test_post_candidates_are_sparse_and_member_only(
 
     assert response.status_code == 200, response.text
     assert response.headers['Cache-Control'] == 'no-store'
-    assert [candidate['recorded_at'] for candidate in response.json()] == [
-        _iso(START),
-        _iso(START + timedelta(minutes=20)),
-    ]
+    # The last raw point is a single unconfirmed departure fix, so stationary
+    # compaction removes it from the map and it must not survive as a marker.
+    assert [candidate['recorded_at'] for candidate in response.json()] == [_iso(START)]
 
     viewer = create_user(db_session, password='ViewerPass123!')
     add_trip_viewer(
@@ -222,6 +221,53 @@ def test_post_candidates_are_sparse_and_member_only(
         headers=_auth_headers(viewer),
     )
     assert forbidden.status_code == 403
+
+
+@pytest.mark.integration
+def test_a_long_stay_is_a_candidate_and_remains_on_the_displayed_route(
+    client,
+    api_prefix,
+    db_session,
+    trip,
+    owner,
+) -> None:
+    session_id = _open_session(client, api_prefix, trip_id=trip.id, user=owner)
+    _upload(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        session_id=session_id,
+        points=[
+            (0, 52.0, 5.0, 'WALK'),
+            # This stop is only 350 m from the previous point and starts
+            # before the normal ten-minute interval, so ordinary sampling
+            # would skip it. Its fifteen-minute dwell makes it a priority.
+            (300, 52.0, 5.005, 'WALK'),
+            (600, 52.0, 5.005, 'WALK'),
+            (1_200, 52.0, 5.005, 'WALK'),
+            (1_260, 52.0, 5.010, 'WALK'),
+            (1_320, 52.0, 5.015, 'WALK'),
+        ],
+    )
+
+    candidates = client.get(
+        f'{api_prefix}/trips/{trip.id}/tracking/post-candidates',
+        headers=_auth_headers(owner),
+    ).json()
+    stay = next(
+        candidate
+        for candidate in candidates
+        if candidate['recorded_at'] == _iso(START + timedelta(minutes=5))
+    )
+
+    timeline = _timeline(client, api_prefix, trip.id, user=owner).json()
+    route_coordinates = {
+        tuple(coordinate)
+        for segment in timeline['opening_route']['segments']
+        for coordinate in segment['geometry']['coordinates']
+    }
+    assert (stay['longitude'], stay['latitude']) in route_coordinates
 
 
 @pytest.mark.integration

@@ -10,6 +10,7 @@ from datetime import datetime
 from services.gps.geometry import haversine_meters
 
 STOP_DWELL_SECONDS = 90
+POST_CANDIDATE_STAY_DWELL_SECONDS = 15 * 60
 MIN_STOP_RADIUS_METERS = 25.0
 ACCURACY_RADIUS_FACTOR = 1.5
 MAX_STOP_RADIUS_METERS = 100.0
@@ -103,6 +104,46 @@ def compact_stationary_indices(
         retained.extend(pending)
 
     return retained
+
+
+def long_stay_representative_indices(
+    samples: Sequence[TimedGpsCoordinate],
+    *,
+    dwell_seconds: int = POST_CANDIDATE_STAY_DWELL_SECONDS,
+) -> list[int]:
+    """Return one best-accuracy point for each sufficiently long stable run.
+
+    This deliberately uses the same accuracy-aware radius and speed test as
+    display compaction. A separate, longer dwell threshold makes these useful
+    editorial suggestions rather than merely suppressing short GPS drift.
+    """
+    if not samples:
+        return []
+
+    representative_index = 0
+    run_started_at = samples[0].recorded_at
+    long_stay_indices: list[int] = []
+
+    for index, candidate in enumerate(samples[1:], start=1):
+        representative = samples[representative_index]
+        if _is_compatible(representative, candidate):
+            if _has_better_accuracy(candidate, representative):
+                representative_index = index
+            continue
+
+        if (
+            samples[index - 1].recorded_at - run_started_at
+        ).total_seconds() >= dwell_seconds:
+            long_stay_indices.append(representative_index)
+        representative_index = index
+        run_started_at = candidate.recorded_at
+
+    if (
+        samples[-1].recorded_at - run_started_at
+    ).total_seconds() >= dwell_seconds:
+        long_stay_indices.append(representative_index)
+
+    return long_stay_indices
 
 
 def _is_compatible(

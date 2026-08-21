@@ -5,9 +5,11 @@ import pytest
 from services.gps.stationary_compaction import (
     MAX_STOP_RADIUS_METERS,
     MIN_STOP_RADIUS_METERS,
+    POST_CANDIDATE_STAY_DWELL_SECONDS,
     STOP_DWELL_SECONDS,
     TimedGpsCoordinate,
     compact_stationary_indices,
+    long_stay_representative_indices,
 )
 
 START = datetime(2026, 8, 20, tzinfo=timezone.utc)
@@ -167,3 +169,22 @@ def test_output_indices_are_ordered_unique_and_from_the_input() -> None:
 
     assert result == sorted(set(result))
     assert all(0 <= index < len(samples) for index in result)
+
+
+@pytest.mark.unit
+def test_long_stay_uses_the_best_accuracy_representative() -> None:
+    samples = [
+        sample(0, accuracy_meters=25),
+        sample(300, 8, accuracy_meters=5),
+        sample(POST_CANDIDATE_STAY_DWELL_SECONDS, -8, accuracy_meters=10),
+        sample(POST_CANDIDATE_STAY_DWELL_SECONDS + 60, 300),
+    ]
+
+    assert long_stay_representative_indices(samples) == [1]
+
+
+@pytest.mark.unit
+def test_short_stationary_run_is_not_a_post_candidate_stay() -> None:
+    samples = [sample(0), sample(POST_CANDIDATE_STAY_DWELL_SECONDS - 1, 8)]
+
+    assert long_stay_representative_indices(samples) == []

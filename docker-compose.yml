@@ -1,18 +1,18 @@
 services:
-  app:
-    image: openvoyage:latest
-    env_file: .env
-    environment:
-      POSTGRES_SERVER: postgres
-      FRONTEND_DIST_DIRECTORY: /app/frontend-dist
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
+#  app:
+#    image: openvoyage:latest
+#    env_file: .env
+#    environment:
+#      POSTGRES_SERVER: postgres
+#      FRONTEND_DIST_DIRECTORY: /app/frontend-dist
+#    ports:
+#      - "8000:8000"
+#    volumes:
+#      - ./data:/app/data
+#    depends_on:
+#      postgres:
+#        condition: service_healthy
+#    restart: unless-stopped
 
   postgres:
     image: postgres:18
