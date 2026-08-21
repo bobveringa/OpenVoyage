@@ -6255,7 +6255,7 @@ function MobilePostDetailCard({
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 p-4">
+      <div className="scrollbar-subtle min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
           {post.excerpt}
         </p>
@@ -6294,16 +6294,15 @@ function MobilePostDetailMediaCard({
   const isVideo = getMediaType(media) === 'video'
 
   return (
-    <article className="group relative h-44 w-[min(20rem,calc(100vw-3rem))] shrink-0 overflow-hidden rounded-[1.35rem] bg-secondary">
+    <article className="group relative h-80 shrink-0 overflow-hidden rounded-[1.35rem] bg-secondary sm:h-96">
       <button
-        className="block size-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="block h-full w-fit text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         onClick={onOpen}
         type="button"
       >
-        <MediaPreview
-          className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.025]"
+        <MediaThumbnailPreview
+          className="h-full w-auto transition-transform duration-300 group-hover:scale-[1.025]"
           media={media}
-          source="thumbnail"
         />
         <span className="sr-only">Open {media.alt}</span>
         {isVideo ? (
