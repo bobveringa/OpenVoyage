@@ -1,6 +1,6 @@
-import secrets
+import warnings
 from pathlib import Path
-from typing import Self, Annotated, Any
+from typing import Self, Annotated, Any, Literal
 
 from pydantic import (
     model_validator,
@@ -12,6 +12,24 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+# Key material derives encryption/signing keys directly, so anything shorter
+# than this has less entropy than the primitives it feeds assume.
+MINIMUM_KEY_MATERIAL_LENGTH = 32
+
+# Values .env.example ships (and the ones earlier versions shipped). They are
+# public, so a deployment still using one has no secret at all.
+PUBLISHED_PLACEHOLDER_SECRETS = frozenset(
+    {
+        'changethis',
+        'change-this-to-a-long-random-secret',
+        'a-very-secret-key-change-this-in-production',
+        'travelblog_password',
+    }
+)
+
+# Catches placeholders this project never shipped but operators still invent.
+PLACEHOLDER_MARKERS = ('changethis', 'change-this', 'change_this')
 
 
 def parse_cors(v: Any) -> list[str] | str:
@@ -31,7 +49,13 @@ class Settings(BaseSettings):
         extra='ignore',
     )
     API_V1_STR: str = '/api/v1'
-    SECRET_KEY: str = secrets.token_urlsafe(32)
+    # Defaults to the strict behaviour, so an operator who never sets it gets
+    # the secret checks below rather than silently skipping them.
+    ENVIRONMENT: Literal['local', 'staging', 'production'] = 'production'
+    # Deliberately has no default. A generated-per-process default invalidates
+    # every issued token on restart, and hands each uvicorn worker a different
+    # signing key, which shows up as sporadic 401s rather than as a clear error.
+    SECRET_KEY: str = ''
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     ID_TOKEN_EXPIRE_MINUTES: int = 15
     MEDIA_URL_TOKEN_EXPIRE_MINUTES: int = 60
@@ -39,7 +63,6 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30
     JWT_ISSUER: str = 'openvoyage-backend'
     JWT_AUDIENCE: str = 'openvoyage-api'
-    FRONTEND_HOST: str = ''
     FRONTEND_DIST_DIRECTORY: str = ''
 
     MEDIA_DIRECTORY: str = ''
@@ -64,10 +87,7 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def all_cors_origins(self) -> list[str]:
-        origins = [str(origin).rstrip('/') for origin in self.BACKEND_CORS_ORIGINS] + [
-            self.FRONTEND_HOST
-        ]
-        return [origin for origin in origins if origin]
+        return [str(origin).rstrip('/') for origin in self.BACKEND_CORS_ORIGINS]
 
     POSTGRES_SERVER: str = ''
     POSTGRES_PORT: int = 5432
@@ -87,18 +107,56 @@ class Settings(BaseSettings):
             path=self.POSTGRES_DB,
         )
 
-    def _check_default_secret(self, var_name: str, value: str | None) -> None:
-        if value == 'changethis':
-            message = (
-                f'The value of {var_name} is "changethis", '
-                'for security, please change it, at least for deployments.'
+    def _reject_weak_secret(self, var_name: str, reason: str) -> None:
+        """Fail deployments over a weak secret; only warn during local work."""
+        message = (
+            f'{var_name} {reason}. Generate a unique value, for example with '
+            '`python -c "import secrets; print(secrets.token_urlsafe(32))"`.'
+        )
+        if self.ENVIRONMENT == 'local':
+            warnings.warn(message, stacklevel=1)
+            return
+        raise ValueError(message)
+
+    def _check_secret(
+        self, var_name: str, value: str | None, *, is_key_material: bool
+    ) -> None:
+        if value is None or value == '':
+            # Only reached for optional secrets; required ones are checked
+            # before this and always raise on an empty value.
+            return
+
+        if value in PUBLISHED_PLACEHOLDER_SECRETS:
+            self._reject_weak_secret(var_name, 'is a published example value')
+            return
+
+        if any(marker in value.lower() for marker in PLACEHOLDER_MARKERS):
+            self._reject_weak_secret(var_name, 'still looks like a placeholder')
+            return
+
+        if is_key_material and len(value) < MINIMUM_KEY_MATERIAL_LENGTH:
+            self._reject_weak_secret(
+                var_name,
+                f'is shorter than {MINIMUM_KEY_MATERIAL_LENGTH} characters',
             )
-            raise ValueError(message)
 
     @model_validator(mode='after')
     def _enforce_non_default_secrets(self) -> Self:
-        self._check_default_secret('SECRET_KEY', self.SECRET_KEY)
-        self._check_default_secret('POSTGRES_PASSWORD', self.POSTGRES_PASSWORD)
+        if not self.SECRET_KEY:
+            raise ValueError(
+                'SECRET_KEY must be set. Tokens are signed with it, so it has '
+                'to stay identical across restarts and across every worker.'
+            )
+
+        self._check_secret('SECRET_KEY', self.SECRET_KEY, is_key_material=True)
+        self._check_secret(
+            'POSTGRES_PASSWORD', self.POSTGRES_PASSWORD, is_key_material=False
+        )
+        self._check_secret(
+            'APP_SETTINGS_ENCRYPTION_KEY',
+            self.APP_SETTINGS_ENCRYPTION_KEY,
+            is_key_material=True,
+        )
 
         return self
 

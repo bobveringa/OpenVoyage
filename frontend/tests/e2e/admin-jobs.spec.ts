@@ -22,6 +22,7 @@ test('reports a rejected schedule update while retaining the entered value', asy
   await mockJobsApi(page)
   await page.goto('/admin#jobs')
 
+  await expect(page.getByRole('heading', { name: 'Jobs' })).toBeVisible()
   const cronInput = page.getByLabel('GeoNames import cron')
   await cronInput.fill('henk')
   await page.getByRole('button', { name: 'Save schedule' }).click()
@@ -49,11 +50,21 @@ async function mockJobsApi(page: Page) {
     )
   }, `test.${tokenPayload}.signature`)
 
+  await page.route('**/api/v1/admin/setup', (route) => fulfillJson(route, {
+    setup_required: false,
+  }))
   await page.route('**/api/v1/users/me', (route) => fulfillJson(route, {
-    id: '10000000-0000-4000-8000-000000000001', profile: null, role: 'ADMIN',
+    id: '10000000-0000-4000-8000-000000000001',
+    password_change_required: false,
+    permissions: ['trip:create', 'platform:administer'],
+    profile: null,
+    role: 'ADMIN',
   }))
   await page.route('**/api/v1/settings/public', (route) => fulfillJson(route, {
     settings: {}, updated_at: null,
+  }))
+  await page.route('**/api/v1/admin/settings', (route) => fulfillJson(route, {
+    settings: [], updated_at: null,
   }))
   await page.route('**/api/v1/admin/jobs', (route) => fulfillJson(route, { jobs: [job] }))
   await page.route('**/api/v1/admin/jobs/geonames_import', (route) => fulfillJson(route, {

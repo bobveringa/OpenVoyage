@@ -1,0 +1,28 @@
+name: Set up the backend toolchain
+description: >-
+  Installs the Python version this project runs on and the backend
+  dependencies. Jobs that only run the application pass requirements.txt;
+  jobs that lint or test pass the default requirements-dev.txt.
+
+inputs:
+  python-version:
+    description: Python version to install.
+    required: false
+    default: '3.14'
+  requirements:
+    description: Requirements file to install, relative to backend/.
+    required: false
+    default: requirements-dev.txt
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+        cache-dependency-path: backend/${{ inputs.requirements }}
+    - name: Install backend dependencies
+      shell: bash
+      working-directory: backend
+      run: python -m pip install -r ${{ inputs.requirements }}

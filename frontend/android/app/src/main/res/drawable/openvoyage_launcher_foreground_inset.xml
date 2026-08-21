@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive-icon foregrounds use a 108dp canvas but launchers show its central
+     72dp. Inset the raster so its complete circular mark stays visible. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@mipmap/openvoyage_launcher"
+    android:inset="18dp" />

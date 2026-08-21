@@ -14,10 +14,32 @@ The quickest way to get OpenVoyage up and running is to use Docker Compose.
 
 ```bash
 cp .env.example .env
-# Edit .env and replace the two secret values before a public deployment.
-docker build --tag openvoyage:latest .
 docker compose up -d
 ```
+
+That pulls the latest released image from
+`ghcr.io/bobveringa/openvoyage`. Set `OPENVOYAGE_IMAGE` in `.env` to pin a
+version instead, and `docker compose pull && docker compose up -d` to upgrade.
+To run your own build, `docker build --tag openvoyage:local .` and point
+`OPENVOYAGE_IMAGE` at it.
+
+Before the first start, fill in `SECRET_KEY` and `POSTGRES_PASSWORD` in `.env`.
+`SECRET_KEY` has no default and the application will not start without it, so
+generate a unique value:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Keep it stable afterwards. Every access, refresh, and media token is signed
+with it, so changing it signs everyone out, and a different value per worker
+produces sporadic 401s. The same applies to `APP_SETTINGS_ENCRYPTION_KEY`,
+which is optional until you save a secret setting (such as a routing API key)
+in the admin interface.
+
+Deployments refuse to start on a placeholder or example secret. Set
+`ENVIRONMENT=local` in `.env` to downgrade those checks to warnings while
+working on a throwaway local checkout.
 
 Open `http://localhost:8000`. This starts a PostgreSQL container and one
 OpenVoyage application container. The application container contains both the
@@ -35,6 +57,49 @@ The project is organized into the following directories:
 
 Each directory contains its own README with setup instructions and development 
 guidelines.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` holds the checks: frontend lint/build/unit tests,
+the complete backend Pytest suite, Playwright browser tests against an isolated
+PostgreSQL database, and a production container build. Pull requests run it
+directly. `release.yml` calls the same workflow for pushes to `main` and for
+release tags, so the checks are defined once and a publish only happens after
+they pass.
+
+The browser job creates its own disposable administrator and small place-data
+fixture. Its committed `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD` values are
+deliberately non-secret because they can only access the job's temporary API
+and database. Local or deployed-instance credentials remain in the gitignored
+root `.env` file and must never be copied into a workflow.
+
+### Releases
+
+Images are published to `ghcr.io/bobveringa/openvoyage` with the repository's
+own `GITHUB_TOKEN`; no registry secrets are configured or needed.
+
+| Trigger | Image tags | Android APK |
+| --- | --- | --- |
+| Push to `main` | `edge`, `main`, `sha-<short>` | no |
+| Tag `v1.2.3` | `1.2.3`, `1.2`, `latest` | yes |
+| Tag `v1.2.3-rc1` | `1.2.3-rc1` | yes |
+| Manual dispatch | `<branch name>` | yes |
+
+Prerelease tags are anything with a hyphen in them (`-rc1`, `-beta.2`). They
+publish an installable image but deliberately do not move `latest` or the
+`1.2` alias, so a release candidate can be tested without any deployment that
+tracks `latest` picking it up.
+
+Cutting a release is therefore just a tag:
+
+```bash
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+The Android APK is attached to the workflow run as an artifact (30-day
+retention), not to a GitHub Release. It is debug-signed, because
+`frontend/android/app/build.gradle` has no release signing config yet — it
+installs on a device, but it is not store-publishable.
 
 ## Frontend
 The frontend is a Vite React app written in TypeScript with Tailwind CSS and a
