@@ -25,6 +25,7 @@ import {
   listTripMembers,
   listTripShareLinks,
   listTripViewers,
+  publishPost,
   refreshItineraryTravelLegRoute,
   removeTripMember,
   removeTripViewer,
@@ -35,6 +36,7 @@ import {
   updatePost,
   updateTrip,
   updateTripMember,
+  unpublishPost,
   uploadMedia,
   type CurrentUser,
   type GpsPostCandidate,
@@ -851,6 +853,11 @@ export function TripDetailPage({
           postId,
           tripId,
         })
+        if (draft.publicationAction === 'publish') {
+          await publishPost({ accessToken, postId, tripId })
+        } else if (draft.publicationAction === 'draft') {
+          await unpublishPost({ accessToken, postId, tripId })
+        }
       } else {
         await createPost({
           accessToken,
@@ -873,6 +880,20 @@ export function TripDetailPage({
         },
         'replace',
       )
+    })
+  }
+
+  function handlePostPublish(postId: string) {
+    if (!tripId || !accessToken) {
+      setMutationError('Sign in to publish travel posts.')
+      return
+    }
+
+    void runMutation('Publishing post', async () => {
+      await publishPost({ accessToken, postId, tripId })
+      const { posts, trackingGeometry } = await fetchTravelTimeline()
+      setTravelPosts(posts)
+      setTrackingGeometry(trackingGeometry)
     })
   }
 
@@ -1226,6 +1247,7 @@ export function TripDetailPage({
               onOpenManagement={openManagement}
               onEditPost={handleEditPost}
               onPostDelete={handlePostDelete}
+              onPostPublish={handlePostPublish}
               onPostSubmit={handlePostSubmit}
               onPlanningViewChange={handlePlanningViewChange}
               onRefreshTravelLegRoute={handleTravelLegRouteRefresh}
@@ -1503,6 +1525,7 @@ function toTravelPostViewModel(
     coordinates,
     excerpt: post.body,
     id: post.id,
+    isDraft: post.published_at === null,
     location: post.location.full_name || post.location.name,
     media: toPostMediaTuple(
       media.length > 0 ? media : [createFallbackPostMedia(post.title)],

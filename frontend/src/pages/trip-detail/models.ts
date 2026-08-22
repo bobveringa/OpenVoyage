@@ -112,6 +112,7 @@ export type TravelPost = {
   coordinates: L.LatLngTuple
   excerpt: string
   id: string
+  isDraft: boolean
   location: string
   media: readonly [PostMedia, ...PostMedia[]]
   occurred_at: string

@@ -6,6 +6,7 @@ import {
   MapPin,
   PenLine,
   Play,
+  Send,
 } from 'lucide-react'
 import {
   Fragment,
@@ -17,6 +18,7 @@ import {
 } from 'react'
 
 import type { GpsPostCandidate } from '@/api/client'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -120,11 +122,13 @@ export function TravelingPanel({
   focusedPostId,
   gpsPostCandidates,
   isTripOngoing,
+  isMutating,
   onFocusedPostChange,
   onGpsPostCandidateSelect,
   onEditPost,
   onNewPost,
   onPostMarkerSelect,
+  onPublishPost,
   scrollRootRef,
   scrollRequest,
   showMobileMap,
@@ -137,11 +141,13 @@ export function TravelingPanel({
   focusedPostId: string | null
   gpsPostCandidates: readonly GpsPostCandidate[]
   isTripOngoing: boolean
+  isMutating: boolean
   onFocusedPostChange: (postId: string | null) => void
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onEditPost: (postId: string) => void
   onNewPost: () => void
   onPostMarkerSelect: (postId: string) => void
+  onPublishPost: (postId: string) => void
   scrollRootRef: PostScrollRootRef
   scrollRequest: PostScrollRequest | null
   showMobileMap: boolean
@@ -159,6 +165,10 @@ export function TravelingPanel({
   )
   const displayedPostIds = useMemo(
     () => displayedPosts.map((post) => post.id),
+    [displayedPosts],
+  )
+  const draftCount = useMemo(
+    () => displayedPosts.filter((post) => post.isDraft).length,
     [displayedPosts],
   )
   const firstPostId = displayedPostIds[0] ?? null
@@ -238,6 +248,12 @@ export function TravelingPanel({
             <MobilePostDetailCard
               onBack={() => setActivePostId(null)}
               onEdit={canMutate ? () => onEditPost(activePost.id) : undefined}
+              onPublish={
+                canMutate && activePost.isDraft
+                  ? () => onPublishPost(activePost.id)
+                  : undefined
+              }
+              publishDisabled={isMutating}
               post={activePost}
             />
           ) : (
@@ -307,6 +323,7 @@ export function TravelingPanel({
             <h2 className="text-base font-semibold text-foreground">Travel posts</h2>
             <p className="text-sm text-muted-foreground">
               {displayedPosts.length} posts
+              {draftCount > 0 ? ` · ${draftCount} drafts` : ''}
             </p>
           </div>
           {canMutate ? (
@@ -329,10 +346,16 @@ export function TravelingPanel({
               <TravelPostCard
                 active={focusedPostId === post.id}
                 onEdit={canMutate ? () => onEditPost(post.id) : undefined}
+                onPublish={
+                  canMutate && post.isDraft
+                    ? () => onPublishPost(post.id)
+                    : undefined
+                }
                 post={post}
                 postRef={(element) =>
                   setPostScrollElement(desktopPostElementsRef, post.id, element)
                 }
+                publishDisabled={isMutating}
               />
               {index < displayedPosts.length - 1 &&
               post.routeAfter?.durationSeconds !== null &&
@@ -356,44 +379,75 @@ export function TravelingPanel({
 export function TravelPostCard({
   active = false,
   onEdit,
+  onPublish,
   post,
   postRef,
+  publishDisabled = false,
 }: {
   active?: boolean
   onEdit?: () => void
+  onPublish?: () => void
   post: TravelPost
   postRef?: (element: HTMLElement | null) => void
+  publishDisabled?: boolean
 }) {
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
 
   return (
     <article
       className={cn(
-        'min-w-0 overflow-hidden rounded-[1.5rem] border bg-muted/45 shadow-sm shadow-foreground/5 transition-colors',
-        active ? 'border-primary/55' : 'border-border',
+        'min-w-0 overflow-hidden rounded-[1.5rem] border shadow-sm shadow-foreground/5 transition-colors',
+        post.isDraft
+          ? active
+            ? 'border-primary/55 bg-primary/5'
+            : 'border-primary/45 bg-primary/5'
+          : active
+            ? 'border-primary/55 bg-muted/45'
+            : 'border-border bg-muted/45',
       )}
       ref={postRef}
     >
       <div className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="text-lg font-semibold leading-6 text-foreground">
-              {post.title}
-            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-lg font-semibold leading-6 text-foreground">
+                {post.title}
+              </h3>
+              {post.isDraft ? <Badge>Draft</Badge> : null}
+            </div>
+            {post.isDraft ? (
+              <p className="mt-1 text-xs font-medium text-primary">
+                Only trip members can see this draft.
+              </p>
+            ) : null}
           </div>
-          {onEdit ? (
-            <Button
-              aria-label={`Edit ${post.title}`}
-              className="size-8 shrink-0 rounded-xl"
-              onClick={onEdit}
-              size="icon"
-              title={`Edit ${post.title}`}
-              type="button"
-              variant="outline"
-            >
-              <PenLine className="size-3.5" aria-hidden="true" />
-            </Button>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-2">
+            {onPublish ? (
+              <Button
+                disabled={publishDisabled}
+                onClick={onPublish}
+                size="sm"
+                type="button"
+              >
+                <Send className="size-3.5" aria-hidden="true" />
+                Publish
+              </Button>
+            ) : null}
+            {onEdit ? (
+              <Button
+                aria-label={`Edit ${post.title}`}
+                className="size-8 rounded-xl"
+                onClick={onEdit}
+                size="icon"
+                title={`Edit ${post.title}`}
+                type="button"
+                variant="outline"
+              >
+                <PenLine className="size-3.5" aria-hidden="true" />
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
@@ -505,8 +559,14 @@ function TravelPostPreviewCard({
   return (
     <article
       className={cn(
-        'trip-mobile-post-carousel__card shrink-0 snap-center overflow-hidden rounded-[1.5rem] border bg-muted/45 shadow-sm shadow-foreground/5 transition-colors',
-        active ? 'border-primary/55' : 'border-border',
+        'trip-mobile-post-carousel__card shrink-0 snap-center overflow-hidden rounded-[1.5rem] border shadow-sm shadow-foreground/5 transition-colors',
+        post.isDraft
+          ? active
+            ? 'border-primary/55 bg-primary/5'
+            : 'border-primary/45 bg-primary/5'
+          : active
+            ? 'border-primary/55 bg-muted/45'
+            : 'border-border bg-muted/45',
       )}
       ref={postRef}
     >
@@ -523,6 +583,9 @@ function TravelPostPreviewCard({
             source="thumbnail"
           />
           <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
+          {post.isDraft ? (
+            <Badge className="absolute left-2 top-2 shadow-sm">Draft</Badge>
+          ) : null}
           {isVideo ? (
             <span className="pointer-events-none absolute inset-0 grid place-items-center">
               <span className="grid size-11 place-items-center rounded-full bg-card/90 text-primary shadow-lg shadow-black/15">
@@ -560,11 +623,15 @@ function TravelPostPreviewCard({
 function MobilePostDetailCard({
   onBack,
   onEdit,
+  onPublish,
   post,
+  publishDisabled = false,
 }: {
   onBack: () => void
   onEdit?: () => void
+  onPublish?: () => void
   post: TravelPost
+  publishDisabled?: boolean
 }) {
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
 
@@ -587,6 +654,7 @@ function MobilePostDetailCard({
             {post.title}
           </h3>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            {post.isDraft ? <Badge>Draft</Badge> : null}
             <span className="inline-flex items-center gap-1.5">
               <MapPin className="size-3.5" aria-hidden="true" />
               {post.location}
@@ -598,19 +666,35 @@ function MobilePostDetailCard({
             <span>{post.comments} comments</span>
           </div>
         </div>
-        {onEdit ? (
-          <Button
-            aria-label={`Edit ${post.title}`}
-            className="size-9 shrink-0 rounded-full"
-            onClick={onEdit}
-            size="icon"
-            title={`Edit ${post.title}`}
-            type="button"
-            variant="outline"
-          >
-            <PenLine className="size-4" aria-hidden="true" />
-          </Button>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {onPublish ? (
+            <Button
+              aria-label={`Publish ${post.title}`}
+              className="rounded-full"
+              disabled={publishDisabled}
+              onClick={onPublish}
+              size="sm"
+              title={`Publish ${post.title}`}
+              type="button"
+            >
+              <Send className="size-3.5" aria-hidden="true" />
+              Publish
+            </Button>
+          ) : null}
+          {onEdit ? (
+            <Button
+              aria-label={`Edit ${post.title}`}
+              className="size-9 rounded-full"
+              onClick={onEdit}
+              size="icon"
+              title={`Edit ${post.title}`}
+              type="button"
+              variant="outline"
+            >
+              <PenLine className="size-4" aria-hidden="true" />
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="scrollbar-subtle min-h-0 flex-1 space-y-4 overflow-y-auto p-4">

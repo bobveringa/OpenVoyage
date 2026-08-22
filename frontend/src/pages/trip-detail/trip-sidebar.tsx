@@ -199,6 +199,7 @@ export function TripSidebar({
   onPostMarkerSelect,
   onOpenManagement,
   onPostDelete,
+  onPostPublish,
   onPostSubmit,
   onPlanningViewChange,
   onRefreshTravelLegRoute,
@@ -243,6 +244,7 @@ export function TripSidebar({
   onPostMarkerSelect: (postId: string) => void
   onOpenManagement: (section: TripManagementSection) => void
   onPostDelete: (postId: string) => void
+  onPostPublish: (postId: string) => void
   onPostSubmit: (postId: string | null, draft: PostSubmitDraft) => void
   onPlanningViewChange: (view: PlanningView) => void
   onRefreshTravelLegRoute: (legId: string) => void
@@ -393,10 +395,12 @@ export function TripSidebar({
             focusedPostId={focusedPostId}
             gpsPostCandidates={gpsPostCandidates}
             isTripOngoing={isTripOngoing}
+            isMutating={isMutating}
             onEditPost={editPost}
             onFocusedPostChange={onFocusedPostChange}
             onGpsPostCandidateSelect={onGpsPostCandidateSelect}
             onPostMarkerSelect={onPostMarkerSelect}
+            onPublishPost={onPostPublish}
             onNewPost={() => {
               onMapPointTargetChange(null)
               onFocusedPostChange(null)

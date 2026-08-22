@@ -202,6 +202,12 @@ export function PostFormPanel({
       : isSubmitting
         ? 'Publishing'
         : 'Publish post'
+  const moveToDraftSubmitLabel =
+    pendingSubmit?.intent === 'draft'
+      ? 'Finishing uploads...'
+      : isSubmitting
+        ? 'Moving to draft'
+        : 'Move to draft'
 
   const abortDraftMediaUploads = useCallback(() => {
     for (const controller of uploadControllersRef.current.values()) {
@@ -539,7 +545,9 @@ export function PostFormPanel({
     onCancel()
   }
 
-  function createPostSubmitDraft(publish: boolean): Omit<PostSubmitDraft, 'media'> {
+  function createPostSubmitDraft(
+    intent: PostSubmitIntent,
+  ): Omit<PostSubmitDraft, 'media'> {
     if (!selectedPostCoordinates) {
       throw new Error('Select a location before saving the post.')
     }
@@ -552,7 +560,9 @@ export function PostFormPanel({
         locationSource === 'search' && selectedSearchPlace
           ? selectedSearchPlace.id
           : null,
-      publish,
+      publish: intent === 'publish',
+      publicationAction:
+        mode === 'edit' && intent !== 'save' ? intent : undefined,
       story: story.trim(),
       title: title.trim(),
     }
@@ -564,7 +574,7 @@ export function PostFormPanel({
     }
 
     const submit = {
-      draft: createPostSubmitDraft(intent === 'publish'),
+      draft: createPostSubmitDraft(intent),
       intent,
     }
 
@@ -859,7 +869,7 @@ export function PostFormPanel({
 
       </section>
 
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
         {mode === 'edit' && onDelete ? (
           <Button
             disabled={formDisabled}
@@ -879,15 +889,45 @@ export function PostFormPanel({
         >
           Cancel
         </Button>
-        {mode === 'edit' ? (
-          <Button
-            disabled={!canSubmit || isSubmitting || isFinishingUploads}
-            onClick={() => submitPost('save')}
-            type="button"
-          >
-            <Check className="size-4" aria-hidden="true" />
-            {editSubmitLabel}
-          </Button>
+        {mode === 'edit' && editingPost?.isDraft ? (
+          <>
+            <Button
+              disabled={!canSubmit || isSubmitting || isFinishingUploads}
+              onClick={() => submitPost('save')}
+              type="button"
+              variant="outline"
+            >
+              <Check className="size-4" aria-hidden="true" />
+              Save draft
+            </Button>
+            <Button
+              disabled={!canSubmit || isSubmitting || isFinishingUploads}
+              onClick={() => submitPost('publish')}
+              type="button"
+            >
+              <Upload className="size-4" aria-hidden="true" />
+              {publishSubmitLabel}
+            </Button>
+          </>
+        ) : mode === 'edit' ? (
+          <>
+            <Button
+              disabled={!canSubmit || isSubmitting || isFinishingUploads}
+              onClick={() => submitPost('draft')}
+              type="button"
+              variant="outline"
+            >
+              {moveToDraftSubmitLabel}
+            </Button>
+            <Button
+              disabled={!canSubmit || isSubmitting || isFinishingUploads}
+              onClick={() => submitPost('save')}
+              type="button"
+            >
+              <Check className="size-4" aria-hidden="true" />
+              {editSubmitLabel}
+            </Button>
+          </>
         ) : (
           <>
             <Button

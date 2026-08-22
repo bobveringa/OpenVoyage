@@ -77,6 +77,7 @@ export type PostSubmitDraft = {
   occurredAt: string
   placeId: string | null
   publish: boolean
+  publicationAction?: 'draft' | 'publish'
   story: string
   title: string
 }
