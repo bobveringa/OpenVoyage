@@ -295,7 +295,7 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
         <p className="text-sm leading-6 text-muted-foreground">
           A zone only filters <strong>future</strong> uploads. Creating, moving,
           shrinking, or deleting one never deletes or restores a coordinate that
-          was already recorded — use the trip&apos;s point deletion controls for
+          was already recorded. Use the trip&apos;s point deletion controls for
           that. Zones cover GPS tracking only: they do not hide post locations,
           photo metadata, or anything you write.
         </p>
