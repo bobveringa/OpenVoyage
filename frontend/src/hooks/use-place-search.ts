@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import {
-  geocodePlaces,
-  getErrorMessage,
-  type Place,
-} from '@/api/client'
-
-type PlaceSearchStatus = 'error' | 'idle' | 'loading' | 'success'
+import { geocodePlaces, getErrorMessage, type Place } from '@/api/client'
+import type { PlaceSearchStatus } from '@/components/places/place-search-dropdown'
 
 export function usePlaceSearch(query: string, enabled: boolean) {
   const [places, setPlaces] = useState<readonly Place[]>([])
@@ -27,10 +22,7 @@ export function usePlaceSearch(query: string, enabled: boolean) {
     setError(null)
 
     const timeoutId = window.setTimeout(() => {
-      void geocodePlaces({
-        limit: 8,
-        query: trimmedQuery,
-      })
+      void geocodePlaces({ limit: 8, query: trimmedQuery })
         .then((results) => {
           if (cancelled) {
             return
@@ -58,5 +50,3 @@ export function usePlaceSearch(query: string, enabled: boolean) {
 
   return { error, places, status }
 }
-
-

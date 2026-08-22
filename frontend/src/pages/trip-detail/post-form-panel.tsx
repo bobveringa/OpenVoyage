@@ -23,6 +23,7 @@ import {
   type GpsPostCandidate,
   type Place,
 } from '@/api/client'
+import { PlaceSearchDropdown } from '@/components/places/place-search-dropdown'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DateTimePicker } from '@/components/ui/date-time-picker'
@@ -46,9 +47,8 @@ import type {
 } from '@/pages/trip-detail/page-types'
 import {
   LocationOptionCard,
-  PlaceSearchDropdown,
 } from '@/pages/trip-detail/planning-ui'
-import { usePlaceSearch } from '@/pages/trip-detail/use-place-search'
+import { usePlaceSearch } from '@/hooks/use-place-search'
 import {
   formatCoordinates,
   formatPlaceDetail,
