@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+// @ts-ignore
 import process from 'node:process'
 
 test('signs in with valid credentials', async ({ page }) => {

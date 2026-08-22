@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+// @ts-ignore
 import process from 'node:process'
 
 type AuthTokens = {
