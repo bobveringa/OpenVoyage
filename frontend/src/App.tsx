@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { getSetupStatus } from '@/api/client'
 import { AuthProvider } from '@/auth/auth-provider'
@@ -8,19 +8,48 @@ import { AppShell } from '@/components/layout/app-shell'
 import { getUserUsername } from '@/lib/users'
 import { NativeServerGate } from '@/native/native-server-gate'
 import { isNativePlatform } from '@/native/platform'
-import { AdminPage } from '@/pages/admin-page'
-import { AccountSecurityPage } from '@/pages/account-security-page'
-import { ActiveTrackingPage } from '@/pages/active-tracking-page'
 import { LoginPage } from '@/pages/login-page'
 import { PlaceholderPage } from '@/pages/placeholder-page'
-import { ProfileSettingsPage } from '@/pages/profile-settings-page'
 import { SetupPage } from '@/pages/setup-page'
-import { TrackingSettingsPage } from '@/pages/tracking-settings-page'
-import { TripDetailPage } from '@/pages/trip-detail-page'
-import { UserTripOverviewPage } from '@/pages/user-trip-overview-page'
 import { PublicSettingsProvider } from '@/settings/public-settings'
 import { ThemeProvider } from '@/theme'
 import { TrackingProvider } from '@/tracking/tracking-provider'
+
+const AccountSecurityPage = lazy(() =>
+  import('@/pages/account-security-page').then((module) => ({
+    default: module.AccountSecurityPage,
+  })),
+)
+const ActiveTrackingPage = lazy(() =>
+  import('@/pages/active-tracking-page').then((module) => ({
+    default: module.ActiveTrackingPage,
+  })),
+)
+const AdminPage = lazy(() =>
+  import('@/pages/admin-page').then((module) => ({
+    default: module.AdminPage,
+  })),
+)
+const ProfileSettingsPage = lazy(() =>
+  import('@/pages/profile-settings-page').then((module) => ({
+    default: module.ProfileSettingsPage,
+  })),
+)
+const TrackingSettingsPage = lazy(() =>
+  import('@/pages/tracking-settings-page').then((module) => ({
+    default: module.TrackingSettingsPage,
+  })),
+)
+const TripDetailPage = lazy(() =>
+  import('@/pages/trip-detail-page').then((module) => ({
+    default: module.TripDetailPage,
+  })),
+)
+const UserTripOverviewPage = lazy(() =>
+  import('@/pages/user-trip-overview-page').then((module) => ({
+    default: module.UserTripOverviewPage,
+  })),
+)
 
 type Route =
   | { name: 'admin' }
@@ -189,13 +218,15 @@ function AppRoutes() {
       onNavigate={navigate}
       passwordChangeRequired={currentUser?.password_change_required ?? false}
     >
-      {renderRoute(renderedRoute, {
-        accessToken,
-        currentUser,
-        onNavigate: navigate,
-        onProfileUpdated: updateCurrentUser,
-        status,
-      })}
+      <Suspense fallback={<RouteLoadingPage />}>
+        {renderRoute(renderedRoute, {
+          accessToken,
+          currentUser,
+          onNavigate: navigate,
+          onProfileUpdated: updateCurrentUser,
+          status,
+        })}
+      </Suspense>
     </AppShell>
   )
 }
@@ -286,6 +317,14 @@ function LoadingPage() {
         Loading OpenVoyage…
       </p>
     </main>
+  )
+}
+
+function RouteLoadingPage() {
+  return (
+    <div className="grid min-h-[50vh] place-items-center" role="status">
+      <p className="text-sm text-muted-foreground">Loading trip…</p>
+    </div>
   )
 }
 
