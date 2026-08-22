@@ -5,6 +5,7 @@ import { AuthProvider } from '@/auth/auth-provider'
 import { useAuth } from '@/auth/use-auth'
 import { AppBackground } from '@/components/layout/app-background'
 import { AppShell } from '@/components/layout/app-shell'
+import { RouteErrorBoundary } from '@/components/layout/route-error-boundary'
 import { getUserUsername } from '@/lib/users'
 import { NativeServerGate } from '@/native/native-server-gate'
 import { isNativePlatform } from '@/native/platform'
@@ -62,6 +63,17 @@ type Route =
   | { name: 'tracking-settings' }
   | { name: 'trip-detail'; tripId: string }
   | { name: 'user-overview'; username: string }
+
+function getRouteKey(route: Route) {
+  switch (route.name) {
+    case 'trip-detail':
+      return `${route.name}-${route.tripId}`
+    case 'user-overview':
+      return `${route.name}-${route.username}`
+    default:
+      return route.name
+  }
+}
 
 type NavigateOptions = {
   replace?: boolean
@@ -218,15 +230,17 @@ function AppRoutes() {
       onNavigate={navigate}
       passwordChangeRequired={currentUser?.password_change_required ?? false}
     >
-      <Suspense fallback={<RouteLoadingPage />}>
-        {renderRoute(renderedRoute, {
-          accessToken,
-          currentUser,
-          onNavigate: navigate,
-          onProfileUpdated: updateCurrentUser,
-          status,
-        })}
-      </Suspense>
+      <RouteErrorBoundary key={getRouteKey(renderedRoute)}>
+        <Suspense fallback={<RouteLoadingPage />}>
+          {renderRoute(renderedRoute, {
+            accessToken,
+            currentUser,
+            onNavigate: navigate,
+            onProfileUpdated: updateCurrentUser,
+            status,
+          })}
+        </Suspense>
+      </RouteErrorBoundary>
     </AppShell>
   )
 }

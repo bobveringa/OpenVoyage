@@ -6,6 +6,7 @@ import type {
   TravelMode,
   TravelPost,
 } from './models'
+import { travelModeOptions } from './planning-utils'
 
 export function getPrimaryPostMedia(post: TravelPost): PostMedia {
   return (
@@ -24,28 +25,10 @@ export function getMediaThumbnailSrc(media: PostMedia) {
 }
 
 export function getTravelModeLabel(travelMode: TravelMode) {
-  switch (travelMode) {
-    case 'BIKE':
-      return 'Bike'
-    case 'BUS':
-      return 'Bus'
-    case 'CAR':
-      return 'Car'
-    case 'FERRY':
-      return 'Ferry'
-    case 'FLIGHT':
-      return 'Flight'
-    case 'MOTORCYCLE':
-      return 'Motorcycle'
-    case 'OTHER':
-      return 'Other'
-    case 'TRAIN':
-      return 'Train'
-    case 'WALK':
-      return 'Walk'
-    case 'UNKNOWN':
-      return 'Unknown'
-  }
+  return (
+    travelModeOptions.find((option) => option.value === travelMode)?.label ??
+    'Unknown'
+  )
 }
 
 export function getStopCoordinates(stop: Stop): L.LatLngTuple {
