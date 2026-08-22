@@ -60,6 +60,7 @@ import type {
 
 export function MobileMapPointPicker({
   initialLocation,
+  isTripOngoing,
   onCancel,
   onConfirm,
   open,
@@ -71,6 +72,7 @@ export function MobileMapPointPicker({
   travelPosts,
 }: {
   initialLocation: DraftPostLocation | null
+  isTripOngoing: boolean
   onCancel: () => void
   onConfirm: (coordinates: L.LatLngTuple) => void
   open: boolean
@@ -103,6 +105,7 @@ export function MobileMapPointPicker({
       <TripLeafletMap
         draftMapLocation={pendingLocation}
         fitMode="mobile-picker"
+        isTripOngoing={isTripOngoing}
         mapPointEnabled
         onDraftMapPointSelect={(coordinates) =>
           setPendingLocation(createDraftMapPointLocation(coordinates, target))
@@ -184,6 +187,7 @@ export function TripSidebar({
   editingPostId,
   focusedPostId,
   isMutating,
+  isTripOngoing,
   mapPointTarget,
   mutationError,
   onCreateStop,
@@ -227,6 +231,7 @@ export function TripSidebar({
   editingPostId: string | null
   focusedPostId: string | null
   isMutating: boolean
+  isTripOngoing: boolean
   mapPointTarget: MapPointTarget | null
   mutationError: string | null
   onCreateStop: (draft: CreateStopDraft) => void
@@ -387,6 +392,7 @@ export function TripSidebar({
             canMutate={canMutate}
             focusedPostId={focusedPostId}
             gpsPostCandidates={gpsPostCandidates}
+            isTripOngoing={isTripOngoing}
             onEditPost={editPost}
             onFocusedPostChange={onFocusedPostChange}
             onGpsPostCandidateSelect={onGpsPostCandidateSelect}

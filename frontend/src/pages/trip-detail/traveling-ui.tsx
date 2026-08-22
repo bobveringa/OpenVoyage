@@ -58,6 +58,7 @@ import {
 export function MobileTravelMap({
   focusedPostId,
   gpsPostCandidates,
+  isTripOngoing,
   onGpsPostCandidateSelect,
   onPostMarkerSelect,
   stops,
@@ -67,6 +68,7 @@ export function MobileTravelMap({
 }: {
   focusedPostId: string | null
   gpsPostCandidates: readonly GpsPostCandidate[]
+  isTripOngoing: boolean
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onPostMarkerSelect: (postId: string) => void
   stops: readonly Stop[]
@@ -82,6 +84,7 @@ export function MobileTravelMap({
         draftMapLocation={null}
         fitMode="mobile-travel"
         gpsPostCandidates={gpsPostCandidates}
+        isTripOngoing={isTripOngoing}
         mapPointEnabled={false}
         onDraftMapPointSelect={() => undefined}
         onGpsPostCandidateSelect={onGpsPostCandidateSelect}
@@ -116,6 +119,7 @@ export function TravelingPanel({
   canMutate,
   focusedPostId,
   gpsPostCandidates,
+  isTripOngoing,
   onFocusedPostChange,
   onGpsPostCandidateSelect,
   onEditPost,
@@ -132,6 +136,7 @@ export function TravelingPanel({
   canMutate: boolean
   focusedPostId: string | null
   gpsPostCandidates: readonly GpsPostCandidate[]
+  isTripOngoing: boolean
   onFocusedPostChange: (postId: string | null) => void
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onEditPost: (postId: string) => void
@@ -240,6 +245,7 @@ export function TravelingPanel({
               <MobileTravelMap
                 focusedPostId={focusedPostId}
                 gpsPostCandidates={gpsPostCandidates}
+                isTripOngoing={isTripOngoing}
                 onGpsPostCandidateSelect={onGpsPostCandidateSelect}
                 onPostMarkerSelect={onPostMarkerSelect}
                 stops={stops}

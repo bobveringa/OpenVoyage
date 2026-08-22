@@ -111,6 +111,7 @@ export function MapWorkspace({
   draftMapLocation,
   focusedPostId,
   gpsPostCandidates,
+  isTripOngoing,
   mapPointEnabled,
   onDraftMapPointSelect,
   onGpsPostCandidateSelect,
@@ -124,6 +125,7 @@ export function MapWorkspace({
   draftMapLocation: DraftPostLocation | null
   focusedPostId: string | null
   gpsPostCandidates: readonly GpsPostCandidate[]
+  isTripOngoing: boolean
   mapPointEnabled: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
@@ -142,6 +144,7 @@ export function MapWorkspace({
         draftMapLocation={draftMapLocation}
         focusedPostId={focusedPostId}
         gpsPostCandidates={gpsPostCandidates}
+        isTripOngoing={isTripOngoing}
         mapPointEnabled={mapPointEnabled}
         onDraftMapPointSelect={onDraftMapPointSelect}
         onGpsPostCandidateSelect={onGpsPostCandidateSelect}
@@ -175,6 +178,7 @@ export function TripLeafletMap({
   fitMode = 'workspace',
   focusedPostId = null,
   gpsPostCandidates = [],
+  isTripOngoing = false,
   mapPointEnabled,
   onDraftMapPointSelect,
   onGpsPostCandidateSelect,
@@ -190,6 +194,7 @@ export function TripLeafletMap({
   fitMode?: RouteFitMode
   focusedPostId?: string | null
   gpsPostCandidates?: readonly GpsPostCandidate[]
+  isTripOngoing?: boolean
   mapPointEnabled: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
   onGpsPostCandidateSelect?: (candidate: GpsPostCandidate) => void
@@ -390,7 +395,7 @@ export function TripLeafletMap({
     const routeEndpointLayer = routeEndpointLayerRef.current
     if (routeEndpointLayer) {
       routeEndpointLayer.clearLayers()
-      if (routeMode === 'travel-timeline') {
+      if (routeMode === 'travel-timeline' && isTripOngoing) {
         renderRouteEndpointMarker(
           routeEndpointLayer,
           getTravelTimelineRouteEndpoint(
@@ -416,7 +421,7 @@ export function TripLeafletMap({
     })
 
     return () => window.cancelAnimationFrame(animationFrameId)
-  }, [fitMode, routeKey, routeMode, themeMode, themePalette])
+  }, [fitMode, isTripOngoing, routeKey, routeMode, themeMode, themePalette])
 
   useEffect(() => {
     const map = mapRef.current

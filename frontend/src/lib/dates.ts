@@ -9,6 +9,20 @@ export type TripTiming = {
   status: TripTimingStatus
 }
 
+export function isTripOngoing(
+  trip: Pick<Trip, 'start_date' | 'end_date'>,
+  today: Date = new Date(),
+): boolean {
+  const startDate = parseDateOnly(trip.start_date)
+  const endDate = trip.end_date ? parseDateOnly(trip.end_date) : null
+  const currentDate = startOfLocalDay(today)
+
+  return (
+    startDate.getTime() <= currentDate.getTime() &&
+    (endDate === null || endDate.getTime() >= currentDate.getTime())
+  )
+}
+
 export function getTripTiming(
   trip: Pick<Trip, 'start_date' | 'end_date'>,
   today: Date = new Date(),

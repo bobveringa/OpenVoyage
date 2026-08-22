@@ -56,6 +56,7 @@ import {
   type TripViewer,
 } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
+import { isTripOngoing } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/pages/trip-detail/use-media-query'
 import {
@@ -209,6 +210,10 @@ export function TripDetailPage({
   const loadedTripIdRef = useRef<string | null>(null)
   const shareToken = useMemo(readShareTokenFromUrl, [])
   const currentUserId = currentUser?.id ?? null
+  const isTripCurrentlyOngoing = isTripOngoing({
+    end_date: trip.endDate || null,
+    start_date: trip.startDate,
+  })
   const currentTripMembership = useMemo(() => {
     if (!currentUserId) {
       return null
@@ -1209,6 +1214,7 @@ export function TripDetailPage({
               gpsPostCandidate={selectedGpsPostCandidate}
               focusedPostId={focusedPostId}
               isMutating={isMutating}
+              isTripOngoing={isTripCurrentlyOngoing}
               mapPointTarget={mapPointTarget}
               mode={visibleMode}
               mutationError={activeDialog === null ? mutationError : null}
@@ -1249,6 +1255,7 @@ export function TripDetailPage({
               mapPointEnabled={mapPointTarget !== null}
               focusedPostId={focusedPostId}
               gpsPostCandidates={gpsPostCandidates}
+              isTripOngoing={isTripCurrentlyOngoing}
               onDraftMapPointSelect={handleDraftMapPointSelect}
               onGpsPostCandidateSelect={handleGpsPostCandidateSelect}
               onPostMarkerSelect={handleMapPostSelect}
@@ -1307,6 +1314,7 @@ export function TripDetailPage({
       ) : null}
       <MobileMapPointPicker
         initialLocation={mobileMapPickerLocation}
+        isTripOngoing={isTripCurrentlyOngoing}
         onCancel={() => {
           setMobileMapPickerTarget(null)
           if (!mobileMapPickerLocation) {
