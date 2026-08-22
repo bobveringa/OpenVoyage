@@ -1,31 +1,29 @@
-import { UserCog } from 'lucide-react'
+import { MapPinned } from 'lucide-react'
 
 import type { CurrentUser } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
 import { AccountSettingsLayout } from '@/components/users/account-settings-layout'
-import { ProfileDetailsForm } from '@/components/users/profile-details-form'
+import { GpsPrivacyZonesForm } from '@/components/users/gps-privacy-zones-form'
 import { Button } from '@/components/ui/button'
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 
-type ProfileSettingsPageProps = {
+type PrivacySettingsPageProps = {
   accessToken: string | null
   authStatus: AuthStatus
   currentUser: CurrentUser | null
   embedded?: boolean
   onNavigate: (to: string) => void
-  onProfileUpdated: (user: CurrentUser) => void
 }
 
-export function ProfileSettingsPage({
+export function PrivacySettingsPage({
   accessToken,
   authStatus,
   currentUser,
   embedded = false,
   onNavigate,
-  onProfileUpdated,
-}: ProfileSettingsPageProps) {
+}: PrivacySettingsPageProps) {
   if (authStatus === 'loading') {
-    return <LoadingState label="Loading profile" />
+    return <LoadingState label="Loading privacy settings" />
   }
 
   if (!accessToken || !currentUser) {
@@ -37,29 +35,21 @@ export function ProfileSettingsPage({
               Sign in
             </Button>
           }
-          description="You need to be signed in before you can update profile details."
-          icon={UserCog}
+          description="You need to be signed in before you can manage location privacy."
+          icon={MapPinned}
           title="Sign in required"
         />
       </div>
     )
   }
 
-  const content = (
-    <div className="space-y-6">
-      <ProfileDetailsForm
-        accessToken={accessToken}
-        currentUser={currentUser}
-        onSaved={onProfileUpdated}
-      />
-    </div>
-  )
+  const content = <GpsPrivacyZonesForm accessToken={accessToken} />
 
   return embedded ? (
     content
   ) : (
     <AccountSettingsLayout
-      activeSection="profile"
+      activeSection="privacy"
       onSectionChange={() => undefined}
     >
       {content}

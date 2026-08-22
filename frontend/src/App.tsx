@@ -1,4 +1,11 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 
 import { getSetupStatus } from '@/api/client'
 import { AuthProvider } from '@/auth/auth-provider'
@@ -7,10 +14,10 @@ import { AppBackground } from '@/components/layout/app-background'
 import { AppShell } from '@/components/layout/app-shell'
 import { RouteErrorBoundary } from '@/components/layout/route-error-boundary'
 import { ClockFormatProvider } from '@/components/clock-format-provider'
+import type { AccountSettingsSection } from '@/components/users/account-settings-layout'
 import { useClockFormat } from '@/lib/date-time'
 import { getUserUsername } from '@/lib/users'
 import { NativeServerGate } from '@/native/native-server-gate'
-import { isNativePlatform } from '@/native/platform'
 import { LoginPage } from '@/pages/login-page'
 import { PlaceholderPage } from '@/pages/placeholder-page'
 import { SetupPage } from '@/pages/setup-page'
@@ -18,9 +25,9 @@ import { PublicSettingsProvider } from '@/settings/public-settings'
 import { ThemeProvider } from '@/theme'
 import { TrackingProvider } from '@/tracking/tracking-provider'
 
-const AccountSecurityPage = lazy(() =>
-  import('@/pages/account-security-page').then((module) => ({
-    default: module.AccountSecurityPage,
+const AccountSettingsPage = lazy(() =>
+  import('@/pages/account-settings-page').then((module) => ({
+    default: module.AccountSettingsPage,
   })),
 )
 const ActiveTrackingPage = lazy(() =>
@@ -31,16 +38,6 @@ const ActiveTrackingPage = lazy(() =>
 const AdminPage = lazy(() =>
   import('@/pages/admin-page').then((module) => ({
     default: module.AdminPage,
-  })),
-)
-const ProfileSettingsPage = lazy(() =>
-  import('@/pages/profile-settings-page').then((module) => ({
-    default: module.ProfileSettingsPage,
-  })),
-)
-const TrackingSettingsPage = lazy(() =>
-  import('@/pages/tracking-settings-page').then((module) => ({
-    default: module.TrackingSettingsPage,
   })),
 )
 const TripDetailPage = lazy(() =>
@@ -56,10 +53,9 @@ const UserTripOverviewPage = lazy(() =>
 
 type Route =
   | { name: 'admin' }
+  | { initialSection?: AccountSettingsSection; name: 'account-settings' }
   | { name: 'login' }
   | { name: 'not-found' }
-  | { name: 'profile-settings' }
-  | { name: 'security-settings' }
   | { name: 'setup' }
   | { name: 'tracking-active' }
   | { name: 'tracking-settings' }
@@ -142,8 +138,8 @@ function AppRoutes() {
     }
 
     if (currentUser?.password_change_required) {
-      if (route.name !== 'security-settings') {
-        navigate('/settings/security', { replace: true })
+      if (route.name !== 'account-settings' || window.location.hash !== '#security') {
+        navigate('/settings#security', { replace: true })
       }
       return
     }
@@ -170,7 +166,7 @@ function AppRoutes() {
 
   function handleAuthenticated(user: NonNullable<typeof currentUser>) {
     if (user.password_change_required) {
-      navigate('/settings/security', { replace: true })
+      navigate('/settings#security', { replace: true })
       return
     }
     const username = getUserUsername(user)
@@ -223,8 +219,8 @@ function AppRoutes() {
   const renderedRoute =
     status === 'authenticated' &&
     currentUser?.password_change_required &&
-    route.name !== 'security-settings'
-      ? ({ name: 'security-settings' } as const)
+    route.name !== 'account-settings' || window.location.hash !== '#security'
+      ? ({ initialSection: 'security', name: 'account-settings' } as const)
       : route
 
   return (
@@ -268,35 +264,19 @@ function renderRoute(route: Route, context: RouteRenderContext) {
           currentUser={context.currentUser}
         />
       )
-    case 'profile-settings':
+    case 'account-settings':
       return (
-        <ProfileSettingsPage
+        <AccountSettingsPage
           accessToken={context.accessToken}
           authStatus={context.status}
           currentUser={context.currentUser}
+          initialSection={route.initialSection}
           onNavigate={context.onNavigate}
           onProfileUpdated={context.onProfileUpdated}
         />
       )
-    case 'security-settings':
-      return (
-        <AccountSecurityPage
-          authStatus={context.status}
-          currentUser={context.currentUser}
-          onNavigate={context.onNavigate}
-        />
-      )
     case 'tracking-active':
       return <ActiveTrackingPage onNavigate={context.onNavigate} />
-    case 'tracking-settings':
-      return isNativePlatform() ? (
-        <TrackingSettingsPage />
-      ) : (
-        <PlaceholderPage
-          description="GPS tracking settings are only available in the OpenVoyage Android app."
-          title="Native app only"
-        />
-      )
     case 'trip-detail':
       return (
         <TripDetailPage
@@ -424,16 +404,24 @@ function parseRoute(location: string): Route {
     return { name: 'setup' }
   }
 
-  if (pathname === '/settings/profile') {
-    return { name: 'profile-settings' }
+  if (pathname === '/settings' || pathname === '/settings/profile') {
+    return { initialSection: 'profile', name: 'account-settings' }
+  }
+
+  if (pathname === '/settings/preferences') {
+    return { initialSection: 'preferences', name: 'account-settings' }
+  }
+
+  if (pathname === '/settings/privacy') {
+    return { initialSection: 'privacy', name: 'account-settings' }
   }
 
   if (pathname === '/settings/security') {
-    return { name: 'security-settings' }
+    return { initialSection: 'security', name: 'account-settings' }
   }
 
   if (pathname === '/settings/tracking') {
-    return { name: 'tracking-settings' }
+    return { initialSection: 'tracking', name: 'account-settings' }
   }
 
   if (pathname === '/tracking/active') {

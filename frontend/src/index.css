@@ -295,6 +295,34 @@
     color: var(--muted-foreground);
     font-size: 0.65rem;
   }
+
+  .privacy-zone-marker-icon {
+    border: 0;
+    background: transparent;
+  }
+
+  .privacy-zone-marker {
+    display: block;
+    width: 2.25rem;
+    height: 2.625rem;
+    filter: drop-shadow(
+      0 9px 12px color-mix(in srgb, var(--foreground) 30%, transparent)
+    );
+  }
+
+  .privacy-zone-marker path {
+    fill: var(--primary);
+    stroke: var(--card);
+    stroke-width: 2.5;
+  }
+
+  .privacy-zone-marker__centre {
+    fill: var(--primary-foreground);
+  }
+
+  .privacy-zone-marker__dot {
+    fill: var(--primary);
+  }
 }
 
 body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar {

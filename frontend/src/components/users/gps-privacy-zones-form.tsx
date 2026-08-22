@@ -20,6 +20,7 @@ import {
   type GpsPrivacyZone,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
+import { privacyZoneMarkerIcon } from '@/components/users/privacy-zone-map-marker'
 import {
   Card,
   CardContent,
@@ -496,7 +497,10 @@ function PrivacyZoneMap({
       radius: radiusMeters,
       weight: 2,
     }).addTo(selectionLayer)
-    L.marker(coordinates).addTo(selectionLayer)
+    L.marker(coordinates, {
+      icon: privacyZoneMarkerIcon,
+      interactive: false,
+    }).addTo(selectionLayer)
 
     if (shouldCenterOnSelectionRef.current) {
       map.setView(coordinates, SELECTED_MAP_ZOOM)

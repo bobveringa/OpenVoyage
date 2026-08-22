@@ -2,6 +2,7 @@ import { ChevronDown, Loader2, MapPinned, Save, Server, SlidersHorizontal } from
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { AccountSettingsLayout } from '@/components/users/account-settings-layout'
 import {
   Card,
   CardContent,
@@ -63,7 +64,11 @@ function describePrecision(level: PrecisionLevel): string {
   return `About a point every ${spacing} while walking — closer together as you speed up, further apart while you're parked.`
 }
 
-export function TrackingSettingsPage() {
+export function TrackingSettingsPage({
+  embedded = false,
+}: {
+  embedded?: boolean
+}) {
   const { activeSession, notifySettingsChanged, queueStats } = useTracking()
   const [settings, setSettings] = useState<TrackingSettings | null>(null)
   const [serverUrl, setServerUrl] = useState('')
@@ -125,23 +130,8 @@ export function TrackingSettingsPage() {
     }
   }
 
-  return (
-    <div className="space-y-6 py-6 sm:py-8 lg:py-10">
-      <div className="space-y-2">
-        <p className="text-sm font-semibold uppercase tracking-wide text-primary">
-          Native app
-        </p>
-        <div className="space-y-1">
-          <h1 className="text-3xl font-semibold tracking-normal text-foreground">
-            GPS tracking
-          </h1>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-            These settings apply to every recording you start from a trip's GPS
-            panel on this device.
-          </p>
-        </div>
-      </div>
-
+  const content = (
+    <div className="space-y-6">
       {error ? (
         <p className="text-sm font-medium text-destructive" role="alert">
           {error}
@@ -271,6 +261,17 @@ export function TrackingSettingsPage() {
         </CardContent>
       </Card>
     </div>
+  )
+
+  return embedded ? (
+    content
+  ) : (
+    <AccountSettingsLayout
+      activeSection="tracking"
+      onSectionChange={() => undefined}
+    >
+      {content}
+    </AccountSettingsLayout>
   )
 }
 
