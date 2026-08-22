@@ -3,9 +3,9 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 test('changes a password and signs out all devices', async ({ page }) => {
   const api = await mockSecurityApi(page, false)
 
-  await page.goto('/settings/security')
+  await page.goto('/settings#security')
   await expect(
-    page.getByRole('heading', { name: 'Account security' }),
+    page.getByRole('heading', { name: 'Security', exact: true }),
   ).toBeVisible()
 
   await page.getByLabel('Current password').fill('CurrentPassword123!')
@@ -55,7 +55,7 @@ test('forces an assigned-password user onto account security', async ({ page }) 
 
   await page.goto('/setup')
 
-  await expect(page).toHaveURL(/\/settings\/security$/)
+  await expect(page).toHaveURL(/\/settings#security$/)
   await expect(
     page.getByText('must be replaced before you can use other features'),
   ).toBeVisible()

@@ -14,7 +14,6 @@ import { AppBackground } from '@/components/layout/app-background'
 import { AppShell } from '@/components/layout/app-shell'
 import { RouteErrorBoundary } from '@/components/layout/route-error-boundary'
 import { ClockFormatProvider } from '@/components/clock-format-provider'
-import type { AccountSettingsSection } from '@/components/users/account-settings-layout'
 import { useClockFormat } from '@/lib/date-time'
 import { getUserUsername } from '@/lib/users'
 import { NativeServerGate } from '@/native/native-server-gate'
@@ -53,12 +52,11 @@ const UserTripOverviewPage = lazy(() =>
 
 type Route =
   | { name: 'admin' }
-  | { initialSection?: AccountSettingsSection; name: 'account-settings' }
+  | { name: 'account-settings' }
   | { name: 'login' }
   | { name: 'not-found' }
   | { name: 'setup' }
   | { name: 'tracking-active' }
-  | { name: 'tracking-settings' }
   | { name: 'trip-detail'; tripId: string }
   | { name: 'user-overview'; username: string }
 
@@ -216,12 +214,13 @@ function AppRoutes() {
     return <LoadingPage />
   }
 
-  const renderedRoute =
+  const mustOpenSecuritySettings =
     status === 'authenticated' &&
     currentUser?.password_change_required &&
-    route.name !== 'account-settings' || window.location.hash !== '#security'
-      ? ({ initialSection: 'security', name: 'account-settings' } as const)
-      : route
+    (route.name !== 'account-settings' || window.location.hash !== '#security')
+  const renderedRoute: Route = mustOpenSecuritySettings
+    ? { name: 'account-settings' }
+    : route
 
   return (
     <AppShell
@@ -270,7 +269,6 @@ function renderRoute(route: Route, context: RouteRenderContext) {
           accessToken={context.accessToken}
           authStatus={context.status}
           currentUser={context.currentUser}
-          initialSection={route.initialSection}
           onNavigate={context.onNavigate}
           onProfileUpdated={context.onProfileUpdated}
         />
@@ -404,24 +402,8 @@ function parseRoute(location: string): Route {
     return { name: 'setup' }
   }
 
-  if (pathname === '/settings' || pathname === '/settings/profile') {
-    return { initialSection: 'profile', name: 'account-settings' }
-  }
-
-  if (pathname === '/settings/preferences') {
-    return { initialSection: 'preferences', name: 'account-settings' }
-  }
-
-  if (pathname === '/settings/privacy') {
-    return { initialSection: 'privacy', name: 'account-settings' }
-  }
-
-  if (pathname === '/settings/security') {
-    return { initialSection: 'security', name: 'account-settings' }
-  }
-
-  if (pathname === '/settings/tracking') {
-    return { initialSection: 'tracking', name: 'account-settings' }
+  if (pathname === '/settings') {
+    return { name: 'account-settings' }
   }
 
   if (pathname === '/tracking/active') {

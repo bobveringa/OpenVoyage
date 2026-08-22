@@ -18,7 +18,6 @@ type AccountSettingsPageProps = {
   accessToken: string | null
   authStatus: AuthStatus
   currentUser: CurrentUser | null
-  initialSection?: AccountSettingsSection
   onNavigate: (to: string) => void
   onProfileUpdated: (user: CurrentUser) => void
 }
@@ -61,11 +60,10 @@ export function AccountSettingsPage({
   accessToken,
   authStatus,
   currentUser,
-  initialSection = 'profile',
   onNavigate,
   onProfileUpdated,
 }: AccountSettingsPageProps) {
-  const { activeSection, selectSection } = useAccountSettingsSectionHash(initialSection)
+  const { activeSection, selectSection } = useAccountSettingsSectionHash()
 
   return (
     <AccountSettingsLayout
@@ -87,7 +85,7 @@ export function AccountSettingsPage({
 function AccountSettingsSections({
   activeSection,
   ...props
-}: Omit<AccountSettingsPageProps, 'initialSection'> & {
+}: AccountSettingsPageProps & {
   activeSection: AccountSettingsSection
 }) {
   const heading = accountSettingsSectionHeadings[activeSection]
@@ -107,7 +105,7 @@ function AccountSettingsPanel({
   currentUser,
   onNavigate,
   onProfileUpdated,
-}: Omit<AccountSettingsPageProps, 'initialSection'> & {
+}: AccountSettingsPageProps & {
   activeSection: AccountSettingsSection
 }) {
   switch (activeSection) {
@@ -157,22 +155,22 @@ function AccountSettingsPanel({
   }
 }
 
-function useAccountSettingsSectionHash(initialSection: AccountSettingsSection) {
+function useAccountSettingsSectionHash() {
   const [activeSection, setActiveSection] = useState<AccountSettingsSection>(() =>
-    readAccountSettingsSectionHash(initialSection),
+    readAccountSettingsSectionHash(),
   )
 
   useEffect(() => {
-    normalizeAccountSettingsSectionHash(initialSection)
+    normalizeAccountSettingsSectionHash()
 
     function handleHashChange() {
-      setActiveSection(readAccountSettingsSectionHash(initialSection))
-      normalizeAccountSettingsSectionHash(initialSection)
+      setActiveSection(readAccountSettingsSectionHash())
+      normalizeAccountSettingsSectionHash()
     }
 
     window.addEventListener('hashchange', handleHashChange)
     return () => window.removeEventListener('hashchange', handleHashChange)
-  }, [initialSection])
+  }, [])
 
   const selectSection = useCallback((section: AccountSettingsSection) => {
     if (readAccountSettingsSectionHash(section) === section && isKnownAccountSettingsSectionHash()) {
@@ -186,7 +184,9 @@ function useAccountSettingsSectionHash(initialSection: AccountSettingsSection) {
   return { activeSection, selectSection }
 }
 
-function readAccountSettingsSectionHash(fallback: AccountSettingsSection) {
+function readAccountSettingsSectionHash(
+  fallback: AccountSettingsSection = 'profile',
+) {
   if (typeof window === 'undefined') {
     return fallback
   }
@@ -203,11 +203,11 @@ function isKnownAccountSettingsSectionHash() {
   )
 }
 
-function normalizeAccountSettingsSectionHash(fallback: AccountSettingsSection) {
+function normalizeAccountSettingsSectionHash() {
   if (isKnownAccountSettingsSectionHash()) {
     return
   }
 
-  const nextUrl = `${window.location.pathname}${window.location.search}#${fallback}`
+  const nextUrl = `${window.location.pathname}${window.location.search}#profile`
   window.history.replaceState(window.history.state, '', nextUrl)
 }

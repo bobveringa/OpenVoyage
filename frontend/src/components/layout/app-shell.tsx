@@ -34,7 +34,7 @@ export function AppShell({
 }: AppShellProps) {
   const username = getUserUsername(currentUser)
   const homePath = passwordChangeRequired
-    ? '/settings/security'
+    ? '/settings#security'
     : username
       ? `/users/${encodeURIComponent(username)}`
       : '/'
