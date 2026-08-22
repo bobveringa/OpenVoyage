@@ -41,11 +41,12 @@ import { usePublicSetting } from '@/settings/public-settings'
 
 const MIN_RADIUS_METERS = 100
 const MAX_RADIUS_METERS = 10_000
-const DEFAULT_RADIUS_METERS = 500
+const DEFAULT_RADIUS_METERS = 1000
 const MAX_ZONES = 20
 const DEFAULT_MAP_CENTER: L.LatLngTuple = [20, 0]
 const DEFAULT_MAP_ZOOM = 2
 const SELECTED_MAP_ZOOM = 15
+const NO_EXISTING_ZONES: readonly GpsPrivacyZone[] = []
 
 type GpsPrivacyZonesFormProps = {
   accessToken: string
@@ -450,6 +451,7 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
               <PrivacyZoneMap
                 centreRequest={centreRequest}
                 coordinates={getCoordinates(form)}
+                existingZones={isCreating ? zones : NO_EXISTING_ZONES}
                 onCoordinatesChange={(coordinates) => {
                   setForm((current) => ({
                     ...current,
@@ -474,7 +476,11 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
             <p className="text-xs leading-5 text-muted-foreground">
               A small radius still lets someone guess roughly where the hidden
               area is, because the route keeps ending and restarting around its
-              edge. {DEFAULT_RADIUS_METERS} m is a reasonable default.
+              edge. {DEFAULT_RADIUS_METERS}m is a reasonable default.
+            </p>
+            {/*TIP dont place the center of the zone directly on your home, as this will make it easier for someone to guess where you are*/}
+            <p className="text-xs leading-5 text-muted-foreground">
+              <strong>TIP:</strong> Dont place the center of the zone directly on your home.
             </p>
 
             <div className="flex gap-2">
@@ -527,11 +533,13 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
 function PrivacyZoneMap({
   centreRequest,
   coordinates,
+  existingZones,
   onCoordinatesChange,
   radiusMeters,
 }: {
   centreRequest: number
   coordinates: L.LatLngTuple | null
+  existingZones: readonly GpsPrivacyZone[]
   onCoordinatesChange: (coordinates: L.LatLngTuple) => void
   radiusMeters: number
 }) {
@@ -542,6 +550,7 @@ function PrivacyZoneMap({
   )
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
+  const existingZonesLayerRef = useRef<L.LayerGroup | null>(null)
   const selectionLayerRef = useRef<L.LayerGroup | null>(null)
   const onCoordinatesChangeRef = useRef(onCoordinatesChange)
   const shouldCenterOnSelectionRef = useRef(true)
@@ -570,6 +579,7 @@ function PrivacyZoneMap({
       ])
     })
     mapRef.current = map
+    existingZonesLayerRef.current = L.layerGroup().addTo(map)
     selectionLayerRef.current = L.layerGroup().addTo(map)
 
     window.requestAnimationFrame(() => map.invalidateSize())
@@ -577,6 +587,7 @@ function PrivacyZoneMap({
     return () => {
       map.remove()
       mapRef.current = null
+      existingZonesLayerRef.current = null
       selectionLayerRef.current = null
     }
   }, [])
@@ -592,6 +603,26 @@ function PrivacyZoneMap({
       tileLayer.remove()
     }
   }, [tileProvider])
+
+  useEffect(() => {
+    const existingZonesLayer = existingZonesLayerRef.current
+    if (!existingZonesLayer) {
+      return
+    }
+
+    existingZonesLayer.clearLayers()
+    for (const zone of existingZones) {
+      L.circle([zone.latitude, zone.longitude], {
+        color: 'var(--accent)',
+        dashArray: '6 6',
+        fillColor: 'var(--accent)',
+        fillOpacity: 0.12,
+        interactive: false,
+        radius: zone.radius_meters,
+        weight: 2,
+      }).addTo(existingZonesLayer)
+    }
+  }, [existingZones])
 
   useEffect(() => {
     if (centreRequest > 0) {
