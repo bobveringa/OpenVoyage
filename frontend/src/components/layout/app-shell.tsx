@@ -8,10 +8,10 @@ import { AppBackground } from '@/components/layout/app-background'
 import { PullToRefresh } from '@/components/layout/pull-to-refresh'
 import { ThemeModeToggle } from '@/components/layout/theme-mode-toggle'
 import { UserMenu } from '@/components/layout/user-menu'
+import { AppLogo } from '@/components/branding/app-logo'
 import { cn } from '@/lib/utils'
 import { getUserUsername } from '@/lib/users'
 import { useTracking } from '@/tracking/use-tracking'
-import icon from '../../../branding/icon.svg'
 
 type AppShellProps = {
   authStatus?: AuthStatus
@@ -55,7 +55,7 @@ export function AppShell({
               type="button"
             >
               <span className="size-9 overflow-hidden rounded-xl shadow-sm">
-                <img alt="" className="size-full object-cover" src={icon} />
+                <AppLogo className="size-full" />
               </span>
               <span>OpenVoyage</span>
             </button>

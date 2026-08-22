@@ -7,6 +7,7 @@ import {
 } from 'react'
 
 import { AppBackground } from '@/components/layout/app-background'
+import { AppLogo } from '@/components/branding/app-logo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -17,7 +18,6 @@ import {
   setStoredServerUrl,
 } from '@/native/server-config'
 import { usePublicSettings } from '@/settings/use-public-settings'
-import icon from '../../branding/icon.svg'
 
 type GateStatus = 'checking' | 'needs-setup' | 'ready'
 
@@ -167,7 +167,7 @@ function ServerSetupPage({
       <section className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-soft sm:p-8">
         <div className="mb-8 grid justify-items-center gap-4 text-center">
           <span className="size-12 overflow-hidden rounded-xl shadow-sm">
-            <img alt="" className="size-full object-cover" src={icon} />
+            <AppLogo className="size-full" />
           </span>
           <div className="space-y-2">
             <h1 className="text-2xl font-semibold tracking-normal">
