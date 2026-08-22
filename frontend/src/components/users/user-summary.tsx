@@ -1,4 +1,4 @@
-import { MapPin, Plane } from 'lucide-react'
+import { Plane } from 'lucide-react'
 
 import type { User } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
@@ -48,9 +48,7 @@ export function UserSummary({
 
           <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground">
             {username ? (
-              <span className="inline-flex items-center gap-1.5">
-                <MapPin className="size-4" aria-hidden="true" />@{username}
-              </span>
+              <span>@{username}</span>
             ) : null}
             <span className="inline-flex items-center gap-1.5">
               <Plane className="size-4" aria-hidden="true" />

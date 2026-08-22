@@ -50,15 +50,6 @@ Persistent uploads are stored in `./data/media`, and PostgreSQL data is kept in
 the `postgres_data` Docker volume.
 
 
-## 📂 Project Structure
-The project is organized into the following directories:
-- `backend/` - The backend API built with Python and FastAPI.
-- `frontend/` - The frontend application built with React, and the android app.
-
-Each directory contains its own README with setup instructions and development 
-guidelines.
-
-
 ## 📍 Data attribution
 Place search, autocomplete, and reverse geocoding are powered by
 [GeoNames](https://www.geonames.org/) data, used under the
