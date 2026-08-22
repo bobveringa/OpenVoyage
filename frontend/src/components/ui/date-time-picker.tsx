@@ -8,6 +8,12 @@ import {
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
+import {
+  formatDateTime,
+  type ClockFormatPreference,
+  useClockFormat,
+  uses12HourClock,
+} from '@/lib/date-time'
 import { cn } from '@/lib/utils'
 
 type DatePickerProps = {
@@ -39,15 +45,6 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   month: 'short',
   year: 'numeric',
 })
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
-  day: 'numeric',
-  hour12: false,
-  hour: '2-digit',
-  minute: '2-digit',
-  month: 'short',
-  year: 'numeric',
-})
-
 export function DatePicker(props: DatePickerProps) {
   return <DateTimePickerBase mode="date" {...props} />
 }
@@ -71,6 +68,7 @@ function DateTimePickerBase({
   triggerClassName,
   value,
 }: DatePickerProps & { mode: PickerMode }) {
+  const { preference } = useClockFormat()
   const rootRef = useRef<HTMLDivElement>(null)
   const selectedDate = parseDateValue(value)
   const selectedDateIso = selectedDate ? formatDateValue(selectedDate) : null
@@ -82,7 +80,7 @@ function DateTimePickerBase({
     startOfMonth(selectedDate ?? minDate ?? new Date()),
   )
   const formattedDisplayValue =
-    displayValue ?? formatDisplayValue(value, mode, placeholder)
+    displayValue ?? formatDisplayValue(value, mode, placeholder, preference)
 
   const calendarDays = useMemo(
     () => getCalendarDays(visibleMonth),
@@ -240,7 +238,12 @@ function DateTimePickerBase({
           </div>
 
           {mode === 'datetime' ? (
-            <TimeControls onValueChange={selectTime} value={selectedTime} />
+            <TimeControls
+              is12HourClock={uses12HourClock(preference)}
+              onValueChange={selectTime}
+              preference={preference}
+              value={selectedTime}
+            />
           ) : null}
 
           <div className="mt-3 flex items-center justify-between gap-3 rounded-[1.1rem] bg-secondary px-3 py-2 text-xs text-muted-foreground">
@@ -258,16 +261,29 @@ function DateTimePickerBase({
 }
 
 function TimeControls({
+  is12HourClock,
   onValueChange,
+  preference,
   value,
 }: {
+  is12HourClock: boolean
   onValueChange: (value: string) => void
+  preference: ClockFormatPreference
   value: string
 }) {
   const [hour, minute] = value.split(':').map(Number)
+  const isPm = hour >= 12
+  const displayedHour = is12HourClock ? hour % 12 || 12 : hour
 
   function updateTime(nextHour: number, nextMinute: number) {
-    onValueChange(`${padTime(clamp(nextHour, 0, 23))}:${padTime(clamp(nextMinute, 0, 59))}`)
+    const normalizedHour = is12HourClock
+      ? clamp(nextHour, 1, 12) % 12 + (isPm ? 12 : 0)
+      : clamp(nextHour, 0, 23)
+    onValueChange(`${padTime(normalizedHour)}:${padTime(clamp(nextMinute, 0, 59))}`)
+  }
+
+  function setMeridiem(nextIsPm: boolean) {
+    onValueChange(`${padTime(hour % 12 + (nextIsPm ? 12 : 0))}:${padTime(minute)}`)
   }
 
   return (
@@ -281,11 +297,11 @@ function TimeControls({
           Hour
           <input
             className="h-9 rounded-xl border border-border bg-card px-2 text-center text-sm font-semibold text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            max={23}
-            min={0}
+            max={is12HourClock ? 12 : 23}
+            min={is12HourClock ? 1 : 0}
             onChange={(event) => updateTime(Number(event.target.value), minute)}
             type="number"
-            value={padTime(hour)}
+            value={padTime(displayedHour)}
           />
         </label>
         <span className="pb-2 text-lg font-semibold text-muted-foreground">:</span>
@@ -301,6 +317,29 @@ function TimeControls({
           />
         </label>
       </div>
+      {is12HourClock ? (
+        <div aria-label="AM or PM" className="grid grid-cols-2 gap-2" role="group">
+          {(['AM', 'PM'] as const).map((meridiem) => {
+            const selected = (meridiem === 'PM') === isPm
+            return (
+              <button
+                aria-pressed={selected}
+                className={cn(
+                  'rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition-colors',
+                  selected
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border bg-card text-foreground hover:bg-muted',
+                )}
+                key={meridiem}
+                onClick={() => setMeridiem(meridiem === 'PM')}
+                type="button"
+              >
+                {meridiem}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         {['08:00', '12:00', '18:00', '20:00'].map((time) => (
           <button
@@ -314,7 +353,7 @@ function TimeControls({
             onClick={() => onValueChange(time)}
             type="button"
           >
-            {time}
+            {formatTimeValue(time, preference)}
           </button>
         ))}
       </div>
@@ -336,6 +375,7 @@ function formatDisplayValue(
   value: string,
   mode: PickerMode,
   placeholder = mode === 'datetime' ? 'Select date and time' : 'Select date',
+  preference: ClockFormatPreference,
 ) {
   const date = parseDateValue(value)
   if (!date) {
@@ -345,12 +385,29 @@ function formatDisplayValue(
   if (mode === 'datetime') {
     const time = parseTimeValue(value) ?? '00:00'
     const [hour, minute] = time.split(':').map(Number)
-    return dateTimeFormatter.format(
+    return formatDateTime(
       new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute),
+      {
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      },
+      preference,
     )
   }
 
   return dateFormatter.format(date)
+}
+
+function formatTimeValue(value: string, preference: ClockFormatPreference) {
+  const [hour, minute] = value.split(':').map(Number)
+  return formatDateTime(
+    new Date(2000, 0, 1, hour, minute),
+    { hour: 'numeric', minute: '2-digit' },
+    preference,
+  )
 }
 
 function parseDateValue(value: string) {

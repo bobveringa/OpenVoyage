@@ -18,6 +18,7 @@ import { useAuth } from '@/auth/use-auth'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Select } from '@/components/ui/select'
+import { formatDateTime } from '@/lib/date-time'
 import { TRAVEL_MODE_OPTIONS } from '@/tracking/travel-mode-options'
 import { describeUploaderStatus } from '@/tracking/uploader-status'
 import { useTracking } from '@/tracking/use-tracking'
@@ -33,7 +34,10 @@ type TrackingManagementPanelProps = {
 }
 
 function formatMoment(value: string) {
-  return new Date(value).toLocaleString()
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? value
+    : formatDateTime(date, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function RecordingControl({

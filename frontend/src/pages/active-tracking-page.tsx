@@ -5,6 +5,7 @@ import type { TravelMode } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Select } from '@/components/ui/select'
+import { formatDateTime } from '@/lib/date-time'
 import { describeAdaptiveReason } from '@/tracking/adaptive'
 import { getTotalQueuedSampleCount, QUEUE_CAPACITY_SAMPLES } from '@/tracking/sample-queue'
 import { TRAVEL_MODE_OPTIONS } from '@/tracking/travel-mode-options'
@@ -107,7 +108,10 @@ export function ActiveTrackingPage({ onNavigate }: ActiveTrackingPageProps) {
         <p className="text-sm text-muted-foreground">
           {isSyncing
             ? "Stopped — the points already recorded are still uploading. It's safe to leave this screen."
-            : `Started ${new Date(activeSession.startedAt).toLocaleString()}`}
+            : `Started ${formatDateTime(new Date(activeSession.startedAt), {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+              })}`}
         </p>
       </div>
 

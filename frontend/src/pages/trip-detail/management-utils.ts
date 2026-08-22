@@ -1,4 +1,5 @@
 import type { UserSummary } from '@/api/client'
+import { formatDateTime } from '@/lib/date-time'
 import { parseDateOnly, parseDateTime } from './date-utils'
 import type { TripRole, TripVisibility } from './models'
 
@@ -51,14 +52,13 @@ export function formatDateTimeLabel(value: string) {
     return value
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return formatDateTime(date, {
     day: 'numeric',
-    hour12: false,
     hour: '2-digit',
     minute: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(date)
+  })
 }
 
 export function getShareUrl(token: string, tripId: string | undefined) {

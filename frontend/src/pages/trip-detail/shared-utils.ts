@@ -1,5 +1,7 @@
 import type * as L from 'leaflet'
 
+import { formatDateTime } from '@/lib/date-time'
+
 import type {
   PostMedia,
   Stop,
@@ -41,14 +43,13 @@ export function formatGpsCandidateTime(value: string) {
     return value
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return formatDateTime(date, {
     day: 'numeric',
-    hour12: false,
     hour: '2-digit',
     minute: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(date)
+  })
 }
 
 export function escapeHtml(value: string) {

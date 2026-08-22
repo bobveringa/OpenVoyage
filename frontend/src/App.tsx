@@ -6,6 +6,8 @@ import { useAuth } from '@/auth/use-auth'
 import { AppBackground } from '@/components/layout/app-background'
 import { AppShell } from '@/components/layout/app-shell'
 import { RouteErrorBoundary } from '@/components/layout/route-error-boundary'
+import { ClockFormatProvider } from '@/components/clock-format-provider'
+import { useClockFormat } from '@/lib/date-time'
 import { getUserUsername } from '@/lib/users'
 import { NativeServerGate } from '@/native/native-server-gate'
 import { isNativePlatform } from '@/native/platform'
@@ -88,20 +90,23 @@ function App() {
   // ThemeProvider mounts afterward.
   return (
     <PublicSettingsProvider>
-      <ThemeProvider>
-        <NativeServerGate>
-          <AuthProvider>
-            <TrackingProvider>
-              <AppRoutes />
-            </TrackingProvider>
-          </AuthProvider>
-        </NativeServerGate>
-      </ThemeProvider>
+      <ClockFormatProvider>
+        <ThemeProvider>
+          <NativeServerGate>
+            <AuthProvider>
+              <TrackingProvider>
+                <AppRoutes />
+              </TrackingProvider>
+            </AuthProvider>
+          </NativeServerGate>
+        </ThemeProvider>
+      </ClockFormatProvider>
     </PublicSettingsProvider>
   )
 }
 
 function AppRoutes() {
+  useClockFormat()
   const { accessToken, currentUser, error, signOut, status, updateCurrentUser } = useAuth()
   const { location, navigate } = useBrowserLocation()
   const route = useMemo(() => parseRoute(location), [location])
