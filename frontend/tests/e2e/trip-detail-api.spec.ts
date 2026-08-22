@@ -54,6 +54,7 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
       page.getByRole('heading', { name: 'E2E API trip updated' }),
     ).toBeVisible()
 
+    await page.getByRole('button', { name: 'Manage trip' }).click()
     await page.getByRole('button', { name: 'People & sharing' }).click()
     await page.getByLabel('Link label').fill('E2E share link')
     await page.getByRole('button', { name: 'Create link' }).click()
@@ -94,7 +95,6 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     await selectPlaceSearchResult(page, 'Porto')
     await page.getByLabel('Title').fill('E2E API post')
     await page.getByLabel('Story').fill('Published from the API-backed trip page.')
-    await page.getByRole('button', { name: 'Add', exact: true }).click()
     await page.locator('input[type="file"][multiple]').setInputFiles({
       buffer: tinyPngBuffer(),
       mimeType: 'image/png',
@@ -105,6 +105,14 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
 
     await expect(page.getByRole('heading', { name: 'Travel posts' })).toBeVisible()
     await expect(page.getByText('E2E API post')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Edit E2E API post' }).click()
+    await page.getByRole('button', { name: 'Delete post' }).click()
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Delete post' })
+      .click()
+    await expect(page.getByText('E2E API post')).toHaveCount(0)
   } finally {
     await deleteTripWithApi(request, tokens, trip.id)
   }

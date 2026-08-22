@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  OpenVoyage is self-hosted: the server address is whatever the user enters
+  at runtime (native-server-gate.tsx), which may be a plain-HTTP address on
+  a home LAN with no TLS terminator. Android blocks cleartext traffic by
+  default since API 28, so without this the app can reach an HTTPS server
+  but silently fails to reach an HTTP one with no useful error.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

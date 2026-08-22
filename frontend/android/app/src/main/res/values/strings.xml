@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">OpenVoyage</string>
+    <string name="title_activity_main">OpenVoyage</string>
+    <string name="package_name">app.openvoyage</string>
+    <string name="custom_url_scheme">app.openvoyage</string>
+    <string name="tracking_notification_channel_name">Trip recording</string>
+    <string name="tracking_notification_channel_description">Shows which trip is being recorded, how many points are queued, and whether they have synced.</string>
+    <string name="tracking_notification_stop">Stop</string>
+</resources>

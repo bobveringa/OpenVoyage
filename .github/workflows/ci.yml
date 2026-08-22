@@ -1,0 +1,147 @@
+name: CI
+
+# Pull requests run this directly. Pushes to main and release tags run it
+# through release.yml, which calls this workflow and only publishes once every
+# job below is green — so nothing here also triggers on push, or main would
+# test itself twice per commit.
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-frontend
+      - name: Lint and build
+        working-directory: frontend
+        run: npm run check
+      - name: Run unit tests
+        working-directory: frontend
+        run: npm run test:unit
+
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Throwaway values that satisfy the startup secret checks. Tests use a
+      # Testcontainers database, so the Postgres settings are never connected to.
+      POSTGRES_PASSWORD: ci-only-postgres-password
+      SECRET_KEY: ci-only-signing-key-not-used-outside-ci
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-backend
+      - name: Install video-processing tools
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+      - name: Lint
+        run: python -m ruff check backend
+      - name: Run tests
+        working-directory: backend
+        run: python -m pytest
+
+  e2e:
+    name: Browser E2E tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        # These credentials are repeated in the job env below: a service block
+        # cannot read the job's env, and the application needs the same values
+        # to connect. Change them in both places or the job cannot log in.
+        env:
+          POSTGRES_DB: openvoyage_e2e
+          POSTGRES_USER: openvoyage_e2e
+          POSTGRES_PASSWORD: ci-postgres-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openvoyage_e2e -d openvoyage_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_SETTINGS_ENCRYPTION_KEY: ci-only-settings-encryption-key-not-used-outside-ci
+      BACKEND_CORS_ORIGINS: http://localhost:5173
+      E2E_API_BASE_URL: http://127.0.0.1:8000
+      E2E_LOGIN_EMAIL: ci-e2e@example.com
+      E2E_LOGIN_PASSWORD: ci-only-e2e-password
+      MEDIA_DIRECTORY: /tmp/openvoyage-e2e-media
+      POSTGRES_DB: openvoyage_e2e
+      POSTGRES_PASSWORD: ci-postgres-password
+      POSTGRES_PORT: 5432
+      POSTGRES_SERVER: 127.0.0.1
+      POSTGRES_USER: openvoyage_e2e
+      SECRET_KEY: ci-only-signing-key-not-used-outside-ci
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-backend
+        with:
+          requirements: requirements.txt
+      - uses: ./.github/actions/setup-frontend
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Migrate and seed the isolated database
+        working-directory: backend
+        run: |
+          python -m alembic upgrade head
+          python scripts/prepare_e2e.py
+      - name: Start the API
+        working-directory: backend
+        run: |
+          mkdir -p "$MEDIA_DIRECTORY"
+          nohup python -m uvicorn main:app --app-dir app --host 127.0.0.1 --port 8000 \
+            > "$RUNNER_TEMP/openvoyage-api.log" 2>&1 &
+          # Retries connection refused as well as HTTP errors, so this covers
+          # both "not listening yet" and "still booting".
+          curl --fail --silent --output /dev/null \
+            --retry 30 --retry-delay 2 --retry-all-errors \
+            "$E2E_API_BASE_URL/api/v1/admin/setup"
+      - name: Run Playwright tests
+        working-directory: frontend
+        run: npm run test:e2e
+      - name: Show the API log
+        if: failure()
+        run: cat "$RUNNER_TEMP/openvoyage-api.log" || true
+      - name: Upload E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+            ${{ runner.temp }}/openvoyage-api.log
+
+  image:
+    # Only on pull requests. Pushes to main and tags skip this because
+    # release.yml builds the same image for real, from the same buildx cache.
+    name: Build container
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - name: Build production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: openvoyage:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

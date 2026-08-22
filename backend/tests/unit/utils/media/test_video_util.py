@@ -107,8 +107,8 @@ def test_generate_video_thumbnail_for_actual_video() -> None:
         )
 
         thumbnail_info = get_image_info(output_file)
-        assert thumbnail_info.width == 270
-        assert thumbnail_info.height == 480
+        assert thumbnail_info.width == 540
+        assert thumbnail_info.height == 960
 
 
 @pytest.mark.unit

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"
+     role="img" aria-labelledby="title description">
+  <title id="title">OpenVoyage</title>
+  <desc id="description">A tracked journey crossing a folded travel journal.</desc>
+
+  <defs>
+    <!-- The route and folds are transparent, so the mark works over any colour. -->
+    <mask id="journey-cutout" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect width="256" height="256" fill="white"/>
+
+      <!-- Page folds. -->
+      <path d="M96 38V198M160 58V218"
+            fill="none" stroke="black" stroke-width="8" stroke-linecap="round"/>
+
+      <!-- One recorded trail, ending in a precise destination target. -->
+      <path d="M48 176C67 139 90 141 104 166C120 194 145 180 141 148C137 114 151 91 184 88"
+            fill="none" stroke="black" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="190" cy="87" r="20" fill="black"/>
+    </mask>
+  </defs>
+
+  <circle cx="128" cy="128" r="128" fill="#246b49"/>
+
+  <!-- The mark is inset to stay comfortably inside its circular safe area. -->
+  <g color="white" transform="translate(26 26) scale(.796875)">
+    <path d="M35 53L89 33C94 31 99 31 104 33L158 52L216 31C223 29 228 34 228 41V188C228 195 224 200 218 202L166 222C161 224 157 224 152 222L98 203L40 224C33 227 28 222 28 215V67C28 60 30 56 35 53Z"
+          fill="currentColor" mask="url(#journey-cutout)"/>
+
+    <!-- The centre dot turns the route's endpoint into a location target. -->
+    <circle cx="190" cy="87" r="7" fill="currentColor"/>
+  </g>
+</svg>

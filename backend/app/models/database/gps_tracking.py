@@ -120,6 +120,14 @@ class GpsTrackSample(Base):
             'accuracy_meters IS NULL OR accuracy_meters >= 0',
             name='ck_gps_track_samples_accuracy_nonnegative',
         ),
+        CheckConstraint(
+            'speed_mps IS NULL OR speed_mps >= 0',
+            name='ck_gps_track_samples_speed_nonnegative',
+        ),
+        CheckConstraint(
+            'heading_degrees IS NULL OR (heading_degrees >= 0 AND heading_degrees <= 360)',
+            name='ck_gps_track_samples_heading_range',
+        ),
         ForeignKeyConstraint(
             ['trip_id', 'session_id'],
             ['gps_tracking_sessions.trip_id', 'gps_tracking_sessions.id'],
@@ -163,6 +171,18 @@ class GpsTrackSample(Base):
         nullable=False,
     )
     accuracy_meters: Mapped[float | None] = mapped_column(
+        Double,
+        nullable=True,
+    )
+    speed_mps: Mapped[float | None] = mapped_column(
+        Double,
+        nullable=True,
+    )
+    heading_degrees: Mapped[float | None] = mapped_column(
+        Double,
+        nullable=True,
+    )
+    altitude_meters: Mapped[float | None] = mapped_column(
         Double,
         nullable=True,
     )

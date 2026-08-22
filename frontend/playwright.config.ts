@@ -10,23 +10,30 @@ const apiBaseUrl =
   process.env.E2E_API_BASE_URL ??
   process.env.VITE_API_BASE_URL ??
   'http://127.0.0.1:8000'
+const frontendPort = process.env.E2E_FRONTEND_PORT ?? '5173'
+const frontendBaseUrl = `http://localhost:${frontendPort}`
 
 export default defineConfig({
   testDir: './tests/e2e',
-  reporter: 'list',
+  forbidOnly: Boolean(process.env.CI),
+  reporter: process.env.CI
+    ? [['list'], ['html', { open: 'never' }]]
+    : 'list',
+  retries: process.env.CI ? 1 : 0,
+  workers: process.env.CI ? 1 : undefined,
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: frontendBaseUrl,
     trace: 'on-first-retry',
     viewport: { width: 1280, height: 900 },
   },
   webServer: {
-    command: 'npm run dev -- --host localhost --port 5173',
+    command: `npm run dev -- --host localhost --port ${frontendPort}`,
     env: {
       VITE_API_BASE_URL: apiBaseUrl,
     },
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     timeout: 120_000,
-    url: 'http://localhost:5173',
+    url: frontendBaseUrl,
   },
   projects: [
     {

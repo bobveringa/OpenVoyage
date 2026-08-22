@@ -95,10 +95,14 @@ async function mockSecurityApi(page: Page, passwordChangeRequired: boolean) {
   await page.route('**/api/v1/settings/public', (route) =>
     fulfillJson(route, { settings: {}, updated_at: null }),
   )
+  await page.route('**/api/v1/admin/setup', (route) =>
+    fulfillJson(route, { setup_required: false }),
+  )
   await page.route('**/api/v1/users/me', (route) =>
     fulfillJson(route, {
       id: '10000000-0000-4000-8000-000000000001',
       password_change_required: passwordChangeRequired,
+      permissions: ['trip:create'],
       profile: null,
       role: 'USER',
     }),

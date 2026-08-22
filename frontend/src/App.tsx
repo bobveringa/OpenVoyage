@@ -6,16 +6,21 @@ import { useAuth } from '@/auth/use-auth'
 import { AppBackground } from '@/components/layout/app-background'
 import { AppShell } from '@/components/layout/app-shell'
 import { getUserUsername } from '@/lib/users'
+import { NativeServerGate } from '@/native/native-server-gate'
+import { isNativePlatform } from '@/native/platform'
 import { AdminPage } from '@/pages/admin-page'
 import { AccountSecurityPage } from '@/pages/account-security-page'
+import { ActiveTrackingPage } from '@/pages/active-tracking-page'
 import { LoginPage } from '@/pages/login-page'
 import { PlaceholderPage } from '@/pages/placeholder-page'
 import { ProfileSettingsPage } from '@/pages/profile-settings-page'
 import { SetupPage } from '@/pages/setup-page'
+import { TrackingSettingsPage } from '@/pages/tracking-settings-page'
 import { TripDetailPage } from '@/pages/trip-detail-page'
 import { UserTripOverviewPage } from '@/pages/user-trip-overview-page'
 import { PublicSettingsProvider } from '@/settings/public-settings'
 import { ThemeProvider } from '@/theme'
+import { TrackingProvider } from '@/tracking/tracking-provider'
 
 type Route =
   | { name: 'admin' }
@@ -24,6 +29,8 @@ type Route =
   | { name: 'profile-settings' }
   | { name: 'security-settings' }
   | { name: 'setup' }
+  | { name: 'tracking-active' }
+  | { name: 'tracking-settings' }
   | { name: 'trip-detail'; tripId: string }
   | { name: 'user-overview'; username: string }
 
@@ -34,19 +41,27 @@ type NavigateOptions = {
 type InitialSetupStatus = 'complete' | 'loading' | 'required' | 'unknown'
 
 function App() {
+  // Theming wraps the server gate (not the other way around) so the
+  // server-selection screen picks up the same light/dark mode as the rest
+  // of the app instead of flashing to the unthemed default the instant
+  // ThemeProvider mounts afterward.
   return (
     <PublicSettingsProvider>
       <ThemeProvider>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
+        <NativeServerGate>
+          <AuthProvider>
+            <TrackingProvider>
+              <AppRoutes />
+            </TrackingProvider>
+          </AuthProvider>
+        </NativeServerGate>
       </ThemeProvider>
     </PublicSettingsProvider>
   )
 }
 
 function AppRoutes() {
-  const { accessToken, currentUser, signOut, status, updateCurrentUser } = useAuth()
+  const { accessToken, currentUser, error, signOut, status, updateCurrentUser } = useAuth()
   const { location, navigate } = useBrowserLocation()
   const route = useMemo(() => parseRoute(location), [location])
   const currentUsername = getUserUsername(currentUser)
@@ -121,6 +136,10 @@ function AppRoutes() {
   function handleLogout() {
     signOut()
     navigate('/', { replace: true })
+  }
+
+  if (status === 'unavailable') {
+    return <ApiUnavailablePage error={error} />
   }
 
   if (status === 'loading' || initialSetupStatus === 'loading') {
@@ -217,6 +236,17 @@ function renderRoute(route: Route, context: RouteRenderContext) {
           onNavigate={context.onNavigate}
         />
       )
+    case 'tracking-active':
+      return <ActiveTrackingPage onNavigate={context.onNavigate} />
+    case 'tracking-settings':
+      return isNativePlatform() ? (
+        <TrackingSettingsPage />
+      ) : (
+        <PlaceholderPage
+          description="GPS tracking settings are only available in the OpenVoyage Android app."
+          title="Native app only"
+        />
+      )
     case 'trip-detail':
       return (
         <TripDetailPage
@@ -255,6 +285,21 @@ function LoadingPage() {
       <p className="text-sm text-muted-foreground" role="status">
         Loading OpenVoyage…
       </p>
+    </main>
+  )
+}
+
+function ApiUnavailablePage({ error }: { error: string | null }) {
+  return (
+    <main className="relative isolate grid min-h-dvh place-items-center px-4 text-foreground">
+      <AppBackground />
+      <div className="max-w-md space-y-3 rounded-2xl border border-border bg-card/90 p-6 text-center shadow-lg">
+        <h1 className="text-lg font-semibold">OpenVoyage is unavailable</h1>
+        <p className="text-sm text-muted-foreground">
+          We’ll reconnect automatically when the server is available.
+        </p>
+        {error ? <p className="text-xs text-muted-foreground">{error}</p> : null}
+      </div>
     </main>
   )
 }
@@ -327,6 +372,14 @@ function parseRoute(location: string): Route {
 
   if (pathname === '/settings/security') {
     return { name: 'security-settings' }
+  }
+
+  if (pathname === '/settings/tracking') {
+    return { name: 'tracking-settings' }
+  }
+
+  if (pathname === '/tracking/active') {
+    return { name: 'tracking-active' }
   }
 
   return { name: 'not-found' }

@@ -1,4 +1,4 @@
-import { Laptop, Moon, Sun } from 'lucide-react'
+import { Moon, Sun } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { useTheme, type ThemeModePreference } from '@/theme'
@@ -10,7 +10,6 @@ const options: Array<{
 }> = [
   { icon: Sun, label: 'Use light appearance', value: 'light' },
   { icon: Moon, label: 'Use dark appearance', value: 'dark' },
-  { icon: Laptop, label: 'Use device appearance', value: 'system' },
 ]
 
 export function ThemeModeToggle() {

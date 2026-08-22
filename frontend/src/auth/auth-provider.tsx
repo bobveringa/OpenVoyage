@@ -8,6 +8,7 @@ import {
 } from 'react'
 
 import {
+  ApiError,
   changeOwnPassword,
   configureAuthTokenRefresh,
   configurePasswordChangeRequired,
@@ -21,8 +22,11 @@ import {
 } from '@/api/client'
 import { AuthContext, type AuthContextValue, type AuthStatus } from '@/auth/auth-context'
 import {
+  clearCachedCurrentUser,
   clearStoredAuthTokens,
+  readCachedCurrentUser,
   readStoredAuthTokens,
+  writeCachedCurrentUser,
   writeStoredAuthTokens,
 } from '@/auth/auth-storage'
 
@@ -32,9 +36,18 @@ type AuthProviderProps = {
 
 const ACCESS_TOKEN_REFRESH_BUFFER_MS = 2 * 60 * 1000
 const FALLBACK_ACCESS_TOKEN_REFRESH_MS = 10 * 60 * 1000
+const SESSION_RESTORE_RETRY_MS = 5 * 1000
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [tokens, setTokens] = useState<AuthTokens | null>(null)
+  // The token handed to the rest of the app. It is pinned for the lifetime of
+  // a session instead of tracking every rotation: consumers pass it to the API
+  // client, which resolves it to the live token on each request (see
+  // configureAuthTokenRefresh below). A value that changed every ~13 minutes
+  // ended up in effect dependency arrays, so a silent background refresh
+  // re-ran every page's data load and flashed the whole screen back to its
+  // loading state.
+  const [sessionAccessToken, setSessionAccessToken] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [status, setStatus] = useState<AuthStatus>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -42,16 +55,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const tokensRef = useRef<AuthTokens | null>(null)
 
   const storeSession = useCallback((nextTokens: AuthTokens) => {
-    writeStoredAuthTokens(nextTokens)
+    // Persistence is best-effort and asynchronous; in-memory state (below)
+    // is the source of truth for the running session either way.
+    void writeStoredAuthTokens(nextTokens)
     tokensRef.current = nextTokens
     setTokens(nextTokens)
+    setSessionAccessToken((current) => current ?? nextTokens.access_token)
   }, [])
 
   const clearSession = useCallback(() => {
-    clearStoredAuthTokens()
+    void clearStoredAuthTokens()
+    void clearCachedCurrentUser()
     tokensRef.current = null
     refreshPromiseRef.current = null
     setTokens(null)
+    setSessionAccessToken(null)
     setCurrentUser(null)
     setStatus('unauthenticated')
     setError(null)
@@ -59,6 +77,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const updateCurrentUser = useCallback((user: CurrentUser) => {
     setCurrentUser(user)
+    void writeCachedCurrentUser(user)
   }, [])
 
   const refreshSession = useCallback(
@@ -89,14 +108,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         })
         .catch((refreshError: unknown) => {
           if (tokensRef.current?.refresh_token === refreshToken) {
-            clearStoredAuthTokens()
-            tokensRef.current = null
-            setTokens(null)
-            setCurrentUser(null)
-            setStatus('unauthenticated')
-            setError(getErrorMessage(refreshError))
+            // A refresh token is only known to be invalid when the API says so.
+            // Network and server failures must not erase the locally persisted
+            // session: doing that turned a temporary outage into a logout.
+            if (isInvalidSessionError(refreshError)) {
+              clearSession()
+              return null
+            }
           }
-          return null
+          throw refreshError
         })
         .finally(() => {
           if (refreshPromiseRef.current === refreshPromise) {
@@ -107,7 +127,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       refreshPromiseRef.current = refreshPromise
       return refreshPromise
     },
-    [storeSession],
+    [clearSession, storeSession],
   )
 
   useEffect(() => {
@@ -117,7 +137,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return null
       }
       if (currentTokens.access_token !== accessToken) {
-        return currentTokens.access_token
+        // The caller holds the session's pinned token rather than the newest
+        // one. A rotation that already happened satisfies a forced refresh;
+        // otherwise still top up the live token when it is close to expiring,
+        // so requests keep being sent with a valid one.
+        if (forceRefresh) {
+          return currentTokens.access_token
+        }
+        const nextTokens = await refreshSession()
+        return nextTokens?.access_token ?? currentTokens.access_token
       }
 
       const nextTokens = await refreshSession({ force: forceRefresh })
@@ -139,9 +167,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     let isCurrent = true
+    let retryTimeout: number | undefined
 
     async function restoreSession() {
-      const storedTokens = readStoredAuthTokens()
+      const storedTokens = await readStoredAuthTokens()
+      if (!isCurrent) {
+        return
+      }
       if (!storedTokens) {
         setStatus('unauthenticated')
         return
@@ -149,6 +181,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       tokensRef.current = storedTokens
       setTokens(storedTokens)
+      setSessionAccessToken((current) => current ?? storedTokens.access_token)
 
       try {
         const sessionTokens = shouldRefreshAccessToken(storedTokens.access_token)
@@ -165,25 +198,65 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setCurrentUser(user)
         setStatus('authenticated')
         setError(null)
+        void writeCachedCurrentUser(user)
       } catch (restoreError) {
         if (!isCurrent) {
           return
         }
-        clearStoredAuthTokens()
-        tokensRef.current = null
-        setTokens(null)
-        setCurrentUser(null)
-        setStatus('unauthenticated')
-        setError(getErrorMessage(restoreError))
+
+        if (isInvalidSessionError(restoreError)) {
+          clearSession()
+          return
+        }
+
+        // The API is unreachable (offline launch, server down). Rather than
+        // blocking the whole app on that — which would also strand anything
+        // that only needs local state, like stopping an in-progress GPS
+        // recording — fall back to the last-known profile so the app is
+        // still usable, and keep retrying in the background for fresh data.
+        const cachedUser = await readCachedCurrentUser()
+        if (!isCurrent) {
+          return
+        }
+        if (cachedUser) {
+          setCurrentUser(cachedUser)
+          setStatus('authenticated')
+          setError(null)
+        } else {
+          // No cached profile to fall back to (e.g. first-ever launch was
+          // offline) — nothing meaningful to render yet.
+          setError(getErrorMessage(restoreError))
+          setStatus('unavailable')
+        }
+
+        // Keep the saved tokens while the API is unreachable and wait for it
+        // to return. The retry also covers native clients, where a server
+        // restart does not necessarily trigger the browser's online event.
+        retryTimeout = window.setTimeout(() => {
+          void restoreSession()
+        }, SESSION_RESTORE_RETRY_MS)
       }
     }
 
     void restoreSession()
 
+    function retryWhenOnline() {
+      if (retryTimeout !== undefined) {
+        window.clearTimeout(retryTimeout)
+      }
+      void restoreSession()
+    }
+
+    window.addEventListener('online', retryWhenOnline)
+
     return () => {
       isCurrent = false
+      if (retryTimeout !== undefined) {
+        window.clearTimeout(retryTimeout)
+      }
+      window.removeEventListener('online', retryWhenOnline)
     }
-  }, [refreshSession])
+  }, [clearSession, refreshSession])
 
   useEffect(() => {
     if (!tokens) {
@@ -191,7 +264,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     const timer = window.setTimeout(() => {
-      void refreshSession({ force: true })
+      void refreshSession({ force: true }).catch(() => {
+        // The restore effect retains the session and retries after transient
+        // failures. Avoid an unhandled rejection from this background refresh.
+      })
     }, getAccessTokenRefreshDelay(tokens.access_token))
 
     return () => window.clearTimeout(timer)
@@ -203,7 +279,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     function refreshAfterBrowserWake() {
-      void refreshSession()
+      void refreshSession().catch(() => {
+        // See the scheduled refresh above.
+      })
     }
 
     function handleVisibilityChange() {
@@ -231,6 +309,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setCurrentUser(user)
         setStatus('authenticated')
         setError(null)
+        void writeCachedCurrentUser(user)
         return user
       } catch (signInError) {
         clearSession()
@@ -282,7 +361,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      accessToken: tokens?.access_token ?? null,
+      accessToken: sessionAccessToken,
       changePassword,
       currentUser,
       error,
@@ -299,6 +378,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       currentUser,
       error,
       signIn,
+      sessionAccessToken,
       signOutAll,
       status,
       tokens,
@@ -343,4 +423,8 @@ function readJwtExpiresAt(token: string): number | null {
   } catch {
     return null
   }
+}
+
+function isInvalidSessionError(error: unknown) {
+  return error instanceof ApiError && error.status === 401
 }

@@ -2,6 +2,7 @@ import {
   ChevronDown,
   KeyRound,
   LogOut,
+  MapPinned,
   Shield,
   UserCog,
   UserRound,
@@ -17,6 +18,7 @@ import {
   getUserProfileMedia,
   getUserUsername,
 } from '@/lib/users'
+import { isNativePlatform } from '@/native/platform'
 
 type UserMenuProps = {
   currentUser: CurrentUser
@@ -103,6 +105,14 @@ export function UserMenu({
             label="Account security"
             onClick={() => navigate('/settings/security')}
           />
+
+          {isNativePlatform() ? (
+            <MenuButton
+              icon={MapPinned}
+              label="GPS tracking"
+              onClick={() => navigate('/settings/tracking')}
+            />
+          ) : null}
 
           {currentUser.role === 'ADMIN' ? (
             <MenuButton

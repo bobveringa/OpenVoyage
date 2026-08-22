@@ -1,14 +1,17 @@
 import type { ReactNode } from 'react'
-import { Compass, LogOut } from 'lucide-react'
+import { CloudUpload, LogOut, Radio } from 'lucide-react'
 
 import type { CurrentUser } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
 import { Button } from '@/components/ui/button'
 import { AppBackground } from '@/components/layout/app-background'
+import { PullToRefresh } from '@/components/layout/pull-to-refresh'
 import { ThemeModeToggle } from '@/components/layout/theme-mode-toggle'
 import { UserMenu } from '@/components/layout/user-menu'
 import { cn } from '@/lib/utils'
 import { getUserUsername } from '@/lib/users'
+import { useTracking } from '@/tracking/use-tracking'
+import icon from '../../../branding/icon.svg'
 
 type AppShellProps = {
   authStatus?: AuthStatus
@@ -51,13 +54,16 @@ export function AppShell({
               onClick={() => handleNavigate(homePath)}
               type="button"
             >
-              <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <Compass className="size-5" aria-hidden="true" />
+              <span className="size-9 overflow-hidden rounded-xl shadow-sm">
+                <img alt="" className="size-full object-cover" src={icon} />
               </span>
               <span>OpenVoyage</span>
             </button>
 
             <div className="flex items-center gap-2">
+              {currentUser ? (
+                <TrackingIndicator onNavigate={handleNavigate} />
+              ) : null}
               <ThemeModeToggle />
               {currentUser && onLogout && passwordChangeRequired ? (
                 <Button onClick={onLogout} size="sm" type="button" variant="outline">
@@ -95,8 +101,43 @@ export function AppShell({
           !showHeader && 'max-w-none px-0 sm:px-0 lg:px-0',
         )}
       >
-        {children}
+        <PullToRefresh>{children}</PullToRefresh>
       </main>
     </div>
+  )
+}
+
+// Visible on every screen while a recording is active — the trip's own GPS
+// panel used to be the only place this state showed up, which made it easy
+// to lose track of which trip (if any) was being recorded, and impossible
+// to reach the stop control while offline if that trip page couldn't load.
+function TrackingIndicator({ onNavigate }: { onNavigate: (to: string) => void }) {
+  const { activeSession } = useTracking()
+
+  if (!activeSession) {
+    return null
+  }
+
+  const isSyncing = Boolean(activeSession.endedAt)
+
+  return (
+    <button
+      className={
+        isSyncing
+          ? 'inline-flex h-10 items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 text-sm font-semibold text-amber-600 shadow-sm transition-colors hover:bg-amber-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+          : 'inline-flex h-10 items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 text-sm font-semibold text-destructive shadow-sm transition-colors hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+      }
+      onClick={() => onNavigate('/tracking/active')}
+      type="button"
+    >
+      {isSyncing ? (
+        <CloudUpload className="size-4" aria-hidden="true" />
+      ) : (
+        <Radio className="size-4 animate-pulse" aria-hidden="true" />
+      )}
+      <span className="hidden max-w-32 truncate sm:inline">
+        {activeSession.tripTitle ?? (isSyncing ? 'Syncing' : 'Recording')}
+      </span>
+    </button>
   )
 }

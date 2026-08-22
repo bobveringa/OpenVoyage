@@ -42,8 +42,11 @@ test('swaps only the base tiles and preserves routes and point selection', async
 
   await page.getByRole('button', { name: 'Travel', exact: true }).click()
   await expect(page.getByText('2 hr 32 min')).toBeVisible()
-  await expect(map.locator('path[stroke="#7c3aed"]')).toBeAttached()
-  const unknownRoute = map.locator('path[stroke="#587064"]').first()
+  const travelRoutes = map.locator(
+    '.leaflet-overlay-pane path.leaflet-interactive',
+  )
+  await expect(travelRoutes.first()).toBeAttached()
+  const unknownRoute = travelRoutes.last()
   await unknownRoute.dispatchEvent('mouseover')
   await expect(map.locator('.leaflet-tooltip')).toHaveCount(0)
 
@@ -112,9 +115,16 @@ async function mockTripApi(page: Page) {
       return
     }
 
+    if (url.pathname.endsWith('/admin/setup')) {
+      await fulfillJson(route, { setup_required: false })
+      return
+    }
+
     if (url.pathname.endsWith('/users/me')) {
       await fulfillJson(route, {
         id: userId,
+        password_change_required: false,
+        permissions: ['trip:create'],
         profile: null,
         role: 'USER',
       })
@@ -283,51 +293,54 @@ function createPostTimeline() {
     updated_at: occurredAt,
   })
 
-  return [
-    {
-      post: post(
-        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-        'First timeline post',
-        '2026-08-05T08:10:00Z',
-        firstLocation,
-      ),
-      route_after: {
-        duration_seconds: 9_120,
-        segments: [
-          {
-            geometry: {
-              coordinates: [
-                [4.8952, 52.3702],
-                [4.91, 52.36],
-              ],
-              type: 'LineString',
+  return {
+    entries: [
+      {
+        post: post(
+          'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          'First timeline post',
+          '2026-08-05T08:10:00Z',
+          firstLocation,
+        ),
+        route_after: {
+          duration_seconds: 9_120,
+          segments: [
+            {
+              geometry: {
+                coordinates: [
+                  [4.8952, 52.3702],
+                  [4.91, 52.36],
+                ],
+                type: 'LineString',
+              },
+              travel_mode: 'UNKNOWN',
             },
-            travel_mode: 'UNKNOWN',
-          },
-          {
-            geometry: {
-              coordinates: [
-                [4.91, 52.36],
-                [5.1214, 52.0907],
-              ],
-              type: 'LineString',
+            {
+              geometry: {
+                coordinates: [
+                  [4.91, 52.36],
+                  [5.1214, 52.0907],
+                ],
+                type: 'LineString',
+              },
+              travel_mode: 'TRAIN',
             },
-            travel_mode: 'TRAIN',
-          },
-        ],
+          ],
+        },
       },
-    },
-    {
-      post: post(
-        secondPostId,
-        'Second timeline post',
-        '2026-08-05T10:42:00Z',
-        secondLocation,
-        'First line\nSecond line',
-      ),
-      route_after: null,
-    },
-  ]
+      {
+        post: post(
+          secondPostId,
+          'Second timeline post',
+          '2026-08-05T10:42:00Z',
+          secondLocation,
+          'First line\nSecond line',
+        ),
+        route_after: null,
+      },
+    ],
+    opening_route: null,
+  }
 }
 
 function createStop(

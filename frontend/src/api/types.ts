@@ -659,6 +659,26 @@ export interface paths {
         patch: operations["update_share_link_api_v1_trips__trip_id__share_links__share_link_id__patch"];
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/tracking/post-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Post Candidates
+         * @description Return a bounded set of member-only GPS points for creating posts.
+         */
+        get: operations["list_post_candidates_api_v1_trips__trip_id__tracking_post_candidates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/tracking/samples/delete": {
         parameters: {
             query?: never;
@@ -1163,6 +1183,30 @@ export interface components {
              * @constant
              */
             type: "LineString";
+        };
+        /**
+         * GpsPostCandidateResponse
+         * @description A deliberately sparse GPS point that can seed a new trip post.
+         *
+         *     This is distinct from the raw-sample response: it contains only the
+         *     fields needed by the map, is bounded server-side, and is never exposed to
+         *     viewers or share-link readers.
+         */
+        GpsPostCandidateResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
         };
         /**
          * GpsPrivacyZoneEnvelope
@@ -1915,6 +1959,10 @@ export interface components {
         TrackSampleRequest: {
             /** Accuracy Meters */
             accuracy_meters?: number | null;
+            /** Altitude Meters */
+            altitude_meters?: number | null;
+            /** Heading Degrees */
+            heading_degrees?: number | null;
             /**
              * Id
              * Format: uuid
@@ -1929,6 +1977,8 @@ export interface components {
              * Format: date-time
              */
             recorded_at: string;
+            /** Speed Mps */
+            speed_mps?: number | null;
             /** @default UNKNOWN */
             travel_mode: components["schemas"]["TravelMode"];
         };
@@ -1936,6 +1986,10 @@ export interface components {
         TrackSampleResponse: {
             /** Accuracy Meters */
             accuracy_meters: number | null;
+            /** Altitude Meters */
+            altitude_meters: number | null;
+            /** Heading Degrees */
+            heading_degrees: number | null;
             /**
              * Id
              * Format: uuid
@@ -1950,6 +2004,8 @@ export interface components {
              * Format: date-time
              */
             recorded_at: string;
+            /** Speed Mps */
+            speed_mps: number | null;
             travel_mode: components["schemas"]["TravelMode"];
         };
         /** TrackingSessionCreateRequest */
@@ -4187,6 +4243,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TripShareLinkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_post_candidates_api_v1_trips__trip_id__tracking_post_candidates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GpsPostCandidateResponse"][];
                 };
             };
             /** @description Validation Error */

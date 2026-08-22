@@ -1,6 +1,10 @@
 services:
   app:
-    image: openvoyage:latest
+    # Published by .github/workflows/release.yml on every release tag.
+    # Override OPENVOYAGE_IMAGE in .env to pin a version (":1.2.3"), track a
+    # release candidate (":1.2.3-rc1"), follow main (":edge"), or point at an
+    # image you built yourself with "docker build --tag openvoyage:local .".
+    image: ${OPENVOYAGE_IMAGE:-ghcr.io/bobveringa/openvoyage:latest}
     env_file: .env
     environment:
       POSTGRES_SERVER: postgres
@@ -12,6 +16,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "--connect-timeout", "3", "--max-time", "3", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
   postgres:

@@ -23,7 +23,7 @@ export const THEME_ROLES = [
 
 export type ThemeRole = (typeof THEME_ROLES)[number]
 export type ThemeMode = 'dark' | 'light'
-export type ThemeModePreference = ThemeMode | 'system'
+export type ThemeModePreference = ThemeMode
 export type ThemeColors = Record<ThemeRole, string>
 export type ThemePalette = {
   schema_version: typeof THEME_SCHEMA_VERSION
@@ -207,10 +207,6 @@ export function getThemePaletteIssues(palette: ThemePalette): string[] {
     }
   }
   return issues
-}
-
-export function resolveThemeMode(preference: ThemeModePreference, prefersDark: boolean): ThemeMode {
-  return preference === 'system' ? (prefersDark ? 'dark' : 'light') : preference
 }
 
 function parseThemeColors(value: unknown): ThemeColors | null {

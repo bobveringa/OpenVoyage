@@ -8,6 +8,7 @@ from api.deps import CurrentUser, GpsTrackingServiceDep
 from models.api.pagination import CursorPaginatedResponse
 from models.api.tracking import (
     DEFAULT_RAW_SAMPLE_LIMIT,
+    GpsPostCandidateResponse,
     MAX_RAW_SAMPLE_LIMIT,
     TrackingSessionListResponse,
     TrackingSessionResponse,
@@ -164,6 +165,26 @@ def delete_tracking_session(
 # ---------------------------------------------------------------------------
 # Samples
 # ---------------------------------------------------------------------------
+@router.get('/post-candidates', response_model=list[GpsPostCandidateResponse])
+def list_post_candidates(
+    trip_id: uuid.UUID,
+    user: CurrentUser,
+    tracking_service: GpsTrackingServiceDep,
+    response: Response,
+) -> list[GpsPostCandidateResponse]:
+    """Return a bounded set of member-only GPS points for creating posts."""
+    try:
+        candidates = tracking_service.list_post_candidates(
+            trip_id=trip_id,
+            current_user_id=user.id,
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+
+    response.headers['Cache-Control'] = 'no-store'
+    return [GpsPostCandidateResponse.from_model(sample) for sample in candidates]
+
+
 @router.post(
     '/sessions/{session_id}/samples/batch',
     response_model=TrackSampleBatchResponse,
@@ -175,6 +196,7 @@ def upload_track_samples(
     user: CurrentUser,
     tracking_service: GpsTrackingServiceDep,
 ) -> TrackSampleBatchResponse:
+    print(payload)
     try:
         result = tracking_service.upload_samples(
             trip_id=trip_id,

@@ -3,16 +3,19 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from math import asin, cos, radians, sin, sqrt
 
 from sqlalchemy import delete, func, or_, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from models.api.geojson import GeoJsonLineString
 from models.api.posts import PostTimelineRouteSegmentResponse
 from models.api.tracking import (
+    MAX_POST_CANDIDATES,
     TrackSampleRequest,
     TrackingSessionCreateRequest,
     TrackingSessionEndRequest,
@@ -22,11 +25,27 @@ from models.database.posts import Post
 from models.database.gps_tracking import GpsTrackingSession, GpsTrackSample
 from models.database.travel import TravelMode
 from models.database.trips import Trip, TripMember
-from services.gps.geometry import simplify_line
+from services.gps.geometry import simplify_line_indices
 from services.gps.privacy_zone_service import GpsPrivacyZoneService
+from services.gps.stationary_compaction import (
+    TimedGpsCoordinate,
+    compact_stationary_indices,
+    long_stay_representative_indices,
+)
 from services.trip_access import get_membership, get_trip_read_access
 from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
+
+logger = logging.getLogger(__name__)
+
+# Clock-skew fix (see private/implementation-specs/clock-skew-fix.md): the
+# client now corrects every outgoing timestamp by a measured device→server
+# offset before this bound is ever checked, so the residual error left over
+# is only measurement noise, not raw clock skew. This absorbs that residual
+# (Date-header second quantisation, RTT asymmetry, quartz drift over a long
+# session) — it is deliberately far too small to mask a genuinely wrong
+# clock, which after correction is off by minutes or hours, not seconds.
+SAMPLE_TIME_TOLERANCE = timedelta(seconds=5)
 
 
 class TrackingPermissionError(Exception):
@@ -72,11 +91,15 @@ class _Anchor:
     """One chronological point on the map: a post location or a GPS point."""
 
     sort_key: tuple
+    recorded_at: datetime
     latitude: float
     longitude: float
     travel_mode: TravelMode | None
     is_post: bool
     session_id: uuid.UUID | None = None
+    accuracy_meters: float | None = None
+    speed_mps: float | None = None
+    sample_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -299,13 +322,18 @@ class GpsTrackingService:
                 'Only the recording user may upload samples to this session'
             )
 
-        lower_bound = session.started_at
-        if session.ended_at is not None:
-            upper_bound = session.ended_at
-            upper_inclusive = True
-        else:
-            upper_bound = utcnow()
-            upper_inclusive = False
+        # SAMPLE_TIME_TOLERANCE is applied symmetrically at both ends — see
+        # its own docstring for why a small, named margin belongs here
+        # instead of either a zero-margin comparison or a minutes-wide one.
+        # Both bounds are inclusive once the tolerance is folded in: a sample
+        # landing exactly on the tolerance edge is as legitimate as one a
+        # microsecond inside it.
+        lower_bound = session.started_at - SAMPLE_TIME_TOLERANCE
+        upper_bound = (
+            session.ended_at
+            if session.ended_at is not None
+            else utcnow()
+        ) + SAMPLE_TIME_TOLERANCE
 
         submitted_ids = [sample.id for sample in samples]
         stored = list(
@@ -338,13 +366,25 @@ class GpsTrackingService:
             if sample.id in duplicate_ids:
                 duplicates += 1
                 continue
-            if not self._within_session_bounds(
-                sample.recorded_at,
-                lower_bound,
-                upper_bound,
-                upper_inclusive,
-            ):
+            if not self._within_session_bounds(sample.recorded_at, lower_bound, upper_bound):
                 discarded += 1
+                # C8: the two directions have unrelated causes (a device
+                # clock still wrong despite correction vs. a Stop that
+                # stranded a backlog past ended_at — see §6) and unrelated
+                # user-facing advice, so log which one this was rather than
+                # only exposing one opaque counter to the client.
+                logger.info(
+                    'Discarded GPS sample outside session bounds',
+                    extra={
+                        'direction': (
+                            'before_start'
+                            if sample.recorded_at < lower_bound
+                            else 'after_end'
+                        ),
+                        'session_id': str(session_id),
+                        'trip_id': str(trip_id),
+                    },
+                )
                 continue
             if self.privacy_zones.is_within_any_zone(
                 latitude=sample.latitude,
@@ -363,6 +403,9 @@ class GpsTrackingService:
                     latitude=sample.latitude,
                     longitude=sample.longitude,
                     accuracy_meters=sample.accuracy_meters,
+                    speed_mps=sample.speed_mps,
+                    heading_degrees=sample.heading_degrees,
+                    altitude_meters=sample.altitude_meters,
                     travel_mode=sample.travel_mode,
                 )
             )
@@ -381,13 +424,8 @@ class GpsTrackingService:
         recorded_at: datetime,
         lower_bound: datetime,
         upper_bound: datetime,
-        upper_inclusive: bool,
     ) -> bool:
-        if recorded_at < lower_bound:
-            return False
-        if upper_inclusive:
-            return recorded_at <= upper_bound
-        return recorded_at < upper_bound
+        return lower_bound <= recorded_at <= upper_bound
 
     # ------------------------------------------------------------------
     # Raw sample reads
@@ -438,6 +476,172 @@ class GpsTrackingService:
             last = rows[-1]
             return rows, self._encode_cursor(last.recorded_at, last.id)
         return rows, None
+
+    def list_post_candidates(
+        self,
+        *,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+    ) -> list[GpsTrackSample]:
+        """Return a small, useful set of GPS samples for starting posts.
+
+        Candidates come only from the display geometry used by the timeline, so
+        a marker cannot float at a GPS fix that stationary compaction or line
+        simplification has removed. Long stays are retained as priority
+        candidates; regular route coverage is then sampled every ten minutes or
+        kilometre, with a hard UI-safe limit. Both tracking-read and post-create
+        permissions are required: timestamps are private tracking data, and the
+        map only presents them as post actions.
+        """
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.GET_TRACKING,
+        )
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.CREATE_POST,
+        )
+        samples = list(
+            self.db.execute(
+                select(GpsTrackSample)
+                .where(GpsTrackSample.trip_id == trip_id)
+                .order_by(
+                    GpsTrackSample.recorded_at.asc(),
+                    GpsTrackSample.session_id.asc(),
+                    GpsTrackSample.id.asc(),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not samples:
+            return []
+
+        posts = list(
+            self.db.execute(
+                select(Post)
+                .options(joinedload(Post.location))
+                .where(
+                    Post.trip_id == trip_id,
+                    Post.published_at.is_not(None),
+                )
+                .order_by(Post.occurred_at.asc(), Post.id.asc())
+            )
+            .scalars()
+            .all()
+        )
+        displayed_sample_ids: set[uuid.UUID] = set()
+        long_stay_sample_ids: set[uuid.UUID] = set()
+        self.build_timeline_geometry(
+            trip_id=trip_id,
+            posts=posts,
+            is_member=True,
+            share_live_location=True,
+            displayed_gps_sample_ids=displayed_sample_ids,
+            long_stay_sample_ids=long_stay_sample_ids,
+        )
+        return self._select_post_candidates(
+            [sample for sample in samples if sample.id in displayed_sample_ids],
+            priority_sample_ids=long_stay_sample_ids,
+        )
+
+    @staticmethod
+    def _select_post_candidates(
+        samples: list[GpsTrackSample],
+        *,
+        priority_sample_ids: set[uuid.UUID] | None = None,
+    ) -> list[GpsTrackSample]:
+        priority_sample_ids = priority_sample_ids or set()
+        selected: list[GpsTrackSample] = []
+        selected_by_session: dict[uuid.UUID, list[GpsTrackSample]] = {}
+        last_selected_by_session: dict[uuid.UUID, GpsTrackSample] = {}
+
+        for sample in samples:
+            last_selected = last_selected_by_session.get(sample.session_id)
+            if last_selected is None:
+                selected.append(sample)
+                selected_by_session[sample.session_id] = [sample]
+                last_selected_by_session[sample.session_id] = sample
+                continue
+
+            elapsed_seconds = (
+                sample.recorded_at - last_selected.recorded_at
+            ).total_seconds()
+            distance_meters = GpsTrackingService._distance_meters(
+                last_selected.latitude,
+                last_selected.longitude,
+                sample.latitude,
+                sample.longitude,
+            )
+            if elapsed_seconds < 600 and distance_meters < 1_000:
+                continue
+
+            is_too_close_to_session_candidate = any(
+                GpsTrackingService._distance_meters(
+                    candidate.latitude,
+                    candidate.longitude,
+                    sample.latitude,
+                    sample.longitude,
+                ) < 200
+                for candidate in selected_by_session[sample.session_id]
+            )
+            if is_too_close_to_session_candidate:
+                continue
+
+            selected.append(sample)
+            selected_by_session[sample.session_id].append(sample)
+            last_selected_by_session[sample.session_id] = sample
+
+        priority = [sample for sample in samples if sample.id in priority_sample_ids]
+        priority_ids = {sample.id for sample in priority}
+        regular = [sample for sample in selected if sample.id not in priority_ids]
+
+        if len(priority) >= MAX_POST_CANDIDATES:
+            return GpsTrackingService._uniformly_thin(
+                priority,
+                MAX_POST_CANDIDATES,
+            )
+        if len(priority) + len(regular) <= MAX_POST_CANDIDATES:
+            selected_ids = {sample.id for sample in [*priority, *regular]}
+            return [sample for sample in samples if sample.id in selected_ids]
+
+        thinned_regular = GpsTrackingService._uniformly_thin(
+            regular,
+            MAX_POST_CANDIDATES - len(priority),
+        )
+        selected_ids = {sample.id for sample in [*priority, *thinned_regular]}
+        return [sample for sample in samples if sample.id in selected_ids]
+
+    @staticmethod
+    def _uniformly_thin(
+        samples: list[GpsTrackSample],
+        limit: int,
+    ) -> list[GpsTrackSample]:
+        if len(samples) <= limit:
+            return samples
+        if limit == 1:
+            return [samples[0]]
+        step = (len(samples) - 1) / (limit - 1)
+        return [samples[round(index * step)] for index in range(limit)]
+
+    @staticmethod
+    def _distance_meters(
+        latitude_a: float,
+        longitude_a: float,
+        latitude_b: float,
+        longitude_b: float,
+    ) -> float:
+        latitude_delta = radians(latitude_b - latitude_a)
+        longitude_delta = radians(longitude_b - longitude_a)
+        a = (
+            sin(latitude_delta / 2) ** 2
+            + cos(radians(latitude_a))
+            * cos(radians(latitude_b))
+            * sin(longitude_delta / 2) ** 2
+        )
+        return 6_371_000 * 2 * asin(sqrt(a))
 
     @staticmethod
     def _encode_cursor(recorded_at: datetime, sample_id: uuid.UUID) -> str:
@@ -549,6 +753,8 @@ class GpsTrackingService:
         posts: list[Post],
         is_member: bool,
         share_live_location: bool,
+        displayed_gps_sample_ids: set[uuid.UUID] | None = None,
+        long_stay_sample_ids: set[uuid.UUID] | None = None,
     ) -> TimelineGeometry:
         """Build every GPS-derived route the post timeline exposes.
 
@@ -558,6 +764,11 @@ class GpsTrackingService:
         open_session = self._get_open_session(trip_id)
         open_session_id = open_session.id if open_session is not None else None
         gps_anchors = self._load_gps_anchors(trip_id)
+        detected_long_stay_ids = self._long_stay_sample_ids(gps_anchors)
+        if long_stay_sample_ids is None:
+            long_stay_sample_ids = detected_long_stay_ids
+        else:
+            long_stay_sample_ids.update(detected_long_stay_ids)
 
         post_anchors = [self._post_anchor(post) for post in posts]
 
@@ -567,11 +778,15 @@ class GpsTrackingService:
                 open_session_id=open_session_id,
                 is_member=is_member,
                 share_live_location=share_live_location,
+                displayed_gps_sample_ids=displayed_gps_sample_ids,
+                long_stay_sample_ids=long_stay_sample_ids,
             )
 
         opening_segments = self._build_opening_route(
             gps_anchors=gps_anchors,
             first_post=post_anchors[0],
+            displayed_gps_sample_ids=displayed_gps_sample_ids,
+            long_stay_sample_ids=long_stay_sample_ids,
         )
         transition_segments: dict[int, list[PostTimelineRouteSegmentResponse]] = {}
         for index in range(len(post_anchors) - 1):
@@ -579,6 +794,8 @@ class GpsTrackingService:
                 gps_anchors=gps_anchors,
                 post_a=post_anchors[index],
                 post_b=post_anchors[index + 1],
+                displayed_gps_sample_ids=displayed_gps_sample_ids,
+                long_stay_sample_ids=long_stay_sample_ids,
             )
 
         final_segments, final_route_has_open_endpoint = self._build_final_route(
@@ -587,6 +804,8 @@ class GpsTrackingService:
             open_session_id=open_session_id,
             is_member=is_member,
             share_live_location=share_live_location,
+            displayed_gps_sample_ids=displayed_gps_sample_ids,
+            long_stay_sample_ids=long_stay_sample_ids,
         )
 
         return TimelineGeometry(
@@ -603,6 +822,8 @@ class GpsTrackingService:
         open_session_id: uuid.UUID | None,
         is_member: bool,
         share_live_location: bool,
+        displayed_gps_sample_ids: set[uuid.UUID] | None,
+        long_stay_sample_ids: set[uuid.UUID],
     ) -> TimelineGeometry:
         """The whole retained path, because no post divides history from now.
 
@@ -621,6 +842,8 @@ class GpsTrackingService:
                 member_only_session_id=(
                     open_session_id if is_member and not share_live_location else None
                 ),
+                displayed_gps_sample_ids=displayed_gps_sample_ids,
+                long_stay_sample_ids=long_stay_sample_ids,
             )
             if len(anchors) >= 2
             else None
@@ -640,6 +863,8 @@ class GpsTrackingService:
         *,
         gps_anchors: list[_Anchor],
         first_post: _Anchor,
+        displayed_gps_sample_ids: set[uuid.UUID] | None,
+        long_stay_sample_ids: set[uuid.UUID],
     ) -> list[PostTimelineRouteSegmentResponse] | None:
         """Every retained point before the first visible post, then that post.
 
@@ -653,7 +878,11 @@ class GpsTrackingService:
         ]
         if not leading:
             return None
-        return self._segments_from_anchors([*leading, first_post])
+        return self._segments_from_anchors(
+            [*leading, first_post],
+            displayed_gps_sample_ids=displayed_gps_sample_ids,
+            long_stay_sample_ids=long_stay_sample_ids,
+        )
 
     def _build_transition(
         self,
@@ -661,6 +890,8 @@ class GpsTrackingService:
         gps_anchors: list[_Anchor],
         post_a: _Anchor,
         post_b: _Anchor,
+        displayed_gps_sample_ids: set[uuid.UUID] | None,
+        long_stay_sample_ids: set[uuid.UUID],
     ) -> list[PostTimelineRouteSegmentResponse]:
         between = [
             anchor
@@ -669,7 +900,11 @@ class GpsTrackingService:
         ]
         # With no GPS point between them the two-item anchor list naturally
         # produces the existing straight UNKNOWN post-to-post segment.
-        return self._segments_from_anchors([post_a, *between, post_b])
+        return self._segments_from_anchors(
+            [post_a, *between, post_b],
+            displayed_gps_sample_ids=displayed_gps_sample_ids,
+            long_stay_sample_ids=long_stay_sample_ids,
+        )
 
     def _build_final_route(
         self,
@@ -679,6 +914,8 @@ class GpsTrackingService:
         open_session_id: uuid.UUID | None,
         is_member: bool,
         share_live_location: bool,
+        displayed_gps_sample_ids: set[uuid.UUID] | None,
+        long_stay_sample_ids: set[uuid.UUID],
     ) -> tuple[list[PostTimelineRouteSegmentResponse] | None, bool]:
         # Members always see the trip's trailing path. Other readers only see
         # it when live-location sharing is enabled.
@@ -695,6 +932,8 @@ class GpsTrackingService:
             self._segments_from_anchors(
                 [final_post, *trailing],
                 visible_to_members_only=is_member and not share_live_location,
+                displayed_gps_sample_ids=displayed_gps_sample_ids,
+                long_stay_sample_ids=long_stay_sample_ids,
             ),
             open_session_id is not None and trailing[-1].session_id == open_session_id,
         )
@@ -708,6 +947,7 @@ class GpsTrackingService:
         # element is the anchor kind.
         return _Anchor(
             sort_key=(post.occurred_at, 0, post.id),
+            recorded_at=post.occurred_at,
             latitude=post.location.latitude,
             longitude=post.location.longitude,
             travel_mode=None,
@@ -721,6 +961,8 @@ class GpsTrackingService:
                 GpsTrackSample.id,
                 GpsTrackSample.latitude,
                 GpsTrackSample.longitude,
+                GpsTrackSample.accuracy_meters,
+                GpsTrackSample.speed_mps,
                 GpsTrackSample.travel_mode,
                 GpsTrackSample.session_id,
                 GpsTrackingSession.started_at,
@@ -752,11 +994,15 @@ class GpsTrackingService:
                     row.session_id,
                     row.id,
                 ),
+                recorded_at=row.recorded_at,
                 latitude=row.latitude,
                 longitude=row.longitude,
                 travel_mode=TravelMode(row.travel_mode),
                 is_post=False,
                 session_id=row.session_id,
+                accuracy_meters=row.accuracy_meters,
+                speed_mps=row.speed_mps,
+                sample_id=row.id,
             )
             for row in rows
         ]
@@ -767,6 +1013,8 @@ class GpsTrackingService:
         *,
         visible_to_members_only: bool = False,
         member_only_session_id: uuid.UUID | None = None,
+        displayed_gps_sample_ids: set[uuid.UUID] | None = None,
+        long_stay_sample_ids: set[uuid.UUID] | None = None,
     ) -> list[PostTimelineRouteSegmentResponse]:
         """Turn a chronological anchor list into mode-split, simplified segments."""
         segments: list[PostTimelineRouteSegmentResponse] = []
@@ -789,6 +1037,8 @@ class GpsTrackingService:
                         current_mode,
                         current,
                         visible_to_members_only=current_member_only,
+                        displayed_gps_sample_ids=displayed_gps_sample_ids,
+                        long_stay_sample_ids=long_stay_sample_ids,
                     )
                 )
                 # The boundary coordinate belongs to both adjacent segments.
@@ -802,6 +1052,8 @@ class GpsTrackingService:
                 current_mode,
                 current,
                 visible_to_members_only=current_member_only,
+                displayed_gps_sample_ids=displayed_gps_sample_ids,
+                long_stay_sample_ids=long_stay_sample_ids,
             )
         )
         return segments
@@ -818,18 +1070,129 @@ class GpsTrackingService:
         return TravelMode.UNKNOWN
 
     @staticmethod
+    def _compact_stationary_anchors(
+        anchors: list[_Anchor],
+        *,
+        long_stay_sample_ids: set[uuid.UUID],
+    ) -> list[_Anchor]:
+        """Compact only consecutive GPS anchors with identical hard boundaries."""
+        compacted: list[_Anchor] = []
+        partition: list[_Anchor] = []
+
+        def flush_partition() -> None:
+            if not partition:
+                return
+            indices = compact_stationary_indices(
+                [
+                    TimedGpsCoordinate(
+                        recorded_at=anchor.recorded_at,
+                        latitude=anchor.latitude,
+                        longitude=anchor.longitude,
+                        accuracy_meters=anchor.accuracy_meters,
+                        speed_mps=anchor.speed_mps,
+                    )
+                    for anchor in partition
+                ],
+            )
+            retained_ids = set(indices)
+            retained_ids.update(
+                index
+                for index, anchor in enumerate(partition)
+                if anchor.sample_id in long_stay_sample_ids
+            )
+            compacted.extend(partition[index] for index in sorted(retained_ids))
+            partition.clear()
+
+        for anchor in anchors:
+            if anchor.is_post:
+                flush_partition()
+                compacted.append(anchor)
+                continue
+            if partition and (
+                anchor.session_id != partition[-1].session_id
+                or anchor.travel_mode != partition[-1].travel_mode
+            ):
+                flush_partition()
+            partition.append(anchor)
+
+        flush_partition()
+        return compacted
+
+    @classmethod
     def _segment(
+        cls,
         travel_mode: TravelMode,
         anchors: list[_Anchor],
         *,
         visible_to_members_only: bool = False,
+        displayed_gps_sample_ids: set[uuid.UUID] | None = None,
+        long_stay_sample_ids: set[uuid.UUID] | None = None,
     ) -> PostTimelineRouteSegmentResponse:
-        coordinates = [(anchor.longitude, anchor.latitude) for anchor in anchors]
+        long_stay_sample_ids = long_stay_sample_ids or set()
+        display_anchors = cls._compact_stationary_anchors(
+            anchors,
+            long_stay_sample_ids=long_stay_sample_ids,
+        )
+        coordinates = [
+            (anchor.longitude, anchor.latitude) for anchor in display_anchors
+        ]
+        if len(coordinates) == 1:
+            coordinates *= 2
+            simplified_anchors = display_anchors
+        else:
+            required_indices = {
+                index
+                for index, anchor in enumerate(display_anchors)
+                if anchor.sample_id in long_stay_sample_ids
+            }
+            simplified_anchors = [
+                display_anchors[index]
+                for index in simplify_line_indices(
+                    coordinates,
+                    required_indices=required_indices,
+                )
+            ]
+        if displayed_gps_sample_ids is not None:
+            displayed_gps_sample_ids.update(
+                anchor.sample_id
+                for anchor in simplified_anchors
+                if anchor.sample_id is not None
+            )
+        geometry_coordinates = [
+            (anchor.longitude, anchor.latitude) for anchor in simplified_anchors
+        ]
+        if len(geometry_coordinates) == 1:
+            geometry_coordinates *= 2
         return PostTimelineRouteSegmentResponse(
             travel_mode=travel_mode,
-            geometry=GeoJsonLineString(coordinates=simplify_line(coordinates)),
+            geometry=GeoJsonLineString(coordinates=geometry_coordinates),
             visible_to_members_only=visible_to_members_only,
         )
+
+    @staticmethod
+    def _long_stay_sample_ids(gps_anchors: list[_Anchor]) -> set[uuid.UUID]:
+        anchors_by_session: dict[uuid.UUID, list[_Anchor]] = {}
+        for anchor in gps_anchors:
+            if anchor.session_id is not None:
+                anchors_by_session.setdefault(anchor.session_id, []).append(anchor)
+
+        return {
+            anchors[index].sample_id
+            for anchors in anchors_by_session.values()
+            for index in long_stay_representative_indices(
+                [
+                    TimedGpsCoordinate(
+                        recorded_at=anchor.recorded_at,
+                        latitude=anchor.latitude,
+                        longitude=anchor.longitude,
+                        accuracy_meters=anchor.accuracy_meters,
+                        speed_mps=anchor.speed_mps,
+                    )
+                    for anchor in anchors
+                ]
+            )
+            if anchors[index].sample_id is not None
+        }
 
     # ------------------------------------------------------------------
     # Shared helpers

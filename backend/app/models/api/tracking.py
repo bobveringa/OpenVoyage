@@ -10,6 +10,7 @@ MAX_SAMPLES_PER_BATCH = 1_000
 MAX_SAMPLE_IDS_PER_REQUEST = 5_000
 DEFAULT_RAW_SAMPLE_LIMIT = 2_000
 MAX_RAW_SAMPLE_LIMIT = 5_000
+MAX_POST_CANDIDATES = 180
 
 
 def _reject_duplicates(sample_ids: list[uuid.UUID]) -> list[uuid.UUID]:
@@ -51,7 +52,17 @@ class TrackSampleRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     accuracy_meters: float | None = Field(default=None, ge=0)
+    speed_mps: float | None = Field(default=None, ge=0)
+    heading_degrees: float | None = Field(default=None, ge=0, le=360)
+    altitude_meters: float | None = None
     travel_mode: TravelMode = TravelMode.UNKNOWN
+
+    @field_validator('altitude_meters')
+    @classmethod
+    def round_altitude(cls, altitude_meters: float | None) -> float | None:
+        if altitude_meters is None:
+            return None
+        return round(altitude_meters, 2)
 
 
 class TrackSampleBatchRequest(BaseModel):
@@ -91,6 +102,9 @@ class TrackSampleResponse(BaseModel):
     latitude: float
     longitude: float
     accuracy_meters: float | None
+    speed_mps: float | None
+    heading_degrees: float | None
+    altitude_meters: float | None
     travel_mode: TravelMode
 
     @classmethod
@@ -101,7 +115,33 @@ class TrackSampleResponse(BaseModel):
             latitude=sample.latitude,
             longitude=sample.longitude,
             accuracy_meters=sample.accuracy_meters,
+            speed_mps=sample.speed_mps,
+            heading_degrees=sample.heading_degrees,
+            altitude_meters=sample.altitude_meters,
             travel_mode=TravelMode(sample.travel_mode),
+        )
+
+
+class GpsPostCandidateResponse(BaseModel):
+    """A deliberately sparse GPS point that can seed a new trip post.
+
+    This is distinct from the raw-sample response: it contains only the
+    fields needed by the map, is bounded server-side, and is never exposed to
+    viewers or share-link readers.
+    """
+
+    id: uuid.UUID
+    recorded_at: datetime
+    latitude: float
+    longitude: float
+
+    @classmethod
+    def from_model(cls, sample: GpsTrackSample) -> Self:
+        return cls(
+            id=sample.id,
+            recorded_at=sample.recorded_at,
+            latitude=sample.latitude,
+            longitude=sample.longitude,
         )
 
 
