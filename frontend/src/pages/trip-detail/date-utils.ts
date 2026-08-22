@@ -13,18 +13,16 @@ export function parseDateOnly(value: string) {
 }
 
 export function parseDateTime(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value)
-  if (!match) {
+  // API datetimes include an offset (normally UTC's `Z`).  Pulling the
+  // numeric fields out of the string loses that offset, causing a UTC value
+  // such as 18:55Z to render as 18:55 local time instead of 20:55 CEST.
+  // Date also keeps datetime-picker values without an offset in local time.
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
     return null
   }
 
-  return new Date(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-    Number(match[4]),
-    Number(match[5]),
-  )
+  return date
 }
 
 export function addDays(date: Date, days: number) {
