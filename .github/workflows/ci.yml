@@ -42,6 +42,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-backend
+      - name: Install video-processing tools
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
       - name: Lint
         run: python -m ruff check backend
       - name: Run tests

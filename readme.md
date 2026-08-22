@@ -53,81 +53,11 @@ the `postgres_data` Docker volume.
 ## 📂 Project Structure
 The project is organized into the following directories:
 - `backend/` - The backend API built with Python and FastAPI.
-- `frontend/` - The frontend application built with React.
+- `frontend/` - The frontend application built with React, and the android app.
 
 Each directory contains its own README with setup instructions and development 
 guidelines.
 
-## Continuous integration
-
-`.github/workflows/ci.yml` holds the checks: frontend lint/build/unit tests,
-the complete backend Pytest suite, Playwright browser tests against an isolated
-PostgreSQL database, and a production container build. Pull requests run it
-directly. `release.yml` calls the same workflow for pushes to `main` and for
-release tags, so the checks are defined once and a publish only happens after
-they pass.
-
-The browser job creates its own disposable administrator and small place-data
-fixture. Its committed `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD` values are
-deliberately non-secret because they can only access the job's temporary API
-and database. Local or deployed-instance credentials remain in the gitignored
-root `.env` file and must never be copied into a workflow.
-
-### Releases
-
-Images are published to `ghcr.io/bobveringa/openvoyage` with the repository's
-own `GITHUB_TOKEN`; no registry secrets are configured or needed.
-
-| Trigger | Image tags | Android APK |
-| --- | --- | --- |
-| Push to `main` | `edge`, `main`, `sha-<short>` | no |
-| Tag `v1.2.3` | `1.2.3`, `1.2`, `latest` | yes |
-| Tag `v1.2.3-rc1` | `1.2.3-rc1` | yes |
-| Manual dispatch | `<branch name>` | yes |
-
-Prerelease tags are anything with a hyphen in them (`-rc1`, `-beta.2`). They
-publish an installable image but deliberately do not move `latest` or the
-`1.2` alias, so a release candidate can be tested without any deployment that
-tracks `latest` picking it up.
-
-Cutting a release is therefore just a tag:
-
-```bash
-git tag v1.2.3 && git push origin v1.2.3
-```
-
-The Android APK is attached to the workflow run as an artifact (30-day
-retention), not to a GitHub Release. It is debug-signed, because
-`frontend/android/app/build.gradle` has no release signing config yet — it
-installs on a device, but it is not store-publishable.
-
-## Frontend
-The frontend is a Vite React app written in TypeScript with Tailwind CSS and a
-shadcn/ui-style shared component structure.
-
-```bash
-cd frontend
-npm install
-npm start
-```
-
-By default the development server proxies `/api` to `http://127.0.0.1:8000`,
-so the frontend continues to use same-origin API URLs. Set
-`VITE_API_PROXY_TARGET` to point the proxy at another local backend. Set
-`VITE_API_BASE_URL` only when intentionally serving the frontend separately
-from its API; it is embedded at build time.
-
-Generate the frontend API schema and TypeScript definitions from the FastAPI
-OpenAPI spec:
-
-```bash
-npm run api:generate
-```
-
-The generated files live in `frontend/src/api/`. The typed client is exported
-from `frontend/src/api/client.ts`, shared UI components live under
-`frontend/src/components/`, and all theme color tokens live in
-`frontend/src/styles/theme.css`.
 
 ## 📍 Data attribution
 Place search, autocomplete, and reverse geocoding are powered by

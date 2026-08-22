@@ -17,7 +17,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     FRONTEND_DIST_DIRECTORY=/app/frontend-dist
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends --yes curl \
+    && apt-get install --no-install-recommends --yes curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt ./
