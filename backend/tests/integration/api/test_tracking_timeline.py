@@ -271,6 +271,150 @@ def test_a_long_stay_is_a_candidate_and_remains_on_the_displayed_route(
 
 
 @pytest.mark.integration
+def test_post_candidates_infer_sparse_road_spacing_without_trusting_mode(
+    client,
+    api_prefix,
+    db_session,
+    trip,
+    owner,
+) -> None:
+    """A 100 km/h track must not offer one post action per GPS point."""
+    session_id = _open_session(client, api_prefix, trip_id=trip.id, user=owner)
+    _upload(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        session_id=session_id,
+        # All points falsely claim WALK.  At the equator, 0.45 longitude is
+        # about 50 km, so this trace advances at roughly 100 km/h.
+        points=[
+            (0, 0.0, 0.0, 'WALK'),
+            (1_800, 0.0, 0.45, 'WALK'),
+            (3_600, 0.0, 0.90, 'WALK'),
+            (5_400, 0.0, 1.35, 'WALK'),
+            (7_200, 0.0, 1.80, 'WALK'),
+        ],
+    )
+    _end_session(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        session_id=session_id,
+        ended_at=START + timedelta(hours=2),
+    )
+
+    candidates = client.get(
+        f'{api_prefix}/trips/{trip.id}/tracking/post-candidates',
+        headers=_auth_headers(owner),
+    ).json()
+
+    assert [candidate['recorded_at'] for candidate in candidates] == [
+        _iso(START),
+        _iso(START + timedelta(minutes=60)),
+        _iso(START + timedelta(hours=2)),
+    ]
+
+
+@pytest.mark.integration
+def test_post_candidates_keep_one_kilometre_walking_spacing_without_trusting_mode(
+    client,
+    api_prefix,
+    db_session,
+    trip,
+    owner,
+) -> None:
+    session_id = _open_session(client, api_prefix, trip_id=trip.id, user=owner)
+    _upload(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        session_id=session_id,
+        # Roughly 3 km/h, despite the deliberately wrong CAR mode.
+        points=[
+            (0, 0.0, 0.0, 'CAR'),
+            (600, 0.0, 0.0045, 'CAR'),
+            (1_200, 0.0, 0.0090, 'CAR'),
+            (1_800, 0.0, 0.0135, 'CAR'),
+        ],
+    )
+    _end_session(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        session_id=session_id,
+        ended_at=START + timedelta(minutes=30),
+    )
+
+    candidates = client.get(
+        f'{api_prefix}/trips/{trip.id}/tracking/post-candidates',
+        headers=_auth_headers(owner),
+    ).json()
+
+    assert [candidate['recorded_at'] for candidate in candidates] == [
+        _iso(START),
+        _iso(START + timedelta(minutes=20)),
+        _iso(START + timedelta(minutes=30)),
+    ]
+
+
+@pytest.mark.integration
+def test_high_speed_track_gets_one_preserved_midpoint_candidate(
+    client,
+    api_prefix,
+    db_session,
+    trip,
+    owner,
+) -> None:
+    """Flights and high-speed trains get one useful post-along-the-way point."""
+    session_id = _open_session(client, api_prefix, trip_id=trip.id, user=owner)
+    _upload(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        session_id=session_id,
+        # About 200 km/h, despite the deliberately wrong client mode.
+        points=[
+            (0, 0.0, 0.0, 'WALK'),
+            (1_800, 0.0, 0.90, 'WALK'),
+            (3_600, 0.0, 1.80, 'WALK'),
+            (5_400, 0.0, 2.70, 'WALK'),
+        ],
+    )
+    _end_session(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        session_id=session_id,
+        ended_at=START + timedelta(minutes=90),
+    )
+
+    candidates = client.get(
+        f'{api_prefix}/trips/{trip.id}/tracking/post-candidates',
+        headers=_auth_headers(owner),
+    ).json()
+    assert [candidate['recorded_at'] for candidate in candidates] == [
+        _iso(START),
+        _iso(START + timedelta(minutes=60)),
+        _iso(START + timedelta(minutes=90)),
+    ]
+
+    timeline = _timeline(client, api_prefix, trip.id, user=owner).json()
+    route_coordinates = {
+        tuple(coordinate)
+        for segment in timeline['opening_route']['segments']
+        for coordinate in segment['geometry']['coordinates']
+    }
+    midpoint = candidates[1]
+    assert (midpoint['longitude'], midpoint['latitude']) in route_coordinates
+
+
+@pytest.mark.integration
 def test_gps_points_become_anchors_and_split_by_mode(
     client,
     api_prefix,

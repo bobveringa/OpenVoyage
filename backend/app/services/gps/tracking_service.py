@@ -47,6 +47,23 @@ logger = logging.getLogger(__name__)
 # clock, which after correction is off by minutes or hours, not seconds.
 SAMPLE_TIME_TOLERANCE = timedelta(seconds=5)
 
+# Post candidates are editorial prompts, not a rendering of every part of a
+# route.  These bands are calculated from recorded positions and timestamps;
+# client-supplied travel modes and speeds are deliberately not used here.
+POST_CANDIDATE_SPEED_WINDOW_SECONDS = 5 * 60
+POST_CANDIDATE_MIN_SPEED_WINDOW_SECONDS = 2 * 60
+POST_CANDIDATE_WALK_MAX_MPS = 2.5  # 9 km/h
+POST_CANDIDATE_LOCAL_MAX_MPS = 12.5  # 45 km/h
+POST_CANDIDATE_ROAD_MAX_MPS = 50.0  # 180 km/h
+POST_CANDIDATE_WALK_DISTANCE_METERS = 1_000
+POST_CANDIDATE_LOCAL_DISTANCE_METERS = 5_000
+POST_CANDIDATE_LOCAL_ELAPSED_SECONDS = 20 * 60
+POST_CANDIDATE_ROAD_DISTANCE_METERS = 75_000
+POST_CANDIDATE_ROAD_ELAPSED_SECONDS = 45 * 60
+POST_CANDIDATE_HIGH_SPEED_MIN_DISTANCE_METERS = 100_000
+POST_CANDIDATE_HIGH_SPEED_MIN_ELAPSED_SECONDS = 15 * 60
+POST_CANDIDATE_HIGH_SPEED_MIN_SAMPLES = 2
+
 
 class TrackingPermissionError(Exception):
     """Raised when a trip reader lacks a tracking permission."""
@@ -100,6 +117,13 @@ class _Anchor:
     accuracy_meters: float | None = None
     speed_mps: float | None = None
     sample_id: uuid.UUID | None = None
+
+    @property
+    def id(self) -> uuid.UUID:
+        """Expose a GPS anchor's sample id to candidate-selection helpers."""
+        if self.sample_id is None:
+            raise ValueError('Post anchors do not have a GPS sample id')
+        return self.sample_id
 
 
 @dataclass(frozen=True)
@@ -330,9 +354,7 @@ class GpsTrackingService:
         # microsecond inside it.
         lower_bound = session.started_at - SAMPLE_TIME_TOLERANCE
         upper_bound = (
-            session.ended_at
-            if session.ended_at is not None
-            else utcnow()
+            session.ended_at if session.ended_at is not None else utcnow()
         ) + SAMPLE_TIME_TOLERANCE
 
         submitted_ids = [sample.id for sample in samples]
@@ -366,7 +388,9 @@ class GpsTrackingService:
             if sample.id in duplicate_ids:
                 duplicates += 1
                 continue
-            if not self._within_session_bounds(sample.recorded_at, lower_bound, upper_bound):
+            if not self._within_session_bounds(
+                sample.recorded_at, lower_bound, upper_bound
+            ):
                 discarded += 1
                 # C8: the two directions have unrelated causes (a device
                 # clock still wrong despite correction vs. a Stop that
@@ -532,71 +556,73 @@ class GpsTrackingService:
             .scalars()
             .all()
         )
+        closed_session_ids = set(
+            self.db.execute(
+                select(GpsTrackingSession.id).where(
+                    GpsTrackingSession.trip_id == trip_id,
+                    GpsTrackingSession.ended_at.is_not(None),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        long_stay_sample_ids = self._long_stay_sample_ids_for_samples(samples)
+        selected = self._select_post_candidates(
+            samples,
+            priority_sample_ids=long_stay_sample_ids,
+            closed_session_ids=closed_session_ids,
+        )
+        selected_ids = {sample.id for sample in selected}
         displayed_sample_ids: set[uuid.UUID] = set()
-        long_stay_sample_ids: set[uuid.UUID] = set()
         self.build_timeline_geometry(
             trip_id=trip_id,
             posts=posts,
             is_member=True,
             share_live_location=True,
             displayed_gps_sample_ids=displayed_sample_ids,
-            long_stay_sample_ids=long_stay_sample_ids,
+            # Candidate points are semantic map markers.  Preserve them in
+            # the route geometry before Douglas-Peucker simplification, so a
+            # high-speed midpoint cannot disappear from a straight track.
+            required_gps_sample_ids=selected_ids,
         )
-        return self._select_post_candidates(
-            [sample for sample in samples if sample.id in displayed_sample_ids],
-            priority_sample_ids=long_stay_sample_ids,
-        )
+        return [sample for sample in selected if sample.id in displayed_sample_ids]
 
     @staticmethod
     def _select_post_candidates(
         samples: list[GpsTrackSample],
         *,
         priority_sample_ids: set[uuid.UUID] | None = None,
+        closed_session_ids: set[uuid.UUID] | None = None,
     ) -> list[GpsTrackSample]:
+        """Choose editorial post prompts from inferred movement speed.
+
+        The client-provided travel mode and instantaneous speed are not used:
+        both are advisory data.  Coordinate-derived speed is intentionally
+        measured across a small trailing window so a single noisy fix cannot
+        turn a walk into a flight.
+        """
         priority_sample_ids = priority_sample_ids or set()
-        selected: list[GpsTrackSample] = []
-        selected_by_session: dict[uuid.UUID, list[GpsTrackSample]] = {}
-        last_selected_by_session: dict[uuid.UUID, GpsTrackSample] = {}
-
+        closed_session_ids = closed_session_ids or set()
+        samples_by_session: dict[uuid.UUID, list[GpsTrackSample]] = {}
         for sample in samples:
-            last_selected = last_selected_by_session.get(sample.session_id)
-            if last_selected is None:
-                selected.append(sample)
-                selected_by_session[sample.session_id] = [sample]
-                last_selected_by_session[sample.session_id] = sample
-                continue
+            samples_by_session.setdefault(sample.session_id, []).append(sample)
 
-            elapsed_seconds = (
-                sample.recorded_at - last_selected.recorded_at
-            ).total_seconds()
-            distance_meters = GpsTrackingService._distance_meters(
-                last_selected.latitude,
-                last_selected.longitude,
-                sample.latitude,
-                sample.longitude,
+        selected_ids: set[uuid.UUID] = set(priority_sample_ids)
+        for session_id, session_samples in samples_by_session.items():
+            selected_ids.update(
+                GpsTrackingService._select_session_post_candidate_ids(
+                    session_samples,
+                    is_closed=session_id in closed_session_ids,
+                )
             )
-            if elapsed_seconds < 600 and distance_meters < 1_000:
-                continue
-
-            is_too_close_to_session_candidate = any(
-                GpsTrackingService._distance_meters(
-                    candidate.latitude,
-                    candidate.longitude,
-                    sample.latitude,
-                    sample.longitude,
-                ) < 200
-                for candidate in selected_by_session[sample.session_id]
-            )
-            if is_too_close_to_session_candidate:
-                continue
-
-            selected.append(sample)
-            selected_by_session[sample.session_id].append(sample)
-            last_selected_by_session[sample.session_id] = sample
 
         priority = [sample for sample in samples if sample.id in priority_sample_ids]
         priority_ids = {sample.id for sample in priority}
-        regular = [sample for sample in selected if sample.id not in priority_ids]
+        regular = [
+            sample
+            for sample in samples
+            if sample.id in selected_ids and sample.id not in priority_ids
+        ]
 
         if len(priority) >= MAX_POST_CANDIDATES:
             return GpsTrackingService._uniformly_thin(
@@ -613,6 +639,226 @@ class GpsTrackingService:
         )
         selected_ids = {sample.id for sample in [*priority, *thinned_regular]}
         return [sample for sample in samples if sample.id in selected_ids]
+
+    @staticmethod
+    def _select_session_post_candidate_ids(
+        samples: list[GpsTrackSample],
+        *,
+        is_closed: bool,
+    ) -> set[uuid.UUID]:
+        """Select sparse candidates for one chronological recording session."""
+        if not samples:
+            return set()
+
+        selected_ids = {samples[0].id}
+        high_speed_runs = GpsTrackingService._high_speed_runs(samples)
+        high_speed_sample_ids = {
+            samples[index].id
+            for start, end in high_speed_runs
+            for index in range(start, end + 1)
+        }
+
+        last_regular = samples[0]
+        for index, sample in enumerate(samples[1:], start=1):
+            if sample.id in high_speed_sample_ids:
+                continue
+
+            speed_mps = GpsTrackingService._inferred_speed_mps(samples, index)
+            elapsed_seconds = (
+                sample.recorded_at - last_regular.recorded_at
+            ).total_seconds()
+            distance_meters = GpsTrackingService._distance_meters(
+                last_regular.latitude,
+                last_regular.longitude,
+                sample.latitude,
+                sample.longitude,
+            )
+            if GpsTrackingService._meets_candidate_spacing(
+                speed_mps=speed_mps,
+                elapsed_seconds=elapsed_seconds,
+                distance_meters=distance_meters,
+            ):
+                selected_ids.add(sample.id)
+                last_regular = sample
+
+        for start, end in high_speed_runs:
+            if not is_closed and end == len(samples) - 1:
+                # A live high-speed journey has no stable midpoint yet.  Its
+                # current endpoint is the useful "post along the way" prompt.
+                selected_ids.add(samples[end].id)
+            else:
+                selected_ids.add(
+                    GpsTrackingService._high_speed_run_midpoint(samples, start, end).id
+                )
+
+        if is_closed:
+            selected_ids.add(samples[-1].id)
+        return selected_ids
+
+    @staticmethod
+    def _high_speed_runs(samples: list[GpsTrackSample]) -> list[tuple[int, int]]:
+        """Return sustained, coordinate-derived high-speed sample ranges."""
+        runs: list[tuple[int, int]] = []
+        run_start: int | None = None
+
+        for index in range(1, len(samples)):
+            is_high_speed = (
+                GpsTrackingService._inferred_speed_mps(samples, index)
+                > POST_CANDIDATE_ROAD_MAX_MPS
+            )
+            if is_high_speed and run_start is None:
+                run_start = index
+            elif not is_high_speed and run_start is not None:
+                GpsTrackingService._append_high_speed_run(
+                    runs,
+                    samples,
+                    run_start,
+                    index - 1,
+                )
+                run_start = None
+
+        if run_start is not None:
+            GpsTrackingService._append_high_speed_run(
+                runs,
+                samples,
+                run_start,
+                len(samples) - 1,
+            )
+        return runs
+
+    @staticmethod
+    def _append_high_speed_run(
+        runs: list[tuple[int, int]],
+        samples: list[GpsTrackSample],
+        first_high_speed_index: int,
+        last_high_speed_index: int,
+    ) -> None:
+        # The inferred speed at index N describes travel from N - 1 to N, so
+        # include that preceding fix in the semantic journey run.
+        start = first_high_speed_index - 1
+        end = last_high_speed_index
+        elapsed_seconds = (
+            samples[end].recorded_at - samples[start].recorded_at
+        ).total_seconds()
+        distance_meters = sum(
+            GpsTrackingService._distance_meters(
+                samples[index - 1].latitude,
+                samples[index - 1].longitude,
+                samples[index].latitude,
+                samples[index].longitude,
+            )
+            for index in range(start + 1, end + 1)
+        )
+        high_speed_samples = last_high_speed_index - first_high_speed_index + 1
+        if (
+            high_speed_samples >= POST_CANDIDATE_HIGH_SPEED_MIN_SAMPLES
+            and elapsed_seconds >= POST_CANDIDATE_HIGH_SPEED_MIN_ELAPSED_SECONDS
+            and distance_meters >= POST_CANDIDATE_HIGH_SPEED_MIN_DISTANCE_METERS
+        ):
+            runs.append((start, end))
+
+    @staticmethod
+    def _high_speed_run_midpoint(
+        samples: list[GpsTrackSample],
+        start: int,
+        end: int,
+    ) -> GpsTrackSample:
+        distances = [0.0]
+        for index in range(start + 1, end + 1):
+            distances.append(
+                distances[-1]
+                + GpsTrackingService._distance_meters(
+                    samples[index - 1].latitude,
+                    samples[index - 1].longitude,
+                    samples[index].latitude,
+                    samples[index].longitude,
+                )
+            )
+        midpoint = distances[-1] / 2
+        # GPS candidates must be existing retained samples.  When the exact
+        # midpoint falls between fixes, use the first one after halfway; that
+        # reads more naturally as an along-the-way point than the last fix
+        # before it, and converges on the exact midpoint at normal cadence.
+        midpoint_offset = next(
+            offset for offset, distance in enumerate(distances) if distance >= midpoint
+        )
+        return samples[start + midpoint_offset]
+
+    @staticmethod
+    def _inferred_speed_mps(
+        samples: list[GpsTrackSample],
+        index: int,
+    ) -> float:
+        """Estimate ground speed from a bounded trailing position window."""
+        current = samples[index]
+        start = index - 1
+        while (
+            start > 0
+            and (current.recorded_at - samples[start - 1].recorded_at).total_seconds()
+            <= POST_CANDIDATE_SPEED_WINDOW_SECONDS
+        ):
+            start -= 1
+
+        elapsed_seconds = (
+            current.recorded_at - samples[start].recorded_at
+        ).total_seconds()
+        if elapsed_seconds < POST_CANDIDATE_MIN_SPEED_WINDOW_SECONDS:
+            return 0.0
+        return (
+            GpsTrackingService._distance_meters(
+                samples[start].latitude,
+                samples[start].longitude,
+                current.latitude,
+                current.longitude,
+            )
+            / elapsed_seconds
+        )
+
+    @staticmethod
+    def _meets_candidate_spacing(
+        *,
+        speed_mps: float,
+        elapsed_seconds: float,
+        distance_meters: float,
+    ) -> bool:
+        if speed_mps <= POST_CANDIDATE_WALK_MAX_MPS:
+            return distance_meters >= POST_CANDIDATE_WALK_DISTANCE_METERS
+        if speed_mps <= POST_CANDIDATE_LOCAL_MAX_MPS:
+            return (
+                elapsed_seconds >= POST_CANDIDATE_LOCAL_ELAPSED_SECONDS
+                and distance_meters >= POST_CANDIDATE_LOCAL_DISTANCE_METERS
+            )
+        if speed_mps <= POST_CANDIDATE_ROAD_MAX_MPS:
+            return (
+                elapsed_seconds >= POST_CANDIDATE_ROAD_ELAPSED_SECONDS
+                and distance_meters >= POST_CANDIDATE_ROAD_DISTANCE_METERS
+            )
+        return False
+
+    @staticmethod
+    def _long_stay_sample_ids_for_samples(
+        samples: list[GpsTrackSample],
+    ) -> set[uuid.UUID]:
+        samples_by_session: dict[uuid.UUID, list[GpsTrackSample]] = {}
+        for sample in samples:
+            samples_by_session.setdefault(sample.session_id, []).append(sample)
+
+        return {
+            session_samples[index].id
+            for session_samples in samples_by_session.values()
+            for index in long_stay_representative_indices(
+                [
+                    TimedGpsCoordinate(
+                        recorded_at=sample.recorded_at,
+                        latitude=sample.latitude,
+                        longitude=sample.longitude,
+                        accuracy_meters=sample.accuracy_meters,
+                        speed_mps=sample.speed_mps,
+                    )
+                    for sample in session_samples
+                ]
+            )
+        }
 
     @staticmethod
     def _uniformly_thin(
@@ -755,6 +1001,7 @@ class GpsTrackingService:
         share_live_location: bool,
         displayed_gps_sample_ids: set[uuid.UUID] | None = None,
         long_stay_sample_ids: set[uuid.UUID] | None = None,
+        required_gps_sample_ids: set[uuid.UUID] | None = None,
     ) -> TimelineGeometry:
         """Build every GPS-derived route the post timeline exposes.
 
@@ -769,6 +1016,22 @@ class GpsTrackingService:
             long_stay_sample_ids = detected_long_stay_ids
         else:
             long_stay_sample_ids.update(detected_long_stay_ids)
+        closed_session_ids = {
+            anchor.session_id
+            for anchor in gps_anchors
+            if anchor.session_id is not None and anchor.session_id != open_session_id
+        }
+        semantic_candidate_ids = {
+            anchor.id
+            for anchor in self._select_post_candidates(
+                gps_anchors,
+                priority_sample_ids=detected_long_stay_ids,
+                closed_session_ids=closed_session_ids,
+            )
+        }
+        preserved_gps_sample_ids = set(long_stay_sample_ids)
+        preserved_gps_sample_ids.update(semantic_candidate_ids)
+        preserved_gps_sample_ids.update(required_gps_sample_ids or set())
 
         post_anchors = [self._post_anchor(post) for post in posts]
 
@@ -779,14 +1042,14 @@ class GpsTrackingService:
                 is_member=is_member,
                 share_live_location=share_live_location,
                 displayed_gps_sample_ids=displayed_gps_sample_ids,
-                long_stay_sample_ids=long_stay_sample_ids,
+                long_stay_sample_ids=preserved_gps_sample_ids,
             )
 
         opening_segments = self._build_opening_route(
             gps_anchors=gps_anchors,
             first_post=post_anchors[0],
             displayed_gps_sample_ids=displayed_gps_sample_ids,
-            long_stay_sample_ids=long_stay_sample_ids,
+            long_stay_sample_ids=preserved_gps_sample_ids,
         )
         transition_segments: dict[int, list[PostTimelineRouteSegmentResponse]] = {}
         for index in range(len(post_anchors) - 1):
@@ -795,7 +1058,7 @@ class GpsTrackingService:
                 post_a=post_anchors[index],
                 post_b=post_anchors[index + 1],
                 displayed_gps_sample_ids=displayed_gps_sample_ids,
-                long_stay_sample_ids=long_stay_sample_ids,
+                long_stay_sample_ids=preserved_gps_sample_ids,
             )
 
         final_segments, final_route_has_open_endpoint = self._build_final_route(
@@ -805,7 +1068,7 @@ class GpsTrackingService:
             is_member=is_member,
             share_live_location=share_live_location,
             displayed_gps_sample_ids=displayed_gps_sample_ids,
-            long_stay_sample_ids=long_stay_sample_ids,
+            long_stay_sample_ids=preserved_gps_sample_ids,
         )
 
         return TimelineGeometry(
