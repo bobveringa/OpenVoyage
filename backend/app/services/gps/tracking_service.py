@@ -7,10 +7,9 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from math import asin, cos, radians, sin, sqrt
 
 from sqlalchemy import delete, func, or_, select, update
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from models.api.geojson import GeoJsonLineString
 from models.api.posts import PostTimelineRouteSegmentResponse
@@ -25,13 +24,12 @@ from models.database.posts import Post
 from models.database.gps_tracking import GpsTrackingSession, GpsTrackSample
 from models.database.travel import TravelMode
 from models.database.trips import Trip, TripMember
+from services.gps.derived_track import (
+    SessionTrackPoint,
+    derive_session_track,
+)
 from services.gps.geometry import simplify_line_indices
 from services.gps.privacy_zone_service import GpsPrivacyZoneService
-from services.gps.stationary_compaction import (
-    TimedGpsCoordinate,
-    compact_stationary_indices,
-    long_stay_representative_indices,
-)
 from services.trip_access import get_membership, get_trip_read_access
 from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
@@ -46,23 +44,6 @@ logger = logging.getLogger(__name__)
 # session) — it is deliberately far too small to mask a genuinely wrong
 # clock, which after correction is off by minutes or hours, not seconds.
 SAMPLE_TIME_TOLERANCE = timedelta(seconds=5)
-
-# Post candidates are editorial prompts, not a rendering of every part of a
-# route.  These bands are calculated from recorded positions and timestamps;
-# client-supplied travel modes and speeds are deliberately not used here.
-POST_CANDIDATE_SPEED_WINDOW_SECONDS = 5 * 60
-POST_CANDIDATE_MIN_SPEED_WINDOW_SECONDS = 2 * 60
-POST_CANDIDATE_WALK_MAX_MPS = 2.5  # 9 km/h
-POST_CANDIDATE_LOCAL_MAX_MPS = 12.5  # 45 km/h
-POST_CANDIDATE_ROAD_MAX_MPS = 50.0  # 180 km/h
-POST_CANDIDATE_WALK_DISTANCE_METERS = 1_000
-POST_CANDIDATE_LOCAL_DISTANCE_METERS = 5_000
-POST_CANDIDATE_LOCAL_ELAPSED_SECONDS = 20 * 60
-POST_CANDIDATE_ROAD_DISTANCE_METERS = 75_000
-POST_CANDIDATE_ROAD_ELAPSED_SECONDS = 45 * 60
-POST_CANDIDATE_HIGH_SPEED_MIN_DISTANCE_METERS = 100_000
-POST_CANDIDATE_HIGH_SPEED_MIN_ELAPSED_SECONDS = 15 * 60
-POST_CANDIDATE_HIGH_SPEED_MIN_SAMPLES = 2
 
 
 class TrackingPermissionError(Exception):
@@ -117,6 +98,9 @@ class _Anchor:
     accuracy_meters: float | None = None
     speed_mps: float | None = None
     sample_id: uuid.UUID | None = None
+    # A long stay or a post candidate. Simplification must keep these even when
+    # they are collinear with the route, so a marker never sits off the line.
+    is_semantic_marker: bool = False
 
     @property
     def id(self) -> uuid.UUID:
@@ -283,6 +267,9 @@ class GpsTrackingService:
             )
             existing.ended_at = resolved_end
             self.db.add(existing)
+            # Closing a session settles its final point and any journey that was
+            # still under way, so its candidates change on the way out.
+            self._refresh_session_derived_track(existing)
             self.db.commit()
         return SessionSummary(
             session=existing,
@@ -435,6 +422,9 @@ class GpsTrackingService:
             )
             accepted += 1
 
+        if accepted:
+            self.db.flush()
+            self._refresh_session_derived_track(session)
         self.db.commit()
         return SampleBatchResult(
             accepted=accepted,
@@ -509,13 +499,13 @@ class GpsTrackingService:
     ) -> list[GpsTrackSample]:
         """Return a small, useful set of GPS samples for starting posts.
 
-        Candidates come only from the display geometry used by the timeline, so
-        a marker cannot float at a GPS fix that stationary compaction or line
-        simplification has removed. Long stays are retained as priority
-        candidates; regular route coverage is then sampled every ten minutes or
-        kilometre, with a hard UI-safe limit. Both tracking-read and post-create
-        permissions are required: timestamps are private tracking data, and the
-        map only presents them as post actions.
+        The selection was made when the points were recorded, so this is an
+        indexed read of an already-small set rather than a scan of the trip's
+        whole history. Candidates are stored as required points of the display
+        track, so a marker here can never float at a fix the drawn route has
+        dropped. Both tracking-read and post-create permissions are required:
+        timestamps are private tracking data, and the map only presents them as
+        post actions.
         """
         self._require_trip_permission(
             trip_id=trip_id,
@@ -527,10 +517,13 @@ class GpsTrackingService:
             user_id=current_user_id,
             permission=TripPermission.CREATE_POST,
         )
-        samples = list(
+        candidates = list(
             self.db.execute(
                 select(GpsTrackSample)
-                .where(GpsTrackSample.trip_id == trip_id)
+                .where(
+                    GpsTrackSample.trip_id == trip_id,
+                    GpsTrackSample.is_post_candidate,
+                )
                 .order_by(
                     GpsTrackSample.recorded_at.asc(),
                     GpsTrackSample.session_id.asc(),
@@ -540,325 +533,132 @@ class GpsTrackingService:
             .scalars()
             .all()
         )
-        if not samples:
-            return []
-
-        posts = list(
-            self.db.execute(
-                select(Post)
-                .options(joinedload(Post.location))
-                .where(
-                    Post.trip_id == trip_id,
-                    Post.published_at.is_not(None),
-                )
-                .order_by(Post.occurred_at.asc(), Post.id.asc())
-            )
-            .scalars()
-            .all()
-        )
-        closed_session_ids = set(
-            self.db.execute(
-                select(GpsTrackingSession.id).where(
-                    GpsTrackingSession.trip_id == trip_id,
-                    GpsTrackingSession.ended_at.is_not(None),
-                )
-            )
-            .scalars()
-            .all()
-        )
-        long_stay_sample_ids = self._long_stay_sample_ids_for_samples(samples)
-        selected = self._select_post_candidates(
-            samples,
-            priority_sample_ids=long_stay_sample_ids,
-            closed_session_ids=closed_session_ids,
-        )
-        selected_ids = {sample.id for sample in selected}
-        displayed_sample_ids: set[uuid.UUID] = set()
-        self.build_timeline_geometry(
-            trip_id=trip_id,
-            posts=posts,
-            is_member=True,
-            share_live_location=True,
-            displayed_gps_sample_ids=displayed_sample_ids,
-            # Candidate points are semantic map markers.  Preserve them in
-            # the route geometry before Douglas-Peucker simplification, so a
-            # high-speed midpoint cannot disappear from a straight track.
-            required_gps_sample_ids=selected_ids,
-        )
-        return [sample for sample in selected if sample.id in displayed_sample_ids]
+        if len(candidates) <= MAX_POST_CANDIDATES:
+            return candidates
+        return self._thin_post_candidates(candidates)
 
     @staticmethod
-    def _select_post_candidates(
-        samples: list[GpsTrackSample],
-        *,
-        priority_sample_ids: set[uuid.UUID] | None = None,
-        closed_session_ids: set[uuid.UUID] | None = None,
+    def _thin_post_candidates(
+        candidates: list[GpsTrackSample],
     ) -> list[GpsTrackSample]:
-        """Choose editorial post prompts from inferred movement speed.
+        """Reduce a trip-wide candidate list to what the map can usefully show.
 
-        The client-provided travel mode and instantaneous speed are not used:
-        both are advisory data.  Coordinate-derived speed is intentionally
-        measured across a small trailing window so a single noisy fix cannot
-        turn a walk into a flight.
+        Long stays are where a traveller actually spent time, so they survive
+        ahead of ordinary route coverage. Only when they alone overflow the
+        limit are they thinned against each other.
         """
-        priority_sample_ids = priority_sample_ids or set()
-        closed_session_ids = closed_session_ids or set()
-        samples_by_session: dict[uuid.UUID, list[GpsTrackSample]] = {}
-        for sample in samples:
-            samples_by_session.setdefault(sample.session_id, []).append(sample)
-
-        selected_ids: set[uuid.UUID] = set(priority_sample_ids)
-        for session_id, session_samples in samples_by_session.items():
-            selected_ids.update(
-                GpsTrackingService._select_session_post_candidate_ids(
-                    session_samples,
-                    is_closed=session_id in closed_session_ids,
-                )
-            )
-
-        priority = [sample for sample in samples if sample.id in priority_sample_ids]
-        priority_ids = {sample.id for sample in priority}
-        regular = [
-            sample
-            for sample in samples
-            if sample.id in selected_ids and sample.id not in priority_ids
-        ]
-
+        priority = [sample for sample in candidates if sample.is_long_stay]
         if len(priority) >= MAX_POST_CANDIDATES:
-            return GpsTrackingService._uniformly_thin(
-                priority,
-                MAX_POST_CANDIDATES,
-            )
-        if len(priority) + len(regular) <= MAX_POST_CANDIDATES:
-            selected_ids = {sample.id for sample in [*priority, *regular]}
-            return [sample for sample in samples if sample.id in selected_ids]
+            return GpsTrackingService._uniformly_thin(priority, MAX_POST_CANDIDATES)
 
-        thinned_regular = GpsTrackingService._uniformly_thin(
+        regular = [sample for sample in candidates if not sample.is_long_stay]
+        thinned = GpsTrackingService._uniformly_thin(
             regular,
             MAX_POST_CANDIDATES - len(priority),
         )
-        selected_ids = {sample.id for sample in [*priority, *thinned_regular]}
-        return [sample for sample in samples if sample.id in selected_ids]
+        kept = {sample.id for sample in (*priority, *thinned)}
+        return [sample for sample in candidates if sample.id in kept]
 
-    @staticmethod
-    def _select_session_post_candidate_ids(
-        samples: list[GpsTrackSample],
-        *,
-        is_closed: bool,
-    ) -> set[uuid.UUID]:
-        """Select sparse candidates for one chronological recording session."""
-        if not samples:
-            return set()
+    # ------------------------------------------------------------------
+    # Derived track maintenance
+    # ------------------------------------------------------------------
+    def _refresh_session_derived_track(self, session: GpsTrackingSession) -> None:
+        """Recompute and store one session's derived flags.
 
-        selected_ids = {samples[0].id}
-        high_speed_runs = GpsTrackingService._high_speed_runs(samples)
-        high_speed_sample_ids = {
-            samples[index].id
-            for start, end in high_speed_runs
-            for index in range(start, end + 1)
-        }
+        This runs on the write path, inside the caller's transaction, so a read
+        can never find a session's drawn track disagreeing with its points.
 
-        last_regular = samples[0]
-        for index, sample in enumerate(samples[1:], start=1):
-            if sample.id in high_speed_sample_ids:
-                continue
-
-            speed_mps = GpsTrackingService._inferred_speed_mps(samples, index)
-            elapsed_seconds = (
-                sample.recorded_at - last_regular.recorded_at
-            ).total_seconds()
-            distance_meters = GpsTrackingService._distance_meters(
-                last_regular.latitude,
-                last_regular.longitude,
-                sample.latitude,
-                sample.longitude,
+        The whole session is re-derived rather than only its new tail. A stop or
+        a high-speed run is only recognisable once it has ended, so the last
+        points of a batch routinely change what earlier ones mean, and an
+        incremental update would have to keep enough suspended state to undo
+        that anyway.
+        """
+        rows = self.db.execute(
+            select(
+                GpsTrackSample.id,
+                GpsTrackSample.recorded_at,
+                GpsTrackSample.latitude,
+                GpsTrackSample.longitude,
+                GpsTrackSample.accuracy_meters,
+                GpsTrackSample.speed_mps,
+                GpsTrackSample.travel_mode,
+                GpsTrackSample.is_long_stay,
+                GpsTrackSample.is_post_candidate,
+                GpsTrackSample.is_display_retained,
             )
-            if GpsTrackingService._meets_candidate_spacing(
-                speed_mps=speed_mps,
-                elapsed_seconds=elapsed_seconds,
-                distance_meters=distance_meters,
-            ):
-                selected_ids.add(sample.id)
-                last_regular = sample
+            .where(GpsTrackSample.session_id == session.id)
+            .order_by(
+                GpsTrackSample.recorded_at.asc(),
+                GpsTrackSample.id.asc(),
+            )
+        ).all()
+        if not rows:
+            return
 
-        for start, end in high_speed_runs:
-            if not is_closed and end == len(samples) - 1:
-                # A live high-speed journey has no stable midpoint yet.  Its
-                # current endpoint is the useful "post along the way" prompt.
-                selected_ids.add(samples[end].id)
-            else:
-                selected_ids.add(
-                    GpsTrackingService._high_speed_run_midpoint(samples, start, end).id
+        derived = derive_session_track(
+            [
+                SessionTrackPoint(
+                    id=row.id,
+                    recorded_at=row.recorded_at,
+                    latitude=row.latitude,
+                    longitude=row.longitude,
+                    accuracy_meters=row.accuracy_meters,
+                    speed_mps=row.speed_mps,
+                    travel_mode=row.travel_mode,
                 )
+                for row in rows
+            ],
+            is_closed=session.ended_at is not None,
+        )
 
-        if is_closed:
-            selected_ids.add(samples[-1].id)
-        return selected_ids
-
-    @staticmethod
-    def _high_speed_runs(samples: list[GpsTrackSample]) -> list[tuple[int, int]]:
-        """Return sustained, coordinate-derived high-speed sample ranges."""
-        runs: list[tuple[int, int]] = []
-        run_start: int | None = None
-
-        for index in range(1, len(samples)):
-            is_high_speed = (
-                GpsTrackingService._inferred_speed_mps(samples, index)
-                > POST_CANDIDATE_ROAD_MAX_MPS
+        # Group by the flag triple actually wanted, so a batch that changes
+        # nothing writes nothing and one that does costs at most eight
+        # statements no matter how long the session is.
+        by_flags: dict[tuple[bool, bool, bool], list[uuid.UUID]] = {}
+        for row in rows:
+            wanted = (
+                row.id in derived.long_stay_ids,
+                row.id in derived.post_candidate_ids,
+                row.id in derived.display_retained_ids,
             )
-            if is_high_speed and run_start is None:
-                run_start = index
-            elif not is_high_speed and run_start is not None:
-                GpsTrackingService._append_high_speed_run(
-                    runs,
-                    samples,
-                    run_start,
-                    index - 1,
+            current = (
+                row.is_long_stay,
+                row.is_post_candidate,
+                row.is_display_retained,
+            )
+            if wanted != current:
+                by_flags.setdefault(wanted, []).append(row.id)
+
+        for (long_stay, candidate, retained), sample_ids in by_flags.items():
+            self.db.execute(
+                update(GpsTrackSample)
+                .where(GpsTrackSample.id.in_(sample_ids))
+                .values(
+                    is_long_stay=long_stay,
+                    is_post_candidate=candidate,
+                    is_display_retained=retained,
                 )
-                run_start = None
-
-        if run_start is not None:
-            GpsTrackingService._append_high_speed_run(
-                runs,
-                samples,
-                run_start,
-                len(samples) - 1,
             )
-        return runs
 
-    @staticmethod
-    def _append_high_speed_run(
-        runs: list[tuple[int, int]],
-        samples: list[GpsTrackSample],
-        first_high_speed_index: int,
-        last_high_speed_index: int,
+    def _refresh_derived_tracks_for_sessions(
+        self,
+        session_ids: set[uuid.UUID],
     ) -> None:
-        # The inferred speed at index N describes travel from N - 1 to N, so
-        # include that preceding fix in the semantic journey run.
-        start = first_high_speed_index - 1
-        end = last_high_speed_index
-        elapsed_seconds = (
-            samples[end].recorded_at - samples[start].recorded_at
-        ).total_seconds()
-        distance_meters = sum(
-            GpsTrackingService._distance_meters(
-                samples[index - 1].latitude,
-                samples[index - 1].longitude,
-                samples[index].latitude,
-                samples[index].longitude,
-            )
-            for index in range(start + 1, end + 1)
-        )
-        high_speed_samples = last_high_speed_index - first_high_speed_index + 1
-        if (
-            high_speed_samples >= POST_CANDIDATE_HIGH_SPEED_MIN_SAMPLES
-            and elapsed_seconds >= POST_CANDIDATE_HIGH_SPEED_MIN_ELAPSED_SECONDS
-            and distance_meters >= POST_CANDIDATE_HIGH_SPEED_MIN_DISTANCE_METERS
-        ):
-            runs.append((start, end))
-
-    @staticmethod
-    def _high_speed_run_midpoint(
-        samples: list[GpsTrackSample],
-        start: int,
-        end: int,
-    ) -> GpsTrackSample:
-        distances = [0.0]
-        for index in range(start + 1, end + 1):
-            distances.append(
-                distances[-1]
-                + GpsTrackingService._distance_meters(
-                    samples[index - 1].latitude,
-                    samples[index - 1].longitude,
-                    samples[index].latitude,
-                    samples[index].longitude,
+        """Refresh every named session that still exists."""
+        if not session_ids:
+            return
+        sessions = (
+            self.db.execute(
+                select(GpsTrackingSession).where(
+                    GpsTrackingSession.id.in_(session_ids)
                 )
             )
-        midpoint = distances[-1] / 2
-        # GPS candidates must be existing retained samples.  When the exact
-        # midpoint falls between fixes, use the first one after halfway; that
-        # reads more naturally as an along-the-way point than the last fix
-        # before it, and converges on the exact midpoint at normal cadence.
-        midpoint_offset = next(
-            offset for offset, distance in enumerate(distances) if distance >= midpoint
+            .scalars()
+            .all()
         )
-        return samples[start + midpoint_offset]
-
-    @staticmethod
-    def _inferred_speed_mps(
-        samples: list[GpsTrackSample],
-        index: int,
-    ) -> float:
-        """Estimate ground speed from a bounded trailing position window."""
-        current = samples[index]
-        start = index - 1
-        while (
-            start > 0
-            and (current.recorded_at - samples[start - 1].recorded_at).total_seconds()
-            <= POST_CANDIDATE_SPEED_WINDOW_SECONDS
-        ):
-            start -= 1
-
-        elapsed_seconds = (
-            current.recorded_at - samples[start].recorded_at
-        ).total_seconds()
-        if elapsed_seconds < POST_CANDIDATE_MIN_SPEED_WINDOW_SECONDS:
-            return 0.0
-        return (
-            GpsTrackingService._distance_meters(
-                samples[start].latitude,
-                samples[start].longitude,
-                current.latitude,
-                current.longitude,
-            )
-            / elapsed_seconds
-        )
-
-    @staticmethod
-    def _meets_candidate_spacing(
-        *,
-        speed_mps: float,
-        elapsed_seconds: float,
-        distance_meters: float,
-    ) -> bool:
-        if speed_mps <= POST_CANDIDATE_WALK_MAX_MPS:
-            return distance_meters >= POST_CANDIDATE_WALK_DISTANCE_METERS
-        if speed_mps <= POST_CANDIDATE_LOCAL_MAX_MPS:
-            return (
-                elapsed_seconds >= POST_CANDIDATE_LOCAL_ELAPSED_SECONDS
-                and distance_meters >= POST_CANDIDATE_LOCAL_DISTANCE_METERS
-            )
-        if speed_mps <= POST_CANDIDATE_ROAD_MAX_MPS:
-            return (
-                elapsed_seconds >= POST_CANDIDATE_ROAD_ELAPSED_SECONDS
-                and distance_meters >= POST_CANDIDATE_ROAD_DISTANCE_METERS
-            )
-        return False
-
-    @staticmethod
-    def _long_stay_sample_ids_for_samples(
-        samples: list[GpsTrackSample],
-    ) -> set[uuid.UUID]:
-        samples_by_session: dict[uuid.UUID, list[GpsTrackSample]] = {}
-        for sample in samples:
-            samples_by_session.setdefault(sample.session_id, []).append(sample)
-
-        return {
-            session_samples[index].id
-            for session_samples in samples_by_session.values()
-            for index in long_stay_representative_indices(
-                [
-                    TimedGpsCoordinate(
-                        recorded_at=sample.recorded_at,
-                        latitude=sample.latitude,
-                        longitude=sample.longitude,
-                        accuracy_meters=sample.accuracy_meters,
-                        speed_mps=sample.speed_mps,
-                    )
-                    for sample in session_samples
-                ]
-            )
-        }
+        for session in sessions:
+            self._refresh_session_derived_track(session)
 
     @staticmethod
     def _uniformly_thin(
@@ -871,23 +671,6 @@ class GpsTrackingService:
             return [samples[0]]
         step = (len(samples) - 1) / (limit - 1)
         return [samples[round(index * step)] for index in range(limit)]
-
-    @staticmethod
-    def _distance_meters(
-        latitude_a: float,
-        longitude_a: float,
-        latitude_b: float,
-        longitude_b: float,
-    ) -> float:
-        latitude_delta = radians(latitude_b - latitude_a)
-        longitude_delta = radians(longitude_b - longitude_a)
-        a = (
-            sin(latitude_delta / 2) ** 2
-            + cos(radians(latitude_a))
-            * cos(radians(latitude_b))
-            * sin(longitude_delta / 2) ** 2
-        )
-        return 6_371_000 * 2 * asin(sqrt(a))
 
     @staticmethod
     def _encode_cursor(recorded_at: datetime, sample_id: uuid.UUID) -> str:
@@ -930,7 +713,14 @@ class GpsTrackingService:
             user_id=current_user_id,
             permission=TripPermission.MANAGE_TRACKING,
         )
-        self._require_all_samples_in_trip(trip_id=trip_id, sample_ids=sample_ids)
+        # Both edits re-derive a whole session, so they take the same trip lock
+        # uploads do rather than letting two of them interleave a read of the
+        # old points with a write of the new flags.
+        self._lock_trip(trip_id)
+        affected_session_ids = self._require_all_samples_in_trip(
+            trip_id=trip_id,
+            sample_ids=sample_ids,
+        )
         self.db.execute(
             update(GpsTrackSample)
             .where(
@@ -939,6 +729,9 @@ class GpsTrackingService:
             )
             .values(travel_mode=travel_mode, updated_at=utcnow())
         )
+        # Travel mode splits the track into separately simplified stretches, so
+        # changing it changes which points are drawn.
+        self._refresh_derived_tracks_for_sessions(affected_session_ids)
         self.db.commit()
         return len(sample_ids)
 
@@ -954,13 +747,18 @@ class GpsTrackingService:
             user_id=current_user_id,
             permission=TripPermission.MANAGE_TRACKING,
         )
-        self._require_all_samples_in_trip(trip_id=trip_id, sample_ids=sample_ids)
+        self._lock_trip(trip_id)
+        affected_session_ids = self._require_all_samples_in_trip(
+            trip_id=trip_id,
+            sample_ids=sample_ids,
+        )
         self.db.execute(
             delete(GpsTrackSample).where(
                 GpsTrackSample.trip_id == trip_id,
                 GpsTrackSample.id.in_(sample_ids),
             )
         )
+        self._refresh_derived_tracks_for_sessions(affected_session_ids)
         self.db.commit()
         return len(sample_ids)
 
@@ -969,13 +767,27 @@ class GpsTrackingService:
         *,
         trip_id: uuid.UUID,
         sample_ids: list[uuid.UUID],
-    ) -> None:
+    ) -> set[uuid.UUID]:
         """Reject the whole request unless every id is retained in this trip.
 
-        The denormalized ``trip_id`` makes this a single indexed count with no
+        The denormalized ``trip_id`` makes this a single indexed lookup with no
         session join, and one status for missing/deleted/other-trip ids keeps
         the endpoint from confirming another trip's samples.
+
+        Returns:
+            The sessions the named samples belong to, which are the ones whose
+            derived track the caller is about to invalidate.
         """
+        session_ids = set(
+            self.db.execute(
+                select(GpsTrackSample.session_id).where(
+                    GpsTrackSample.trip_id == trip_id,
+                    GpsTrackSample.id.in_(sample_ids),
+                )
+            )
+            .scalars()
+            .all()
+        )
         found = self.db.execute(
             select(func.count())
             .select_from(GpsTrackSample)
@@ -988,6 +800,7 @@ class GpsTrackingService:
             raise TrackSampleNotFoundError(
                 'Every sample id must be a retained point in this trip'
             )
+        return session_ids
 
     # ------------------------------------------------------------------
     # Timeline geometry
@@ -999,39 +812,17 @@ class GpsTrackingService:
         posts: list[Post],
         is_member: bool,
         share_live_location: bool,
-        displayed_gps_sample_ids: set[uuid.UUID] | None = None,
-        long_stay_sample_ids: set[uuid.UUID] | None = None,
-        required_gps_sample_ids: set[uuid.UUID] | None = None,
     ) -> TimelineGeometry:
         """Build every GPS-derived route the post timeline exposes.
 
-        Loads the trip's retained points once and slices them in Python rather
-        than issuing a query per post interval.
+        Loads the trip's display track once — the points marked as retained when
+        they were recorded, not its whole raw history — and slices it in Python
+        rather than issuing a query per post interval. Which points that is, and
+        which of them are semantic markers, were both decided on the write path.
         """
         open_session = self._get_open_session(trip_id)
         open_session_id = open_session.id if open_session is not None else None
         gps_anchors = self._load_gps_anchors(trip_id)
-        detected_long_stay_ids = self._long_stay_sample_ids(gps_anchors)
-        if long_stay_sample_ids is None:
-            long_stay_sample_ids = detected_long_stay_ids
-        else:
-            long_stay_sample_ids.update(detected_long_stay_ids)
-        closed_session_ids = {
-            anchor.session_id
-            for anchor in gps_anchors
-            if anchor.session_id is not None and anchor.session_id != open_session_id
-        }
-        semantic_candidate_ids = {
-            anchor.id
-            for anchor in self._select_post_candidates(
-                gps_anchors,
-                priority_sample_ids=detected_long_stay_ids,
-                closed_session_ids=closed_session_ids,
-            )
-        }
-        preserved_gps_sample_ids = set(long_stay_sample_ids)
-        preserved_gps_sample_ids.update(semantic_candidate_ids)
-        preserved_gps_sample_ids.update(required_gps_sample_ids or set())
 
         post_anchors = [self._post_anchor(post) for post in posts]
 
@@ -1041,15 +832,11 @@ class GpsTrackingService:
                 open_session_id=open_session_id,
                 is_member=is_member,
                 share_live_location=share_live_location,
-                displayed_gps_sample_ids=displayed_gps_sample_ids,
-                long_stay_sample_ids=preserved_gps_sample_ids,
             )
 
         opening_segments = self._build_opening_route(
             gps_anchors=gps_anchors,
             first_post=post_anchors[0],
-            displayed_gps_sample_ids=displayed_gps_sample_ids,
-            long_stay_sample_ids=preserved_gps_sample_ids,
         )
         transition_segments: dict[int, list[PostTimelineRouteSegmentResponse]] = {}
         for index in range(len(post_anchors) - 1):
@@ -1057,8 +844,6 @@ class GpsTrackingService:
                 gps_anchors=gps_anchors,
                 post_a=post_anchors[index],
                 post_b=post_anchors[index + 1],
-                displayed_gps_sample_ids=displayed_gps_sample_ids,
-                long_stay_sample_ids=preserved_gps_sample_ids,
             )
 
         final_segments, final_route_has_open_endpoint = self._build_final_route(
@@ -1067,8 +852,6 @@ class GpsTrackingService:
             open_session_id=open_session_id,
             is_member=is_member,
             share_live_location=share_live_location,
-            displayed_gps_sample_ids=displayed_gps_sample_ids,
-            long_stay_sample_ids=preserved_gps_sample_ids,
         )
 
         return TimelineGeometry(
@@ -1085,8 +868,6 @@ class GpsTrackingService:
         open_session_id: uuid.UUID | None,
         is_member: bool,
         share_live_location: bool,
-        displayed_gps_sample_ids: set[uuid.UUID] | None,
-        long_stay_sample_ids: set[uuid.UUID],
     ) -> TimelineGeometry:
         """The whole retained path, because no post divides history from now.
 
@@ -1105,10 +886,8 @@ class GpsTrackingService:
                 member_only_session_id=(
                     open_session_id if is_member and not share_live_location else None
                 ),
-                displayed_gps_sample_ids=displayed_gps_sample_ids,
-                long_stay_sample_ids=long_stay_sample_ids,
             )
-            if len(anchors) >= 2
+            if self._is_drawable_path(anchors)
             else None
         )
         opening_has_open_endpoint = segments is not None and any(
@@ -1121,13 +900,27 @@ class GpsTrackingService:
             carries_unbounded_open_geometry=opening_has_open_endpoint,
         )
 
+    def _is_drawable_path(self, anchors: list[_Anchor]) -> bool:
+        """Whether an unbounded path has enough behind it to draw at all.
+
+        Two points make a line. So does one, but only when compaction reduced a
+        confirmed stop down to it: a single raw fix is a position rather than a
+        route, and drawing it would claim more than one reading supports. The
+        count only runs for a trip whose entire display track is that one point,
+        so it never touches the ordinary path.
+        """
+        if len(anchors) >= 2:
+            return True
+        if not anchors:
+            return False
+        session_id = anchors[0].session_id
+        return session_id is not None and self._count_samples(session_id) > 1
+
     def _build_opening_route(
         self,
         *,
         gps_anchors: list[_Anchor],
         first_post: _Anchor,
-        displayed_gps_sample_ids: set[uuid.UUID] | None,
-        long_stay_sample_ids: set[uuid.UUID],
     ) -> list[PostTimelineRouteSegmentResponse] | None:
         """Every retained point before the first visible post, then that post.
 
@@ -1143,8 +936,6 @@ class GpsTrackingService:
             return None
         return self._segments_from_anchors(
             [*leading, first_post],
-            displayed_gps_sample_ids=displayed_gps_sample_ids,
-            long_stay_sample_ids=long_stay_sample_ids,
         )
 
     def _build_transition(
@@ -1153,8 +944,6 @@ class GpsTrackingService:
         gps_anchors: list[_Anchor],
         post_a: _Anchor,
         post_b: _Anchor,
-        displayed_gps_sample_ids: set[uuid.UUID] | None,
-        long_stay_sample_ids: set[uuid.UUID],
     ) -> list[PostTimelineRouteSegmentResponse]:
         between = [
             anchor
@@ -1165,8 +954,6 @@ class GpsTrackingService:
         # produces the existing straight UNKNOWN post-to-post segment.
         return self._segments_from_anchors(
             [post_a, *between, post_b],
-            displayed_gps_sample_ids=displayed_gps_sample_ids,
-            long_stay_sample_ids=long_stay_sample_ids,
         )
 
     def _build_final_route(
@@ -1177,8 +964,6 @@ class GpsTrackingService:
         open_session_id: uuid.UUID | None,
         is_member: bool,
         share_live_location: bool,
-        displayed_gps_sample_ids: set[uuid.UUID] | None,
-        long_stay_sample_ids: set[uuid.UUID],
     ) -> tuple[list[PostTimelineRouteSegmentResponse] | None, bool]:
         # Members always see the trip's trailing path. Other readers only see
         # it when live-location sharing is enabled.
@@ -1195,8 +980,6 @@ class GpsTrackingService:
             self._segments_from_anchors(
                 [final_post, *trailing],
                 visible_to_members_only=is_member and not share_live_location,
-                displayed_gps_sample_ids=displayed_gps_sample_ids,
-                long_stay_sample_ids=long_stay_sample_ids,
             ),
             open_session_id is not None and trailing[-1].session_id == open_session_id,
         )
@@ -1218,6 +1001,13 @@ class GpsTrackingService:
         )
 
     def _load_gps_anchors(self, trip_id: uuid.UUID) -> list[_Anchor]:
+        """Load the trip's display track, newest schema flags included.
+
+        Only points marked ``is_display_retained`` are read. They are the ones
+        simplification kept when the session was recorded, so this stays
+        proportional to the drawn route rather than to how long the trip has
+        been recording.
+        """
         rows = self.db.execute(
             select(
                 GpsTrackSample.recorded_at,
@@ -1228,6 +1018,7 @@ class GpsTrackingService:
                 GpsTrackSample.speed_mps,
                 GpsTrackSample.travel_mode,
                 GpsTrackSample.session_id,
+                GpsTrackSample.is_post_candidate,
                 GpsTrackingSession.started_at,
             )
             .join(
@@ -1236,6 +1027,7 @@ class GpsTrackingService:
             )
             .where(
                 GpsTrackSample.trip_id == trip_id,
+                GpsTrackSample.is_display_retained,
             )
             .order_by(
                 GpsTrackSample.recorded_at.asc(),
@@ -1266,6 +1058,9 @@ class GpsTrackingService:
                 accuracy_meters=row.accuracy_meters,
                 speed_mps=row.speed_mps,
                 sample_id=row.id,
+                # Long stays are stored as candidates too, so this one column
+                # covers every marker simplification has to preserve.
+                is_semantic_marker=row.is_post_candidate,
             )
             for row in rows
         ]
@@ -1276,10 +1071,25 @@ class GpsTrackingService:
         *,
         visible_to_members_only: bool = False,
         member_only_session_id: uuid.UUID | None = None,
-        displayed_gps_sample_ids: set[uuid.UUID] | None = None,
-        long_stay_sample_ids: set[uuid.UUID] | None = None,
     ) -> list[PostTimelineRouteSegmentResponse]:
         """Turn a chronological anchor list into mode-split, simplified segments."""
+        if len(anchors) == 1:
+            # A session that never left one place compacts to a single stored
+            # point. That is still somewhere the traveller was, so it is drawn
+            # as a degenerate line rather than dropped.
+            only = anchors[0]
+            return [
+                self._segment(
+                    only.travel_mode or TravelMode.UNKNOWN,
+                    [only],
+                    visible_to_members_only=visible_to_members_only
+                    or (
+                        member_only_session_id is not None
+                        and only.session_id == member_only_session_id
+                    ),
+                )
+            ]
+
         segments: list[PostTimelineRouteSegmentResponse] = []
         current_mode = self._edge_mode(anchors[0], anchors[1])
         current_member_only = visible_to_members_only or (
@@ -1300,8 +1110,6 @@ class GpsTrackingService:
                         current_mode,
                         current,
                         visible_to_members_only=current_member_only,
-                        displayed_gps_sample_ids=displayed_gps_sample_ids,
-                        long_stay_sample_ids=long_stay_sample_ids,
                     )
                 )
                 # The boundary coordinate belongs to both adjacent segments.
@@ -1315,8 +1123,6 @@ class GpsTrackingService:
                 current_mode,
                 current,
                 visible_to_members_only=current_member_only,
-                displayed_gps_sample_ids=displayed_gps_sample_ids,
-                long_stay_sample_ids=long_stay_sample_ids,
             )
         )
         return segments
@@ -1332,55 +1138,6 @@ class GpsTrackingService:
             return source.travel_mode or TravelMode.UNKNOWN
         return TravelMode.UNKNOWN
 
-    @staticmethod
-    def _compact_stationary_anchors(
-        anchors: list[_Anchor],
-        *,
-        long_stay_sample_ids: set[uuid.UUID],
-    ) -> list[_Anchor]:
-        """Compact only consecutive GPS anchors with identical hard boundaries."""
-        compacted: list[_Anchor] = []
-        partition: list[_Anchor] = []
-
-        def flush_partition() -> None:
-            if not partition:
-                return
-            indices = compact_stationary_indices(
-                [
-                    TimedGpsCoordinate(
-                        recorded_at=anchor.recorded_at,
-                        latitude=anchor.latitude,
-                        longitude=anchor.longitude,
-                        accuracy_meters=anchor.accuracy_meters,
-                        speed_mps=anchor.speed_mps,
-                    )
-                    for anchor in partition
-                ],
-            )
-            retained_ids = set(indices)
-            retained_ids.update(
-                index
-                for index, anchor in enumerate(partition)
-                if anchor.sample_id in long_stay_sample_ids
-            )
-            compacted.extend(partition[index] for index in sorted(retained_ids))
-            partition.clear()
-
-        for anchor in anchors:
-            if anchor.is_post:
-                flush_partition()
-                compacted.append(anchor)
-                continue
-            if partition and (
-                anchor.session_id != partition[-1].session_id
-                or anchor.travel_mode != partition[-1].travel_mode
-            ):
-                flush_partition()
-            partition.append(anchor)
-
-        flush_partition()
-        return compacted
-
     @classmethod
     def _segment(
         cls,
@@ -1388,74 +1145,52 @@ class GpsTrackingService:
         anchors: list[_Anchor],
         *,
         visible_to_members_only: bool = False,
-        displayed_gps_sample_ids: set[uuid.UUID] | None = None,
-        long_stay_sample_ids: set[uuid.UUID] | None = None,
     ) -> PostTimelineRouteSegmentResponse:
-        long_stay_sample_ids = long_stay_sample_ids or set()
-        display_anchors = cls._compact_stationary_anchors(
-            anchors,
-            long_stay_sample_ids=long_stay_sample_ids,
-        )
-        coordinates = [
-            (anchor.longitude, anchor.latitude) for anchor in display_anchors
-        ]
+        """Draw one mode-consistent stretch of route.
+
+        Stationary compaction already ran when these points were recorded, so
+        all that is left is to simplify the stretch between whichever anchors
+        bound it. Post anchors split a stretch that the stored track did not,
+        which only ever adds detail back.
+        """
+        coordinates = [(anchor.longitude, anchor.latitude) for anchor in anchors]
         if len(coordinates) == 1:
-            coordinates *= 2
-            simplified_anchors = display_anchors
-        else:
-            required_indices = {
-                index
-                for index, anchor in enumerate(display_anchors)
-                if anchor.sample_id in long_stay_sample_ids
-            }
-            simplified_anchors = [
-                display_anchors[index]
-                for index in simplify_line_indices(
-                    coordinates,
-                    required_indices=required_indices,
-                )
-            ]
-        if displayed_gps_sample_ids is not None:
-            displayed_gps_sample_ids.update(
-                anchor.sample_id
-                for anchor in simplified_anchors
-                if anchor.sample_id is not None
+            return cls._line_segment(
+                travel_mode,
+                coordinates * 2,
+                visible_to_members_only=visible_to_members_only,
             )
-        geometry_coordinates = [
-            (anchor.longitude, anchor.latitude) for anchor in simplified_anchors
+
+        required_indices = {
+            index
+            for index, anchor in enumerate(anchors)
+            if anchor.is_semantic_marker
+        }
+        simplified = [
+            coordinates[index]
+            for index in simplify_line_indices(
+                coordinates,
+                required_indices=required_indices,
+            )
         ]
-        if len(geometry_coordinates) == 1:
-            geometry_coordinates *= 2
-        return PostTimelineRouteSegmentResponse(
-            travel_mode=travel_mode,
-            geometry=GeoJsonLineString(coordinates=geometry_coordinates),
+        return cls._line_segment(
+            travel_mode,
+            simplified if len(simplified) > 1 else simplified * 2,
             visible_to_members_only=visible_to_members_only,
         )
 
     @staticmethod
-    def _long_stay_sample_ids(gps_anchors: list[_Anchor]) -> set[uuid.UUID]:
-        anchors_by_session: dict[uuid.UUID, list[_Anchor]] = {}
-        for anchor in gps_anchors:
-            if anchor.session_id is not None:
-                anchors_by_session.setdefault(anchor.session_id, []).append(anchor)
-
-        return {
-            anchors[index].sample_id
-            for anchors in anchors_by_session.values()
-            for index in long_stay_representative_indices(
-                [
-                    TimedGpsCoordinate(
-                        recorded_at=anchor.recorded_at,
-                        latitude=anchor.latitude,
-                        longitude=anchor.longitude,
-                        accuracy_meters=anchor.accuracy_meters,
-                        speed_mps=anchor.speed_mps,
-                    )
-                    for anchor in anchors
-                ]
-            )
-            if anchors[index].sample_id is not None
-        }
+    def _line_segment(
+        travel_mode: TravelMode,
+        coordinates: list[tuple[float, float]],
+        *,
+        visible_to_members_only: bool,
+    ) -> PostTimelineRouteSegmentResponse:
+        return PostTimelineRouteSegmentResponse(
+            travel_mode=travel_mode,
+            geometry=GeoJsonLineString(coordinates=coordinates),
+            visible_to_members_only=visible_to_members_only,
+        )
 
     # ------------------------------------------------------------------
     # Shared helpers

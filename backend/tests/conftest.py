@@ -45,7 +45,7 @@ def pg_container() -> Generator[PostgresContainer, None, None]:
         username='test',
         password='test',
         dbname='postgres',
-        driver='pg8000',
+        driver='psycopg',
     ) as pg:
         yield pg
 
@@ -54,7 +54,7 @@ def pg_container() -> Generator[PostgresContainer, None, None]:
 def pg_admin_url(pg_container: PostgresContainer) -> URL:
     """Admin URL pointing at the default ``postgres`` database."""
     return URL.create(
-        drivername='postgresql+pg8000',
+        drivername='postgresql+psycopg',
         username=pg_container.username,
         password=pg_container.password,
         host=pg_container.get_container_host_ip(),
