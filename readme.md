@@ -10,7 +10,7 @@ you plan to stay there. Then once on the go, you create posts at a given
 location and time. People you have chosen to share it with see a timeline with
 your posts and a small overview of where you are going. 
 
-Using the [OpenVoyage mobile app](#android-app), you can also record where you 
+Using the [OpenVoyage mobile app](#-android-app), you can also record where you 
 have been and show it on the map.
 
 You are in control. Your trip, your photos, your GPS, your choice. 
