@@ -106,8 +106,7 @@ def test_admin_can_update_normal_and_secret_settings(
     client, db_session, api_prefix, monkeypatch
 ) -> None:
     admin = _admin(db_session)
-    encryption_key = 'a-very-secret-key-change-this-in-production'
-    monkeypatch.setattr(settings, 'APP_SETTINGS_ENCRYPTION_KEY', encryption_key)
+    encryption_key = settings.SECRET_KEY
     headers = _auth_headers(admin)
 
     normal_response = client.patch(
@@ -174,29 +173,9 @@ def test_admin_update_validates_registry_values(
 
 
 @pytest.mark.integration
-def test_secret_update_without_encryption_key_returns_safe_error(
-    client, db_session, api_prefix, monkeypatch
-) -> None:
+def test_secret_reset_is_idempotent_and_does_not_decrypt(client, db_session, api_prefix) -> None:
     admin = _admin(db_session)
-    monkeypatch.setattr(settings, 'APP_SETTINGS_ENCRYPTION_KEY', None)
-
-    response = client.patch(
-        f'{api_prefix}/admin/settings/{ROUTING_GRAPHHOPPER_API_KEY}',
-        headers=_auth_headers(admin),
-        json={'value': 'must-not-be-echoed'},
-    )
-
-    assert response.status_code == 500
-    assert response.json() == {'detail': 'App settings encryption is not configured'}
-    assert 'must-not-be-echoed' not in response.text
-
-
-@pytest.mark.integration
-def test_secret_reset_is_idempotent_and_does_not_decrypt(
-    client, db_session, api_prefix, monkeypatch
-) -> None:
-    admin = _admin(db_session)
-    monkeypatch.setattr(settings, 'APP_SETTINGS_ENCRYPTION_KEY', None)
+    headers = _auth_headers(admin)
     db_session.add(
         AppSetting(
             key=ROUTING_GRAPHHOPPER_API_KEY,
@@ -206,8 +185,8 @@ def test_secret_reset_is_idempotent_and_does_not_decrypt(
     db_session.commit()
     url = f'{api_prefix}/admin/settings/{ROUTING_GRAPHHOPPER_API_KEY}/reset'
 
-    first = client.post(url, headers=_auth_headers(admin))
-    second = client.post(url, headers=_auth_headers(admin))
+    first = client.post(url, headers=headers)
+    second = client.post(url, headers=headers)
 
     assert first.status_code == 200
     assert second.status_code == 200

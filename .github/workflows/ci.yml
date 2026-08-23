@@ -72,7 +72,6 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      APP_SETTINGS_ENCRYPTION_KEY: ci-only-settings-encryption-key-not-used-outside-ci
       BACKEND_CORS_ORIGINS: http://localhost:5173
       E2E_API_BASE_URL: http://127.0.0.1:8000
       E2E_LOGIN_EMAIL: ci-e2e@example.com

@@ -22,7 +22,7 @@ def build_settings(**overrides: object) -> Settings:
 
 @pytest.mark.unit
 def test_accepts_generated_secrets():
-    settings = build_settings(APP_SETTINGS_ENCRYPTION_KEY=STRONG_SECRET)
+    settings = build_settings()
 
     assert settings.SECRET_KEY == STRONG_SECRET
 
@@ -38,7 +38,7 @@ def test_secret_key_has_no_default():
 @pytest.mark.unit
 @pytest.mark.parametrize(
     'variable',
-    ['SECRET_KEY', 'POSTGRES_PASSWORD', 'APP_SETTINGS_ENCRYPTION_KEY'],
+    ['SECRET_KEY', 'POSTGRES_PASSWORD'],
 )
 def test_rejects_the_shipped_example_secret(variable: str):
     with pytest.raises(ValidationError, match='published example value'):
@@ -73,14 +73,6 @@ def test_allows_a_short_postgres_password():
 
 
 @pytest.mark.unit
-def test_allows_an_unset_encryption_key():
-    # Secret runtime settings are optional, so an instance that never saves one
-    # does not need the key. Using one without it fails at that point instead.
-    settings = build_settings()
-
-    assert settings.APP_SETTINGS_ENCRYPTION_KEY is None
-
-
 @pytest.mark.unit
 def test_local_environment_warns_instead_of_failing():
     with pytest.warns(UserWarning, match='published example value'):

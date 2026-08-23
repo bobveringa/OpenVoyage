@@ -160,7 +160,7 @@ class AppSettingsService:
         self.encryption = (
             encryption
             if encryption is not None
-            else AppSettingsEncryption(settings.APP_SETTINGS_ENCRYPTION_KEY)
+            else AppSettingsEncryption(settings.SECRET_KEY)
         )
         self.registry = registry
         self.cache = cache

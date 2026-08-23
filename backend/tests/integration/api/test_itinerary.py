@@ -50,7 +50,7 @@ def _enable_graphhopper(
     route_error: RouteProviderError | None = None,
 ) -> None:
     encryption_key = Fernet.generate_key().decode('ascii')
-    monkeypatch.setattr(settings, 'APP_SETTINGS_ENCRYPTION_KEY', encryption_key)
+    monkeypatch.setattr(settings, 'SECRET_KEY', encryption_key)
     db_session.add_all(
         [
             AppSetting(key='routing.provider', value='graphhopper'),
