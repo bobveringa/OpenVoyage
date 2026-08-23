@@ -1,6 +1,11 @@
 # Build the browser application first so the runtime image only contains its
 # static output and the Python API.
-FROM node:22-alpine AS frontend-build
+#
+# Pinned to BUILDPLATFORM: the output is static JS/CSS with no native code, so
+# it is identical whichever architecture produces it. Without this, a
+# linux/arm64 build would run the whole npm toolchain under QEMU emulation for
+# a byte-identical result.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-build
 
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
