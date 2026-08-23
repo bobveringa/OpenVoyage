@@ -19,8 +19,7 @@ const apiBaseUrl =
 
 test.setTimeout(60_000)
 
-test('starts and stops a GPS recording, syncing session lifecycle to the server', async ({
-  context,
+test('does not offer GPS recording controls on the web', async ({
   page,
   request,
 }) => {
@@ -40,45 +39,18 @@ test('starts and stops a GPS recording, syncing session lifecycle to the server'
   const trip = await createTripWithApi(request, tokens)
 
   try {
-    await context.grantPermissions(['geolocation'])
-    await context.setGeolocation({ latitude: 51.4416, longitude: 5.4697 })
-
     await seedBrowserAuth(page, tokens)
     await page.goto(`/trips/${trip.id}`)
     await expect(page.getByRole('heading', { name: /E2E tracking trip/ })).toBeVisible()
 
     await page.getByRole('button', { name: 'GPS tracking' }).click()
     await expect(
-      page.getByRole('heading', { name: 'Recording', exact: true }),
+      page.getByRole('heading', { name: 'Recordings', exact: true }),
     ).toBeVisible()
-
-    const createResponsePromise = page.waitForResponse(
-      (response) =>
-        /\/tracking\/sessions\/[0-9a-f-]{36}$/.test(new URL(response.url()).pathname) &&
-        response.request().method() === 'POST',
-    )
-    await page.getByRole('button', { name: 'Start tracking' }).click()
-    const createResponse = await createResponsePromise
-    expect(createResponse.status()).toBe(201)
-
-    await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible()
-
-    const endResponsePromise = page.waitForResponse(
-      (response) =>
-        /\/tracking\/sessions\/[0-9a-f-]{36}$/.test(new URL(response.url()).pathname) &&
-        response.request().method() === 'PATCH',
-    )
-    await page.getByRole('button', { name: 'Stop' }).click()
-    const endResponse = await endResponsePromise
-    expect(endResponse.status()).toBe(200)
-
-    // The end PATCH must never race ahead of the session's own create.
-    expect(endResponse.request().timing().startTime).toBeGreaterThanOrEqual(
-      createResponse.request().timing().startTime,
-    )
-
-    await expect(page.getByRole('button', { name: 'Start tracking' })).toBeVisible()
-    await expect(page.getByText(/points$/).first()).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'Recording', exact: true }),
+    ).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Start tracking' })).toHaveCount(0)
   } finally {
     await deleteTripWithApi(request, tokens, trip.id)
   }
