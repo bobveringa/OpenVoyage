@@ -2,6 +2,7 @@ services:
   app:
     # Published by .github/workflows/release.yml on every release tag.
     # Override OPENVOYAGE_IMAGE in .env
+    image: ${OPENVOYAGE_IMAGE:-ghcr.io/bobveringa/openvoyage:latest}
     env_file: .env
     environment:
       POSTGRES_SERVER: postgres
