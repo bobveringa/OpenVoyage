@@ -16,7 +16,7 @@ test('swaps only the base tiles and preserves routes and point selection', async
   page,
 }) => {
   await seedBrowserAuth(page)
-  await mockTripApi(page)
+  const releaseTileProviderSetting = await mockTripApi(page)
   await mockTileServers(page)
 
   await page.goto(`/trips/${tripId}`)
@@ -32,6 +32,7 @@ test('swaps only the base tiles and preserves routes and point selection', async
   await routePath.evaluate((element) => {
     element.setAttribute('data-route-before-tile-swap', 'true')
   })
+  releaseTileProviderSetting()
 
   await expect(
     map.locator('img.leaflet-tile[src*="tiles.example.test"]').first(),
@@ -101,11 +102,16 @@ async function seedBrowserAuth(page: Page) {
 }
 
 async function mockTripApi(page: Page) {
+  let releaseTileProviderSetting = () => {}
+  const tileProviderSettingGate = new Promise<void>((resolve) => {
+    releaseTileProviderSetting = resolve
+  })
+
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
 
     if (url.pathname.endsWith('/settings/public')) {
-      await new Promise((resolve) => setTimeout(resolve, 1_000))
+      await tileProviderSettingGate
       await fulfillJson(route, {
         settings: {
           'map.tile_provider': customTileUrl,
@@ -188,6 +194,8 @@ async function mockTripApi(page: Page) {
 
     await fulfillJson(route, { detail: `Unhandled mock API path: ${url.pathname}` }, 404)
   })
+
+  return releaseTileProviderSetting
 }
 
 async function mockTileServers(page: Page) {
