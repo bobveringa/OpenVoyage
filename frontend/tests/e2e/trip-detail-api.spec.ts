@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import process from 'node:process'
+import { env } from 'node:process'
 
 type AuthTokens = {
   access_token: string
@@ -13,8 +13,8 @@ type CreatedTrip = {
 }
 
 const apiBaseUrl =
-  process.env.E2E_API_BASE_URL ??
-  process.env.VITE_API_BASE_URL ??
+  env.E2E_API_BASE_URL ??
+  env.VITE_API_BASE_URL ??
   'http://127.0.0.1:8000'
 
 test.setTimeout(90_000)
@@ -23,8 +23,8 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
   page,
   request,
 }) => {
-  const email = process.env.E2E_LOGIN_EMAIL
-  const password = process.env.E2E_LOGIN_PASSWORD
+  const email = env.E2E_LOGIN_EMAIL
+  const password = env.E2E_LOGIN_PASSWORD
 
   test.skip(
     !email || !password,
@@ -275,7 +275,7 @@ function authHeaders(tokens: AuthTokens) {
 }
 
 function expectsProviderBackedRoutes() {
-  return process.env.E2E_EXPECT_PROVIDER_ROUTES?.toLowerCase() === 'true'
+  return env.E2E_EXPECT_PROVIDER_ROUTES?.toLowerCase() === 'true'
 }
 
 function tinyPngBuffer() {

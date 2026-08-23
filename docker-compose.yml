@@ -1,10 +1,7 @@
 services:
   app:
     # Published by .github/workflows/release.yml on every release tag.
-    # Override OPENVOYAGE_IMAGE in .env to pin a version (":1.2.3"), track a
-    # release candidate (":1.2.3-rc1"), follow main (":edge"), or point at an
-    # image you built yourself with "docker build --tag openvoyage:local .".
-    image: ${OPENVOYAGE_IMAGE:-ghcr.io/bobveringa/openvoyage:latest}
+    # Override OPENVOYAGE_IMAGE in .env
     env_file: .env
     environment:
       POSTGRES_SERVER: postgres

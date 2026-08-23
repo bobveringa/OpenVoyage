@@ -97,7 +97,7 @@ def _get_user_from_token(session: Session, token: str) -> User:
     try:
         payload = security.decode_token(token, expected_type=security.TOKEN_TYPE_ACCESS)
         token_data = TokenPayload(**payload)
-    except InvalidTokenError, ValidationError:
+    except (InvalidTokenError, ValidationError):
         raise _credentials_exception()
 
     try:

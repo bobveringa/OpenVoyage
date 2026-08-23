@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
-import process from 'node:process'
+import { env } from 'node:process'
 
 test('signs in with valid credentials', async ({ page }) => {
-  const email = process.env.E2E_LOGIN_EMAIL
-  const password = process.env.E2E_LOGIN_PASSWORD
+  const email = env.E2E_LOGIN_EMAIL
+  const password = env.E2E_LOGIN_PASSWORD
 
   test.skip(
     !email || !password,

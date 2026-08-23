@@ -4,11 +4,11 @@ import type { CurrentUser } from '@/api/client'
 import { getErrorMessage } from '@/api/client'
 import { useAuth } from '@/auth/use-auth'
 import { LoginForm, type LoginFormValues } from '@/components/auth/login-form'
+import { AppLogo } from '@/components/branding/app-logo'
 import { AppBackground } from '@/components/layout/app-background'
 import { useNativeServerGate } from '@/native/native-server-gate-context'
 import { isNativePlatform } from '@/native/platform'
 import { getCurrentServerUrl } from '@/native/server-config'
-import icon from '../../branding/icon.svg'
 
 type LoginPageProps = {
   onAuthenticated: (user: CurrentUser) => void
@@ -41,7 +41,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
       <section className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-soft sm:p-8">
         <div className="mb-8 grid justify-items-center gap-4 text-center">
           <span className="size-12 overflow-hidden rounded-xl shadow-sm">
-            <img alt="" className="size-full object-cover" src={icon} />
+            <AppLogo className="size-full" />
           </span>
           <div className="space-y-2">
             <h1 className="text-2xl font-semibold tracking-normal">Sign in</h1>

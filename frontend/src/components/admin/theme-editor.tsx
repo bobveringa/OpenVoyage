@@ -171,7 +171,9 @@ function ColorField({ color, label, onColorChange }: { color: string; label: str
   const valid = /^#[0-9a-f]{6}$/i.test(draft)
   return (
     <label className="grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-3 rounded-xl border border-border bg-card p-2.5">
-      <input aria-label={`${label} color`} className="size-10 cursor-pointer rounded-lg border-0 bg-transparent p-0" onChange={(event) => { setDraft(event.target.value); onColorChange(event.target.value) }} type="color" value={color} />
+      <span className="theme-color-swatch" style={{ backgroundColor: color }}>
+        <input aria-label={`${label} color`} onChange={(event) => { setDraft(event.target.value); onColorChange(event.target.value) }} type="color" value={color} />
+      </span>
       <span className="min-w-0"><span className="block text-xs font-semibold text-foreground">{label}</span><Input className={cn('mt-1 h-8 font-mono text-xs', !valid && 'border-destructive')} onChange={(event) => { const value = event.target.value; setDraft(value); if (/^#[0-9a-f]{6}$/i.test(value)) onColorChange(value) }} value={draft} /></span>
     </label>
   )

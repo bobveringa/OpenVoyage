@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Double,
@@ -146,6 +147,22 @@ class GpsTrackSample(Base):
             'recorded_at',
             'id',
         ),
+        # Partial, because both sets are a small fraction of the raw points and
+        # every read of them is a chronological trip-wide scan.
+        Index(
+            'ix_gps_track_samples_trip_post_candidates',
+            'trip_id',
+            'recorded_at',
+            'id',
+            postgresql_where=text('is_post_candidate'),
+        ),
+        Index(
+            'ix_gps_track_samples_trip_display_track',
+            'trip_id',
+            'recorded_at',
+            'id',
+            postgresql_where=text('is_display_retained'),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
@@ -191,6 +208,31 @@ class GpsTrackSample(Base):
         nullable=False,
         default=TravelMode.UNKNOWN,
         server_default=TravelMode.UNKNOWN.value,
+    )
+    # Derived from the session's own points, and rewritten by
+    # ``services.gps.derived_track`` whenever those points change. Reads select
+    # on them instead of re-scanning a trip's whole raw history, which is what
+    # keeps timeline cost proportional to what is drawn rather than to how long
+    # the trip has been recording.
+    is_long_stay: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text('false'),
+    )
+    is_post_candidate: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text('false'),
+    )
+    # Implied by either flag above: a marker must never sit somewhere the drawn
+    # line does not go, so both are required points of the display track.
+    is_display_retained: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text('false'),
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

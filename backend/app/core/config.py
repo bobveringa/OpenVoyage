@@ -67,7 +67,6 @@ class Settings(BaseSettings):
 
     MEDIA_DIRECTORY: str = ''
     GEONAMES_DOWNLOAD_BASE_URL: str = 'https://download.geonames.org/export/dump'
-    APP_SETTINGS_ENCRYPTION_KEY: str | None = None
 
     @computed_field
     @property
@@ -99,7 +98,7 @@ class Settings(BaseSettings):
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> PostgresDsn:
         return PostgresDsn.build(
-            scheme='postgresql+pg8000',
+            scheme='postgresql+psycopg',
             username=self.POSTGRES_USER,
             password=self.POSTGRES_PASSWORD,
             host=self.POSTGRES_SERVER,
@@ -152,12 +151,6 @@ class Settings(BaseSettings):
         self._check_secret(
             'POSTGRES_PASSWORD', self.POSTGRES_PASSWORD, is_key_material=False
         )
-        self._check_secret(
-            'APP_SETTINGS_ENCRYPTION_KEY',
-            self.APP_SETTINGS_ENCRYPTION_KEY,
-            is_key_material=True,
-        )
-
         return self
 
 

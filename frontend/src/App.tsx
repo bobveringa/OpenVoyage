@@ -1,38 +1,75 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 
 import { getSetupStatus } from '@/api/client'
 import { AuthProvider } from '@/auth/auth-provider'
 import { useAuth } from '@/auth/use-auth'
 import { AppBackground } from '@/components/layout/app-background'
 import { AppShell } from '@/components/layout/app-shell'
+import { RouteErrorBoundary } from '@/components/layout/route-error-boundary'
+import { ClockFormatProvider } from '@/components/clock-format-provider'
+import { useClockFormat } from '@/lib/date-time'
 import { getUserUsername } from '@/lib/users'
 import { NativeServerGate } from '@/native/native-server-gate'
-import { isNativePlatform } from '@/native/platform'
-import { AdminPage } from '@/pages/admin-page'
-import { AccountSecurityPage } from '@/pages/account-security-page'
-import { ActiveTrackingPage } from '@/pages/active-tracking-page'
 import { LoginPage } from '@/pages/login-page'
 import { PlaceholderPage } from '@/pages/placeholder-page'
-import { ProfileSettingsPage } from '@/pages/profile-settings-page'
 import { SetupPage } from '@/pages/setup-page'
-import { TrackingSettingsPage } from '@/pages/tracking-settings-page'
-import { TripDetailPage } from '@/pages/trip-detail-page'
-import { UserTripOverviewPage } from '@/pages/user-trip-overview-page'
 import { PublicSettingsProvider } from '@/settings/public-settings'
 import { ThemeProvider } from '@/theme'
 import { TrackingProvider } from '@/tracking/tracking-provider'
 
+const AccountSettingsPage = lazy(() =>
+  import('@/pages/account-settings-page').then((module) => ({
+    default: module.AccountSettingsPage,
+  })),
+)
+const ActiveTrackingPage = lazy(() =>
+  import('@/pages/active-tracking-page').then((module) => ({
+    default: module.ActiveTrackingPage,
+  })),
+)
+const AdminPage = lazy(() =>
+  import('@/pages/admin-page').then((module) => ({
+    default: module.AdminPage,
+  })),
+)
+const TripDetailPage = lazy(() =>
+  import('@/pages/trip-detail-page').then((module) => ({
+    default: module.TripDetailPage,
+  })),
+)
+const UserTripOverviewPage = lazy(() =>
+  import('@/pages/user-trip-overview-page').then((module) => ({
+    default: module.UserTripOverviewPage,
+  })),
+)
+
 type Route =
   | { name: 'admin' }
+  | { name: 'account-settings' }
   | { name: 'login' }
   | { name: 'not-found' }
-  | { name: 'profile-settings' }
-  | { name: 'security-settings' }
   | { name: 'setup' }
   | { name: 'tracking-active' }
-  | { name: 'tracking-settings' }
   | { name: 'trip-detail'; tripId: string }
   | { name: 'user-overview'; username: string }
+
+function getRouteKey(route: Route) {
+  switch (route.name) {
+    case 'trip-detail':
+      return `${route.name}-${route.tripId}`
+    case 'user-overview':
+      return `${route.name}-${route.username}`
+    default:
+      return route.name
+  }
+}
 
 type NavigateOptions = {
   replace?: boolean
@@ -47,20 +84,23 @@ function App() {
   // ThemeProvider mounts afterward.
   return (
     <PublicSettingsProvider>
-      <ThemeProvider>
-        <NativeServerGate>
-          <AuthProvider>
-            <TrackingProvider>
-              <AppRoutes />
-            </TrackingProvider>
-          </AuthProvider>
-        </NativeServerGate>
-      </ThemeProvider>
+      <ClockFormatProvider>
+        <ThemeProvider>
+          <NativeServerGate>
+            <AuthProvider>
+              <TrackingProvider>
+                <AppRoutes />
+              </TrackingProvider>
+            </AuthProvider>
+          </NativeServerGate>
+        </ThemeProvider>
+      </ClockFormatProvider>
     </PublicSettingsProvider>
   )
 }
 
 function AppRoutes() {
+  useClockFormat()
   const { accessToken, currentUser, error, signOut, status, updateCurrentUser } = useAuth()
   const { location, navigate } = useBrowserLocation()
   const route = useMemo(() => parseRoute(location), [location])
@@ -96,8 +136,8 @@ function AppRoutes() {
     }
 
     if (currentUser?.password_change_required) {
-      if (route.name !== 'security-settings') {
-        navigate('/settings/security', { replace: true })
+      if (route.name !== 'account-settings' || window.location.hash !== '#security') {
+        navigate('/settings#security', { replace: true })
       }
       return
     }
@@ -124,7 +164,7 @@ function AppRoutes() {
 
   function handleAuthenticated(user: NonNullable<typeof currentUser>) {
     if (user.password_change_required) {
-      navigate('/settings/security', { replace: true })
+      navigate('/settings#security', { replace: true })
       return
     }
     const username = getUserUsername(user)
@@ -174,12 +214,13 @@ function AppRoutes() {
     return <LoadingPage />
   }
 
-  const renderedRoute =
+  const mustOpenSecuritySettings =
     status === 'authenticated' &&
     currentUser?.password_change_required &&
-    route.name !== 'security-settings'
-      ? ({ name: 'security-settings' } as const)
-      : route
+    (route.name !== 'account-settings' || window.location.hash !== '#security')
+  const renderedRoute: Route = mustOpenSecuritySettings
+    ? { name: 'account-settings' }
+    : route
 
   return (
     <AppShell
@@ -189,13 +230,17 @@ function AppRoutes() {
       onNavigate={navigate}
       passwordChangeRequired={currentUser?.password_change_required ?? false}
     >
-      {renderRoute(renderedRoute, {
-        accessToken,
-        currentUser,
-        onNavigate: navigate,
-        onProfileUpdated: updateCurrentUser,
-        status,
-      })}
+      <RouteErrorBoundary key={getRouteKey(renderedRoute)}>
+        <Suspense fallback={<RouteLoadingPage />}>
+          {renderRoute(renderedRoute, {
+            accessToken,
+            currentUser,
+            onNavigate: navigate,
+            onProfileUpdated: updateCurrentUser,
+            status,
+          })}
+        </Suspense>
+      </RouteErrorBoundary>
     </AppShell>
   )
 }
@@ -218,9 +263,9 @@ function renderRoute(route: Route, context: RouteRenderContext) {
           currentUser={context.currentUser}
         />
       )
-    case 'profile-settings':
+    case 'account-settings':
       return (
-        <ProfileSettingsPage
+        <AccountSettingsPage
           accessToken={context.accessToken}
           authStatus={context.status}
           currentUser={context.currentUser}
@@ -228,25 +273,8 @@ function renderRoute(route: Route, context: RouteRenderContext) {
           onProfileUpdated={context.onProfileUpdated}
         />
       )
-    case 'security-settings':
-      return (
-        <AccountSecurityPage
-          authStatus={context.status}
-          currentUser={context.currentUser}
-          onNavigate={context.onNavigate}
-        />
-      )
     case 'tracking-active':
       return <ActiveTrackingPage onNavigate={context.onNavigate} />
-    case 'tracking-settings':
-      return isNativePlatform() ? (
-        <TrackingSettingsPage />
-      ) : (
-        <PlaceholderPage
-          description="GPS tracking settings are only available in the OpenVoyage Android app."
-          title="Native app only"
-        />
-      )
     case 'trip-detail':
       return (
         <TripDetailPage
@@ -286,6 +314,14 @@ function LoadingPage() {
         Loading OpenVoyage…
       </p>
     </main>
+  )
+}
+
+function RouteLoadingPage() {
+  return (
+    <div className="grid min-h-[50vh] place-items-center" role="status">
+      <p className="text-sm text-muted-foreground">Loading trip…</p>
+    </div>
   )
 }
 
@@ -366,16 +402,8 @@ function parseRoute(location: string): Route {
     return { name: 'setup' }
   }
 
-  if (pathname === '/settings/profile') {
-    return { name: 'profile-settings' }
-  }
-
-  if (pathname === '/settings/security') {
-    return { name: 'security-settings' }
-  }
-
-  if (pathname === '/settings/tracking') {
-    return { name: 'tracking-settings' }
+  if (pathname === '/settings') {
+    return { name: 'account-settings' }
   }
 
   if (pathname === '/tracking/active') {

@@ -17,6 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Select, type SelectOption } from '@/components/ui/select'
+import { formatDateTime as formatClockDateTime } from '@/lib/date-time'
 
 const ianaTimezoneOptions = createIanaTimezoneOptions()
 
@@ -151,7 +152,10 @@ function formatExecutionTime(execution: JobExecution) {
 }
 
 function formatDateTime(value: string) {
-  return new Date(value).toLocaleString(undefined, { hour12: false })
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? value
+    : formatClockDateTime(date, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function formatTrigger(trigger: JobExecution['trigger']) {

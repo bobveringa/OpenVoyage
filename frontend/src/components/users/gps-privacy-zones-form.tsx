@@ -18,8 +18,11 @@ import {
   listGpsPrivacyZones,
   replaceGpsPrivacyZone,
   type GpsPrivacyZone,
+  type Place,
 } from '@/api/client'
+import { PlaceSearchDropdown } from '@/components/places/place-search-dropdown'
 import { Button } from '@/components/ui/button'
+import { privacyZoneMarkerIcon } from '@/components/users/privacy-zone-map-marker'
 import {
   Card,
   CardContent,
@@ -33,15 +36,17 @@ import {
   MAP_TILE_PROVIDER_SETTING_KEY,
   resolveMapTileProvider,
 } from '@/lib/map-tile-providers'
+import { usePlaceSearch } from '@/hooks/use-place-search'
 import { usePublicSetting } from '@/settings/public-settings'
 
 const MIN_RADIUS_METERS = 100
 const MAX_RADIUS_METERS = 10_000
-const DEFAULT_RADIUS_METERS = 500
+const DEFAULT_RADIUS_METERS = 1000
 const MAX_ZONES = 20
 const DEFAULT_MAP_CENTER: L.LatLngTuple = [20, 0]
 const DEFAULT_MAP_ZOOM = 2
 const SELECTED_MAP_ZOOM = 15
+const NO_EXISTING_ZONES: readonly GpsPrivacyZone[] = []
 
 type GpsPrivacyZonesFormProps = {
   accessToken: string
@@ -53,6 +58,10 @@ type ZoneFormState = {
   name: string
   radiusMeters: string
 }
+
+type ZoneFormErrors = Partial<
+  Record<'coordinates' | 'name' | 'radiusMeters', string>
+>
 
 function createEmptyForm(): ZoneFormState {
   return {
@@ -96,6 +105,34 @@ function formatCoordinates(coordinates: L.LatLngTuple | null) {
   return `${coordinates[0].toFixed(5)}, ${coordinates[1].toFixed(5)}`
 }
 
+function validateZoneForm(form: ZoneFormState): ZoneFormErrors {
+  const errors: ZoneFormErrors = {}
+  const coordinates = getCoordinates(form)
+  const radiusMeters = Number(form.radiusMeters)
+
+  if (!form.name.trim()) {
+    errors.name = 'Give this privacy zone a name.'
+  }
+
+  if (!Number.isFinite(radiusMeters) || !Number.isInteger(radiusMeters)) {
+    errors.radiusMeters = 'Enter a whole number of metres.'
+  } else if (radiusMeters < MIN_RADIUS_METERS || radiusMeters > MAX_RADIUS_METERS) {
+    errors.radiusMeters = `Choose a radius between ${MIN_RADIUS_METERS} and ${MAX_RADIUS_METERS} metres.`
+  }
+
+  if (
+    !coordinates ||
+    coordinates[0] < -90 ||
+    coordinates[0] > 90 ||
+    coordinates[1] < -180 ||
+    coordinates[1] > 180
+  ) {
+    errors.coordinates = 'Choose a location on the map or search for a place.'
+  }
+
+  return errors
+}
+
 export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
   const [zones, setZones] = useState<readonly GpsPrivacyZone[]>([])
   const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
@@ -105,6 +142,15 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLocating, setIsLocating] = useState(false)
+  const [centreRequest, setCentreRequest] = useState(0)
+  const [formErrors, setFormErrors] = useState<ZoneFormErrors>({})
+  const [placeSearchQuery, setPlaceSearchQuery] = useState('')
+  const [isPlaceSearchOpen, setIsPlaceSearchOpen] = useState(false)
+  const isEditorOpen = isCreating || editingZoneId !== null
+  const placeSearch = usePlaceSearch(
+    placeSearchQuery,
+    isEditorOpen && isPlaceSearchOpen,
+  )
 
   const loadZones = useCallback(async () => {
     try {
@@ -125,13 +171,21 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
     setEditingZoneId(null)
     setIsCreating(false)
     setForm(createEmptyForm())
+    setFormErrors({})
+    setPlaceSearchQuery('')
+    setIsPlaceSearchOpen(false)
   }
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
+    const validationErrors = validateZoneForm(form)
+    setFormErrors(validationErrors)
+    if (Object.keys(validationErrors).length > 0) {
+      return
+    }
+
     const coordinates = getCoordinates(form)
     if (!coordinates) {
-      setError('Choose the centre of this privacy zone on the map.')
       return
     }
 
@@ -195,6 +249,8 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
           latitude: String(position.coords.latitude),
           longitude: String(position.coords.longitude),
         }))
+        setFormErrors((current) => ({ ...current, coordinates: undefined }))
+        setCentreRequest((current) => current + 1)
         setIsLocating(false)
       },
       () => {
@@ -205,7 +261,25 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
     )
   }
 
-  const isEditorOpen = isCreating || editingZoneId !== null
+  function updateFormField(
+    field: 'name' | 'radiusMeters',
+    value: string,
+  ) {
+    setForm((current) => ({ ...current, [field]: value }))
+    setFormErrors((current) => ({ ...current, [field]: undefined }))
+  }
+
+  function selectPlace(place: Place) {
+    setForm((current) => ({
+      ...current,
+      latitude: String(place.latitude),
+      longitude: String(place.longitude),
+    }))
+    setFormErrors((current) => ({ ...current, coordinates: undefined }))
+    setPlaceSearchQuery(place.name || place.full_name)
+    setIsPlaceSearchOpen(false)
+    setCentreRequest((current) => current + 1)
+  }
 
   return (
     <Card>
@@ -222,7 +296,7 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
         <p className="text-sm leading-6 text-muted-foreground">
           A zone only filters <strong>future</strong> uploads. Creating, moving,
           shrinking, or deleting one never deletes or restores a coordinate that
-          was already recorded — use the trip&apos;s point deletion controls for
+          was already recorded. Use the trip&apos;s point deletion controls for
           that. Zones cover GPS tracking only: they do not hide post locations,
           photo metadata, or anything you write.
         </p>
@@ -264,6 +338,9 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
                       setIsCreating(false)
                       setEditingZoneId(zone.id)
                       setForm(toFormState(zone))
+                      setFormErrors({})
+                      setPlaceSearchQuery('')
+                      setIsPlaceSearchOpen(false)
                     }}
                     size="sm"
                     type="button"
@@ -288,40 +365,45 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
         )}
 
         {isEditorOpen ? (
-          <form className="space-y-3 rounded-lg border border-border p-4" onSubmit={handleSubmit}>
+          <form
+            className="space-y-3 rounded-lg border border-border p-4"
+            noValidate
+            onSubmit={handleSubmit}
+          >
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="space-y-1 text-sm">
                 <span className="font-medium text-foreground">Name</span>
                 <Input
+                  aria-describedby={formErrors.name ? 'privacy-zone-name-error' : undefined}
+                  aria-invalid={Boolean(formErrors.name)}
                   maxLength={100}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
+                  onChange={(event) => updateFormField('name', event.target.value)}
                   placeholder="Home"
-                  required
                   value={form.name}
                 />
+                {formErrors.name ? (
+                  <span className="text-xs font-medium text-destructive" id="privacy-zone-name-error">
+                    {formErrors.name}
+                  </span>
+                ) : null}
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-medium text-foreground">
                   Radius (metres)
                 </span>
                 <Input
-                  max={MAX_RADIUS_METERS}
-                  min={MIN_RADIUS_METERS}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      radiusMeters: event.target.value,
-                    }))
-                  }
-                  required
-                  type="number"
+                  aria-describedby={formErrors.radiusMeters ? 'privacy-zone-radius-error' : undefined}
+                  aria-invalid={Boolean(formErrors.radiusMeters)}
+                  inputMode="numeric"
+                  onChange={(event) => updateFormField('radiusMeters', event.target.value)}
+                  placeholder={String(DEFAULT_RADIUS_METERS)}
                   value={form.radiusMeters}
                 />
+                {formErrors.radiusMeters ? (
+                  <span className="text-xs font-medium text-destructive" id="privacy-zone-radius-error">
+                    {formErrors.radiusMeters}
+                  </span>
+                ) : null}
               </label>
             </div>
 
@@ -343,17 +425,48 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
                   {isLocating ? 'Locating…' : 'Use my location'}
                 </Button>
               </div>
+              <label className="grid gap-1.5 text-sm">
+                <span className="font-medium text-foreground">Search for a place</span>
+                <Input
+                  autoComplete="off"
+                  disabled={isSubmitting}
+                  onChange={(event) => {
+                    setPlaceSearchQuery(event.target.value)
+                    setIsPlaceSearchOpen(true)
+                  }}
+                  onFocus={() => setIsPlaceSearchOpen(true)}
+                  placeholder="Search towns, landmarks, or regions"
+                  value={placeSearchQuery}
+                />
+              </label>
+              <PlaceSearchDropdown
+                disabled={isSubmitting}
+                error={placeSearch.error}
+                onSelect={selectPlace}
+                open={isPlaceSearchOpen}
+                places={placeSearch.places}
+                query={placeSearchQuery}
+                status={placeSearch.status}
+              />
               <PrivacyZoneMap
+                centreRequest={centreRequest}
                 coordinates={getCoordinates(form)}
-                onCoordinatesChange={(coordinates) =>
+                existingZones={isCreating ? zones : NO_EXISTING_ZONES}
+                onCoordinatesChange={(coordinates) => {
                   setForm((current) => ({
                     ...current,
                     latitude: String(coordinates[0]),
                     longitude: String(coordinates[1]),
                   }))
-                }
+                  setFormErrors((current) => ({ ...current, coordinates: undefined }))
+                }}
                 radiusMeters={Number(form.radiusMeters) || DEFAULT_RADIUS_METERS}
               />
+              {formErrors.coordinates ? (
+                <p className="text-xs font-medium text-destructive" role="alert">
+                  {formErrors.coordinates}
+                </p>
+              ) : null}
               <p className="text-xs leading-5 text-muted-foreground">
                 Click the map to place the centre. The circle shows the area that
                 will be excluded from future GPS uploads.
@@ -363,7 +476,11 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
             <p className="text-xs leading-5 text-muted-foreground">
               A small radius still lets someone guess roughly where the hidden
               area is, because the route keeps ending and restarting around its
-              edge. {DEFAULT_RADIUS_METERS} m is a reasonable default.
+              edge. {DEFAULT_RADIUS_METERS}m is a reasonable default.
+            </p>
+            {/*TIP dont place the center of the zone directly on your home, as this will make it easier for someone to guess where you are*/}
+            <p className="text-xs leading-5 text-muted-foreground">
+              <strong>TIP:</strong> Dont place the center of the zone directly on your home.
             </p>
 
             <div className="flex gap-2">
@@ -390,6 +507,9 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
               setEditingZoneId(null)
               setIsCreating(true)
               setForm(createEmptyForm())
+              setFormErrors({})
+              setPlaceSearchQuery('')
+              setIsPlaceSearchOpen(false)
             }}
             size="sm"
             type="button"
@@ -411,11 +531,15 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
 }
 
 function PrivacyZoneMap({
+  centreRequest,
   coordinates,
+  existingZones,
   onCoordinatesChange,
   radiusMeters,
 }: {
+  centreRequest: number
   coordinates: L.LatLngTuple | null
+  existingZones: readonly GpsPrivacyZone[]
   onCoordinatesChange: (coordinates: L.LatLngTuple) => void
   radiusMeters: number
 }) {
@@ -426,6 +550,7 @@ function PrivacyZoneMap({
   )
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
+  const existingZonesLayerRef = useRef<L.LayerGroup | null>(null)
   const selectionLayerRef = useRef<L.LayerGroup | null>(null)
   const onCoordinatesChangeRef = useRef(onCoordinatesChange)
   const shouldCenterOnSelectionRef = useRef(true)
@@ -454,6 +579,7 @@ function PrivacyZoneMap({
       ])
     })
     mapRef.current = map
+    existingZonesLayerRef.current = L.layerGroup().addTo(map)
     selectionLayerRef.current = L.layerGroup().addTo(map)
 
     window.requestAnimationFrame(() => map.invalidateSize())
@@ -461,6 +587,7 @@ function PrivacyZoneMap({
     return () => {
       map.remove()
       mapRef.current = null
+      existingZonesLayerRef.current = null
       selectionLayerRef.current = null
     }
   }, [])
@@ -476,6 +603,32 @@ function PrivacyZoneMap({
       tileLayer.remove()
     }
   }, [tileProvider])
+
+  useEffect(() => {
+    const existingZonesLayer = existingZonesLayerRef.current
+    if (!existingZonesLayer) {
+      return
+    }
+
+    existingZonesLayer.clearLayers()
+    for (const zone of existingZones) {
+      L.circle([zone.latitude, zone.longitude], {
+        color: 'var(--accent)',
+        dashArray: '6 6',
+        fillColor: 'var(--accent)',
+        fillOpacity: 0.12,
+        interactive: false,
+        radius: zone.radius_meters,
+        weight: 2,
+      }).addTo(existingZonesLayer)
+    }
+  }, [existingZones])
+
+  useEffect(() => {
+    if (centreRequest > 0) {
+      shouldCenterOnSelectionRef.current = true
+    }
+  }, [centreRequest])
 
   useEffect(() => {
     const map = mapRef.current
@@ -496,7 +649,10 @@ function PrivacyZoneMap({
       radius: radiusMeters,
       weight: 2,
     }).addTo(selectionLayer)
-    L.marker(coordinates).addTo(selectionLayer)
+    L.marker(coordinates, {
+      icon: privacyZoneMarkerIcon,
+      interactive: false,
+    }).addTo(selectionLayer)
 
     if (shouldCenterOnSelectionRef.current) {
       map.setView(coordinates, SELECTED_MAP_ZOOM)

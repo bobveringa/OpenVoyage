@@ -1049,6 +1049,23 @@ export async function publishPost(options: {
   )
 }
 
+export async function unpublishPost(options: {
+  tripId: string
+  postId: string
+  accessToken: string
+}): Promise<Post> {
+  const tripId = encodeURIComponent(options.tripId)
+  const postId = encodeURIComponent(options.postId)
+
+  return requestJson<Post>(
+    `${API_V1_PREFIX}/trips/${tripId}/posts/${postId}/unpublish`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+    },
+  )
+}
+
 
 // ---------------------------------------------------------------------------
 // GPS tracking

@@ -49,7 +49,7 @@ def test_default_encryption_uses_application_configuration(
 
     service = AppSettingsService(fake_db)
 
-    encryption_type.assert_called_once_with(settings.APP_SETTINGS_ENCRYPTION_KEY)
+    encryption_type.assert_called_once_with(settings.SECRET_KEY)
     assert service.encryption is encryption
 
 

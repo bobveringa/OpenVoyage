@@ -44,6 +44,7 @@ import {
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { formatDateTime } from '@/lib/date-time'
 import { MAP_TILE_PROVIDER_SETTING_KEY } from '@/lib/map-tile-providers'
 import { cn } from '@/lib/utils'
 import { usePublicSettings } from '@/settings/public-settings'
@@ -124,12 +125,6 @@ const settingPresentations: Record<string, SettingPresentation> = {
     },
   },
 }
-
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'medium',
-  hour12: false,
-  timeStyle: 'short',
-})
 
 export function AdminSections({
   accessToken,
@@ -907,7 +902,9 @@ function humanizeValue(value: string) {
 
 function formatDate(value: string) {
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : dateTimeFormatter.format(date)
+  return Number.isNaN(date.getTime())
+    ? value
+    : formatDateTime(date, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function readNumber(value: unknown) {

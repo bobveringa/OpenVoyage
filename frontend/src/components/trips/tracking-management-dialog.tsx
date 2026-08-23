@@ -18,6 +18,8 @@ import { useAuth } from '@/auth/use-auth'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Select } from '@/components/ui/select'
+import { formatDateTime } from '@/lib/date-time'
+import { isNativePlatform } from '@/native/platform'
 import { TRAVEL_MODE_OPTIONS } from '@/tracking/travel-mode-options'
 import { describeUploaderStatus } from '@/tracking/uploader-status'
 import { useTracking } from '@/tracking/use-tracking'
@@ -33,7 +35,10 @@ type TrackingManagementPanelProps = {
 }
 
 function formatMoment(value: string) {
-  return new Date(value).toLocaleString()
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? value
+    : formatDateTime(date, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function RecordingControl({
@@ -416,14 +421,16 @@ export function TrackingManagementPanel({
           </div>
         ) : null}
 
-        <RecordingControl
-          accessToken={accessToken}
-          currentUserId={currentUser?.id ?? null}
-          onSessionsChanged={() => void loadOverview()}
-          onTrackingChanged={onTrackingChanged}
-          tripId={tripId}
-          tripTitle={tripTitle}
-        />
+        {isNativePlatform() ? (
+          <RecordingControl
+            accessToken={accessToken}
+            currentUserId={currentUser?.id ?? null}
+            onSessionsChanged={() => void loadOverview()}
+            onTrackingChanged={onTrackingChanged}
+            tripId={tripId}
+            tripTitle={tripTitle}
+          />
+        ) : null}
 
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-foreground">Recordings</h3>
