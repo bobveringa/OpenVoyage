@@ -3,6 +3,7 @@ import {
   Camera,
   Clock,
   Compass,
+  EllipsisVertical,
   MapPin,
   PenLine,
   Play,
@@ -20,6 +21,7 @@ import {
 import type { GpsPostCandidate } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Modal } from '@/components/ui/modal'
 import { cn } from '@/lib/utils'
 import {
   getMapFocusedPostId,
@@ -634,65 +636,120 @@ function MobilePostDetailCard({
   publishDisabled?: boolean
 }) {
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
+  const [isActionMenuOpen, setIsActionMenuOpen] = useState(false)
+  const [isPublishConfirmationOpen, setPublishConfirmationOpen] = useState(false)
+  const actionMenuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!isActionMenuOpen) {
+      return undefined
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!actionMenuRef.current?.contains(event.target as Node)) {
+        setIsActionMenuOpen(false)
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsActionMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isActionMenuOpen])
 
   return (
     <article className="flex h-full min-h-0 flex-col overflow-hidden bg-card lg:hidden">
-      <div className="flex min-w-0 items-start gap-3 border-b border-border bg-card/85 p-3">
-        <Button
-          aria-label="Back to post carousel"
-          className="size-9 rounded-full"
-          onClick={onBack}
-          size="icon"
-          title="Back"
-          type="button"
-          variant="outline"
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-        </Button>
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-semibold leading-6 text-foreground">
-            {post.title}
-          </h3>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {post.isDraft ? <Badge>Draft</Badge> : null}
-            <span className="inline-flex items-center gap-1.5">
-              <MapPin className="size-3.5" aria-hidden="true" />
-              {post.location}
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Clock className="size-3.5" aria-hidden="true" />
-              {post.time}
-            </span>
-            <span>{post.comments} comments</span>
+      <div className="min-w-0 border-b border-border bg-card/85 p-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <Button
+            aria-label="Back to post carousel"
+            className="size-9 rounded-full"
+            onClick={onBack}
+            size="icon"
+            title="Back"
+            type="button"
+            variant="outline"
+          >
+            <ArrowLeft className="size-4" aria-hidden="true" />
+          </Button>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-semibold leading-6 text-foreground">
+              {post.title}
+            </h3>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {post.isDraft ? <Badge>Draft</Badge> : null}
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="size-3.5" aria-hidden="true" />
+                {post.location}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Clock className="size-3.5" aria-hidden="true" />
+                {post.time}
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {onPublish ? (
-            <Button
-              aria-label={`Publish ${post.title}`}
-              className="rounded-full"
-              disabled={publishDisabled}
-              onClick={onPublish}
-              size="sm"
-              title={`Publish ${post.title}`}
-              type="button"
-            >
-              <Send className="size-3.5" aria-hidden="true" />
-              Publish
-            </Button>
-          ) : null}
-          {onEdit ? (
-            <Button
-              aria-label={`Edit ${post.title}`}
-              className="size-9 rounded-full"
-              onClick={onEdit}
-              size="icon"
-              title={`Edit ${post.title}`}
-              type="button"
-              variant="outline"
-            >
-              <PenLine className="size-4" aria-hidden="true" />
-            </Button>
+          {onPublish || onEdit ? (
+            <div className="relative shrink-0" ref={actionMenuRef}>
+              <Button
+                aria-controls={`post-actions-${post.id}`}
+                aria-expanded={isActionMenuOpen}
+                aria-haspopup="menu"
+                aria-label={`Actions for ${post.title}`}
+                className="size-9 rounded-full"
+                onClick={() => setIsActionMenuOpen((open) => !open)}
+                size="icon"
+                title="Post actions"
+                type="button"
+                variant="outline"
+              >
+                <EllipsisVertical className="size-4" aria-hidden="true" />
+              </Button>
+              {isActionMenuOpen ? (
+                <div
+                  className="absolute right-0 top-full z-30 mt-2 w-44 overflow-hidden rounded-xl border border-border bg-card p-1.5 shadow-lg"
+                  id={`post-actions-${post.id}`}
+                  role="menu"
+                >
+                  {onEdit ? (
+                    <button
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => {
+                        setIsActionMenuOpen(false)
+                        onEdit()
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <PenLine className="size-4" aria-hidden="true" />
+                      Edit {post.isDraft ? 'draft' : 'post'}
+                    </button>
+                  ) : null}
+                  {onPublish ? (
+                    <button
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={publishDisabled}
+                      onClick={() => {
+                        setIsActionMenuOpen(false)
+                        setPublishConfirmationOpen(true)
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <Send className="size-4" aria-hidden="true" />
+                      Publish draft
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>
@@ -722,6 +779,35 @@ function MobilePostDetailCard({
           title={post.title}
         />
       ) : null}
+
+      <Modal
+        description="This will make the draft visible to everyone who can view this trip."
+        onClose={() => setPublishConfirmationOpen(false)}
+        open={isPublishConfirmationOpen}
+        title="Publish draft?"
+      >
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            disabled={publishDisabled}
+            onClick={() => setPublishConfirmationOpen(false)}
+            type="button"
+            variant="outline"
+          >
+            Keep editing
+          </Button>
+          <Button
+            disabled={publishDisabled}
+            onClick={() => {
+              setPublishConfirmationOpen(false)
+              onPublish?.()
+            }}
+            type="button"
+          >
+            <Send className="size-4" aria-hidden="true" />
+            Publish draft
+          </Button>
+        </div>
+      </Modal>
     </article>
   )
 }
