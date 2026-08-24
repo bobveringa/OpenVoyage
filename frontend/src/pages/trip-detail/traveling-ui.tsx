@@ -4,6 +4,7 @@ import {
   Clock,
   Compass,
   EllipsisVertical,
+  Images,
   MapPin,
   PenLine,
   Play,
@@ -177,6 +178,7 @@ export function TravelingPanel({
   const desktopPostElementsRef = useRef(new Map<string, HTMLElement>())
   const mobilePostElementsRef = useRef(new Map<string, HTMLElement>())
   const mobileCarouselRef = useRef<HTMLDivElement | null>(null)
+  const mobileReturnPostIdRef = useRef<string | null>(null)
   const suppressScrollFocusRef = useRef(false)
   const handleScrollFocusedPostChange = useCallback(
     (postId: string | null) => {
@@ -236,6 +238,62 @@ export function TravelingPanel({
     }
   }, [scrollRequest, showMobileMap])
 
+  const closeMobilePostDetail = useCallback(() => {
+    if (!activePostId) {
+      return
+    }
+
+    if (window.history.state?.openVoyageMobilePostId === activePostId) {
+      window.history.back()
+      return
+    }
+
+    mobileReturnPostIdRef.current = activePostId
+    setActivePostId(null)
+  }, [activePostId])
+
+  const openMobilePostDetail = useCallback(
+    (post: TravelPost) => {
+      onFocusedPostChange(getMapFocusedPostId(post.id, travelPosts))
+      window.history.pushState(
+        { ...window.history.state, openVoyageMobilePostId: post.id },
+        '',
+      )
+      setActivePostId(post.id)
+    },
+    [onFocusedPostChange, travelPosts],
+  )
+
+  useEffect(() => {
+    function handlePopState() {
+      if (!activePostId) {
+        return
+      }
+
+      mobileReturnPostIdRef.current = activePostId
+      setActivePostId(null)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [activePostId])
+
+  useEffect(() => {
+    const postId = mobileReturnPostIdRef.current
+    if (activePostId || !postId) {
+      return undefined
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      mobilePostElementsRef.current
+        .get(postId)
+        ?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' })
+      mobileReturnPostIdRef.current = null
+    })
+
+    return () => window.cancelAnimationFrame(animationFrameId)
+  }, [activePostId])
+
   return (
     <div
       className={cn(
@@ -248,7 +306,7 @@ export function TravelingPanel({
         <div className="relative h-full min-h-0 overflow-hidden lg:hidden">
           {activePost ? (
             <MobilePostDetailCard
-              onBack={() => setActivePostId(null)}
+              onBack={closeMobilePostDetail}
               onEdit={canMutate ? () => onEditPost(activePost.id) : undefined}
               onPublish={
                 canMutate && activePost.isDraft
@@ -295,12 +353,7 @@ export function TravelingPanel({
                     <Fragment key={post.id}>
                       <TravelPostPreviewCard
                         active={focusedPostId === post.id}
-                        onOpen={() => {
-                          onFocusedPostChange(
-                            getMapFocusedPostId(post.id, travelPosts),
-                          )
-                          setActivePostId(post.id)
-                        }}
+                        onOpen={() => openMobilePostDetail(post)}
                         post={post}
                         postRef={(element) =>
                           setPostScrollElement(
@@ -666,7 +719,7 @@ function MobilePostDetailCard({
   }, [isActionMenuOpen])
 
   return (
-    <article className="flex h-full min-h-0 flex-col overflow-hidden bg-card lg:hidden">
+    <article className="scrollbar-subtle h-full min-h-0 overflow-y-auto bg-card lg:hidden">
       <div className="min-w-0 border-b border-border bg-card/85 p-3">
         <div className="flex min-w-0 items-start gap-3">
           <Button
@@ -754,20 +807,15 @@ function MobilePostDetailCard({
         </div>
       </div>
 
-      <div className="scrollbar-subtle min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+      <div className="space-y-4 p-4">
         <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
           {post.excerpt}
         </p>
 
-        <div className="trip-post-media-strip scrollbar-subtle -mx-4 flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain px-4 pb-1">
-          {post.media.map((media, index) => (
-            <MobilePostDetailMediaCard
-              key={media.src}
-              media={media}
-              onOpen={() => setActiveMediaIndex(index)}
-            />
-          ))}
-        </div>
+        <MobilePostMediaGallery
+          media={post.media}
+          onOpen={setActiveMediaIndex}
+        />
       </div>
 
       {activeMediaIndex !== null ? (
@@ -812,36 +860,79 @@ function MobilePostDetailCard({
   )
 }
 
-function MobilePostDetailMediaCard({
+function MobilePostMediaGallery({
   media,
   onOpen,
 }: {
-  media: PostMedia
-  onOpen: () => void
+  media: readonly PostMedia[]
+  onOpen: (index: number) => void
 }) {
-  const isVideo = getMediaType(media) === 'video'
+  const previewMedia = media.slice(0, 4)
+  const mediaCount = media.length
 
   return (
-    <article className="group relative h-80 shrink-0 overflow-hidden rounded-[1.35rem] bg-secondary sm:h-96">
-      <button
-        className="block h-full w-fit text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        onClick={onOpen}
-        type="button"
+    <section aria-label={`Post media: ${mediaCount} items`}>
+      <div
+        className={cn(
+          'relative grid h-56 overflow-hidden rounded-[1.35rem] border border-border bg-secondary shadow-sm sm:h-72',
+          mediaCount === 1 && 'grid-cols-1',
+          mediaCount === 2 && 'grid-cols-2',
+          mediaCount === 3 && 'grid-cols-2 grid-rows-2',
+          mediaCount >= 4 && 'grid-cols-2 grid-rows-2',
+        )}
       >
-        <MediaThumbnailPreview
-          className="h-full w-auto transition-transform duration-300 group-hover:scale-[1.025]"
-          media={media}
-        />
-        <span className="sr-only">Open {media.alt}</span>
-        {isVideo ? (
-          <span className="pointer-events-none absolute inset-0 grid place-items-center">
-            <span className="grid size-10 place-items-center rounded-full bg-card/90 text-primary shadow-lg shadow-black/15">
-              <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
-            </span>
-          </span>
-        ) : null}
-      </button>
-    </article>
+        {previewMedia.map((item, index) => {
+          const hasMoreMedia = index === 3 && mediaCount > 4
+          const isVideo = getMediaType(item) === 'video'
+
+          return (
+            <button
+              className={cn(
+                'group relative min-h-0 overflow-hidden border-border bg-secondary text-left focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                mediaCount === 3 && index === 0 && 'row-span-2 border-r',
+                mediaCount === 3 && index > 0 && 'border-l',
+                mediaCount === 3 && index === 2 && 'border-t',
+                mediaCount >= 4 && index % 2 === 0 && 'border-r',
+                mediaCount >= 4 && index >= 2 && 'border-t',
+                mediaCount === 2 && index === 0 && 'border-r',
+              )}
+              key={item.src}
+              onClick={() => onOpen(index)}
+              type="button"
+            >
+              <MediaThumbnailPreview
+                className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.025]"
+                media={item}
+              />
+              <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent" />
+              <span className="sr-only">Open {item.alt}</span>
+              {isVideo && !hasMoreMedia ? (
+                <span className="pointer-events-none absolute inset-0 grid place-items-center">
+                  <span className="grid size-10 place-items-center rounded-full bg-card/90 text-primary shadow-lg shadow-black/15">
+                    <Play className="ml-0.5 size-4 fill-current" aria-hidden="true" />
+                  </span>
+                </span>
+              ) : null}
+              {hasMoreMedia ? (
+                <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/55 text-xl font-semibold text-white">
+                  +{mediaCount - previewMedia.length}
+                </span>
+              ) : null}
+            </button>
+          )
+        })}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-2 right-2 z-10 inline-flex h-9 items-center gap-1.5 rounded-full bg-card/95 px-3 text-xs font-semibold text-primary shadow-md backdrop-blur"
+        >
+          <Images className="size-4" aria-hidden="true" />
+          View gallery
+        </span>
+      </div>
+      <p className="mt-2 text-center text-xs text-muted-foreground">
+        Tap any photo to view the full gallery
+      </p>
+    </section>
   )
 }
 
