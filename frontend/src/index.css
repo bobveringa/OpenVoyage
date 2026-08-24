@@ -99,8 +99,8 @@
     min-height: 0;
   }
 
-  .trip-leaflet-map .leaflet-control-attribution {
-    margin: 0 0.75rem 0.75rem 0;
+  body .trip-leaflet-map .leaflet-control-attribution {
+    margin: 0 2rem 0 0 !important;
     border-radius: 999px;
     background: color-mix(in srgb, var(--card) 86%, transparent);
     padding: 0.25rem 0.6rem;
