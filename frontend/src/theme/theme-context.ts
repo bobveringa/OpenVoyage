@@ -10,6 +10,7 @@ export type ThemeContextValue = {
   mode: ThemeMode
   palette: ThemePalette
   preference: ThemeModePreference
+  setUserPalette: (palette: ThemePalette | null) => void
   setPreference: (preference: ThemeModePreference) => void
 }
 

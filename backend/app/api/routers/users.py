@@ -1,5 +1,6 @@
 import uuid
-from typing import Annotated
+import logging
+from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, HTTPException, Path, Query, Response
 from starlette import status
@@ -11,6 +12,7 @@ from api.deps import (
     GpsPrivacyZoneServiceDep,
     OptionalCurrentUser,
     PaginationDep,
+    UserPreferencesServiceDep,
     UserServiceDep,
 )
 from core import security
@@ -31,6 +33,10 @@ from models.api.users import (
     UsernameAvailabilityResponse,
     validate_username,
 )
+from models.api.user_preferences import (
+    UserPreferencesPatch,
+    UserPreferencesResponse,
+)
 from services.user_service import (
     ProfilePictureMediaTypeError,
     ProfilePictureNotFoundError,
@@ -40,6 +46,10 @@ from services.user_service import (
     CurrentPasswordIncorrectError,
     NewPasswordMatchesCurrentError,
 )
+from services.user_preferences_service import (
+    StoredUserPreferencesError,
+    UserPreferencesRecord,
+)
 from models.api.token import Token
 from services.gps.privacy_zone_service import (
     PrivacyZoneLimitError,
@@ -47,6 +57,7 @@ from services.gps.privacy_zone_service import (
 )
 
 router = APIRouter(prefix='/users', tags=['users'])
+logger = logging.getLogger(__name__)
 
 
 @router.get('', response_model=PaginatedResponse[UserSearchResultResponse])
@@ -84,6 +95,54 @@ def search_users(
 def read_user(request: Request, user: AuthenticatedUser) -> CurrentUserResponse:
     media_base_url = str(request.base_url).rstrip('/')
     return CurrentUserResponse.from_model(user, media_base_url=media_base_url)
+
+
+@router.get('/me/preferences', response_model=UserPreferencesResponse)
+def get_user_preferences(
+    response: Response,
+    user: CurrentUser,
+    preferences_service: UserPreferencesServiceDep,
+) -> UserPreferencesResponse:
+    response.headers['Cache-Control'] = 'no-store'
+    try:
+        record = preferences_service.get_preferences(user.id)
+    except StoredUserPreferencesError as exc:
+        _raise_invalid_stored_preferences(user.id, exc)
+    return _preferences_response(record)
+
+
+@router.patch('/me/preferences', response_model=UserPreferencesResponse)
+def patch_user_preferences(
+    response: Response,
+    payload: UserPreferencesPatch,
+    user: CurrentUser,
+    preferences_service: UserPreferencesServiceDep,
+) -> UserPreferencesResponse:
+    response.headers['Cache-Control'] = 'no-store'
+    try:
+        record = preferences_service.update_preferences(user.id, payload)
+    except StoredUserPreferencesError as exc:
+        _raise_invalid_stored_preferences(user.id, exc)
+    return _preferences_response(record)
+
+
+def _preferences_response(record: UserPreferencesRecord) -> UserPreferencesResponse:
+    return UserPreferencesResponse(
+        time_format=record.time_format,
+        theme_palette=record.theme_palette,
+        updated_at=record.updated_at,
+    )
+
+
+def _raise_invalid_stored_preferences(
+    user_id: uuid.UUID,
+    error: StoredUserPreferencesError,
+) -> NoReturn:
+    logger.exception('Stored user preferences are invalid for user %s', user_id)
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail='Stored user preferences are invalid',
+    ) from error
 
 
 @router.put('/me/password', response_model=Token)

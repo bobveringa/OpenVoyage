@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 
 import {
   ClockFormatContext,
@@ -11,15 +11,16 @@ export function ClockFormatProvider({ children }: { children: ReactNode }) {
   const [preference, setPreferenceState] = useState<ClockFormatPreference>(
     readClockFormatPreference,
   )
+  const setPreference = useCallback((nextPreference: ClockFormatPreference) => {
+    setPreferenceState(nextPreference)
+    writeClockFormatPreference(nextPreference)
+  }, [])
   const value = useMemo(
     () => ({
       preference,
-      setPreference(nextPreference: ClockFormatPreference) {
-        setPreferenceState(nextPreference)
-        writeClockFormatPreference(nextPreference)
-      },
+      setPreference,
     }),
-    [preference],
+    [preference, setPreference],
   )
 
   return (

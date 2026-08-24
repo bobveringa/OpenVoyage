@@ -929,6 +929,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get User Preferences */
+        get: operations["get_user_preferences_api_v1_users_me_preferences_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch User Preferences */
+        patch: operations["patch_user_preferences_api_v1_users_me_preferences_patch"];
+        trace?: never;
+    };
     "/api/v1/users/me/sign-out-all": {
         parameters: {
             query?: never;
@@ -1898,6 +1916,11 @@ export interface components {
          * @enum {string}
          */
         SortDirection: "asc" | "desc";
+        /**
+         * TimeFormat
+         * @enum {string}
+         */
+        TimeFormat: "12-hour" | "24-hour";
         /** Token */
         Token: {
             /** Access Token */
@@ -2300,6 +2323,24 @@ export interface components {
          * @enum {string}
          */
         TripVisibility: "PUBLIC" | "PLATFORM_PUBLIC" | "PRIVATE";
+        /** UserPreferencesPatch */
+        UserPreferencesPatch: {
+            /** Theme Palette */
+            theme_palette?: {
+                [key: string]: unknown;
+            } | null;
+            time_format?: components["schemas"]["TimeFormat"] | null;
+        };
+        /** UserPreferencesResponse */
+        UserPreferencesResponse: {
+            /** Theme Palette */
+            theme_palette: {
+                [key: string]: unknown;
+            } | null;
+            time_format: components["schemas"]["TimeFormat"];
+            /** Updated At */
+            updated_at: string | null;
+        };
         /** UserProfileResponse */
         UserProfileResponse: {
             /** Biography */
@@ -4912,6 +4953,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Token"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_user_preferences_api_v1_users_me_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPreferencesResponse"];
+                };
+            };
+        };
+    };
+    patch_user_preferences_api_v1_users_me_preferences_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserPreferencesPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPreferencesResponse"];
                 };
             };
             /** @description Validation Error */
