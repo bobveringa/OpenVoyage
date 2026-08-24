@@ -698,7 +698,7 @@ function MobilePostDetailCard({
       </div>
 
       <div className="scrollbar-subtle min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+        <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
           {post.excerpt}
         </p>
 

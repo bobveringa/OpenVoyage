@@ -231,6 +231,31 @@ function SettingsAdminSections({
           settings={pickSettings(settingsByKey, [SETTING_KEYS.geonamesDataset])}
           title="GeoNames import"
         />
+        <Card>
+          <CardContent className="p-5 sm:p-6">
+            <p className="text-sm leading-6 text-muted-foreground">
+              Place data &copy;{' '}
+              <a
+                className="font-medium text-foreground underline underline-offset-4"
+                href="https://www.geonames.org/"
+                rel="noreferrer"
+                target="_blank"
+              >
+                GeoNames
+              </a>{' '}
+              is licensed under{' '}
+              <a
+                className="font-medium text-foreground underline underline-offset-4"
+                href="https://creativecommons.org/licenses/by/4.0/"
+                rel="noreferrer"
+                target="_blank"
+              >
+                CC BY 4.0
+              </a>
+              .
+            </p>
+          </CardContent>
+        </Card>
       </section>
     )
   }
