@@ -108,7 +108,6 @@ export type PostMedia = {
 }
 
 export type TravelPost = {
-  comments: number
   coordinates: L.LatLngTuple
   excerpt: string
   id: string

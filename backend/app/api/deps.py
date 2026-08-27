@@ -39,6 +39,7 @@ from services.post_timeline_service import PostTimelineService
 from services.platform_authorization import PlatformPermission, role_has_permission
 from services.trip_service import TripService
 from services.user_service import UserService
+from services.user_preferences_service import UserPreferencesService
 from services.admin_user_service import AdminUserService
 from services.trip_access import SHARE_TOKEN_HEADER
 
@@ -295,6 +296,10 @@ def get_user_service(session: SessionDep):
     return UserService(db=session)
 
 
+def get_user_preferences_service(session: SessionDep):
+    return UserPreferencesService(db=session)
+
+
 def get_admin_user_service(session: SessionDep):
     return AdminUserService(db=session)
 
@@ -327,4 +332,8 @@ GpsPrivacyZoneServiceDep = Annotated[
 ]
 TripServiceDep = Annotated[TripService, Depends(get_trip_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
+UserPreferencesServiceDep = Annotated[
+    UserPreferencesService,
+    Depends(get_user_preferences_service),
+]
 AdminUserServiceDep = Annotated[AdminUserService, Depends(get_admin_user_service)]

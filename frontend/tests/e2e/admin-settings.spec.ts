@@ -368,6 +368,14 @@ async function mockAdminApi(page: Page) {
     })
   })
 
+  await page.route('**/api/v1/users/me/preferences', async (route) => {
+    await fulfillJson(route, {
+      theme_palette: null,
+      time_format: '24-hour',
+      updated_at: '2026-08-27T10:00:00Z',
+    })
+  })
+
   await page.route('**/api/v1/admin/settings', async (route) => {
     await fulfillJson(route, {
       settings,

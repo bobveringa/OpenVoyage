@@ -19,6 +19,7 @@ import { getUserUsername } from '@/lib/users'
 import { NativeServerGate } from '@/native/native-server-gate'
 import { LoginPage } from '@/pages/login-page'
 import { PlaceholderPage } from '@/pages/placeholder-page'
+import { UserPreferencesProvider } from '@/preferences'
 import { SetupPage } from '@/pages/setup-page'
 import { PublicSettingsProvider } from '@/settings/public-settings'
 import { ThemeProvider } from '@/theme'
@@ -88,9 +89,11 @@ function App() {
         <ThemeProvider>
           <NativeServerGate>
             <AuthProvider>
-              <TrackingProvider>
-                <AppRoutes />
-              </TrackingProvider>
+              <UserPreferencesProvider>
+                <TrackingProvider>
+                  <AppRoutes />
+                </TrackingProvider>
+              </UserPreferencesProvider>
             </AuthProvider>
           </NativeServerGate>
         </ThemeProvider>

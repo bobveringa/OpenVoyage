@@ -21,6 +21,7 @@ from .base import Base, utcnow
 if typing.TYPE_CHECKING:
     from .media import Media
     from .trips import TripMember
+    from .user_preferences import UserPreferences
 
 
 USER_PROFILE_USERNAME_INDEX_NAME = 'ix_user_profiles_username'
@@ -108,6 +109,12 @@ class User(Base):
     media: Mapped[list['Media']] = relationship(
         'Media',
         back_populates='creator',
+    )
+    preferences: Mapped['UserPreferences | None'] = relationship(
+        'UserPreferences',
+        back_populates='user',
+        cascade='all, delete-orphan',
+        uselist=False,
     )
 
 

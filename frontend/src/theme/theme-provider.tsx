@@ -19,14 +19,18 @@ import {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const { settings } = usePublicSettings()
-  const [palette, setPalette] = useState<ThemePalette>(() => readCachedTheme() ?? DEFAULT_THEME_PALETTE)
+  const [instancePalette, setInstancePalette] = useState<ThemePalette>(
+    () => readCachedTheme() ?? DEFAULT_THEME_PALETTE,
+  )
+  const [userPalette, setUserPalette] = useState<ThemePalette | null>(null)
   const [preference, setPreferenceState] = useState<ThemeModePreference>(readThemeModePreference)
   const mode = preference
+  const palette = userPalette ?? instancePalette
 
   useEffect(() => {
     const nextPalette = parseThemePalette(settings[THEME_PALETTE_KEY])
     if (!nextPalette) return
-    setPalette(nextPalette)
+    setInstancePalette(nextPalette)
     writeCachedTheme(nextPalette)
   }, [settings])
 
@@ -42,6 +46,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       mode,
       palette,
       preference,
+      setUserPalette,
       setPreference(nextPreference: ThemeModePreference) {
         setPreferenceState(nextPreference)
         writeThemeModePreference(nextPreference)

@@ -10,7 +10,11 @@ so the seeded data goes through the same validation, route generation, and
 thumbnailing as real data.
 
 Usage:
-    python backend/scripts/seed_demo_trip.py [--force]
+    python seed_demo_trip.py --instance URL --username USER --password PASS
+
+The instance and credentials can also be supplied through
+OPENVOYAGE_BASE_URL, SEED_LOGIN_USERNAME (or SEED_LOGIN_EMAIL), and
+SEED_LOGIN_PASSWORD.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ import json
 import math
 import os
 import random
+import ssl
 import sys
 import tempfile
 import time as time_module
@@ -559,14 +564,17 @@ def require_env(*names: str) -> str:
 class ApiClient:
     """Minimal JSON client for the OpenVoyage API."""
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, *, verify_ssl: bool = True) -> None:
         self.base_url = base_url.rstrip('/')
         self.token: str | None = None
         self.last_headers: dict[str, str] = {}
+        self.ssl_context = None
+        if not verify_ssl:
+            self.ssl_context = ssl._create_unverified_context()
 
-    def login(self, email: str, password: str) -> None:
+    def login(self, username: str, password: str) -> None:
         body = urllib.parse.urlencode(
-            {'username': email, 'password': password}
+            {'username': username, 'password': password}
         ).encode()
         payload = self._send(
             'POST',
@@ -652,6 +660,7 @@ class ApiClient:
     ) -> object:
         request = urllib.request.Request(f'{self.base_url}{path}', data=body)
         request.get_method = lambda: method
+        request.add_header('Accept', 'application/json')
         if content_type:
             request.add_header('Content-Type', content_type)
         if authenticated and self.token:
@@ -660,12 +669,28 @@ class ApiClient:
             request.add_header(key, value)
 
         try:
-            with urllib.request.urlopen(request, timeout=180) as response:
+            with urllib.request.urlopen(
+                request,
+                timeout=180,
+                context=self.ssl_context,
+            ) as response:
                 raw = response.read()
                 self.last_headers = dict(response.headers)
                 if not raw:
                     return None
-                return json.loads(raw.decode('utf-8'))
+                try:
+                    return json.loads(raw.decode('utf-8'))
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    content_type = response.headers.get(
+                        'Content-Type',
+                        'unknown',
+                    )
+                    preview = raw.decode('utf-8', errors='replace').strip()
+                    preview = ' '.join(preview.split())[:400] or '<whitespace>'
+                    raise SeedError(
+                        f'{method} {path} expected a JSON response, but '
+                        f'{response.geturl()} returned {content_type}: {preview}'
+                    ) from exc
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode('utf-8', errors='replace')[:600]
             raise SeedError(
@@ -807,7 +832,7 @@ class GraphHopper:
             return {}
         try:
             return json.loads(self._cache_path.read_text(encoding='utf-8'))
-        except OSError, ValueError:
+        except (OSError, ValueError):
             return {}
 
     def _save_disk_cache(self) -> None:
@@ -1415,9 +1440,37 @@ def parse_args() -> argparse.Namespace:
         help='delete an existing trip with the same name before seeding',
     )
     parser.add_argument(
+        '--instance',
         '--base-url',
+        dest='instance',
         default=None,
-        help='API base URL (default: OPENVOYAGE_BASE_URL or localhost:8000)',
+        metavar='URL',
+        help=(
+            'OpenVoyage instance API base URL '
+            '(default: OPENVOYAGE_BASE_URL or http://localhost:8000); '
+            '--base-url is retained as an alias'
+        ),
+    )
+    parser.add_argument(
+        '--username',
+        default=None,
+        help=(
+            'username used to sign in (default: SEED_LOGIN_USERNAME, '
+            'SEED_LOGIN_EMAIL, or E2E_LOGIN_EMAIL)'
+        ),
+    )
+    parser.add_argument(
+        '--password',
+        default=None,
+        help=(
+            'password used to sign in '
+            '(default: SEED_LOGIN_PASSWORD or E2E_LOGIN_PASSWORD)'
+        ),
+    )
+    parser.add_argument(
+        '--insecure',
+        action='store_true',
+        help='disable TLS certificate verification for instance API requests',
     )
     parser.add_argument(
         '--seed',
@@ -1433,12 +1486,27 @@ def main() -> int:
     load_dotenv(REPO_ROOT / '.env')
 
     base_url = (
-        args.base_url
+        args.instance
         or os.environ.get('OPENVOYAGE_BASE_URL', '').strip()
         or 'http://localhost:8000'
     )
-    email = require_env('SEED_LOGIN_EMAIL', 'E2E_LOGIN_EMAIL')
-    password = require_env('SEED_LOGIN_PASSWORD', 'E2E_LOGIN_PASSWORD')
+    username = (
+        args.username
+        if args.username is not None
+        else require_env(
+            'SEED_LOGIN_USERNAME',
+            'SEED_LOGIN_EMAIL',
+            'E2E_LOGIN_EMAIL',
+        )
+    )
+    password = (
+        args.password
+        if args.password is not None
+        else require_env(
+            'SEED_LOGIN_PASSWORD',
+            'E2E_LOGIN_PASSWORD',
+        )
+    )
     graphhopper_key = require_env('GRAPHHOPPER_API_KEY')
     graphhopper_url = (
         os.environ.get('GRAPHHOPPER_BASE_URL', '').strip()
@@ -1447,11 +1515,13 @@ def main() -> int:
 
     rng = random.Random(args.seed)
     hopper = GraphHopper(graphhopper_key, graphhopper_url)
-    client = ApiClient(base_url)
+    client = ApiClient(base_url, verify_ssl=not args.insecure)
     now = datetime.now(timezone.utc)
 
-    print(f'Signing in to {base_url} as {email}')
-    client.login(email, password)
+    if args.insecure:
+        print('Warning: TLS certificate verification is disabled')
+    print(f'Signing in to {base_url} as {username}')
+    client.login(username, password)
 
     existing = find_existing_trip(client)
     if existing is not None:

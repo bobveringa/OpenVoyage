@@ -129,6 +129,8 @@ export type PostUpdatePayload = components['schemas']['PostUpdateRequest']
 export type UserProfileUpdatePayload =
   components['schemas']['UserProfileUpdateRequest']
 export type PasswordChangePayload = components['schemas']['PasswordChangeRequest']
+export type UserPreferences = components['schemas']['UserPreferencesResponse']
+export type UserPreferencesPatch = components['schemas']['UserPreferencesPatch']
 export type UserSummary = components['schemas']['UserSummaryResponse']
 export type UserSearchResult = components['schemas']['UserSearchResultResponse']
 export type UsernameAvailability =
@@ -526,6 +528,25 @@ export async function updateUserProfile(
   accessToken: string,
 ): Promise<CurrentUser> {
   return requestJson<CurrentUser>(`${API_V1_PREFIX}/users/me`, {
+    method: 'PATCH',
+    accessToken,
+    json: payload,
+  })
+}
+
+export async function getUserPreferences(
+  accessToken: string,
+): Promise<UserPreferences> {
+  return requestJson<UserPreferences>(`${API_V1_PREFIX}/users/me/preferences`, {
+    accessToken,
+  })
+}
+
+export async function patchUserPreferences(
+  payload: UserPreferencesPatch,
+  accessToken: string,
+): Promise<UserPreferences> {
+  return requestJson<UserPreferences>(`${API_V1_PREFIX}/users/me/preferences`, {
     method: 'PATCH',
     accessToken,
     json: payload,

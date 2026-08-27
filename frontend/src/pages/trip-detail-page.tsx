@@ -1521,7 +1521,6 @@ function toTravelPostViewModel(
   const media = post.media.map(toPostMediaViewModel)
 
   return {
-    comments: 0,
     coordinates,
     excerpt: post.body,
     id: post.id,

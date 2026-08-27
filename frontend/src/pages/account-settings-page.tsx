@@ -35,7 +35,7 @@ const accountSettingsSectionHeadings: Record<
   { description: string; title: string }
 > = {
   preferences: {
-    description: 'Choose how OpenVoyage is displayed on this device.',
+    description: 'Choose your time format and theme colors across signed-in devices.',
     title: 'Preferences',
   },
   privacy: {
