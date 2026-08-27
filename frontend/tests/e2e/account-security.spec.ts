@@ -71,7 +71,7 @@ test('forces an assigned-password user onto account security', async ({ page }) 
   await page.getByLabel('Confirm new password').fill('PrivatePassword456!')
   await page.getByRole('button', { name: 'Update password' }).click()
 
-  await expect(page).toHaveURL(/\/setup$/)
+  await expect(page).toHaveURL(/\/login$/)
 })
 
 async function mockSecurityApi(page: Page, passwordChangeRequired: boolean) {
@@ -105,6 +105,13 @@ async function mockSecurityApi(page: Page, passwordChangeRequired: boolean) {
       permissions: ['trip:create'],
       profile: null,
       role: 'USER',
+    }),
+  )
+  await page.route('**/api/v1/users/me/preferences', (route) =>
+    fulfillJson(route, {
+      theme_palette: null,
+      time_format: '24-hour',
+      updated_at: '2026-08-27T10:00:00Z',
     }),
   )
   await page.route('**/api/v1/users/me/password', async (route) => {

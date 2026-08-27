@@ -60,6 +60,11 @@ async function mockJobsApi(page: Page) {
     profile: null,
     role: 'ADMIN',
   }))
+  await page.route('**/api/v1/users/me/preferences', (route) => fulfillJson(route, {
+    theme_palette: null,
+    time_format: '24-hour',
+    updated_at: '2026-08-27T10:00:00Z',
+  }))
   await page.route('**/api/v1/settings/public', (route) => fulfillJson(route, {
     settings: {}, updated_at: null,
   }))
