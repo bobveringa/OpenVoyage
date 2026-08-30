@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 @dataclass
@@ -39,6 +39,10 @@ def generate_image_thumbnail(
     :return:
     """
     image_format = CONTENT_TYPE_TO_FORMAT.get(content_type, 'WEBP')
-    image = Image.open(file_path)
-    image.thumbnail(max_size)
-    image.save(destination, format=image_format, quality=quality)
+    with Image.open(file_path) as source:
+        # Camera uploads commonly store their intended display rotation in EXIF
+        # rather than in the pixel data. Apply it before calculating the thumbnail
+        # dimensions so portrait images remain portrait in the generated file.
+        image = ImageOps.exif_transpose(source)
+        image.thumbnail(max_size)
+        image.save(destination, format=image_format, quality=quality)

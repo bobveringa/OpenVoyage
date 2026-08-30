@@ -29,6 +29,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.middleware('http')
+async def protect_social_responses_from_shared_caches(request, call_next):
+    """Social state and link profiles are actor-specific, including errors."""
+    response = await call_next(request)
+    path = request.url.path
+    if ('/posts' in path or path.endswith('/share-link-profile')) and path.startswith(
+        settings.API_V1_STR
+    ):
+        response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+
 # Set all CORS enabled origins
 if settings.all_cors_origins:
     app.add_middleware(
@@ -74,7 +87,10 @@ def configure_frontend(app: FastAPI) -> None:
     @app.get('/{full_path:path}', include_in_schema=False)
     async def serve_frontend(full_path: str):
         requested_file = (frontend_directory / full_path).resolve()
-        if requested_file.is_relative_to(frontend_directory) and requested_file.is_file():
+        if (
+            requested_file.is_relative_to(frontend_directory)
+            and requested_file.is_file()
+        ):
             return FileResponse(requested_file)
         return FileResponse(index_file)
 

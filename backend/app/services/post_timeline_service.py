@@ -10,7 +10,7 @@ from models.api.posts import (
     PostTimelineRouteSegmentResponse,
 )
 from models.database.posts import Post, PostMedia
-from models.database.user import User
+from models.database.user import User, UserProfile
 from services.gps.tracking_service import GpsTrackingService, TimelineGeometry
 from services.trip_errors import TripNotFoundError
 from services.trip_access import get_trip_read_access
@@ -86,7 +86,9 @@ class PostTimelineService:
             self.db.execute(
                 select(Post)
                 .options(
-                    joinedload(Post.author).joinedload(User.profile),
+                    joinedload(Post.author)
+                    .joinedload(User.profile)
+                    .joinedload(UserProfile.profile_picture),
                     joinedload(Post.location),
                     selectinload(Post.media_links).joinedload(PostMedia.media),
                 )

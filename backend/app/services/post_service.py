@@ -14,7 +14,7 @@ from models.database.base import utcnow
 from models.database.media import Media
 from models.database.posts import Post, PostMedia
 from models.database.trips import TripMember, TripRole
-from models.database.user import User
+from models.database.user import User, UserProfile
 from services.location_service import LocationService
 from services.trip_access import TripReadAccess, get_trip_read_access, get_membership
 from services.trip_authorization import TripPermission, role_has_permission
@@ -366,7 +366,9 @@ class PostService:
 
     def _post_response_statement(self):
         return select(Post).options(
-            joinedload(Post.author).joinedload(User.profile),
+            joinedload(Post.author)
+            .joinedload(User.profile)
+            .joinedload(UserProfile.profile_picture),
             joinedload(Post.location),
             selectinload(Post.media_links).joinedload(PostMedia.media),
         )

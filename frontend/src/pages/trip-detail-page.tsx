@@ -32,6 +32,7 @@ import {
   replaceItineraryTravelLeg,
   reverseGeocodePlaces,
   revokeTripShareLink,
+  updateTripShareLink,
   updateItineraryStop,
   updatePost,
   updateTrip,
@@ -45,6 +46,7 @@ import {
   type ItineraryStopUpdatePayload,
   type ItineraryTravelReplacePayload,
   type Post,
+  type PostSocialSummary,
   type PostCreatePayload,
   type PostTimelineEntry,
   type PostTimelineOpeningRoute,
@@ -564,9 +566,12 @@ export function TripDetailPage({
       const shareLink = await createTripShareLink({
         accessToken,
         payload: {
+          display_name: draft.displayName,
+          display_name_locked: draft.displayNameLocked,
           expires_at: draft.expiresAt
             ? toPostOccurredAtValue(draft.expiresAt)
             : null,
+          interactions_enabled: draft.interactionsEnabled,
           label: draft.label,
         },
         tripId,
@@ -593,6 +598,28 @@ export function TripDetailPage({
       setTripShareLinks((currentLinks) =>
         currentLinks.filter((currentLink) => currentLink.id !== link.id),
       )
+    })
+  }
+
+  function handleShareLinkUpdate(link: ShareLinkViewModel) {
+    if (!tripId || !accessToken) return
+    void runMutation('Updating share link', async () => {
+      const updated = await updateTripShareLink({
+        accessToken,
+        payload: {
+          display_name: link.displayName,
+          display_name_locked: link.displayNameLocked,
+          expires_at: link.expiresAt
+            ? toPostOccurredAtValue(link.expiresAt)
+            : null,
+          interactions_enabled: link.interactionsEnabled,
+        },
+        shareLinkId: link.id,
+        tripId,
+      })
+      setTripShareLinks((links) => links.map((item) =>
+        item.id === link.id ? toShareLinkViewModel(updated) : item,
+      ))
     })
   }
 
@@ -1084,6 +1111,28 @@ export function TripDetailPage({
     )
   }, [])
 
+  const handlePostSocialSummary = useCallback(
+    (postId: string, social: PostSocialSummary) => {
+      setTravelPosts((posts) =>
+        posts.map((post) =>
+          post.id === postId
+            ? {
+                ...post,
+                social: {
+                  canInteract: social.can_interact,
+                  canLike: social.can_like,
+                  commentCount: social.comment_count,
+                  likeCount: social.like_count,
+                  viewerHasLiked: social.viewer_has_liked,
+                },
+              }
+            : post,
+        ),
+      )
+    },
+    [],
+  )
+
   const handleMapPostSelect = useCallback((postId: string) => {
     setFocusedPostId(postId)
     setPostScrollRequest((currentRequest) => ({
@@ -1226,6 +1275,7 @@ export function TripDetailPage({
             ) : null}
             <TripSidebar
               accessToken={accessToken}
+              shareToken={shareToken}
               canManageTrip={canManageTrip}
               canMutate={canMutate}
               currentUserId={currentUser?.id ?? null}
@@ -1244,6 +1294,7 @@ export function TripDetailPage({
               onPostMarkerSelect={handleMapPostSelect}
               onCreateStop={handleCreateStop}
               onFocusedPostChange={handleFocusedPostChange}
+              onPostSocialSummary={handlePostSocialSummary}
               onOpenManagement={openManagement}
               onEditPost={handleEditPost}
               onPostDelete={handlePostDelete}
@@ -1307,6 +1358,7 @@ export function TripDetailPage({
           onRemoveMember={handleMemberRemove}
           onRemoveViewer={handleViewerRemove}
           onRevokeLink={handleShareLinkRevoke}
+          onUpdateLink={handleShareLinkUpdate}
           onTrackingChanged={() => {
             // Mode edits and deletions change public geometry, so reload the
             // authoritative timeline rather than patching it locally.
@@ -1481,12 +1533,15 @@ function toShareLinkViewModel(
   link: TripShareLink | TripShareLinkCreateResponse,
 ): ShareLinkViewModel {
   return {
+    displayName: link.display_name,
+    displayNameLocked: link.display_name_locked,
     expiresAt: link.expires_at,
     id: link.id,
     label: link.label?.trim() || 'Untitled link',
     lastUsedAt: link.last_used_at
       ? formatDateTimeLabel(link.last_used_at)
       : null,
+    interactionsEnabled: link.interactions_enabled,
     token: 'token' in link ? link.token : null,
     tripId: link.trip_id,
   }
@@ -1519,8 +1574,26 @@ function toTravelPostViewModel(
     post.location.longitude,
   ]
   const media = post.media.map(toPostMediaViewModel)
+  const authorName =
+    [post.author.first_name, post.author.last_name]
+      .filter(Boolean)
+      .join(' ') ||
+    post.author.username ||
+    'User'
+  const authorInitials =
+    [post.author.first_name?.[0], post.author.last_name?.[0]]
+      .filter(Boolean)
+      .join('') ||
+    post.author.username?.slice(0, 2) ||
+    'U'
 
   return {
+    author: {
+      displayName: authorName,
+      id: post.author.id,
+      initials: authorInitials.toUpperCase(),
+      profilePicture: post.author.profile_picture,
+    },
     coordinates,
     excerpt: post.body,
     id: post.id,
@@ -1533,7 +1606,15 @@ function toTravelPostViewModel(
     routeAfter,
     time: formatDateTimeLabel(post.occurred_at),
     title: post.title,
+    social: {
+      canInteract: post.social.can_interact,
+      canLike: post.social.can_like,
+      commentCount: post.social.comment_count,
+      likeCount: post.social.like_count,
+      viewerHasLiked: post.social.viewer_has_liked,
+    },
   }
+
 }
 
 function toTravelPostRouteViewModel(

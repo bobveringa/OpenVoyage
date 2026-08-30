@@ -99,7 +99,10 @@ export type TripSettingsDraft = {
 }
 
 export type ShareLinkCreateDraft = {
+  displayName: string | null
+  displayNameLocked: boolean
   expiresAt: string | null
+  interactionsEnabled: boolean
   label: string | null
 }
 

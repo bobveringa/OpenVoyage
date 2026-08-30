@@ -102,9 +102,7 @@ class UserService:
             .select_from(User)
             .outerjoin(UserProfile)
             .options(
-                contains_eager(User.profile).joinedload(
-                    UserProfile.profile_picture
-                )
+                contains_eager(User.profile).joinedload(UserProfile.profile_picture)
             )
             .where(*filters)
             .order_by(User.email.asc(), User.id.asc())

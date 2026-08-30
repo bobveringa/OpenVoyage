@@ -35,9 +35,7 @@ def point(
 
 
 def walk(count: int, *, step_seconds: int = 60, step_meters: float = 200.0):
-    return [
-        point(index * step_seconds, index * step_meters) for index in range(count)
-    ]
+    return [point(index * step_seconds, index * step_meters) for index in range(count)]
 
 
 @pytest.mark.unit
@@ -126,9 +124,7 @@ def test_a_high_speed_journey_is_prompted_at_its_midpoint_once_finished() -> Non
     # 500 km covered in 100 minutes: comfortably past the road speed band.
     step_seconds = 600
     step_meters = 50_000.0
-    points = [
-        point(index * step_seconds, index * step_meters) for index in range(11)
-    ]
+    points = [point(index * step_seconds, index * step_meters) for index in range(11)]
     assert (
         points[-1].recorded_at - points[0].recorded_at
     ).total_seconds() >= POST_CANDIDATE_HIGH_SPEED_MIN_ELAPSED_SECONDS
@@ -145,9 +141,7 @@ def test_a_high_speed_journey_is_prompted_at_its_midpoint_once_finished() -> Non
 def test_a_live_high_speed_journey_prompts_at_its_current_end() -> None:
     step_seconds = 600
     step_meters = 50_000.0
-    points = [
-        point(index * step_seconds, index * step_meters) for index in range(11)
-    ]
+    points = [point(index * step_seconds, index * step_meters) for index in range(11)]
 
     derived = derive_session_track(points, is_closed=False)
 

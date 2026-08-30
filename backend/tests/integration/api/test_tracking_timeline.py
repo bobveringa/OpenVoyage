@@ -578,8 +578,8 @@ def test_opening_route_reaches_the_first_post_for_every_reader(
     assert [5.0, 52.0] in coordinates
     assert len(opening['segments']) == 1
 
-    # It is bounded above by a published post, so it stays cacheable.
-    assert 'no-store' not in anonymous.headers.get('Cache-Control', '')
+    # Post social state is actor-specific, so all timelines are private.
+    assert anonymous.headers['Cache-Control'] == 'private, no-store'
 
 
 @pytest.mark.integration
@@ -655,8 +655,8 @@ def test_postless_opening_route_gates_the_open_session(
 
     member = _timeline(client, api_prefix, trip.id, user=owner)
     assert _modes(member.json()['opening_route']['segments']) == ['WALK', 'CAR']
-    # Unbounded above: it must not sit in a shared cache.
-    assert member.headers['Cache-Control'] == 'no-store'
+    # Post social state is actor-specific, so all timelines are private.
+    assert member.headers['Cache-Control'] == 'private, no-store'
 
     client.put(
         f'{api_prefix}/trips/{trip.id}/live-location-settings',
@@ -665,7 +665,7 @@ def test_postless_opening_route_gates_the_open_session(
     )
     shared = _timeline(client, api_prefix, trip.id)
     assert _modes(shared.json()['opening_route']['segments']) == ['WALK', 'CAR']
-    assert shared.headers['Cache-Control'] == 'no-store'
+    assert shared.headers['Cache-Control'] == 'private, no-store'
 
 
 @pytest.mark.integration
@@ -801,14 +801,14 @@ def test_final_route_follows_the_live_sharing_switch(
 
     anonymous = _timeline(client, api_prefix, trip.id)
     assert anonymous.json()['entries'][0]['route_after'] is None
-    assert 'no-store' not in anonymous.headers.get('Cache-Control', '')
+    assert anonymous.headers['Cache-Control'] == 'private, no-store'
 
     member = _timeline(client, api_prefix, trip.id, user=owner)
     route = member.json()['entries'][0]['route_after']
     assert route['duration_seconds'] is None
     assert _modes(route['segments']) == ['CAR']
     assert all(segment['visible_to_members_only'] for segment in route['segments'])
-    assert member.headers['Cache-Control'] == 'no-store'
+    assert member.headers['Cache-Control'] == 'private, no-store'
 
     client.put(
         f'{api_prefix}/trips/{trip.id}/live-location-settings',
@@ -820,11 +820,11 @@ def test_final_route_follows_the_live_sharing_switch(
     assert route['duration_seconds'] is None
     assert _modes(route['segments']) == ['CAR']
     assert not any(segment['visible_to_members_only'] for segment in route['segments'])
-    assert member.headers['Cache-Control'] == 'no-store'
+    assert member.headers['Cache-Control'] == 'private, no-store'
 
     shared = _timeline(client, api_prefix, trip.id)
     assert shared.json()['entries'][0]['route_after'] is not None
-    assert shared.headers['Cache-Control'] == 'no-store'
+    assert shared.headers['Cache-Control'] == 'private, no-store'
 
 
 @pytest.mark.integration
@@ -906,7 +906,7 @@ def test_ended_session_after_the_final_post_is_last_seen_when_shared(
     assert all(
         segment['visible_to_members_only'] for segment in member_route['segments']
     )
-    assert 'no-store' not in member.headers.get('Cache-Control', '')
+    assert member.headers['Cache-Control'] == 'private, no-store'
 
     client.put(
         f'{api_prefix}/trips/{trip.id}/live-location-settings',
@@ -920,7 +920,7 @@ def test_ended_session_after_the_final_post_is_last_seen_when_shared(
         assert not any(
             segment['visible_to_members_only'] for segment in route_after['segments']
         )
-        assert 'no-store' not in response.headers.get('Cache-Control', '')
+        assert response.headers['Cache-Control'] == 'private, no-store'
 
     # A later post closes the interval and the geometry becomes history.
     _create_post(

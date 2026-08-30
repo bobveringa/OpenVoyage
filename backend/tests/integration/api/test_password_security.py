@@ -79,9 +79,9 @@ def test_change_password_rotates_version_and_returns_working_tokens(
     assert updated_user is not None
     assert updated_user.auth_version == 1
     assert updated_user.password_change_required is False
-    assert security.verify_password(
-        'PrivatePassword456!', updated_user.password_hash
-    )[0]
+    assert security.verify_password('PrivatePassword456!', updated_user.password_hash)[
+        0
+    ]
 
     assert (
         client.get(

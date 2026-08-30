@@ -552,8 +552,7 @@ def test_speed_heading_altitude_round_trip_and_default_to_null(tracking) -> None
     assert result['accepted_samples'] == 2
 
     stored = {
-        point['id']: point
-        for point in tracking.raw_samples(session_id).json()['items']
+        point['id']: point for point in tracking.raw_samples(session_id).json()['items']
     }
     assert stored[with_motion['id']]['speed_mps'] == 1.4
     assert stored[with_motion['id']]['heading_degrees'] == 180.0

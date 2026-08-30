@@ -11,13 +11,21 @@ from api.deps import (
     OptionalCurrentUser,
     PaginationDep,
     PostServiceDep,
+    PostSocialServiceDep,
     PostTimelineServiceDep,
     ShareToken,
 )
-from models.api.pagination import PaginatedResponse, SortDirection
+from models.api.pagination import (
+    CursorPaginatedResponse,
+    PaginatedResponse,
+    SortDirection,
+)
 from models.api.posts import (
     PostCreateRequest,
+    PostCommentCreateRequest,
+    PostCommentResponse,
     PostResponse,
+    PostSocialSummaryResponse,
     PostSortField,
     PostStatusFilter,
     PostTimelineEntryResponse,
@@ -34,6 +42,12 @@ from services.post_service import (
     PostPermissionError,
 )
 from services.trip_errors import TripNotFoundError
+from services.post_social_service import (
+    InvalidCommentCursorError,
+    SocialNameRequiredError,
+    SocialNotFoundError,
+    SocialPermissionError,
+)
 
 router = APIRouter(prefix='/trips/{trip_id}/posts', tags=['posts'])
 
@@ -44,6 +58,7 @@ def _post_response(
     *,
     user=None,
     share_token: str | None = None,
+    social: PostSocialSummaryResponse,
 ) -> PostResponse:
     media_token_factory = (
         security.create_media_url_token if user or share_token else None
@@ -52,7 +67,22 @@ def _post_response(
         post,
         media_base_url=media_base_url,
         media_token_factory=media_token_factory,
+        social=social,
     )
+
+
+def _social_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, SocialNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, SocialNameRequiredError):
+        return HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED, detail=str(exc)
+        )
+    if isinstance(exc, InvalidCommentCursorError):
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        )
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 
 
 @router.post(
@@ -62,9 +92,11 @@ def _post_response(
 )
 def create_post(
     request: Request,
+    response: Response,
     trip_id: uuid.UUID,
     payload: PostCreateRequest,
     post_service: PostServiceDep,
+    social_service: PostSocialServiceDep,
     user: CurrentUser,
 ) -> PostResponse:
     try:
@@ -81,7 +113,14 @@ def create_post(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return _post_response(post, media_base_url=media_base_url, user=user)
+    social = social_service.get_summary(
+        trip_id=trip_id,
+        post_id=post.id,
+        current_user_id=user.id,
+        share_token=None,
+    )
+    response.headers['Cache-Control'] = 'private, no-store'
+    return _post_response(post, media_base_url=media_base_url, user=user, social=social)
 
 
 @router.get(
@@ -90,8 +129,10 @@ def create_post(
 )
 def list_posts(
     request: Request,
+    response: Response,
     trip_id: uuid.UUID,
     post_service: PostServiceDep,
+    social_service: PostSocialServiceDep,
     user: OptionalCurrentUser,
     pagination: PaginationDep,
     share_token: ShareToken = None,
@@ -119,6 +160,13 @@ def list_posts(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
+    summaries = social_service.get_summaries(
+        trip_id=trip_id,
+        post_ids=[post.id for post in posts],
+        current_user_id=user.id if user else None,
+        share_token=share_token,
+    )
+    response.headers['Cache-Control'] = 'private, no-store'
     return PaginatedResponse[PostResponse](
         items=[
             _post_response(
@@ -126,6 +174,7 @@ def list_posts(
                 media_base_url=media_base_url,
                 user=user,
                 share_token=share_token,
+                social=summaries[post.id],
             )
             for post in posts
         ],
@@ -144,6 +193,7 @@ def get_post_timeline(
     response: Response,
     trip_id: uuid.UUID,
     post_timeline_service: PostTimelineServiceDep,
+    social_service: PostSocialServiceDep,
     user: OptionalCurrentUser,
     share_token: ShareToken = None,
     status_filter: Annotated[
@@ -161,6 +211,7 @@ def get_post_timeline(
     except TripNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
+    response.headers['Cache-Control'] = 'private, no-store'
     if timeline.carries_unbounded_open_geometry:
         # Geometry no visible post bounds from above carries a coordinate
         # recorded moments ago, so it must not sit in a shared cache. A route
@@ -169,6 +220,12 @@ def get_post_timeline(
         response.headers['Cache-Control'] = 'no-store'
 
     media_base_url = str(request.base_url).rstrip('/')
+    summaries = social_service.get_summaries(
+        trip_id=trip_id,
+        post_ids=[entry.post.id for entry in timeline.entries],
+        current_user_id=user.id if user else None,
+        share_token=share_token,
+    )
     return PostTimelineResponse(
         opening_route=(
             PostTimelineOpeningRouteResponse(segments=timeline.opening_segments)
@@ -182,6 +239,7 @@ def get_post_timeline(
                     media_base_url=media_base_url,
                     user=user,
                     share_token=share_token,
+                    social=summaries[entry.post.id],
                 ),
                 route_after=entry.route_after,
             )
@@ -196,9 +254,11 @@ def get_post_timeline(
 )
 def get_post(
     request: Request,
+    response: Response,
     trip_id: uuid.UUID,
     post_id: uuid.UUID,
     post_service: PostServiceDep,
+    social_service: PostSocialServiceDep,
     user: OptionalCurrentUser,
     share_token: ShareToken = None,
 ) -> PostResponse:
@@ -215,11 +275,19 @@ def get_post(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
+    social = social_service.get_summary(
+        trip_id=trip_id,
+        post_id=post.id,
+        current_user_id=user.id if user else None,
+        share_token=share_token,
+    )
+    response.headers['Cache-Control'] = 'private, no-store'
     return _post_response(
         post,
         media_base_url=media_base_url,
         user=user,
         share_token=share_token,
+        social=social,
     )
 
 
@@ -229,10 +297,12 @@ def get_post(
 )
 def update_post(
     request: Request,
+    response: Response,
     trip_id: uuid.UUID,
     post_id: uuid.UUID,
     payload: PostUpdateRequest,
     post_service: PostServiceDep,
+    social_service: PostSocialServiceDep,
     user: CurrentUser,
 ) -> PostResponse:
     try:
@@ -252,7 +322,14 @@ def update_post(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return _post_response(post, media_base_url=media_base_url, user=user)
+    social = social_service.get_summary(
+        trip_id=trip_id,
+        post_id=post.id,
+        current_user_id=user.id,
+        share_token=None,
+    )
+    response.headers['Cache-Control'] = 'private, no-store'
+    return _post_response(post, media_base_url=media_base_url, user=user, social=social)
 
 
 @router.post(
@@ -261,9 +338,11 @@ def update_post(
 )
 def publish_post(
     request: Request,
+    response: Response,
     trip_id: uuid.UUID,
     post_id: uuid.UUID,
     post_service: PostServiceDep,
+    social_service: PostSocialServiceDep,
     user: CurrentUser,
 ) -> PostResponse:
     try:
@@ -278,7 +357,14 @@ def publish_post(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return _post_response(post, media_base_url=media_base_url, user=user)
+    social = social_service.get_summary(
+        trip_id=trip_id,
+        post_id=post.id,
+        current_user_id=user.id,
+        share_token=None,
+    )
+    response.headers['Cache-Control'] = 'private, no-store'
+    return _post_response(post, media_base_url=media_base_url, user=user, social=social)
 
 
 @router.post(
@@ -287,9 +373,11 @@ def publish_post(
 )
 def unpublish_post(
     request: Request,
+    response: Response,
     trip_id: uuid.UUID,
     post_id: uuid.UUID,
     post_service: PostServiceDep,
+    social_service: PostSocialServiceDep,
     user: CurrentUser,
 ) -> PostResponse:
     try:
@@ -304,7 +392,14 @@ def unpublish_post(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 
     media_base_url = str(request.base_url).rstrip('/')
-    return _post_response(post, media_base_url=media_base_url, user=user)
+    social = social_service.get_summary(
+        trip_id=trip_id,
+        post_id=post.id,
+        current_user_id=user.id,
+        share_token=None,
+    )
+    response.headers['Cache-Control'] = 'private, no-store'
+    return _post_response(post, media_base_url=media_base_url, user=user, social=social)
 
 
 @router.delete(
@@ -327,3 +422,139 @@ def delete_post(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except PostPermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+
+@router.put('/{post_id}/like', response_model=PostSocialSummaryResponse)
+def like_post(
+    trip_id: uuid.UUID,
+    post_id: uuid.UUID,
+    social_service: PostSocialServiceDep,
+    response: Response,
+    user: OptionalCurrentUser,
+    share_token: ShareToken = None,
+) -> PostSocialSummaryResponse:
+    try:
+        summary = social_service.like(
+            trip_id=trip_id,
+            post_id=post_id,
+            current_user_id=user.id if user else None,
+            share_token=share_token,
+        )
+    except (SocialNotFoundError, SocialPermissionError, SocialNameRequiredError) as exc:
+        raise _social_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return summary
+
+
+@router.delete('/{post_id}/like', response_model=PostSocialSummaryResponse)
+def unlike_post(
+    trip_id: uuid.UUID,
+    post_id: uuid.UUID,
+    social_service: PostSocialServiceDep,
+    response: Response,
+    user: OptionalCurrentUser,
+    share_token: ShareToken = None,
+) -> PostSocialSummaryResponse:
+    try:
+        summary = social_service.unlike(
+            trip_id=trip_id,
+            post_id=post_id,
+            current_user_id=user.id if user else None,
+            share_token=share_token,
+        )
+    except (SocialNotFoundError, SocialPermissionError) as exc:
+        raise _social_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return summary
+
+
+@router.get(
+    '/{post_id}/comments',
+    response_model=CursorPaginatedResponse[PostCommentResponse],
+)
+def list_post_comments(
+    request: Request,
+    trip_id: uuid.UUID,
+    post_id: uuid.UUID,
+    social_service: PostSocialServiceDep,
+    response: Response,
+    user: OptionalCurrentUser,
+    share_token: ShareToken = None,
+    cursor: str | None = None,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> CursorPaginatedResponse[PostCommentResponse]:
+    try:
+        page = social_service.list_comments(
+            trip_id=trip_id,
+            post_id=post_id,
+            current_user_id=user.id if user else None,
+            share_token=share_token,
+            cursor=cursor,
+            page_size=page_size,
+            media_base_url=str(request.base_url).rstrip('/'),
+            media_token_factory=(
+                security.create_media_url_token if user or share_token else None
+            ),
+        )
+    except (SocialNotFoundError, InvalidCommentCursorError) as exc:
+        raise _social_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return page
+
+
+@router.post(
+    '/{post_id}/comments',
+    status_code=status.HTTP_201_CREATED,
+    response_model=PostCommentResponse,
+)
+def create_post_comment(
+    request: Request,
+    trip_id: uuid.UUID,
+    post_id: uuid.UUID,
+    payload: PostCommentCreateRequest,
+    social_service: PostSocialServiceDep,
+    response: Response,
+    user: OptionalCurrentUser,
+    share_token: ShareToken = None,
+) -> PostCommentResponse:
+    try:
+        comment = social_service.create_comment(
+            trip_id=trip_id,
+            post_id=post_id,
+            payload=payload,
+            current_user_id=user.id if user else None,
+            share_token=share_token,
+            media_base_url=str(request.base_url).rstrip('/'),
+            media_token_factory=(
+                security.create_media_url_token if user or share_token else None
+            ),
+        )
+    except (SocialNotFoundError, SocialPermissionError, SocialNameRequiredError) as exc:
+        raise _social_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return comment
+
+
+@router.delete(
+    '/{post_id}/comments/{comment_id}', status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_post_comment(
+    trip_id: uuid.UUID,
+    post_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    social_service: PostSocialServiceDep,
+    response: Response,
+    user: OptionalCurrentUser,
+    share_token: ShareToken = None,
+) -> None:
+    try:
+        social_service.delete_comment(
+            trip_id=trip_id,
+            post_id=post_id,
+            comment_id=comment_id,
+            current_user_id=user.id if user else None,
+            share_token=share_token,
+        )
+    except (SocialNotFoundError, SocialPermissionError) as exc:
+        raise _social_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'

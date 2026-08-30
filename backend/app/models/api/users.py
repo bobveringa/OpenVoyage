@@ -138,7 +138,9 @@ class CurrentUserResponse(UserResponse):
         return cls(
             **user_response.model_dump(),
             role=user.role,
-            permissions=sorted(permissions_for_role(user.role), key=lambda item: item.value),
+            permissions=sorted(
+                permissions_for_role(user.role), key=lambda item: item.value
+            ),
             password_change_required=user.password_change_required,
         )
 
@@ -160,7 +162,7 @@ class UserSummaryResponse(BaseModel):
         )
 
 
-class UserSearchResultResponse(UserSummaryResponse):
+class UserDisplaySummaryResponse(UserSummaryResponse):
     profile_picture: MediaResponse | None
 
     @classmethod
@@ -168,6 +170,8 @@ class UserSearchResultResponse(UserSummaryResponse):
         cls,
         user: 'User',
         media_base_url: str = '',
+        *,
+        media_token: str | None = None,
     ) -> Self:
         profile = user.profile
         return cls(
@@ -176,6 +180,7 @@ class UserSearchResultResponse(UserSummaryResponse):
                 MediaResponse.from_model(
                     profile.profile_picture,
                     media_base_url=media_base_url,
+                    media_token=media_token,
                 )
                 if profile and profile.profile_picture
                 else None
@@ -183,26 +188,9 @@ class UserSearchResultResponse(UserSummaryResponse):
         )
 
 
-class TripMemberUserResponse(UserSummaryResponse):
+class UserSearchResultResponse(UserDisplaySummaryResponse):
+    pass
+
+
+class TripMemberUserResponse(UserDisplaySummaryResponse):
     """Display-safe user data used when showing a trip's travellers."""
-
-    profile_picture: MediaResponse | None
-
-    @classmethod
-    def from_model(
-        cls,
-        user: 'User',
-        media_base_url: str = '',
-    ) -> Self:
-        profile = user.profile
-        return cls(
-            **UserSummaryResponse.from_model(user).model_dump(),
-            profile_picture=(
-                MediaResponse.from_model(
-                    profile.profile_picture,
-                    media_base_url=media_base_url,
-                )
-                if profile and profile.profile_picture
-                else None
-            ),
-        )

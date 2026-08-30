@@ -589,6 +589,59 @@ export interface paths {
         patch: operations["update_post_api_v1_trips__trip_id__posts__post_id__patch"];
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/posts/{post_id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Post Comments */
+        get: operations["list_post_comments_api_v1_trips__trip_id__posts__post_id__comments_get"];
+        put?: never;
+        /** Create Post Comment */
+        post: operations["create_post_comment_api_v1_trips__trip_id__posts__post_id__comments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/posts/{post_id}/comments/{comment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Post Comment */
+        delete: operations["delete_post_comment_api_v1_trips__trip_id__posts__post_id__comments__comment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/posts/{post_id}/like": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Like Post */
+        put: operations["like_post_api_v1_trips__trip_id__posts__post_id__like_put"];
+        post?: never;
+        /** Unlike Post */
+        delete: operations["unlike_post_api_v1_trips__trip_id__posts__post_id__like_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/posts/{post_id}/publish": {
         parameters: {
             query?: never;
@@ -621,6 +674,24 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/share-link-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Share Link Profile */
+        get: operations["get_share_link_profile_api_v1_trips__trip_id__share_link_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Share Link Profile */
+        patch: operations["update_share_link_profile_api_v1_trips__trip_id__share_link_profile_patch"];
         trace?: never;
     };
     "/api/v1/trips/{trip_id}/share-links": {
@@ -1181,6 +1252,13 @@ export interface components {
             profile: components["schemas"]["UserProfileResponse"] | null;
             role: components["schemas"]["UserRole"];
         };
+        /** CursorPaginatedResponse[PostCommentResponse] */
+        CursorPaginatedResponse_PostCommentResponse_: {
+            /** Items */
+            items: components["schemas"]["PostCommentResponse"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
         /** CursorPaginatedResponse[TrackSampleResponse] */
         CursorPaginatedResponse_TrackSampleResponse_: {
             /** Items */
@@ -1713,6 +1791,35 @@ export interface components {
          * @enum {string}
          */
         PlatformPermission: "trip:create" | "platform:administer";
+        /** PostCommentCreateRequest */
+        PostCommentCreateRequest: {
+            /** Body */
+            body: string;
+        };
+        /** PostCommentResponse */
+        PostCommentResponse: {
+            /** Author */
+            author: components["schemas"]["UserCommentAuthorResponse"] | components["schemas"]["ShareLinkCommentAuthorResponse"];
+            /** Body */
+            body: string;
+            /** Can Delete */
+            can_delete: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Post Id
+             * Format: uuid
+             */
+            post_id: string;
+        };
         /** PostCreateRequest */
         PostCreateRequest: {
             /** Body */
@@ -1736,7 +1843,7 @@ export interface components {
         };
         /** PostResponse */
         PostResponse: {
-            author: components["schemas"]["UserSummaryResponse"];
+            author: components["schemas"]["UserDisplaySummaryResponse"];
             /** Body */
             body: string;
             /**
@@ -1759,6 +1866,7 @@ export interface components {
             occurred_at: string;
             /** Published At */
             published_at: string | null;
+            social: components["schemas"]["PostSocialSummaryResponse"];
             /** Title */
             title: string;
             /**
@@ -1771,6 +1879,19 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** PostSocialSummaryResponse */
+        PostSocialSummaryResponse: {
+            /** Can Interact */
+            can_interact: boolean;
+            /** Can Like */
+            can_like: boolean;
+            /** Comment Count */
+            comment_count: number;
+            /** Like Count */
+            like_count: number;
+            /** Viewer Has Liked */
+            viewer_has_liked: boolean;
         };
         /**
          * PostSortField
@@ -1910,6 +2031,30 @@ export interface components {
         SetupStatusResponse: {
             /** Setup Required */
             setup_required: boolean;
+        };
+        /** ShareLinkCommentAuthorResponse */
+        ShareLinkCommentAuthorResponse: {
+            /** Display Name */
+            display_name: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "share_link";
+        };
+        /** ShareLinkDisplayNameUpdateRequest */
+        ShareLinkDisplayNameUpdateRequest: {
+            /** Display Name */
+            display_name: string;
+        };
+        /** ShareLinkProfileResponse */
+        ShareLinkProfileResponse: {
+            /** Display Name */
+            display_name: string | null;
+            /** Display Name Locked */
+            display_name_locked: boolean;
+            /** Interactions Enabled */
+            interactions_enabled: boolean;
         };
         /**
          * SortDirection
@@ -2194,8 +2339,20 @@ export interface components {
         TripRole: "OWNER" | "MEMBER";
         /** TripShareLinkCreateRequest */
         TripShareLinkCreateRequest: {
+            /** Display Name */
+            display_name?: string | null;
+            /**
+             * Display Name Locked
+             * @default false
+             */
+            display_name_locked: boolean;
             /** Expires At */
             expires_at?: string | null;
+            /**
+             * Interactions Enabled
+             * @default true
+             */
+            interactions_enabled: boolean;
             /** Label */
             label?: string | null;
         };
@@ -2206,6 +2363,10 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Display Name Locked */
+            display_name_locked: boolean;
             /** Expires At */
             expires_at: string | null;
             /**
@@ -2213,6 +2374,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Interactions Enabled */
+            interactions_enabled: boolean;
             /** Label */
             label: string | null;
             /** Last Used At */
@@ -2234,6 +2397,10 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Display Name Locked */
+            display_name_locked: boolean;
             /** Expires At */
             expires_at: string | null;
             /**
@@ -2241,6 +2408,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Interactions Enabled */
+            interactions_enabled: boolean;
             /** Label */
             label: string | null;
             /** Last Used At */
@@ -2255,8 +2424,14 @@ export interface components {
         };
         /** TripShareLinkUpdateRequest */
         TripShareLinkUpdateRequest: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Display Name Locked */
+            display_name_locked?: boolean | null;
             /** Expires At */
             expires_at?: string | null;
+            /** Interactions Enabled */
+            interactions_enabled?: boolean | null;
             /** Label */
             label?: string | null;
             /** Revoked */
@@ -2323,6 +2498,30 @@ export interface components {
          * @enum {string}
          */
         TripVisibility: "PUBLIC" | "PLATFORM_PUBLIC" | "PRIVATE";
+        /** UserCommentAuthorResponse */
+        UserCommentAuthorResponse: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "user";
+            user: components["schemas"]["UserDisplaySummaryResponse"];
+        };
+        /** UserDisplaySummaryResponse */
+        UserDisplaySummaryResponse: {
+            /** First Name */
+            first_name: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Name */
+            last_name: string | null;
+            profile_picture: components["schemas"]["MediaResponse"] | null;
+            /** Username */
+            username: string | null;
+        };
         /** UserPreferencesPatch */
         UserPreferencesPatch: {
             /** Theme Palette */
@@ -4101,6 +4300,182 @@ export interface operations {
             };
         };
     };
+    list_post_comments_api_v1_trips__trip_id__posts__post_id__comments_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                page_size?: number;
+            };
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+                post_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CursorPaginatedResponse_PostCommentResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_post_comment_api_v1_trips__trip_id__posts__post_id__comments_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+                post_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostCommentCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostCommentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_post_comment_api_v1_trips__trip_id__posts__post_id__comments__comment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+                post_id: string;
+                comment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    like_post_api_v1_trips__trip_id__posts__post_id__like_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+                post_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostSocialSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unlike_post_api_v1_trips__trip_id__posts__post_id__like_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+                post_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostSocialSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     publish_post_api_v1_trips__trip_id__posts__post_id__publish_post: {
         parameters: {
             query?: never;
@@ -4152,6 +4527,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PostResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_share_link_profile_api_v1_trips__trip_id__share_link_profile_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareLinkProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_share_link_profile_api_v1_trips__trip_id__share_link_profile_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareLinkDisplayNameUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareLinkProfileResponse"];
                 };
             };
             /** @description Validation Error */

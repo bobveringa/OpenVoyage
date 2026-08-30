@@ -260,6 +260,13 @@ class TripShareLink(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    display_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    display_name_locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default='false'
+    )
+    interactions_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default='true'
+    )
 
     trip: Mapped['Trip'] = relationship(
         'Trip',

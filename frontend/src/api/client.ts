@@ -126,6 +126,12 @@ export type TrackSampleBatchResult =
 export type TrackSampleInput = components['schemas']['TrackSampleRequest']
 export type TravelMode = components['schemas']['TravelMode']
 export type PostUpdatePayload = components['schemas']['PostUpdateRequest']
+export type PostSocialSummary = components['schemas']['PostSocialSummaryResponse']
+export type PostComment = components['schemas']['PostCommentResponse']
+export type PostCommentCreatePayload =
+  components['schemas']['PostCommentCreateRequest']
+export type PostCommentPage =
+  components['schemas']['CursorPaginatedResponse_PostCommentResponse_']
 export type UserProfileUpdatePayload =
   components['schemas']['UserProfileUpdateRequest']
 export type PasswordChangePayload = components['schemas']['PasswordChangeRequest']
@@ -151,6 +157,11 @@ export type TripShareLinkCreatePayload =
   components['schemas']['TripShareLinkCreateRequest']
 export type TripShareLinkCreateResponse =
   components['schemas']['TripShareLinkCreateResponse']
+export type TripShareLinkUpdatePayload =
+  components['schemas']['TripShareLinkUpdateRequest']
+export type ShareLinkProfile = components['schemas']['ShareLinkProfileResponse']
+export type ShareLinkDisplayNameUpdatePayload =
+  components['schemas']['ShareLinkDisplayNameUpdateRequest']
 export type TripUpdatePayload = components['schemas']['TripUpdateRequest']
 export type TripViewer = components['schemas']['TripViewerResponse']
 export type TripViewerCreatePayload =
@@ -845,6 +856,43 @@ export async function revokeTripShareLink(options: {
   )
 }
 
+export async function updateTripShareLink(options: {
+  tripId: string
+  shareLinkId: string
+  payload: TripShareLinkUpdatePayload
+  accessToken: string
+}): Promise<TripShareLink> {
+  return requestJson<TripShareLink>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/share-links/${encodeURIComponent(options.shareLinkId)}`,
+    { method: 'PATCH', accessToken: options.accessToken, json: options.payload },
+  )
+}
+
+export async function getShareLinkProfile(options: {
+  tripId: string
+  shareToken: string
+}): Promise<ShareLinkProfile> {
+  return requestJson<ShareLinkProfile>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/share-link-profile`,
+    { shareToken: options.shareToken },
+  )
+}
+
+export async function updateShareLinkDisplayName(options: {
+  tripId: string
+  shareToken: string
+  displayName: string
+}): Promise<ShareLinkProfile> {
+  return requestJson<ShareLinkProfile>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/share-link-profile`,
+    {
+      method: 'PATCH',
+      shareToken: options.shareToken,
+      json: { display_name: options.displayName },
+    },
+  )
+}
+
 export async function getItinerary(options: {
   tripId: string
   accessToken?: string | null
@@ -987,6 +1035,77 @@ export async function listPosts(options: {
         status: options.status,
       },
     },
+  )
+}
+
+export async function likePost(options: {
+  tripId: string
+  postId: string
+  accessToken?: string | null
+  shareToken?: string | null
+}): Promise<PostSocialSummary> {
+  return requestJson<PostSocialSummary>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts/${encodeURIComponent(options.postId)}/like`,
+    { method: 'PUT', accessToken: options.accessToken, shareToken: options.shareToken },
+  )
+}
+
+export async function unlikePost(options: {
+  tripId: string
+  postId: string
+  accessToken?: string | null
+  shareToken?: string | null
+}): Promise<PostSocialSummary> {
+  return requestJson<PostSocialSummary>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts/${encodeURIComponent(options.postId)}/like`,
+    { method: 'DELETE', accessToken: options.accessToken, shareToken: options.shareToken },
+  )
+}
+
+export async function listPostComments(options: {
+  tripId: string
+  postId: string
+  accessToken?: string | null
+  shareToken?: string | null
+  cursor?: string | null
+  pageSize?: number
+}): Promise<PostCommentPage> {
+  return requestJson<PostCommentPage>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts/${encodeURIComponent(options.postId)}/comments`,
+    {
+      accessToken: options.accessToken,
+      shareToken: options.shareToken,
+      query: {
+        cursor: options.cursor,
+        page_size: options.pageSize,
+      },
+    },
+  )
+}
+
+export async function createPostComment(options: {
+  tripId: string
+  postId: string
+  payload: PostCommentCreatePayload
+  accessToken?: string | null
+  shareToken?: string | null
+}): Promise<PostComment> {
+  return requestJson<PostComment>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts/${encodeURIComponent(options.postId)}/comments`,
+    { method: 'POST', accessToken: options.accessToken, shareToken: options.shareToken, json: options.payload },
+  )
+}
+
+export async function deletePostComment(options: {
+  tripId: string
+  postId: string
+  commentId: string
+  accessToken?: string | null
+  shareToken?: string | null
+}): Promise<void> {
+  return requestJson<void>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts/${encodeURIComponent(options.postId)}/comments/${encodeURIComponent(options.commentId)}`,
+    { method: 'DELETE', accessToken: options.accessToken, shareToken: options.shareToken },
   )
 }
 

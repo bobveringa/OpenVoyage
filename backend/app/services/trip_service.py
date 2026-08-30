@@ -670,6 +670,9 @@ class TripService:
             created_by=current_user_id,
             label=payload.label,
             expires_at=payload.expires_at,
+            display_name=payload.display_name,
+            display_name_locked=payload.display_name_locked,
+            interactions_enabled=payload.interactions_enabled,
         )
         self.db.add(share_link)
         self.db.commit()
@@ -704,6 +707,14 @@ class TripService:
                     share_link.revoked_at = utcnow()
             else:
                 share_link.revoked_at = None
+        if 'display_name' in payload.model_fields_set:
+            share_link.display_name = payload.display_name
+        if 'display_name_locked' in payload.model_fields_set:
+            share_link.display_name_locked = payload.display_name_locked
+        if 'interactions_enabled' in payload.model_fields_set:
+            share_link.interactions_enabled = payload.interactions_enabled
+        if share_link.display_name_locked and share_link.display_name is None:
+            raise ValueError('a locked display_name must be non-empty')
 
         self.db.commit()
         self.db.refresh(share_link)

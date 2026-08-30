@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime
 from typing import Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from models.api.media import MediaResponse
 from models.api.users import TripMemberUserResponse, UserSummaryResponse
 from models.database.trips import (
@@ -131,12 +131,44 @@ class TripViewerResponse(BaseModel):
 class TripShareLinkCreateRequest(BaseModel):
     label: str | None = Field(default=None, max_length=255)
     expires_at: datetime | None = None
+    display_name: str | None = Field(default=None, max_length=80)
+    display_name_locked: bool = False
+    interactions_enabled: bool = True
+
+    @field_validator('display_name')
+    @classmethod
+    def normalize_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError('display_name cannot be blank')
+        return value
+
+    @model_validator(mode='after')
+    def validate_locked_name(self) -> Self:
+        if self.display_name_locked and self.display_name is None:
+            raise ValueError('a locked display_name must be non-empty')
+        return self
 
 
 class TripShareLinkUpdateRequest(BaseModel):
     label: str | None = Field(default=None, max_length=255)
     expires_at: datetime | None = None
     revoked: bool | None = None
+    display_name: str | None = Field(default=None, max_length=80)
+    display_name_locked: bool | None = None
+    interactions_enabled: bool | None = None
+
+    @field_validator('display_name')
+    @classmethod
+    def normalize_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError('display_name cannot be blank')
+        return value
 
 
 class TripShareLinkResponse(BaseModel):
@@ -147,6 +179,9 @@ class TripShareLinkResponse(BaseModel):
     revoked_at: datetime | None
     created_at: datetime
     last_used_at: datetime | None
+    display_name: str | None
+    display_name_locked: bool
+    interactions_enabled: bool
 
     @classmethod
     def from_model(cls, share_link: TripShareLink) -> Self:
@@ -158,6 +193,9 @@ class TripShareLinkResponse(BaseModel):
             revoked_at=share_link.revoked_at,
             created_at=share_link.created_at,
             last_used_at=share_link.last_used_at,
+            display_name=share_link.display_name,
+            display_name_locked=share_link.display_name_locked,
+            interactions_enabled=share_link.interactions_enabled,
         )
 
 
@@ -174,6 +212,34 @@ class TripShareLinkCreateResponse(TripShareLinkResponse):
             **TripShareLinkResponse.from_model(share_link).model_dump(),
             token=token,
         )
+
+
+class ShareLinkProfileResponse(BaseModel):
+    display_name: str | None
+    display_name_locked: bool
+    interactions_enabled: bool
+
+    @classmethod
+    def from_model(cls, share_link: TripShareLink) -> Self:
+        return cls(
+            display_name=share_link.display_name,
+            display_name_locked=share_link.display_name_locked,
+            interactions_enabled=share_link.interactions_enabled,
+        )
+
+
+class ShareLinkDisplayNameUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    display_name: str = Field(min_length=1, max_length=80)
+
+    @field_validator('display_name')
+    @classmethod
+    def normalize_display_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('display_name cannot be blank')
+        return value
 
 
 class TripResponse(BaseModel):

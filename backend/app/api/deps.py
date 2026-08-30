@@ -36,6 +36,7 @@ from services.itinerary_service import ItineraryService
 from services.place_service import PlaceService
 from services.post_service import PostService
 from services.post_timeline_service import PostTimelineService
+from services.post_social_service import PostSocialService
 from services.platform_authorization import PlatformPermission, role_has_permission
 from services.trip_service import TripService
 from services.user_service import UserService
@@ -98,7 +99,7 @@ def _get_user_from_token(session: Session, token: str) -> User:
     try:
         payload = security.decode_token(token, expected_type=security.TOKEN_TYPE_ACCESS)
         token_data = TokenPayload(**payload)
-    except (InvalidTokenError, ValidationError):
+    except InvalidTokenError, ValidationError:
         raise _credentials_exception()
 
     try:
@@ -252,6 +253,10 @@ def get_post_timeline_service(
     )
 
 
+def get_post_social_service(session: SessionDep):
+    return PostSocialService(db=session)
+
+
 route_provider_factory = RouteProviderFactory()
 
 
@@ -322,6 +327,7 @@ PostTimelineServiceDep = Annotated[
     PostTimelineService,
     Depends(get_post_timeline_service),
 ]
+PostSocialServiceDep = Annotated[PostSocialService, Depends(get_post_social_service)]
 GpsTrackingServiceDep = Annotated[
     GpsTrackingService,
     Depends(get_gps_tracking_service),

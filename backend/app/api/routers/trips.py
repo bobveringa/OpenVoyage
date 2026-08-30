@@ -11,6 +11,7 @@ from api.deps import (
     CurrentTripCreator,
     OptionalCurrentUser,
     PaginationDep,
+    PostSocialServiceDep,
     ShareToken,
     TripServiceDep,
 )
@@ -27,6 +28,8 @@ from models.api.trips import (
     TripShareLinkCreateResponse,
     TripShareLinkResponse,
     TripShareLinkUpdateRequest,
+    ShareLinkDisplayNameUpdateRequest,
+    ShareLinkProfileResponse,
     TripSortField,
     TripStatusFilter,
     TripUpdateRequest,
@@ -48,6 +51,7 @@ from services.trip_service import (
     UserNotFoundError,
 )
 from services.trip_errors import TripNotFoundError
+from services.post_social_service import SocialNotFoundError, SocialProfileLockedError
 
 router = APIRouter(prefix='/trips', tags=['trips'])
 
@@ -494,8 +498,55 @@ def update_share_link(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except TripPermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        )
 
     return TripShareLinkResponse.from_model(share_link)
+
+
+@router.get(
+    '/{trip_id}/share-link-profile',
+    response_model=ShareLinkProfileResponse,
+)
+def get_share_link_profile(
+    trip_id: uuid.UUID,
+    social_service: PostSocialServiceDep,
+    response: Response,
+    share_token: ShareToken = None,
+) -> ShareLinkProfileResponse:
+    try:
+        link = social_service.get_share_link_profile(
+            trip_id=trip_id, share_token=share_token
+        )
+    except SocialNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    response.headers['Cache-Control'] = 'private, no-store'
+    return ShareLinkProfileResponse.from_model(link)
+
+
+@router.patch(
+    '/{trip_id}/share-link-profile',
+    response_model=ShareLinkProfileResponse,
+)
+def update_share_link_profile(
+    trip_id: uuid.UUID,
+    payload: ShareLinkDisplayNameUpdateRequest,
+    social_service: PostSocialServiceDep,
+    response: Response,
+    share_token: ShareToken = None,
+) -> ShareLinkProfileResponse:
+    try:
+        link = social_service.update_share_link_profile(
+            trip_id=trip_id, share_token=share_token, payload=payload
+        )
+    except SocialNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except SocialProfileLockedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    response.headers['Cache-Control'] = 'private, no-store'
+    return ShareLinkProfileResponse.from_model(link)
 
 
 @router.delete(

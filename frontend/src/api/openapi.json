@@ -486,6 +486,34 @@
         "title": "CurrentUserResponse",
         "type": "object"
       },
+      "CursorPaginatedResponse_PostCommentResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PostCommentResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "CursorPaginatedResponse[PostCommentResponse]",
+        "type": "object"
+      },
       "CursorPaginatedResponse_TrackSampleResponse_": {
         "properties": {
           "items": {
@@ -1946,6 +1974,77 @@
         "title": "PlatformPermission",
         "type": "string"
       },
+      "PostCommentCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "PostCommentCreateRequest",
+        "type": "object"
+      },
+      "PostCommentResponse": {
+        "properties": {
+          "author": {
+            "discriminator": {
+              "mapping": {
+                "share_link": "#/components/schemas/ShareLinkCommentAuthorResponse",
+                "user": "#/components/schemas/UserCommentAuthorResponse"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UserCommentAuthorResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ShareLinkCommentAuthorResponse"
+              }
+            ],
+            "title": "Author"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "can_delete": {
+            "title": "Can Delete",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "post_id": {
+            "format": "uuid",
+            "title": "Post Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "post_id",
+          "author",
+          "body",
+          "created_at",
+          "can_delete"
+        ],
+        "title": "PostCommentResponse",
+        "type": "object"
+      },
       "PostCreateRequest": {
         "properties": {
           "body": {
@@ -2001,7 +2100,7 @@
       "PostResponse": {
         "properties": {
           "author": {
-            "$ref": "#/components/schemas/UserSummaryResponse"
+            "$ref": "#/components/schemas/UserDisplaySummaryResponse"
           },
           "body": {
             "title": "Body",
@@ -2044,6 +2143,9 @@
             ],
             "title": "Published At"
           },
+          "social": {
+            "$ref": "#/components/schemas/PostSocialSummaryResponse"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -2070,9 +2172,45 @@
           "published_at",
           "created_at",
           "updated_at",
-          "media"
+          "media",
+          "social"
         ],
         "title": "PostResponse",
+        "type": "object"
+      },
+      "PostSocialSummaryResponse": {
+        "properties": {
+          "can_interact": {
+            "title": "Can Interact",
+            "type": "boolean"
+          },
+          "can_like": {
+            "title": "Can Like",
+            "type": "boolean"
+          },
+          "comment_count": {
+            "minimum": 0.0,
+            "title": "Comment Count",
+            "type": "integer"
+          },
+          "like_count": {
+            "minimum": 0.0,
+            "title": "Like Count",
+            "type": "integer"
+          },
+          "viewer_has_liked": {
+            "title": "Viewer Has Liked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "like_count",
+          "comment_count",
+          "viewer_has_liked",
+          "can_interact",
+          "can_like"
+        ],
+        "title": "PostSocialSummaryResponse",
         "type": "object"
       },
       "PostSortField": {
@@ -2475,6 +2613,71 @@
           "setup_required"
         ],
         "title": "SetupStatusResponse",
+        "type": "object"
+      },
+      "ShareLinkCommentAuthorResponse": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "type": {
+            "const": "share_link",
+            "default": "share_link",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "ShareLinkCommentAuthorResponse",
+        "type": "object"
+      },
+      "ShareLinkDisplayNameUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "ShareLinkDisplayNameUpdateRequest",
+        "type": "object"
+      },
+      "ShareLinkProfileResponse": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "display_name_locked": {
+            "title": "Display Name Locked",
+            "type": "boolean"
+          },
+          "interactions_enabled": {
+            "title": "Interactions Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "display_name",
+          "display_name_locked",
+          "interactions_enabled"
+        ],
+        "title": "ShareLinkProfileResponse",
         "type": "object"
       },
       "SortDirection": {
@@ -3188,6 +3391,23 @@
       },
       "TripShareLinkCreateRequest": {
         "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "display_name_locked": {
+            "default": false,
+            "title": "Display Name Locked",
+            "type": "boolean"
+          },
           "expires_at": {
             "anyOf": [
               {
@@ -3199,6 +3419,11 @@
               }
             ],
             "title": "Expires At"
+          },
+          "interactions_enabled": {
+            "default": true,
+            "title": "Interactions Enabled",
+            "type": "boolean"
           },
           "label": {
             "anyOf": [
@@ -3223,6 +3448,21 @@
             "title": "Created At",
             "type": "string"
           },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "display_name_locked": {
+            "title": "Display Name Locked",
+            "type": "boolean"
+          },
           "expires_at": {
             "anyOf": [
               {
@@ -3239,6 +3479,10 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "interactions_enabled": {
+            "title": "Interactions Enabled",
+            "type": "boolean"
           },
           "label": {
             "anyOf": [
@@ -3293,6 +3537,9 @@
           "revoked_at",
           "created_at",
           "last_used_at",
+          "display_name",
+          "display_name_locked",
+          "interactions_enabled",
           "token"
         ],
         "title": "TripShareLinkCreateResponse",
@@ -3304,6 +3551,21 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "display_name_locked": {
+            "title": "Display Name Locked",
+            "type": "boolean"
           },
           "expires_at": {
             "anyOf": [
@@ -3321,6 +3583,10 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "interactions_enabled": {
+            "title": "Interactions Enabled",
+            "type": "boolean"
           },
           "label": {
             "anyOf": [
@@ -3370,13 +3636,39 @@
           "expires_at",
           "revoked_at",
           "created_at",
-          "last_used_at"
+          "last_used_at",
+          "display_name",
+          "display_name_locked",
+          "interactions_enabled"
         ],
         "title": "TripShareLinkResponse",
         "type": "object"
       },
       "TripShareLinkUpdateRequest": {
         "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "display_name_locked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name Locked"
+          },
           "expires_at": {
             "anyOf": [
               {
@@ -3388,6 +3680,17 @@
               }
             ],
             "title": "Expires At"
+          },
+          "interactions_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interactions Enabled"
           },
           "label": {
             "anyOf": [
@@ -3570,6 +3873,85 @@
         ],
         "title": "TripVisibility",
         "type": "string"
+      },
+      "UserCommentAuthorResponse": {
+        "properties": {
+          "type": {
+            "const": "user",
+            "default": "user",
+            "title": "Type",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserDisplaySummaryResponse"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "title": "UserCommentAuthorResponse",
+        "type": "object"
+      },
+      "UserDisplaySummaryResponse": {
+        "properties": {
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "profile_picture": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MediaResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "first_name",
+          "last_name",
+          "profile_picture"
+        ],
+        "title": "UserDisplaySummaryResponse",
+        "type": "object"
       },
       "UserPreferencesPatch": {
         "additionalProperties": false,
@@ -6950,6 +7332,413 @@
         ]
       }
     },
+    "/api/v1/trips/{trip_id}/posts/{post_id}/comments": {
+      "get": {
+        "operationId": "list_post_comments_api_v1_trips__trip_id__posts__post_id__comments_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CursorPaginatedResponse_PostCommentResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Post Comments",
+        "tags": [
+          "posts"
+        ]
+      },
+      "post": {
+        "operationId": "create_post_comment_api_v1_trips__trip_id__posts__post_id__comments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostCommentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostCommentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Post Comment",
+        "tags": [
+          "posts"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/posts/{post_id}/comments/{comment_id}": {
+      "delete": {
+        "operationId": "delete_post_comment_api_v1_trips__trip_id__posts__post_id__comments__comment_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "comment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Comment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Post Comment",
+        "tags": [
+          "posts"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/posts/{post_id}/like": {
+      "delete": {
+        "operationId": "unlike_post_api_v1_trips__trip_id__posts__post_id__like_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostSocialSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Unlike Post",
+        "tags": [
+          "posts"
+        ]
+      },
+      "put": {
+        "operationId": "like_post_api_v1_trips__trip_id__posts__post_id__like_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostSocialSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Like Post",
+        "tags": [
+          "posts"
+        ]
+      }
+    },
     "/api/v1/trips/{trip_id}/posts/{post_id}/publish": {
       "post": {
         "operationId": "publish_post_api_v1_trips__trip_id__posts__post_id__publish_post",
@@ -7063,6 +7852,132 @@
         "summary": "Unpublish Post",
         "tags": [
           "posts"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/share-link-profile": {
+      "get": {
+        "operationId": "get_share_link_profile_api_v1_trips__trip_id__share_link_profile_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareLinkProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Share Link Profile",
+        "tags": [
+          "trips"
+        ]
+      },
+      "patch": {
+        "operationId": "update_share_link_profile_api_v1_trips__trip_id__share_link_profile_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareLinkDisplayNameUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareLinkProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Share Link Profile",
+        "tags": [
+          "trips"
         ]
       }
     },

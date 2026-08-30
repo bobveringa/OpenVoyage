@@ -333,8 +333,7 @@ def _display_retained_indices(
         run_required = {index for index in run if index in required_indices}
 
         compacted = [
-            run[offset]
-            for offset in compact_stationary_indices(coordinates[start:end])
+            run[offset] for offset in compact_stationary_indices(coordinates[start:end])
         ]
         compacted = sorted(set(compacted) | run_required)
         if len(compacted) <= 2:
@@ -342,9 +341,7 @@ def _display_retained_indices(
             continue
 
         simplified_required = {
-            offset
-            for offset, index in enumerate(compacted)
-            if index in run_required
+            offset for offset, index in enumerate(compacted) if index in run_required
         }
         retained.update(
             compacted[offset]

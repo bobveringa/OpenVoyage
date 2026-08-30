@@ -20,7 +20,9 @@ class TestLowerBound:
         lower = STARTED_AT - SAMPLE_TIME_TOLERANCE
         assert _within(STARTED_AT, lower, ENDED_AT + SAMPLE_TIME_TOLERANCE) is True
 
-    def test_one_microsecond_before_started_at_is_accepted_within_tolerance(self) -> None:
+    def test_one_microsecond_before_started_at_is_accepted_within_tolerance(
+        self,
+    ) -> None:
         lower = STARTED_AT - SAMPLE_TIME_TOLERANCE
         recorded_at = STARTED_AT - timedelta(microseconds=1)
         assert _within(recorded_at, lower, ENDED_AT + SAMPLE_TIME_TOLERANCE) is True
@@ -45,15 +47,22 @@ class TestUpperBoundEndedSession:
 
     def test_one_microsecond_after_ended_at_is_accepted_within_tolerance(self) -> None:
         recorded_at = ENDED_AT + timedelta(microseconds=1)
-        assert _within(recorded_at, STARTED_AT - SAMPLE_TIME_TOLERANCE, self.upper) is True
+        assert (
+            _within(recorded_at, STARTED_AT - SAMPLE_TIME_TOLERANCE, self.upper) is True
+        )
 
     def test_exactly_tolerance_after_ended_at_is_accepted(self) -> None:
         recorded_at = ENDED_AT + SAMPLE_TIME_TOLERANCE
-        assert _within(recorded_at, STARTED_AT - SAMPLE_TIME_TOLERANCE, self.upper) is True
+        assert (
+            _within(recorded_at, STARTED_AT - SAMPLE_TIME_TOLERANCE, self.upper) is True
+        )
 
     def test_beyond_tolerance_after_ended_at_is_discarded(self) -> None:
         recorded_at = ENDED_AT + SAMPLE_TIME_TOLERANCE + timedelta(microseconds=1)
-        assert _within(recorded_at, STARTED_AT - SAMPLE_TIME_TOLERANCE, self.upper) is False
+        assert (
+            _within(recorded_at, STARTED_AT - SAMPLE_TIME_TOLERANCE, self.upper)
+            is False
+        )
 
 
 @pytest.mark.unit

@@ -177,6 +177,7 @@ export function MobileMapPointPicker({
 
 export function TripSidebar({
   accessToken,
+  shareToken,
   canManageTrip,
   canMutate,
   currentUserId,
@@ -197,6 +198,7 @@ export function TripSidebar({
   onGpsPostCandidateSelect,
   onMapPointTargetChange,
   onPostMarkerSelect,
+  onPostSocialSummary,
   onOpenManagement,
   onPostDelete,
   onPostPublish,
@@ -222,6 +224,7 @@ export function TripSidebar({
   travelingView,
 }: {
   accessToken?: string | null
+  shareToken?: string | null
   canManageTrip: boolean
   canMutate: boolean
   currentUserId: string | null
@@ -242,6 +245,7 @@ export function TripSidebar({
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
   onPostMarkerSelect: (postId: string) => void
+  onPostSocialSummary: (postId: string, social: import('@/api/client').PostSocialSummary) => void
   onOpenManagement: (section: TripManagementSection) => void
   onPostDelete: (postId: string) => void
   onPostPublish: (postId: string) => void
@@ -391,6 +395,8 @@ export function TripSidebar({
           />
         ) : (
           <TravelingPanel
+            accessToken={accessToken}
+            currentUserId={currentUserId}
             canMutate={canMutate}
             focusedPostId={focusedPostId}
             gpsPostCandidates={gpsPostCandidates}
@@ -400,6 +406,7 @@ export function TripSidebar({
             onFocusedPostChange={onFocusedPostChange}
             onGpsPostCandidateSelect={onGpsPostCandidateSelect}
             onPostMarkerSelect={onPostMarkerSelect}
+            onPostSocialSummary={onPostSocialSummary}
             onPublishPost={onPostPublish}
             onNewPost={() => {
               onMapPointTargetChange(null)
@@ -409,6 +416,8 @@ export function TripSidebar({
             scrollRootRef={sidebarScrollRef}
             scrollRequest={postScrollRequest}
             showMobileMap={showMobileTravelMap}
+            shareToken={shareToken}
+            tripId={trip.id}
             stops={stops}
             travelLegs={travelLegs}
             trackingGeometry={trackingGeometry}
