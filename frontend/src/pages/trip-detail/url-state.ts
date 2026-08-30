@@ -2,7 +2,7 @@ export type TripMode = 'planning' | 'traveling'
 export type PlanningView = 'create-stop' | 'stops'
 export type TravelingView = 'create-post' | 'edit-post' | 'posts'
 export type TripDialog = 'management'
-export type TripManagementSection = 'general' | 'people' | 'gps' | 'danger'
+export type TripManagementSection = 'general' | 'people' | 'sharing' | 'gps' | 'danger'
 
 export type TripDetailUrlState = {
   activeDialog: TripDialog | null

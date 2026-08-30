@@ -138,9 +138,7 @@ def long_stay_representative_indices(
         representative_index = index
         run_started_at = candidate.recorded_at
 
-    if (
-        samples[-1].recorded_at - run_started_at
-    ).total_seconds() >= dwell_seconds:
+    if (samples[-1].recorded_at - run_started_at).total_seconds() >= dwell_seconds:
         long_stay_indices.append(representative_index)
 
     return long_stay_indices
@@ -152,15 +150,12 @@ def _is_compatible(
 ) -> bool:
     if _is_clearly_moving(candidate):
         return False
-    return (
-        haversine_meters(
-            representative.latitude,
-            representative.longitude,
-            candidate.latitude,
-            candidate.longitude,
-        )
-        <= _stop_radius_meters(representative, candidate)
-    )
+    return haversine_meters(
+        representative.latitude,
+        representative.longitude,
+        candidate.latitude,
+        candidate.longitude,
+    ) <= _stop_radius_meters(representative, candidate)
 
 
 def _is_clearly_moving(sample: TimedGpsCoordinate) -> bool:

@@ -43,10 +43,13 @@ export type TripViewerViewModel = {
 }
 
 export type ShareLinkViewModel = {
+  displayName: string | null
+  displayNameLocked: boolean
   expiresAt: string | null
   id: string
   label: string
   lastUsedAt: string | null
+  interactionsEnabled: boolean
   token?: string | null
   tripId?: string
 }
@@ -108,6 +111,12 @@ export type PostMedia = {
 }
 
 export type TravelPost = {
+  author: {
+    displayName: string
+    id: string
+    initials: string
+    profilePicture: Media | null
+  }
   coordinates: L.LatLngTuple
   excerpt: string
   id: string
@@ -118,6 +127,13 @@ export type TravelPost = {
   routeAfter: TravelPostRoute | null
   time: string
   title: string
+  social: {
+    canInteract: boolean
+    canLike: boolean
+    commentCount: number
+    likeCount: number
+    viewerHasLiked: boolean
+  }
 }
 
 export type TravelPostRoute = {

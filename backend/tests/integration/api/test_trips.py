@@ -117,7 +117,9 @@ def test_companion_cannot_create_trip(client, db_session, api_prefix) -> None:
     )
 
     assert response.status_code == 403
-    assert response.json()['detail'] == 'The user does not have permission to create trips'
+    assert (
+        response.json()['detail'] == 'The user does not have permission to create trips'
+    )
 
 
 @pytest.mark.integration
@@ -851,7 +853,9 @@ def test_list_trip_members_includes_public_profile_picture(
     )
 
     assert add_response.status_code == 201
-    assert add_response.json()['user']['profile_picture']['id'] == str(profile_picture.id)
+    assert add_response.json()['user']['profile_picture']['id'] == str(
+        profile_picture.id
+    )
     assert (
         add_response.json()['user']['profile_picture']['urls']['content']
         == f'http://testserver{api_prefix}/media/{profile_picture.id}/content'

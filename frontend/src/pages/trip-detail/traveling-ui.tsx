@@ -9,6 +9,9 @@ import {
   PenLine,
   Play,
   Send,
+  Heart,
+  MessageCircle,
+  Trash2,
 } from 'lucide-react'
 import {
   Fragment,
@@ -19,9 +22,22 @@ import {
   useState,
 } from 'react'
 
-import type { GpsPostCandidate } from '@/api/client'
+import {
+  ApiError,
+  createPostComment,
+  deletePostComment,
+  getShareLinkProfile,
+  likePost,
+  listPostComments,
+  unlikePost,
+  updateShareLinkDisplayName,
+  type GpsPostCandidate,
+  type PostComment,
+  type PostSocialSummary,
+} from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { MediaImage } from '@/components/ui/media-image'
 import { Modal } from '@/components/ui/modal'
 import { cn } from '@/lib/utils'
 import {
@@ -121,6 +137,8 @@ export function MobileTravelMap({
 }
 
 export function TravelingPanel({
+  accessToken,
+  currentUserId,
   canMutate,
   focusedPostId,
   gpsPostCandidates,
@@ -131,15 +149,20 @@ export function TravelingPanel({
   onEditPost,
   onNewPost,
   onPostMarkerSelect,
+  onPostSocialSummary,
   onPublishPost,
   scrollRootRef,
   scrollRequest,
   showMobileMap,
+  shareToken,
   stops,
   trackingGeometry,
   travelLegs,
   travelPosts,
+  tripId,
 }: {
+  accessToken?: string | null
+  currentUserId: string | null
   canMutate: boolean
   focusedPostId: string | null
   gpsPostCandidates: readonly GpsPostCandidate[]
@@ -150,14 +173,17 @@ export function TravelingPanel({
   onEditPost: (postId: string) => void
   onNewPost: () => void
   onPostMarkerSelect: (postId: string) => void
+  onPostSocialSummary: (postId: string, social: PostSocialSummary) => void
   onPublishPost: (postId: string) => void
   scrollRootRef: PostScrollRootRef
   scrollRequest: PostScrollRequest | null
   showMobileMap: boolean
+  shareToken?: string | null
   stops: readonly Stop[]
   trackingGeometry: TripTrackingGeometry
   travelLegs: readonly TravelLeg[]
   travelPosts: readonly TravelPost[]
+  tripId: string
 }) {
   const [activePostId, setActivePostId] = useState<string | null>(null)
   const activePost =
@@ -315,6 +341,11 @@ export function TravelingPanel({
               }
               publishDisabled={isMutating}
               post={activePost}
+              accessToken={accessToken}
+              currentUserId={currentUserId}
+              onPostSocialSummary={onPostSocialSummary}
+              shareToken={shareToken}
+              tripId={tripId}
             />
           ) : (
             <>
@@ -407,10 +438,15 @@ export function TravelingPanel({
                     : undefined
                 }
                 post={post}
+                accessToken={accessToken}
+                currentUserId={currentUserId}
+                onPostSocialSummary={onPostSocialSummary}
                 postRef={(element) =>
                   setPostScrollElement(desktopPostElementsRef, post.id, element)
                 }
                 publishDisabled={isMutating}
+                shareToken={shareToken}
+                tripId={tripId}
               />
               {index < displayedPosts.length - 1 &&
               post.routeAfter?.durationSeconds !== null &&
@@ -431,20 +467,57 @@ export function TravelingPanel({
   )
 }
 
+function PostAuthor({
+  author,
+}: {
+  author: TravelPost['author']
+}) {
+  return (
+    <div
+      aria-label={`Posted by ${author.displayName}`}
+      className="inline-flex min-w-0 items-center gap-1.5"
+    >
+      <MediaImage
+        alt=""
+        className="size-5 shrink-0 rounded-full"
+        fallback={(
+          <span className="text-[0.5rem] font-semibold leading-none">
+            {author.initials}
+          </span>
+        )}
+        media={author.profilePicture}
+      />
+      <span className="max-w-32 truncate font-medium text-foreground/80">
+        {author.displayName}
+      </span>
+    </div>
+  )
+}
+
 export function TravelPostCard({
+  accessToken,
+  currentUserId,
   active = false,
   onEdit,
   onPublish,
+  onPostSocialSummary,
   post,
   postRef,
   publishDisabled = false,
+  shareToken,
+  tripId,
 }: {
+  accessToken?: string | null
+  currentUserId: string | null
   active?: boolean
   onEdit?: () => void
   onPublish?: () => void
+  onPostSocialSummary: (postId: string, social: PostSocialSummary) => void
   post: TravelPost
   postRef?: (element: HTMLElement | null) => void
   publishDisabled?: boolean
+  shareToken?: string | null
+  tripId: string
 }) {
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
 
@@ -510,6 +583,7 @@ export function TravelPostCard({
         </p>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+          <PostAuthor author={post.author} />
           <span className="inline-flex items-center gap-1.5">
             <MapPin className="size-3.5" aria-hidden="true" />
             {post.location}
@@ -521,7 +595,7 @@ export function TravelPostCard({
         </div>
       </div>
 
-      <div className="trip-post-media-strip scrollbar-subtle flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain px-4 pb-4">
+      <div className="trip-post-media-strip scrollbar-subtle flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain px-4 pb-3">
         {post.media.map((media, index) => (
           <MediaStripCard
             key={media.src}
@@ -529,6 +603,17 @@ export function TravelPostCard({
             onOpen={() => setActiveMediaIndex(index)}
           />
         ))}
+      </div>
+
+      <div className="px-4 pb-4">
+        <PostSocialControls
+          accessToken={accessToken}
+          currentUserId={currentUserId}
+          onSummary={onPostSocialSummary}
+          post={post}
+          shareToken={shareToken}
+          tripId={tripId}
+        />
       </div>
 
       {activeMediaIndex !== null ? (
@@ -542,6 +627,263 @@ export function TravelPostCard({
       ) : null}
     </article>
   )
+}
+
+function PostSocialControls({
+  accessToken,
+  currentUserId,
+  onSummary,
+  post,
+  shareToken,
+  tripId,
+}: {
+  accessToken?: string | null
+  currentUserId: string | null
+  onSummary: (postId: string, social: PostSocialSummary) => void
+  post: TravelPost
+  shareToken?: string | null
+  tripId: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [comments, setComments] = useState<readonly PostComment[]>([])
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [body, setBody] = useState('')
+  const [isLoading, setLoading] = useState(false)
+  const [isSubmitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [isNameModalOpen, setNameModalOpen] = useState(false)
+  const [sharedName, setSharedName] = useState('')
+  const canAttemptInteraction = Boolean(accessToken || shareToken)
+  const isOwnPost = currentUserId === post.author.id
+  const selfLikeHelpId = `post-${post.id}-self-like-help`
+
+  const loadComments = useCallback(
+    async (cursor?: string | null) => {
+      setLoading(true)
+      setError(null)
+      try {
+        const page = await listPostComments({
+          accessToken,
+          cursor,
+          pageSize: 4,
+          postId: post.id,
+          shareToken,
+          tripId,
+        })
+        setComments((current) =>
+          cursor
+            ? [...current, ...page.items.filter((item) => !current.some((known) => known.id === item.id))]
+            : page.items,
+        )
+        setNextCursor(page.next_cursor)
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : 'Unable to load comments.')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [accessToken, post.id, shareToken, tripId],
+  )
+
+  const ensureShareName = useCallback(async () => {
+    if (!shareToken || accessToken) return false
+    const profile = await getShareLinkProfile({ shareToken, tripId })
+    if (profile.display_name) return true
+    if (profile.display_name_locked) return false
+    setSharedName('')
+    setNameModalOpen(true)
+    return false
+  }, [accessToken, shareToken, tripId])
+
+  async function saveSharedName() {
+    if (!shareToken || !sharedName.trim()) return
+    setSubmitting(true)
+    try {
+      await updateShareLinkDisplayName({ displayName: sharedName.trim(), shareToken, tripId })
+      setNameModalOpen(false)
+      setError('Shared name saved. Try your like or comment again.')
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Unable to save shared name.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function runInteraction(action: () => Promise<PostSocialSummary>) {
+    setError(null)
+    try {
+      onSummary(post.id, await action())
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.status === 428 && await ensureShareName()) {
+        onSummary(post.id, await action())
+        return
+      }
+      setError(failure instanceof Error ? failure.message : 'Unable to update reaction.')
+    }
+  }
+
+  function toggleComments() {
+    const nextExpanded = !expanded
+    setExpanded(nextExpanded)
+    if (nextExpanded && comments.length === 0) void loadComments()
+  }
+
+  async function submitComment() {
+    const normalizedBody = body.trim()
+    if (!normalizedBody || normalizedBody.length > 2000) return
+    setSubmitting(true)
+    setError(null)
+    const submit = () => createPostComment({
+      accessToken, payload: { body: normalizedBody }, postId: post.id, shareToken, tripId,
+    })
+    try {
+      const comment = await submit()
+      setComments((current) => [comment, ...current])
+      setBody('')
+      onSummary(post.id, {
+        can_interact: post.social.canInteract,
+        can_like: post.social.canLike,
+        comment_count: post.social.commentCount + 1,
+        like_count: post.social.likeCount,
+        viewer_has_liked: post.social.viewerHasLiked,
+      })
+    } catch (failure) {
+      let commentFailure = failure
+      try {
+        if (commentFailure instanceof ApiError && commentFailure.status === 428 && await ensureShareName()) {
+          const comment = await submit()
+          setComments((current) => [comment, ...current])
+          setBody('')
+          return
+        }
+      } catch (retryFailure) {
+        commentFailure = retryFailure
+      }
+      setError(commentFailure instanceof Error ? commentFailure.message : 'Unable to post comment.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function removeComment(comment: PostComment) {
+    if (!window.confirm('Delete this comment permanently?')) return
+    try {
+      await deletePostComment({
+        accessToken, commentId: comment.id, postId: post.id, shareToken, tripId,
+      })
+      setComments((current) => current.filter((item) => item.id !== comment.id))
+      onSummary(post.id, {
+        can_interact: post.social.canInteract,
+        can_like: post.social.canLike,
+        comment_count: Math.max(0, post.social.commentCount - 1),
+        like_count: post.social.likeCount,
+        viewer_has_liked: post.social.viewerHasLiked,
+      })
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Unable to delete comment.')
+    }
+  }
+
+  if (post.isDraft) return null
+
+  return (
+    <section className="border-t border-border pt-3" aria-label="Post interactions">
+      <div className="flex items-center gap-2">
+        <span
+          className="inline-flex"
+          title={isOwnPost ? 'You cannot like your own post.' : undefined}
+        >
+          <Button
+            aria-describedby={isOwnPost ? selfLikeHelpId : undefined}
+            aria-pressed={post.social.viewerHasLiked}
+            disabled={isSubmitting || !post.social.canLike}
+            onClick={() => void runInteraction(() => post.social.viewerHasLiked
+              ? unlikePost({ accessToken, postId: post.id, shareToken, tripId })
+              : likePost({ accessToken, postId: post.id, shareToken, tripId }))}
+            size="sm"
+            type="button"
+            variant={post.social.viewerHasLiked ? 'default' : 'outline'}
+          >
+            <Heart className={cn('size-3.5', post.social.viewerHasLiked && 'fill-current')} aria-hidden="true" />
+            {post.social.likeCount}
+          </Button>
+        </span>
+        {isOwnPost ? (
+          <span className="sr-only" id={selfLikeHelpId}>
+            You cannot like your own post.
+          </span>
+        ) : null}
+        <Button aria-expanded={expanded} onClick={toggleComments} size="sm" type="button" variant="outline">
+          <MessageCircle className="size-3.5" aria-hidden="true" />
+          {post.social.commentCount} comments
+        </Button>
+      </div>
+      {expanded ? (
+        <div className="mt-3 space-y-3">
+          {comments.map((comment) => (
+            <div className="rounded-xl border border-border/80 bg-background p-3 text-sm shadow-sm" key={comment.id}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  {comment.author.type === 'user' && comment.author.user.profile_picture ? (
+                    <img alt="" className="size-8 shrink-0 rounded-full object-cover" src={comment.author.user.profile_picture.urls.thumbnail ?? comment.author.user.profile_picture.urls.content} />
+                  ) : <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-primary">{comment.author.type === 'user' ? getCommentInitials(comment.author.user.first_name, comment.author.user.last_name, comment.author.user.username) : comment.author.display_name.slice(0, 1).toUpperCase()}</span>}
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-1">
+                      <p className="truncate font-semibold text-foreground">
+                        {comment.author.type === 'user'
+                          ? [comment.author.user.first_name, comment.author.user.last_name].filter(Boolean).join(' ') || comment.author.user.username || 'User'
+                          : comment.author.display_name}
+                      </p>
+                      {(comment.author.type === 'user' && comment.author.user.id === currentUserId) ||
+                      (comment.author.type === 'share_link' && !accessToken && shareToken) ? <Badge>You</Badge> : null}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{formatCommentAge(comment.created_at)}</p>
+                  </div>
+                </div>
+                {comment.can_delete ? <Button aria-label="Delete comment" className="size-7" onClick={() => void removeComment(comment)} size="icon" type="button" variant="ghost"><Trash2 className="size-3.5" /></Button> : null}
+              </div>
+              <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{comment.body}</p>
+            </div>
+          ))}
+          {nextCursor ? <Button disabled={isLoading} onClick={() => void loadComments(nextCursor)} size="sm" type="button" variant="outline">Load more comments</Button> : null}
+          {isLoading ? <p className="text-xs text-muted-foreground">Loading comments…</p> : null}
+          {canAttemptInteraction ? (
+            <div className="space-y-2">
+              <textarea className="min-h-20 w-full rounded-xl border border-input bg-background p-2 text-sm" maxLength={2000} onChange={(event) => setBody(event.target.value)} placeholder="Write a comment" value={body} />
+              <Button disabled={isSubmitting || !body.trim() || body.trim().length > 2000 || (!post.social.canInteract && !shareToken)} onClick={() => void submitComment()} size="sm" type="button">Comment</Button>
+            </div>
+          ) : null}
+          {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
+        </div>
+      ) : null}
+      <Modal
+        description="This name belongs to the shared link: every holder uses it, any holder may change it while unlocked, and earlier comments are relabeled."
+        onClose={() => setNameModalOpen(false)}
+        open={isNameModalOpen}
+        title="Choose a shared name"
+      >
+        <div className="space-y-4 p-1">
+          <input autoFocus className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm" maxLength={80} onChange={(event) => setSharedName(event.target.value)} placeholder="The trail crew" value={sharedName} />
+          <div className="flex justify-end gap-2"><Button onClick={() => setNameModalOpen(false)} type="button" variant="outline">Cancel</Button><Button disabled={isSubmitting || !sharedName.trim()} onClick={() => void saveSharedName()} type="button">Save name</Button></div>
+        </div>
+      </Modal>
+    </section>
+  )
+}
+
+function formatCommentAge(value: string) {
+  const date = new Date(value)
+  const differenceMinutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60_000))
+  if (differenceMinutes < 60) return `${differenceMinutes} ${differenceMinutes === 1 ? 'minute' : 'minutes'} ago`
+  const hours = Math.floor(differenceMinutes / 60)
+  if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
+  const days = Math.floor(hours / 24)
+  if (days <= 3) return `${days} ${days === 1 ? 'day' : 'days'} ago`
+  return new Intl.DateTimeFormat(undefined, { day: 'numeric', hour: '2-digit', minute: '2-digit', month: 'short', year: 'numeric' }).format(date)
+}
+
+function getCommentInitials(firstName: string | null, lastName: string | null, username: string | null) {
+  return `${firstName?.[0] ?? ''}${lastName?.[0] ?? ''}`.trim() || username?.slice(0, 1).toUpperCase() || '?'
 }
 
 function PostRouteDuration({
@@ -676,17 +1018,27 @@ function TravelPostPreviewCard({
 }
 
 function MobilePostDetailCard({
+  accessToken,
+  currentUserId,
   onBack,
   onEdit,
   onPublish,
+  onPostSocialSummary,
   post,
   publishDisabled = false,
+  shareToken,
+  tripId,
 }: {
+  accessToken?: string | null
+  currentUserId: string | null
   onBack: () => void
   onEdit?: () => void
   onPublish?: () => void
+  onPostSocialSummary: (postId: string, social: PostSocialSummary) => void
   post: TravelPost
   publishDisabled?: boolean
+  shareToken?: string | null
+  tripId: string
 }) {
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null)
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false)
@@ -739,6 +1091,7 @@ function MobilePostDetailCard({
             </h3>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               {post.isDraft ? <Badge>Draft</Badge> : null}
+              <PostAuthor author={post.author} />
               <span className="inline-flex items-center gap-1.5">
                 <MapPin className="size-3.5" aria-hidden="true" />
                 {post.location}
@@ -815,6 +1168,15 @@ function MobilePostDetailCard({
         <MobilePostMediaGallery
           media={post.media}
           onOpen={setActiveMediaIndex}
+        />
+
+        <PostSocialControls
+          accessToken={accessToken}
+          currentUserId={currentUserId}
+          onSummary={onPostSocialSummary}
+          post={post}
+          shareToken={shareToken}
+          tripId={tripId}
         />
       </div>
 

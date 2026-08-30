@@ -88,9 +88,7 @@ def test_setup_rejects_when_any_user_exists(
 
 @pytest.mark.integration
 @pytest.mark.parametrize('username', [' first-admin', 'first admin', 'first@admin'])
-def test_setup_rejects_invalid_username(
-    client, api_prefix, username
-) -> None:
+def test_setup_rejects_invalid_username(client, api_prefix, username) -> None:
     response = client.post(
         f'{api_prefix}/admin/setup',
         json={

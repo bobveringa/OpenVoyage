@@ -7,6 +7,7 @@ import {
   Globe2,
   Link2,
   Lock,
+  Unlock,
   Mail,
   Plus,
   Radio,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react'
 import {
   useEffect,
+  useId,
   useMemo,
   useState,
   type FocusEvent,
@@ -40,6 +42,7 @@ import { Input } from '@/components/ui/input'
 import { MediaImage } from '@/components/ui/media-image'
 import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { InlineNotice } from '@/pages/trip-detail/inline-notice'
@@ -535,7 +538,10 @@ function ShareManagementPanel({
   onInviteViewer,
   onRemoveViewer,
   onRevokeLink,
+  onUpdateLink,
   shareLinks,
+  showLinks = true,
+  showViewers = true,
   viewers,
 }: {
   accessToken?: string | null
@@ -547,11 +553,17 @@ function ShareManagementPanel({
   onInviteViewer: (draft: UserLookupDraft) => void
   onRemoveViewer: (viewer: TripViewerViewModel) => void
   onRevokeLink: (link: ShareLinkViewModel) => void
+  onUpdateLink: (link: ShareLinkViewModel) => void
   shareLinks: readonly ShareLinkViewModel[]
+  showLinks?: boolean
+  showViewers?: boolean
   viewers: readonly TripViewerViewModel[]
 }) {
-  const [linkExpiresAt, setLinkExpiresAt] = useState('2027-06-01T09:00')
-  const [linkLabel, setLinkLabel] = useState('Family preview')
+  const [linkExpiresAt, setLinkExpiresAt] = useState('')
+  const [linkLabel, setLinkLabel] = useState('')
+  const [linkDisplayName, setLinkDisplayName] = useState('')
+  const [linkDisplayNameLocked, setLinkDisplayNameLocked] = useState(false)
+  const [linkInteractionsEnabled, setLinkInteractionsEnabled] = useState(true)
   const [notice, setNotice] = useState<string | null>(null)
   const [selectedViewer, setSelectedViewer] =
     useState<UserSearchResult | null>(null)
@@ -561,12 +573,23 @@ function ShareManagementPanel({
     event: SyntheticEvent<HTMLFormElement, SubmitEvent>,
   ) {
     event.preventDefault()
+    const label = linkLabel.trim()
+    if (!label) {
+      setNotice('Give this link a label before creating it.')
+      return
+    }
+
     onCreateLink({
+      displayName: linkDisplayName.trim() || null,
+      displayNameLocked: linkDisplayNameLocked,
       expiresAt: linkExpiresAt || null,
-      label: linkLabel.trim() || null,
+      interactionsEnabled: linkInteractionsEnabled,
+      label,
     })
     setNotice(null)
     setLinkLabel('')
+    setLinkDisplayName('')
+    setLinkDisplayNameLocked(false)
   }
 
   function handleInviteViewer(
@@ -584,7 +607,7 @@ function ShareManagementPanel({
   }
 
   return (
-    <div className="grid gap-5">
+    <div className="grid min-w-0 gap-5">
         {error ? (
           <p
             className="sticky top-0 z-40 rounded-[1.2rem] border border-destructive/30 bg-card px-3 py-2 text-sm text-destructive shadow-md"
@@ -595,12 +618,12 @@ function ShareManagementPanel({
         ) : null}
         {notice ? <InlineNotice>{notice}</InlineNotice> : null}
 
-        <section className="space-y-4 rounded-[1.5rem] border border-border bg-card p-4">
+        {showLinks ? <section className="min-w-0 space-y-4 rounded-[1.5rem] border border-border bg-card p-4">
           <div className="flex items-start gap-3">
             <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-muted text-primary">
               <Link2 className="size-4" aria-hidden="true" />
             </span>
-            <div>
+            <div className="min-w-0">
               <h3 className="font-semibold text-foreground">Share links</h3>
               <p className="text-sm text-muted-foreground">
                 Links are read-only visitor access for people outside the member list.
@@ -608,17 +631,20 @@ function ShareManagementPanel({
             </div>
           </div>
 
-          <form className="grid gap-3" onSubmit={handleCreateLink}>
-            <label className="grid gap-2 text-sm font-medium text-foreground">
+          <form className="grid min-w-0 gap-3" onSubmit={handleCreateLink}>
+            <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1.5 text-sm font-medium text-foreground">
               Link label
               <Input
+                className="h-10"
                 disabled={!canMutate || isSaving}
                 onChange={(event) => setLinkLabel(event.target.value)}
-                placeholder="Family preview"
+                placeholder="e.g. Family itinerary"
+                required
                 value={linkLabel}
               />
             </label>
-            <label className="grid gap-2 text-sm font-medium text-foreground">
+            <label className="grid gap-1.5 text-sm font-medium text-foreground">
               Expiration
               <DateTimePicker
                 disabled={!canMutate || isSaving}
@@ -626,6 +652,22 @@ function ShareManagementPanel({
                 value={linkExpiresAt}
               />
             </label>
+            </div>
+            <PublicDisplayNameField
+              disabled={!canMutate || isSaving}
+              displayName={linkDisplayName}
+              inputClassName="h-10"
+              locked={linkDisplayNameLocked}
+              onDisplayNameChange={setLinkDisplayName}
+              onLockedChange={setLinkDisplayNameLocked}
+            />
+            <ShareLinkSetting
+              checked={linkInteractionsEnabled}
+              description="Let visitors like and comment."
+              disabled={!canMutate || isSaving}
+              label="Allow interactions"
+              onCheckedChange={setLinkInteractionsEnabled}
+            />
             <div className="flex justify-end">
               <Button disabled={!canMutate || isSaving} type="submit">
                 <Plus className="size-4" aria-hidden="true" />
@@ -634,7 +676,7 @@ function ShareManagementPanel({
             </div>
           </form>
 
-          <div className="grid gap-2">
+          <div className="grid min-w-0 gap-2">
             {shareLinks.map((link) => (
               <ShareLinkRow
                 canMutate={canMutate}
@@ -643,6 +685,7 @@ function ShareManagementPanel({
                 link={link}
                 onNotice={setNotice}
                 onRevoke={onRevokeLink}
+                onUpdate={onUpdateLink}
               />
             ))}
             {shareLinks.length === 0 ? (
@@ -651,9 +694,9 @@ function ShareManagementPanel({
               </p>
             ) : null}
           </div>
-        </section>
+        </section> : null}
 
-        <section className="space-y-4 rounded-[1.5rem] border border-border bg-card p-4">
+        {showViewers ? <section className="space-y-4 rounded-[1.5rem] border border-border bg-card p-4">
           <div className="flex items-start gap-3">
             <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-muted text-primary">
               <Eye className="size-4" aria-hidden="true" />
@@ -718,7 +761,7 @@ function ShareManagementPanel({
               </p>
             ) : null}
           </div>
-        </section>
+        </section> : null}
     </div>
   )
 }
@@ -870,10 +913,16 @@ const managementSections = [
     value: 'general',
   },
   {
-    description: 'Members, viewers, and share links.',
+    description: 'Members and viewer access.',
     icon: Users,
     label: 'People & sharing',
     value: 'people',
+  },
+  {
+    description: 'Share links and their interaction settings.',
+    icon: Link2,
+    label: 'Sharing',
+    value: 'sharing',
   },
   {
     description: 'Recordings, points, and live location.',
@@ -909,6 +958,7 @@ export function TripManagementDialog({
   onRemoveMember,
   onRemoveViewer,
   onRevokeLink,
+  onUpdateLink,
   onSaveSettings,
   onSectionChange,
   onTrackingChanged,
@@ -934,6 +984,7 @@ export function TripManagementDialog({
   onRemoveMember: (member: TripMemberViewModel) => void
   onRemoveViewer: (viewer: TripViewerViewModel) => void
   onRevokeLink: (link: ShareLinkViewModel) => void
+  onUpdateLink: (link: ShareLinkViewModel) => void
   onSaveSettings: (draft: TripSettingsDraft) => void
   onSectionChange: (section: TripManagementSection) => void
   onTrackingChanged: () => void
@@ -1062,10 +1113,31 @@ export function TripManagementDialog({
                   onInviteViewer={onInviteViewer}
                   onRemoveViewer={onRemoveViewer}
                   onRevokeLink={onRevokeLink}
+                  onUpdateLink={onUpdateLink}
                   shareLinks={shareLinks}
+                  showLinks={false}
+                  showViewers
                   viewers={viewers}
                 />
               </div>
+            ) : null}
+            {effectiveSection === 'sharing' && canManageTrip ? (
+              <ShareManagementPanel
+                accessToken={accessToken}
+                canMutate={canManageTrip}
+                error={error}
+                isSaving={isSaving}
+                members={members}
+                onCreateLink={onCreateLink}
+                onInviteViewer={onInviteViewer}
+                onRemoveViewer={onRemoveViewer}
+                onRevokeLink={onRevokeLink}
+                onUpdateLink={onUpdateLink}
+                shareLinks={shareLinks}
+                showLinks
+                showViewers={false}
+                viewers={viewers}
+              />
             ) : null}
             {effectiveSection === 'gps' && accessToken && tripId ? (
               <TrackingManagementPanel
@@ -1204,15 +1276,33 @@ function ShareLinkRow({
   link,
   onNotice,
   onRevoke,
+  onUpdate,
 }: {
   canMutate: boolean
   isSaving: boolean
   link: ShareLinkViewModel
   onNotice: (notice: string) => void
   onRevoke: (link: ShareLinkViewModel) => void
+  onUpdate: (link: ShareLinkViewModel) => void
 }) {
   const [copied, setCopied] = useState(false)
+  const [displayName, setDisplayName] = useState(link.displayName ?? '')
+  const [expiresAt, setExpiresAt] = useState(link.expiresAt ?? '')
+  const [locked, setLocked] = useState(link.displayNameLocked)
+  const [interactionsEnabled, setInteractionsEnabled] = useState(link.interactionsEnabled)
   const shareUrl = link.token ? getShareUrl(link.token, link.tripId) : null
+
+  useEffect(() => {
+    setDisplayName(link.displayName ?? '')
+    setExpiresAt(link.expiresAt ?? '')
+    setLocked(link.displayNameLocked)
+    setInteractionsEnabled(link.interactionsEnabled)
+  }, [
+    link.displayName,
+    link.displayNameLocked,
+    link.expiresAt,
+    link.interactionsEnabled,
+  ])
 
   function handleCopy() {
     if (!shareUrl) {
@@ -1228,21 +1318,23 @@ function ShareLinkRow({
   }
 
   return (
-    <div className="grid gap-3 rounded-[1.2rem] border border-border bg-muted/40 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-      <div className="min-w-0">
-        <p className="font-semibold text-foreground">{link.label}</p>
-        <p className="mt-1 truncate text-xs text-muted-foreground">
-          {shareUrl ?? 'Token hidden after creation'}
-        </p>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Expires {link.expiresAt ? formatDateTimeLabel(link.expiresAt) : 'never'} ·
-          Last used {link.lastUsedAt ? link.lastUsedAt.toLowerCase() : 'never'}
-        </p>
-      </div>
-      <div className="flex gap-2">
+    <div className="min-w-0 space-y-3 overflow-hidden rounded-[1.2rem] border border-border bg-muted/40 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="w-0 min-w-0 flex-1">
+          <p className="truncate font-semibold text-foreground">{link.label}</p>
+          <p className="mt-1 max-w-full truncate text-xs text-muted-foreground">
+            {shareUrl ?? 'Token hidden after creation'}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Expires {link.expiresAt ? formatDateTimeLabel(link.expiresAt) : 'never'} · Last used {link.lastUsedAt ? link.lastUsedAt.toLowerCase() : 'never'}
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-1">
         <Button
+          className="h-8 px-2.5 text-xs"
           disabled={!shareUrl}
           onClick={handleCopy}
+          size="sm"
           type="button"
           variant="outline"
         >
@@ -1260,7 +1352,126 @@ function ShareLinkRow({
         >
           <Trash2 className="size-4" aria-hidden="true" />
         </Button>
+        </div>
       </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <PublicDisplayNameField
+          disabled={!canMutate || isSaving}
+          displayName={displayName}
+          inputClassName="h-9"
+          locked={locked}
+          onDisplayNameChange={setDisplayName}
+          onLockedChange={setLocked}
+        />
+        <label className="grid gap-1.5 text-xs font-medium text-foreground">
+          Expiration
+          <DateTimePicker
+            disabled={!canMutate || isSaving}
+            onValueChange={setExpiresAt}
+            triggerClassName="h-9 rounded-xl"
+            value={expiresAt}
+          />
+        </label>
+      </div>
+      <ShareLinkSetting
+        checked={interactionsEnabled}
+        description="Visitors can like and comment."
+        disabled={!canMutate || isSaving}
+        label="Allow interactions"
+        onCheckedChange={setInteractionsEnabled}
+      />
+      <div className="flex justify-end pt-1">
+        <Button
+          disabled={!canMutate || isSaving || (locked && !displayName.trim())}
+          onClick={() => onUpdate({
+            ...link,
+            displayName: displayName.trim() || null,
+            displayNameLocked: locked,
+            expiresAt: expiresAt || null,
+            interactionsEnabled,
+          })}
+          size="sm"
+          type="button"
+        >
+          Save settings
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function PublicDisplayNameField({
+  disabled,
+  displayName,
+  inputClassName,
+  locked,
+  onDisplayNameChange,
+  onLockedChange,
+}: {
+  disabled: boolean
+  displayName: string
+  inputClassName?: string
+  locked: boolean
+  onDisplayNameChange: (value: string) => void
+  onLockedChange: (locked: boolean) => void
+}) {
+  const inputId = useId()
+
+  return (
+    <div className="grid gap-1.5 text-xs font-medium text-foreground">
+      <label htmlFor={inputId}>Public display name</label>
+      <div className="flex min-w-0 gap-2">
+        <Input
+          className={cn('min-w-0 flex-1', inputClassName)}
+          disabled={disabled}
+          id={inputId}
+          maxLength={80}
+          onChange={(event) => onDisplayNameChange(event.target.value)}
+          placeholder="The trail crew"
+          value={displayName}
+        />
+        <Button
+          aria-label={`${locked ? 'Unlock' : 'Lock'} public display name`}
+          aria-pressed={locked}
+          className={cn('shrink-0 gap-1.5 px-3 text-xs', inputClassName)}
+          disabled={disabled || !displayName.trim()}
+          onClick={() => onLockedChange(!locked)}
+          type="button"
+          variant={locked ? 'secondary' : 'ghost'}
+        >
+          {locked ? <Lock className="size-3.5" /> : <Unlock className="size-3.5" />}
+          {locked ? 'Locked' : 'Unlocked'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function ShareLinkSetting({
+  checked,
+  description,
+  disabled,
+  label,
+  onCheckedChange,
+}: {
+  checked: boolean
+  description: string
+  disabled: boolean
+  label: string
+  onCheckedChange: (checked: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card/70 px-3 py-2">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        <p className="text-xs leading-4 text-muted-foreground">{description}</p>
+      </div>
+      <Switch
+        aria-label={label}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+      />
     </div>
   )
 }

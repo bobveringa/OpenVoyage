@@ -650,9 +650,7 @@ class GpsTrackingService:
             return
         sessions = (
             self.db.execute(
-                select(GpsTrackingSession).where(
-                    GpsTrackingSession.id.in_(session_ids)
-                )
+                select(GpsTrackingSession).where(GpsTrackingSession.id.in_(session_ids))
             )
             .scalars()
             .all()
@@ -1162,9 +1160,7 @@ class GpsTrackingService:
             )
 
         required_indices = {
-            index
-            for index, anchor in enumerate(anchors)
-            if anchor.is_semantic_marker
+            index for index, anchor in enumerate(anchors) if anchor.is_semantic_marker
         }
         simplified = [
             coordinates[index]

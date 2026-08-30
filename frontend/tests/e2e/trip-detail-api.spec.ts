@@ -56,6 +56,7 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
 
     await page.getByRole('button', { name: 'Manage trip' }).click()
     await page.getByRole('button', { name: 'People & sharing' }).click()
+    await page.getByRole('button', { name: 'Sharing', exact: true }).click()
     await page.getByLabel('Link label').fill('E2E share link')
     await page.getByRole('button', { name: 'Create link' }).click()
     await expect(page.getByText('E2E share link')).toBeVisible()

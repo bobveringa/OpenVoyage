@@ -27,6 +27,16 @@ const config: CapacitorConfig = {
     // config, or a stray absolute https:// asset URL).
     allowMixedContent: true,
   },
+  plugins: {
+    // The webview has its own http://localhost origin, while a self-hosted
+    // server can live at any address. Route fetch/XHR through Android's
+    // native HTTP stack so these requests are not subject to WebView CORS.
+    // This preserves a server's browser CORS allow-list and also supports
+    // multipart uploads through the patched fetch implementation.
+    CapacitorHttp: {
+      enabled: true,
+    },
+  },
 }
 
 export default config

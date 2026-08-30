@@ -173,7 +173,9 @@ def test_admin_update_validates_registry_values(
 
 
 @pytest.mark.integration
-def test_secret_reset_is_idempotent_and_does_not_decrypt(client, db_session, api_prefix) -> None:
+def test_secret_reset_is_idempotent_and_does_not_decrypt(
+    client, db_session, api_prefix
+) -> None:
     admin = _admin(db_session)
     headers = _auth_headers(admin)
     db_session.add(
@@ -254,7 +256,9 @@ def test_admin_can_update_and_reset_public_tile_provider(
 
 
 @pytest.mark.integration
-def test_admin_can_update_and_reset_theme_palette(client, db_session, api_prefix) -> None:
+def test_admin_can_update_and_reset_theme_palette(
+    client, db_session, api_prefix
+) -> None:
     admin = _admin(db_session)
     headers = _auth_headers(admin)
     setting_url = f'{api_prefix}/admin/settings/{THEME_PALETTE_KEY}'
@@ -266,12 +270,17 @@ def test_admin_can_update_and_reset_theme_palette(client, db_session, api_prefix
         },
     }
 
-    update_response = client.patch(setting_url, headers=headers, json={'value': palette})
+    update_response = client.patch(
+        setting_url, headers=headers, json={'value': palette}
+    )
 
     assert update_response.status_code == 200
     assert update_response.json()['value']['light']['primary'] == '#1D5E43'
     public_response = client.get(f'{api_prefix}/settings/public')
-    assert public_response.json()['settings'][THEME_PALETTE_KEY]['light']['primary'] == '#1D5E43'
+    assert (
+        public_response.json()['settings'][THEME_PALETTE_KEY]['light']['primary']
+        == '#1D5E43'
+    )
 
     reset_response = client.post(f'{setting_url}/reset', headers=headers)
 

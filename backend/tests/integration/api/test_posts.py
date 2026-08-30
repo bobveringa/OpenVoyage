@@ -314,10 +314,10 @@ def test_post_timeline_returns_backend_routes_in_chronological_order(
     assert timeline[0]['route_after'] == {
         'duration_seconds': 9120,
         'segments': [
-                {
-                    'travel_mode': 'UNKNOWN',
-                    'visible_to_members_only': False,
-                    'geometry': {
+            {
+                'travel_mode': 'UNKNOWN',
+                'visible_to_members_only': False,
+                'geometry': {
                     'type': 'LineString',
                     'coordinates': [[-9.1393, 38.7223], [-8.6291, 41.1579]],
                 },
@@ -533,9 +533,7 @@ def test_post_timeline_recomputes_after_post_mutations(
 
     assert unpublish_response.status_code == 200
     published_entries = published_timeline_response.json()['entries']
-    assert [entry['post']['id'] for entry in published_entries] == [
-        second_post['id']
-    ]
+    assert [entry['post']['id'] for entry in published_entries] == [second_post['id']]
     assert published_entries[0]['route_after'] is None
 
 
@@ -1058,3 +1056,86 @@ def test_publish_unpublish_and_delete_post_endpoints(
     assert forbidden_delete_response.status_code == 403
     assert delete_response.status_code == 204
     assert missing_publish_response.status_code == 404
+
+
+@pytest.mark.integration
+def test_post_author_display_and_self_like_restriction(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    author = create_user(
+        db_session,
+        password='PostsPass123!',
+        username='alex-smith',
+        first_name='Alex',
+        last_name='Smith',
+    )
+    other_member = create_user(
+        db_session,
+        password='PostsPass123!',
+        username='other-member',
+    )
+    avatar = create_media(
+        db_session,
+        storage_path='media/post-author.jpg',
+        created_by=author.id,
+    )
+    author.profile.profile_picture_media_id = avatar.id
+    trip = create_trip(db_session, owner_id=author.id)
+    add_trip_member(db_session, trip_id=trip.id, user_id=other_member.id)
+    place = create_place(db_session)
+    db_session.commit()
+
+    create_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers=_auth_headers(author),
+        json={
+            'title': 'Authored post',
+            'body': 'Written by Alex',
+            'location': _place_location(place),
+            'occurred_at': OCCURRED_AT,
+            'publish': True,
+        },
+    )
+    post_id = create_response.json()['id']
+    self_like_response = client.put(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}/like',
+        headers=_auth_headers(author),
+    )
+    self_comment_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}/comments',
+        headers=_auth_headers(author),
+        json={'body': 'An author follow-up'},
+    )
+    other_get_response = client.get(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
+        headers=_auth_headers(other_member),
+    )
+    other_like_response = client.put(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}/like',
+        headers=_auth_headers(other_member),
+    )
+
+    assert create_response.status_code == 201
+    assert create_response.json()['author'] == {
+        'id': str(author.id),
+        'username': 'alex-smith',
+        'first_name': 'Alex',
+        'last_name': 'Smith',
+        'profile_picture': create_response.json()['author']['profile_picture'],
+    }
+    assert create_response.json()['author']['profile_picture']['id'] == str(avatar.id)
+    assert create_response.json()['social']['can_interact'] is True
+    assert create_response.json()['social']['can_like'] is False
+    assert self_like_response.status_code == 403
+    assert self_like_response.json()['detail'] == 'You cannot like your own post.'
+    assert self_comment_response.status_code == 201
+    assert self_comment_response.json()['author']['user']['profile_picture'][
+        'id'
+    ] == str(avatar.id)
+    assert other_get_response.status_code == 200
+    assert other_get_response.json()['social']['can_like'] is True
+    assert other_like_response.status_code == 200
+    assert other_like_response.json()['like_count'] == 1
+    assert other_like_response.json()['viewer_has_liked'] is True

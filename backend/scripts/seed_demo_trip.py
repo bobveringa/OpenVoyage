@@ -832,7 +832,7 @@ class GraphHopper:
             return {}
         try:
             return json.loads(self._cache_path.read_text(encoding='utf-8'))
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return {}
 
     def _save_disk_cache(self) -> None:

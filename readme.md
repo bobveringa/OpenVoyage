@@ -123,7 +123,8 @@ You need a JDK between 17 and 24, and the Android SDK. The APK lands in
 
 On first launch the app asks for your server's address — for example
 `https://voyage.example.com`, or `http://192.168.1.10:8000`. Plain HTTP to a 
-LAN address works.
+LAN address works. The app routes API requests through Android's native HTTP
+stack, so it does not need an extra CORS origin on the server.
 
 ### Permissions it asks for, and why
 

@@ -296,6 +296,13 @@ function createPostTimeline() {
     media: [],
     occurred_at: occurredAt,
     published_at: occurredAt,
+    social: {
+      can_interact: true,
+      can_like: true,
+      comment_count: 0,
+      like_count: 0,
+      viewer_has_liked: false,
+    },
     title,
     trip_id: tripId,
     updated_at: occurredAt,

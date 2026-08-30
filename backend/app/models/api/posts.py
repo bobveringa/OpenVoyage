@@ -2,14 +2,14 @@ import enum
 import uuid
 from collections.abc import Callable
 from datetime import datetime
-from typing import Self
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from models.api.geojson import GeoJsonLineString
 from models.api.locations import LocationInput, LocationResponse
 from models.api.media import MediaResponse
-from models.api.users import UserSummaryResponse
+from models.api.users import UserDisplaySummaryResponse
 from models.database.travel import TravelMode
 from models.database.posts import Post
 
@@ -44,10 +44,18 @@ class PostUpdateRequest(BaseModel):
     media_ids: list[uuid.UUID] | None = None
 
 
+class PostSocialSummaryResponse(BaseModel):
+    like_count: int = Field(ge=0)
+    comment_count: int = Field(ge=0)
+    viewer_has_liked: bool
+    can_interact: bool
+    can_like: bool
+
+
 class PostResponse(BaseModel):
     id: uuid.UUID
     trip_id: uuid.UUID
-    author: UserSummaryResponse
+    author: UserDisplaySummaryResponse
     location: LocationResponse
     title: str
     body: str
@@ -56,6 +64,7 @@ class PostResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     media: list[MediaResponse]
+    social: PostSocialSummaryResponse
 
     @classmethod
     def from_model(
@@ -64,11 +73,22 @@ class PostResponse(BaseModel):
         media_base_url: str,
         *,
         media_token_factory: Callable[[uuid.UUID], str | None] | None = None,
+        social: PostSocialSummaryResponse,
     ) -> Self:
         return cls(
             id=post.id,
             trip_id=post.trip_id,
-            author=UserSummaryResponse.from_model(post.author),
+            author=UserDisplaySummaryResponse.from_model(
+                post.author,
+                media_base_url=media_base_url,
+                media_token=(
+                    media_token_factory(post.author.profile.profile_picture.id)
+                    if media_token_factory
+                    and post.author.profile
+                    and post.author.profile.profile_picture
+                    else None
+                ),
+            ),
             location=LocationResponse.from_model(post.location),
             title=post.title,
             body=post.body,
@@ -88,7 +108,47 @@ class PostResponse(BaseModel):
                 )
                 for link in post.media_links
             ],
+            social=social,
         )
+
+
+class PostCommentCreateRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    body: str = Field(min_length=1, max_length=2000)
+
+    @field_validator('body')
+    @classmethod
+    def normalize_body(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('body cannot be blank')
+        return value
+
+
+class UserCommentAuthorResponse(BaseModel):
+    type: Literal['user'] = 'user'
+    user: UserDisplaySummaryResponse
+
+
+class ShareLinkCommentAuthorResponse(BaseModel):
+    type: Literal['share_link'] = 'share_link'
+    display_name: str
+
+
+PostCommentAuthorResponse = Annotated[
+    UserCommentAuthorResponse | ShareLinkCommentAuthorResponse,
+    Field(discriminator='type'),
+]
+
+
+class PostCommentResponse(BaseModel):
+    id: uuid.UUID
+    post_id: uuid.UUID
+    author: PostCommentAuthorResponse
+    body: str
+    created_at: datetime
+    can_delete: bool
 
 
 class PostTimelineRouteSegmentResponse(BaseModel):
