@@ -33,6 +33,14 @@ class DuplicatePostMediaError(Exception):
     """Raised when the same media id appears multiple times in one post."""
 
 
+class InvalidBubbleMediaError(Exception):
+    """Raised when a bubble media id is not part of the post gallery."""
+
+
+class PostMediaRequiredError(Exception):
+    """Raised when a post mutation would leave no gallery media."""
+
+
 class PostMediaOwnershipError(Exception):
     """Raised when a user attaches media they do not own."""
 
@@ -76,6 +84,12 @@ class PostService:
             media_ids=payload.media_ids,
             current_user_id=current_user_id,
         )
+        bubble_media_id = self._resolve_bubble_media_id(
+            media_ids=payload.media_ids,
+            current_bubble_media_id=None,
+            requested_bubble_media_id=payload.bubble_media_id,
+            bubble_media_id_provided='bubble_media_id' in payload.model_fields_set,
+        )
 
         post = Post(
             trip_id=trip_id,
@@ -84,6 +98,7 @@ class PostService:
             title=payload.title,
             body=payload.body,
             occurred_at=payload.occurred_at,
+            bubble_media_id=bubble_media_id,
             published_at=utcnow() if payload.publish else None,
         )
         self.db.add(post)
@@ -191,21 +206,25 @@ class PostService:
             require_author_or_owner=False,
         )
 
-        media_ids_changed = False
+        final_media_ids = [link.media_id for link in post.media_links]
         if payload.media_ids is not None:
             self._validate_collaborative_media_ids(
                 post=post,
                 media_ids=payload.media_ids,
                 current_user_id=current_user_id,
             )
-            media_ids_changed = [link.media_id for link in post.media_links] != payload.media_ids
+            final_media_ids = payload.media_ids
 
-        changed = False
+        bubble_media_id = self._resolve_bubble_media_id(
+            media_ids=final_media_ids,
+            current_bubble_media_id=post.bubble_media_id,
+            requested_bubble_media_id=payload.bubble_media_id,
+            bubble_media_id_provided='bubble_media_id' in payload.model_fields_set,
+        )
+
         if payload.body is not None:
-            changed = changed or post.body != payload.body
             post.body = payload.body
         if payload.title is not None:
-            changed = changed or post.title != payload.title
             post.title = payload.title
         if payload.location is not None:
             location = self.location_service.create_location_for_trip(
@@ -213,20 +232,19 @@ class PostService:
                 created_by=current_user_id,
                 location_input=payload.location,
             )
-            if self._locations_differ(post.location, location):
-                changed = True
-                post.location_id = location.id
-            else:
-                self.db.delete(location)
+            post.location_id = location.id
         if payload.occurred_at is not None:
-            changed = changed or post.occurred_at != payload.occurred_at
             post.occurred_at = payload.occurred_at
-        if payload.media_ids is not None and media_ids_changed:
-            self._replace_post_media(post=post, media_ids=payload.media_ids)
-            changed = True
+        if payload.media_ids is not None:
+            post.bubble_media_id = bubble_media_id
+            self._replace_post_media(
+                post=post,
+                media_ids=final_media_ids,
+            )
+        else:
+            post.bubble_media_id = bubble_media_id
 
-        if changed:
-            post.revision += 1
+        post.revision += 1
 
         self.db.commit()
         return self._get_post_for_response(post_id=post_id, trip_id=trip_id)
@@ -288,7 +306,11 @@ class PostService:
         self.db.commit()
         return self._get_post_for_response(post_id=post_id, trip_id=trip_id)
 
-    def _replace_post_media(self, post: Post, media_ids: list[uuid.UUID]) -> None:
+    def _replace_post_media(
+        self,
+        post: Post,
+        media_ids: list[uuid.UUID],
+    ) -> None:
         for link in list(post.media_links):
             self.db.delete(link)
         self.db.flush()
@@ -335,7 +357,7 @@ class PostService:
         if len(set(media_ids)) != len(media_ids):
             raise DuplicatePostMediaError('Post media ids must be unique')
         if not media_ids:
-            return {}
+            raise PostMediaRequiredError('Posts require at least one media item')
 
         media = list(
             self.db.execute(select(Media).where(Media.id.in_(media_ids)))
@@ -362,7 +384,7 @@ class PostService:
         if len(set(media_ids)) != len(media_ids):
             raise DuplicatePostMediaError('Post media ids must be unique')
         if not media_ids:
-            return
+            raise PostMediaRequiredError('Posts require at least one media item')
 
         existing_ids = {link.media_id for link in post.media_links}
         media = list(
@@ -380,22 +402,33 @@ class PostService:
                     'New post media must be uploaded by the editor'
                 )
 
+    def _resolve_bubble_media_id(
+        self,
+        *,
+        media_ids: list[uuid.UUID],
+        current_bubble_media_id: uuid.UUID | None,
+        requested_bubble_media_id: uuid.UUID | None,
+        bubble_media_id_provided: bool,
+    ) -> uuid.UUID:
+        if not media_ids:
+            raise PostMediaRequiredError('Posts require at least one media item')
+
+        if bubble_media_id_provided:
+            if requested_bubble_media_id is None:
+                return media_ids[0]
+            if requested_bubble_media_id not in media_ids:
+                raise InvalidBubbleMediaError(
+                    'Bubble media must belong to the post media gallery'
+                )
+            return requested_bubble_media_id
+
+        if current_bubble_media_id in media_ids:
+            return current_bubble_media_id
+        return media_ids[0]
+
     def _check_revision(self, post: Post, expected_revision: int | None) -> None:
         if expected_revision is not None and post.revision != expected_revision:
             raise PostRevisionMismatchError('Post revision does not match')
-
-    def _locations_differ(self, current, replacement) -> bool:
-        return any(
-            getattr(current, field) != getattr(replacement, field)
-            for field in (
-                'name',
-                'latitude',
-                'longitude',
-                'country_code',
-                'region',
-                'full_name',
-            )
-        )
 
     def _get_readable_trip_access(
         self,

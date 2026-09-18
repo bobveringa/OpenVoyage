@@ -6,8 +6,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy.orm import object_session
 
 from core import security
+from factories.media import create_media
 from factories.places import create_place
 from factories.trips import add_trip_member, add_trip_viewer, create_trip
 from factories.users import create_user
@@ -36,6 +38,13 @@ def _create_post(
     occurred_at: datetime,
     publish: bool = True,
 ) -> dict:
+    db_session = object_session(user)
+    assert db_session is not None
+    media = create_media(
+        db_session,
+        storage_path=f'media/tracking-post-{uuid.uuid4()}.jpg',
+        created_by=user.id,
+    )
     response = client.post(
         f'{api_prefix}/trips/{trip_id}/posts',
         headers=_auth_headers(user),
@@ -44,7 +53,7 @@ def _create_post(
             'body': title,
             'location': {'place_id': str(place.id)},
             'occurred_at': _iso(occurred_at),
-            'media_ids': [],
+            'media_ids': [str(media.id)],
             'publish': publish,
         },
     )

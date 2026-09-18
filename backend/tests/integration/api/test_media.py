@@ -397,6 +397,7 @@ def test_get_public_trip_post_media_requires_published_post(
         title='Published post',
         body='Published post',
         occurred_at=utcnow(),
+        bubble_media_id=media.id,
         published_at=utcnow(),
     )
     draft_post = Post(
@@ -406,14 +407,23 @@ def test_get_public_trip_post_media_requires_published_post(
         title='Draft post',
         body='Draft post',
         occurred_at=utcnow(),
+        bubble_media_id=draft_media.id,
         published_at=None,
     )
     db_session.add_all([published_post, draft_post])
     db_session.flush()
     db_session.add_all(
         [
-            PostMedia(post_id=published_post.id, media_id=media.id, sort_order=0),
-            PostMedia(post_id=draft_post.id, media_id=draft_media.id, sort_order=0),
+            PostMedia(
+                post_id=published_post.id,
+                media_id=media.id,
+                sort_order=0,
+            ),
+            PostMedia(
+                post_id=draft_post.id,
+                media_id=draft_media.id,
+                sort_order=0,
+            ),
         ]
     )
     db_session.commit()
@@ -458,6 +468,7 @@ def test_shared_trip_post_media_url_uses_media_token_for_published_posts(
         title='Published post',
         body='Published post',
         occurred_at=utcnow(),
+        bubble_media_id=media.id,
         published_at=utcnow(),
     )
     draft_post = Post(
@@ -467,14 +478,23 @@ def test_shared_trip_post_media_url_uses_media_token_for_published_posts(
         title='Draft post',
         body='Draft post',
         occurred_at=utcnow(),
+        bubble_media_id=draft_media.id,
         published_at=None,
     )
     db_session.add_all([published_post, draft_post])
     db_session.flush()
     db_session.add_all(
         [
-            PostMedia(post_id=published_post.id, media_id=media.id, sort_order=0),
-            PostMedia(post_id=draft_post.id, media_id=draft_media.id, sort_order=0),
+            PostMedia(
+                post_id=published_post.id,
+                media_id=media.id,
+                sort_order=0,
+            ),
+            PostMedia(
+                post_id=draft_post.id,
+                media_id=draft_media.id,
+                sort_order=0,
+            ),
         ]
     )
     db_session.commit()

@@ -6,6 +6,7 @@ import {
   MousePointer2,
   Plus,
   RefreshCw,
+  Star,
   Search,
   Trash2,
   Upload,
@@ -126,6 +127,9 @@ export function PostFormPanel({
   const keepUploadedMediaUrlsRef = useRef(false)
   const [draftMedia, setDraftMedia] = useState<DraftPostMedia[]>(() =>
     editingPost ? editingPost.media.map(createExistingDraftPostMedia) : [],
+  )
+  const [bubbleMediaClientId, setBubbleMediaClientId] = useState<string | null>(
+    () => getBubbleMediaClientId(editingPost),
   )
   const [activeDraftMediaIndex, setActiveDraftMediaIndex] = useState<
     number | null
@@ -329,14 +333,22 @@ export function PostFormPanel({
         setMediaNotice('Wait for media uploads to finish before publishing.')
         return
       }
+      const bubbleMedia = draftMedia.find(
+        (item) => item.clientId === bubbleMediaClientId,
+      )
+      if (!bubbleMedia?.media_id) {
+        setMediaNotice('Choose media for the map bubble before publishing.')
+        return
+      }
 
       keepUploadedMediaUrlsRef.current = false
       onSubmit({
         ...submit.draft,
+        bubbleMediaId: bubbleMedia.media_id,
         media,
       })
     },
-    [draftMedia, onSubmit],
+    [bubbleMediaClientId, draftMedia, onSubmit],
   )
 
   useEffect(() => {
@@ -348,6 +360,7 @@ export function PostFormPanel({
     uploadedMediaUrlsRef.current = []
     setActiveDraftMediaIndex(null)
     setDraftMedia(editingPost ? editingPost.media.map(createExistingDraftPostMedia) : [])
+    setBubbleMediaClientId(getBubbleMediaClientId(editingPost))
     setLocationSource('search')
     setSelectedSearchPlace(null)
     setPlaceResultsOpen(false)
@@ -485,6 +498,9 @@ export function PostFormPanel({
     })
 
     setDraftMedia((currentMedia) => [...currentMedia, ...uploadedMedia])
+    if (!bubbleMediaClientId) {
+      setBubbleMediaClientId(uploadedMedia[0]?.clientId ?? null)
+    }
     for (const media of uploadedMedia) {
       if (media.type !== 'video' || !media.file) {
         continue
@@ -540,10 +556,23 @@ export function PostFormPanel({
     uploadControllersRef.current.delete(media.clientId)
     revokeDraftMediaUrls(media)
     setActiveDraftMediaIndex(null)
-    setDraftMedia((currentMedia) =>
-      currentMedia.filter((item) => item.clientId !== media.clientId),
-    )
-    setMediaNotice(`${media.alt} removed.`)
+    setDraftMedia((currentMedia) => {
+      const nextMedia = currentMedia.filter(
+        (item) => item.clientId !== media.clientId,
+      )
+      if (bubbleMediaClientId === media.clientId) {
+        const replacement = nextMedia[0] ?? null
+        setBubbleMediaClientId(replacement?.clientId ?? null)
+        setMediaNotice(
+          replacement
+            ? `${media.alt} removed. ${replacement.alt} is now the map bubble.`
+            : `${media.alt} removed. Add media before saving this post.`,
+        )
+      } else {
+        setMediaNotice(`${media.alt} removed.`)
+      }
+      return nextMedia
+    })
   }
 
   function retryDraftMedia(media: DraftPostMedia) {
@@ -610,7 +639,7 @@ export function PostFormPanel({
 
   function createPostSubmitDraft(
     intent: PostSubmitIntent,
-  ): Omit<PostSubmitDraft, 'media'> {
+  ): Omit<PostSubmitDraft, 'bubbleMediaId' | 'media'> {
     if (!selectedPostCoordinates) {
       throw new Error('Select a location before saving the post.')
     }
@@ -928,7 +957,14 @@ export function PostFormPanel({
 
           {draftMedia.map((media, index) => (
             <MediaStripCard
-              badge={index === 0 ? 'Map bubble media' : null}
+              badge={
+                media.clientId === bubbleMediaClientId ? (
+                  <>
+                    <Star className="size-3 fill-current" aria-hidden="true" />
+                    <span className="sr-only">Map bubble media</span>
+                  </>
+                ) : null
+              }
               key={media.clientId}
               media={media}
               onOpen={() => setActiveDraftMediaIndex(index)}
@@ -938,8 +974,27 @@ export function PostFormPanel({
                 onRetry={() => retryDraftMedia(media)}
                 retryDisabled={isSubmitting}
               />
-              <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 rounded-2xl bg-card/90 p-1.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 rounded-2xl bg-card/90 p-1.5 opacity-100 shadow-sm backdrop-blur transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                 <div className="flex gap-1">
+                  <Button
+                    aria-label={`Use ${media.alt} for the map bubble`}
+                    aria-pressed={media.clientId === bubbleMediaClientId}
+                    className="size-8 rounded-xl"
+                    disabled={formDisabled}
+                    onClick={() => setBubbleMediaClientId(media.clientId)}
+                    size="icon"
+                    title={
+                      media.clientId === bubbleMediaClientId
+                        ? `${media.alt} is the map bubble`
+                        : `Use ${media.alt} for the map bubble`
+                    }
+                    type="button"
+                    variant={
+                      media.clientId === bubbleMediaClientId ? 'secondary' : 'ghost'
+                    }
+                  >
+                    <Star className="size-4" aria-hidden="true" />
+                  </Button>
                   <Button
                     aria-label={`Move ${media.alt} left`}
                     className="size-8 rounded-xl"
@@ -1227,4 +1282,16 @@ export function PostFormPanel({
       ) : null}
     </div>
   )
+}
+
+function getBubbleMediaClientId(post: TravelPost | null | undefined) {
+  if (!post) {
+    return null
+  }
+
+  if (!post.media.some((media) => media.media_id === post.bubbleMediaId)) {
+    throw new Error(`Post ${post.id} is missing its selected bubble media`)
+  }
+
+  return post.bubbleMediaId
 }

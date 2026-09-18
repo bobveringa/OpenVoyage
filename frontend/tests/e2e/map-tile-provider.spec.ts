@@ -287,26 +287,52 @@ function createPostTimeline() {
     occurredAt: string,
     location: ReturnType<typeof createLocation>,
     body = title,
-  ) => ({
-    author,
-    body,
-    created_at: occurredAt,
-    id,
-    location,
-    media: [],
-    occurred_at: occurredAt,
-    published_at: occurredAt,
-    social: {
-      can_interact: true,
-      can_like: true,
-      comment_count: 0,
-      like_count: 0,
-      viewer_has_liked: false,
-    },
-    title,
-    trip_id: tripId,
-    updated_at: occurredAt,
-  })
+  ) => {
+    const mediaId =
+      id === secondPostId
+        ? 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+        : 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const caption = `${title.replace(' timeline post', '')} timeline post media placeholder`
+
+    return {
+      author,
+      body,
+      bubble_media_id: mediaId,
+      created_at: occurredAt,
+      id,
+      location,
+      media: [
+        {
+          id: mediaId,
+          media_type: 'IMAGE',
+          metadata: {
+            caption,
+            created_at: occurredAt,
+            updated_at: occurredAt,
+          },
+          status: 'READY',
+          technical_info: null,
+          urls: {
+            content: `data:image/png;base64,${transparentPng.toString('base64')}`,
+            thumbnail: null,
+          },
+        },
+      ],
+      occurred_at: occurredAt,
+      published_at: occurredAt,
+      revision: 0,
+      social: {
+        can_interact: true,
+        can_like: true,
+        comment_count: 0,
+        like_count: 0,
+        viewer_has_liked: false,
+      },
+      title,
+      trip_id: tripId,
+      updated_at: occurredAt,
+    }
+  }
 
   return {
     entries: [

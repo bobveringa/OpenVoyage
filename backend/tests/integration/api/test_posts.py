@@ -10,7 +10,7 @@ from factories.media import create_media
 from factories.places import create_place
 from factories.trips import add_trip_member, create_trip
 from factories.users import create_user
-from models.database.posts import PostMedia
+from models.database.posts import Post, PostMedia
 from models.database.trips import TripRole, TripVisibility
 
 OCCURRED_AT = '2026-06-29T10:30:00+00:00'
@@ -28,6 +28,7 @@ def _place_location(place) -> dict[str, str]:
 
 def _create_post(
     client,
+    db_session,
     api_prefix: str,
     *,
     trip_id: uuid.UUID,
@@ -37,6 +38,11 @@ def _create_post(
     occurred_at: str,
     publish: bool,
 ) -> dict:
+    media = create_media(
+        db_session,
+        storage_path=f'media/post-{uuid.uuid4()}.jpg',
+        created_by=user.id,
+    )
     response = client.post(
         f'{api_prefix}/trips/{trip_id}/posts',
         headers=_auth_headers(user),
@@ -45,7 +51,7 @@ def _create_post(
             'body': title,
             'location': _place_location(place),
             'occurred_at': occurred_at,
-            'media_ids': [],
+            'media_ids': [str(media.id)],
             'publish': publish,
         },
     )
@@ -103,6 +109,7 @@ def test_create_post_derives_media_order_from_media_ids(
         str(second_media.id),
         str(first_media.id),
     ]
+    assert payload['bubble_media_id'] == str(second_media.id)
 
     links = list(
         db_session.execute(
@@ -115,6 +122,85 @@ def test_create_post_derives_media_order_from_media_ids(
         second_media.id: 0,
         first_media.id: 1,
     }
+    post = db_session.get(Post, uuid.UUID(payload['id']))
+    assert post.bubble_media_id == second_media.id
+
+
+@pytest.mark.integration
+def test_post_bubble_media_selection_and_removal_fallback(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    user = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(db_session, owner_id=user.id)
+    place = create_place(db_session)
+    first_media = create_media(
+        db_session,
+        storage_path='media/bubble-first.jpg',
+        created_by=user.id,
+    )
+    selected_media = create_media(
+        db_session,
+        storage_path='media/bubble-selected.jpg',
+        created_by=user.id,
+    )
+    unrelated_media = create_media(
+        db_session,
+        storage_path='media/bubble-unrelated.jpg',
+        created_by=user.id,
+    )
+    headers = _auth_headers(user)
+
+    create_response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers=headers,
+        json={
+            'title': 'Bubble selection',
+            'body': 'Choose a marker image separately from gallery order.',
+            'location': _place_location(place),
+            'occurred_at': OCCURRED_AT,
+            'media_ids': [str(first_media.id), str(selected_media.id)],
+            'bubble_media_id': str(selected_media.id),
+        },
+    )
+
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created['bubble_media_id'] == str(selected_media.id)
+
+    change_response = client.patch(
+        f'{api_prefix}/trips/{trip.id}/posts/{created["id"]}',
+        headers={**headers, 'If-Match': '"0"'},
+        json={'bubble_media_id': str(first_media.id)},
+    )
+
+    assert change_response.status_code == 200
+    changed = change_response.json()
+    assert changed['revision'] == 1
+    assert changed['bubble_media_id'] == str(first_media.id)
+
+    remove_selected_response = client.patch(
+        f'{api_prefix}/trips/{trip.id}/posts/{created["id"]}',
+        headers={**headers, 'If-Match': '"1"'},
+        json={'media_ids': [str(selected_media.id)]},
+    )
+
+    assert remove_selected_response.status_code == 200
+    removed = remove_selected_response.json()
+    assert removed['revision'] == 2
+    assert removed['bubble_media_id'] == str(selected_media.id)
+
+    invalid_selection_response = client.patch(
+        f'{api_prefix}/trips/{trip.id}/posts/{created["id"]}',
+        headers={**headers, 'If-Match': '"2"'},
+        json={'bubble_media_id': str(unrelated_media.id)},
+    )
+
+    assert invalid_selection_response.status_code == 422
+    assert invalid_selection_response.json()['detail'] == (
+        'Bubble media must belong to the post media gallery'
+    )
 
 
 @pytest.mark.integration
@@ -151,6 +237,11 @@ def test_list_posts_without_auth_returns_only_published_public_posts(
     )
     place = create_place(db_session)
     headers = _auth_headers(user)
+    media = create_media(
+        db_session,
+        storage_path='media/list-post.jpg',
+        created_by=user.id,
+    )
 
     draft_response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts',
@@ -160,7 +251,7 @@ def test_list_posts_without_auth_returns_only_published_public_posts(
             'body': 'Draft notes',
             'location': _place_location(place),
             'occurred_at': '2026-06-28T09:00:00+00:00',
-            'media_ids': [],
+            'media_ids': [str(media.id)],
         },
     )
     published_response = client.post(
@@ -171,7 +262,7 @@ def test_list_posts_without_auth_returns_only_published_public_posts(
             'body': 'Published notes',
             'location': _place_location(place),
             'occurred_at': '2026-06-27T09:00:00+00:00',
-            'media_ids': [],
+            'media_ids': [str(media.id)],
             'publish': True,
         },
     )
@@ -199,6 +290,11 @@ def test_list_posts_orders_by_occurred_at_by_default(
     )
     place = create_place(db_session)
     headers = _auth_headers(user)
+    media = create_media(
+        db_session,
+        storage_path='media/ordered-post.jpg',
+        created_by=user.id,
+    )
 
     for body, occurred_at in [
         ('Morning train', '2026-06-28T08:00:00+00:00'),
@@ -213,7 +309,7 @@ def test_list_posts_orders_by_occurred_at_by_default(
                 'body': body,
                 'location': _place_location(place),
                 'occurred_at': occurred_at,
-                'media_ids': [],
+                'media_ids': [str(media.id)],
                 'publish': True,
             },
         )
@@ -271,6 +367,7 @@ def test_post_timeline_returns_backend_routes_in_chronological_order(
 
     _create_post(
         client,
+        db_session,
         api_prefix,
         trip_id=trip.id,
         user=user,
@@ -281,6 +378,7 @@ def test_post_timeline_returns_backend_routes_in_chronological_order(
     )
     _create_post(
         client,
+        db_session,
         api_prefix,
         trip_id=trip.id,
         user=user,
@@ -291,6 +389,7 @@ def test_post_timeline_returns_backend_routes_in_chronological_order(
     )
     _create_post(
         client,
+        db_session,
         api_prefix,
         trip_id=trip.id,
         user=user,
@@ -364,6 +463,7 @@ def test_post_timeline_builds_routes_only_between_visible_posts(
     )
     _create_post(
         client,
+        db_session,
         api_prefix,
         trip_id=trip.id,
         user=user,
@@ -374,6 +474,7 @@ def test_post_timeline_builds_routes_only_between_visible_posts(
     )
     _create_post(
         client,
+        db_session,
         api_prefix,
         trip_id=trip.id,
         user=user,
@@ -384,6 +485,7 @@ def test_post_timeline_builds_routes_only_between_visible_posts(
     )
     _create_post(
         client,
+        db_session,
         api_prefix,
         trip_id=trip.id,
         user=user,
@@ -480,6 +582,7 @@ def test_post_timeline_recomputes_after_post_mutations(
     )
     first_post = _create_post(
         client,
+        db_session,
         api_prefix,
         trip_id=trip.id,
         user=user,
@@ -490,6 +593,7 @@ def test_post_timeline_recomputes_after_post_mutations(
     )
     second_post = _create_post(
         client,
+        db_session,
         api_prefix,
         trip_id=trip.id,
         user=user,
@@ -554,9 +658,10 @@ def test_post_timeline_uses_post_id_to_break_equal_timestamp_ties(
     )
     place = create_place(db_session)
     posts = [
-        _create_post(
-            client,
-            api_prefix,
+            _create_post(
+                client,
+                db_session,
+                api_prefix,
             trip_id=trip.id,
             user=user,
             place=place,
@@ -594,6 +699,11 @@ def test_create_post_with_coordinates_preserves_coordinates_and_uses_place_metad
         region='North Brabant',
         full_name='Eindhoven, North Brabant, The Netherlands',
     )
+    media = create_media(
+        db_session,
+        storage_path='media/eindhoven-post.jpg',
+        created_by=user.id,
+    )
 
     response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts',
@@ -606,7 +716,7 @@ def test_create_post_with_coordinates_preserves_coordinates_and_uses_place_metad
                 'longitude': 5.47,
             },
             'occurred_at': OCCURRED_AT,
-            'media_ids': [],
+            'media_ids': [str(media.id)],
         },
     )
 
@@ -628,6 +738,11 @@ def test_create_post_with_coordinates_uses_unknown_location_when_no_place_matche
 ) -> None:
     user = create_user(db_session, password='PostsPass123!')
     trip = create_trip(db_session, owner_id=user.id)
+    media = create_media(
+        db_session,
+        storage_path='media/unknown-location-post.jpg',
+        created_by=user.id,
+    )
 
     response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts',
@@ -640,7 +755,7 @@ def test_create_post_with_coordinates_uses_unknown_location_when_no_place_matche
                 'longitude': 0.2,
             },
             'occurred_at': OCCURRED_AT,
-            'media_ids': [],
+            'media_ids': [str(media.id)],
         },
     )
 
@@ -739,6 +854,11 @@ def test_post_update_allows_any_member_with_update_permission(
         role=TripRole.MEMBER,
     )
     place = create_place(db_session)
+    author_media = create_media(
+        db_session,
+        storage_path='media/author-draft.jpg',
+        created_by=author.id,
+    )
 
     create_response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts',
@@ -748,7 +868,7 @@ def test_post_update_allows_any_member_with_update_permission(
             'body': 'Author draft',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
-            'media_ids': [],
+            'media_ids': [str(author_media.id)],
         },
     )
     post_id = create_response.json()['id']
@@ -860,6 +980,11 @@ def test_private_trip_posts_return_not_found_without_membership(
         visibility=TripVisibility.PRIVATE,
     )
     place = create_place(db_session)
+    media = create_media(
+        db_session,
+        storage_path='media/private-post.jpg',
+        created_by=owner.id,
+    )
     create_response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=_auth_headers(owner),
@@ -868,6 +993,7 @@ def test_private_trip_posts_return_not_found_without_membership(
             'body': 'Private post',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
+            'media_ids': [str(media.id)],
             'publish': True,
         },
     )
@@ -895,6 +1021,11 @@ def test_share_link_reads_private_published_posts_but_not_drafts(
         visibility=TripVisibility.PRIVATE,
     )
     place = create_place(db_session)
+    media = create_media(
+        db_session,
+        storage_path='media/shared-post.jpg',
+        created_by=owner.id,
+    )
     owner_headers = _auth_headers(owner)
     draft_response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts',
@@ -904,6 +1035,7 @@ def test_share_link_reads_private_published_posts_but_not_drafts(
             'body': 'Hidden draft',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
+            'media_ids': [str(media.id)],
         },
     )
     published_response = client.post(
@@ -914,6 +1046,7 @@ def test_share_link_reads_private_published_posts_but_not_drafts(
             'body': 'Shared published post',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
+            'media_ids': [str(media.id)],
             'publish': True,
         },
     )
@@ -964,6 +1097,7 @@ def test_share_link_comments_identify_only_the_presented_link_as_author(
     owner_headers = _auth_headers(owner)
     post = _create_post(
         client,
+        db_session,
         api_prefix,
         trip_id=trip.id,
         user=owner,
@@ -1041,6 +1175,7 @@ def test_permanently_deleting_share_link_cascades_only_its_social_data(
     member_headers = _auth_headers(member)
     post = _create_post(
         client,
+        db_session,
         api_prefix,
         trip_id=trip.id,
         user=owner,
@@ -1143,6 +1278,7 @@ def test_update_post_translates_media_validation_errors(
             'body': 'Before media validation',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
+            'media_ids': [str(owned_media.id)],
         },
     )
     post_id = create_response.json()['id']
@@ -1182,6 +1318,11 @@ def test_publish_unpublish_and_delete_post_endpoints(
     add_trip_member(db_session, trip_id=trip.id, user_id=author.id)
     add_trip_member(db_session, trip_id=trip.id, user_id=other_member.id)
     place = create_place(db_session)
+    media = create_media(
+        db_session,
+        storage_path='media/publish-post.jpg',
+        created_by=author.id,
+    )
     create_response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts',
         headers=_auth_headers(author),
@@ -1190,6 +1331,7 @@ def test_publish_unpublish_and_delete_post_endpoints(
             'body': 'Publish me',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
+            'media_ids': [str(media.id)],
         },
     )
     post_id = create_response.json()['id']
@@ -1276,6 +1418,7 @@ def test_post_author_display_and_self_like_restriction(
             'body': 'Written by Alex',
             'location': _place_location(place),
             'occurred_at': OCCURRED_AT,
+            'media_ids': [str(avatar.id)],
             'publish': True,
         },
     )

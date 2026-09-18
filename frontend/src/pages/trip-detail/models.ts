@@ -119,6 +119,7 @@ export type TravelPost = {
     profilePicture: Media | null
   }
   coordinates: L.LatLngTuple
+  bubbleMediaId: string
   excerpt: string
   id: string
   isDraft: boolean

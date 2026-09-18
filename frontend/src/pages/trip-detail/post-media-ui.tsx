@@ -9,7 +9,9 @@ import {
   X,
 } from 'lucide-react'
 import {
+  useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -26,13 +28,15 @@ import {
   getMediaType,
 } from '@/pages/trip-detail/shared-utils'
 
+const mediaLightboxHistoryStateKey = 'openVoyageMediaLightboxId'
+
 export function MediaStripCard({
   badge,
   children,
   media,
   onOpen,
 }: {
-  badge?: string | null
+  badge?: ReactNode | null
   children?: ReactNode
   media: PostMedia
   onOpen: () => void
@@ -161,6 +165,47 @@ export function MediaLightbox({
   const activeMedia = media[activeIndex]
   const hasMultipleMedia = media.length > 1
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const onCloseRef = useRef(onClose)
+  const historyEntryId = useId()
+
+  onCloseRef.current = onClose
+
+  const closeLightbox = useCallback(() => {
+    if (
+      window.history.state?.[mediaLightboxHistoryStateKey] ===
+      historyEntryId
+    ) {
+      window.history.back()
+      return
+    }
+
+    onCloseRef.current()
+  }, [historyEntryId])
+
+  useEffect(() => {
+    window.history.pushState(
+      {
+        ...window.history.state,
+        [mediaLightboxHistoryStateKey]: historyEntryId,
+      },
+      '',
+    )
+
+    function handlePopState() {
+      onCloseRef.current()
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+
+      if (window.history.state?.[mediaLightboxHistoryStateKey] === historyEntryId) {
+        const historyState = { ...window.history.state }
+        delete historyState[mediaLightboxHistoryStateKey]
+        window.history.replaceState(historyState, '')
+      }
+    }
+  }, [historyEntryId])
 
   function showRelativeMedia(offset: number) {
     if (media.length === 0) {
@@ -181,7 +226,7 @@ export function MediaLightbox({
     function handleKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape') {
         event.preventDefault()
-        onClose()
+        closeLightbox()
         return
       }
 
@@ -205,9 +250,9 @@ export function MediaLightbox({
   }, [
     activeIndex,
     activeMedia,
+    closeLightbox,
     hasMultipleMedia,
     media.length,
-    onClose,
     onIndexChange,
   ])
 
@@ -250,7 +295,7 @@ export function MediaLightbox({
       aria-label={`${title} media viewer`}
       aria-modal="true"
       className="fixed inset-0 z-[1000] bg-slate-950/95 text-white"
-      onClick={onClose}
+      onClick={closeLightbox}
       role="dialog"
     >
       <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 px-4 py-4 sm:px-6">
@@ -263,7 +308,10 @@ export function MediaLightbox({
         <Button
           aria-label="Close media viewer"
           className="size-10 rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-          onClick={onClose}
+          onClick={(event) => {
+            event.stopPropagation()
+            closeLightbox()
+          }}
           size="icon"
           title="Close"
           type="button"
