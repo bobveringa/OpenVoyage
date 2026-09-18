@@ -6,11 +6,13 @@ import {
   Eye,
   Globe2,
   Link2,
+  Link2Off,
   Lock,
   Unlock,
   Mail,
   Plus,
   Radio,
+  RotateCcw,
   Send,
   Settings,
   Trash2,
@@ -22,6 +24,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type FocusEvent,
   type KeyboardEvent,
@@ -535,9 +538,11 @@ function ShareManagementPanel({
   isSaving,
   members,
   onCreateLink,
+  onDeleteLink,
   onInviteViewer,
   onRemoveViewer,
   onRevokeLink,
+  onRestoreLink,
   onUpdateLink,
   shareLinks,
   showLinks = true,
@@ -550,9 +555,11 @@ function ShareManagementPanel({
   isSaving: boolean
   members: readonly TripMemberViewModel[]
   onCreateLink: (draft: ShareLinkCreateDraft) => void
+  onDeleteLink: (link: ShareLinkViewModel, onSuccess: () => void) => void
   onInviteViewer: (draft: UserLookupDraft) => void
   onRemoveViewer: (viewer: TripViewerViewModel) => void
-  onRevokeLink: (link: ShareLinkViewModel) => void
+  onRevokeLink: (link: ShareLinkViewModel, onSuccess: () => void) => void
+  onRestoreLink: (link: ShareLinkViewModel, onSuccess: () => void) => void
   onUpdateLink: (link: ShareLinkViewModel) => void
   shareLinks: readonly ShareLinkViewModel[]
   showLinks?: boolean
@@ -624,7 +631,13 @@ function ShareManagementPanel({
               <Link2 className="size-4" aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <h3 className="font-semibold text-foreground">Share links</h3>
+              <h3
+                className="font-semibold text-foreground"
+                id="share-links-heading"
+                tabIndex={-1}
+              >
+                Share links
+              </h3>
               <p className="text-sm text-muted-foreground">
                 Links are read-only visitor access for people outside the member list.
               </p>
@@ -683,8 +696,10 @@ function ShareManagementPanel({
                 isSaving={isSaving}
                 key={link.id}
                 link={link}
+                onDelete={onDeleteLink}
                 onNotice={setNotice}
                 onRevoke={onRevokeLink}
+                onRestore={onRestoreLink}
                 onUpdate={onUpdateLink}
               />
             ))}
@@ -952,12 +967,14 @@ export function TripManagementDialog({
   members,
   onClose,
   onCreateLink,
+  onDeleteLink,
   onDeleteTrip,
   onInviteMember,
   onInviteViewer,
   onRemoveMember,
   onRemoveViewer,
   onRevokeLink,
+  onRestoreLink,
   onUpdateLink,
   onSaveSettings,
   onSectionChange,
@@ -978,12 +995,14 @@ export function TripManagementDialog({
   members: readonly TripMemberViewModel[]
   onClose: () => void
   onCreateLink: (draft: ShareLinkCreateDraft) => void
+  onDeleteLink: (link: ShareLinkViewModel, onSuccess: () => void) => void
   onDeleteTrip: () => void
   onInviteMember: (draft: UserLookupDraft) => void
   onInviteViewer: (draft: UserLookupDraft) => void
   onRemoveMember: (member: TripMemberViewModel) => void
   onRemoveViewer: (viewer: TripViewerViewModel) => void
-  onRevokeLink: (link: ShareLinkViewModel) => void
+  onRevokeLink: (link: ShareLinkViewModel, onSuccess: () => void) => void
+  onRestoreLink: (link: ShareLinkViewModel, onSuccess: () => void) => void
   onUpdateLink: (link: ShareLinkViewModel) => void
   onSaveSettings: (draft: TripSettingsDraft) => void
   onSectionChange: (section: TripManagementSection) => void
@@ -1110,9 +1129,11 @@ export function TripManagementDialog({
                   isSaving={isSaving}
                   members={members}
                   onCreateLink={onCreateLink}
+                  onDeleteLink={onDeleteLink}
                   onInviteViewer={onInviteViewer}
                   onRemoveViewer={onRemoveViewer}
                   onRevokeLink={onRevokeLink}
+                  onRestoreLink={onRestoreLink}
                   onUpdateLink={onUpdateLink}
                   shareLinks={shareLinks}
                   showLinks={false}
@@ -1129,9 +1150,11 @@ export function TripManagementDialog({
                 isSaving={isSaving}
                 members={members}
                 onCreateLink={onCreateLink}
+                onDeleteLink={onDeleteLink}
                 onInviteViewer={onInviteViewer}
                 onRemoveViewer={onRemoveViewer}
                 onRevokeLink={onRevokeLink}
+                onRestoreLink={onRestoreLink}
                 onUpdateLink={onUpdateLink}
                 shareLinks={shareLinks}
                 showLinks
@@ -1274,23 +1297,35 @@ function ShareLinkRow({
   canMutate,
   isSaving,
   link,
+  onDelete,
   onNotice,
   onRevoke,
+  onRestore,
   onUpdate,
 }: {
   canMutate: boolean
   isSaving: boolean
   link: ShareLinkViewModel
+  onDelete: (link: ShareLinkViewModel, onSuccess: () => void) => void
   onNotice: (notice: string) => void
-  onRevoke: (link: ShareLinkViewModel) => void
+  onRevoke: (link: ShareLinkViewModel, onSuccess: () => void) => void
+  onRestore: (link: ShareLinkViewModel, onSuccess: () => void) => void
   onUpdate: (link: ShareLinkViewModel) => void
 }) {
   const [copied, setCopied] = useState(false)
+  const [confirmation, setConfirmation] = useState<
+    'delete' | 'restore' | 'revoke' | null
+  >(null)
+  const [deleteSecondsRemaining, setDeleteSecondsRemaining] = useState(3)
   const [displayName, setDisplayName] = useState(link.displayName ?? '')
   const [expiresAt, setExpiresAt] = useState(link.expiresAt ?? '')
   const [locked, setLocked] = useState(link.displayNameLocked)
   const [interactionsEnabled, setInteractionsEnabled] = useState(link.interactionsEnabled)
+  const confirmationTriggerRef = useRef<HTMLElement | null>(null)
+  const rowRef = useRef<HTMLDivElement | null>(null)
+  const isRevoked = link.revokedAt !== null
   const shareUrl = link.token ? getShareUrl(link.token, link.tripId) : null
+  const settingsDisabled = !canMutate || isSaving || isRevoked
 
   useEffect(() => {
     setDisplayName(link.displayName ?? '')
@@ -1303,6 +1338,67 @@ function ShareLinkRow({
     link.expiresAt,
     link.interactionsEnabled,
   ])
+
+  useEffect(() => {
+    if (
+      confirmation !== 'delete' ||
+      isSaving ||
+      deleteSecondsRemaining === 0
+    ) {
+      return undefined
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setDeleteSecondsRemaining((current) => Math.max(0, current - 1))
+    }, 1000)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [confirmation, deleteSecondsRemaining, isSaving])
+
+  useEffect(() => {
+    if (!isRevoked && (confirmation === 'delete' || confirmation === 'restore')) {
+      setConfirmation(null)
+      setDeleteSecondsRemaining(3)
+    }
+  }, [confirmation, isRevoked])
+
+  function closeConfirmation() {
+    if (isSaving) {
+      return
+    }
+    setConfirmation(null)
+    setDeleteSecondsRemaining(3)
+    window.requestAnimationFrame(() => confirmationTriggerRef.current?.focus())
+  }
+
+  function confirmRevoke() {
+    onRevoke(link, () => {
+      setConfirmation(null)
+      onNotice(`${link.label} was revoked.`)
+    })
+  }
+
+  function confirmRestore() {
+    onRestore(link, () => {
+      setConfirmation(null)
+      onNotice(`${link.label} was restored.`)
+    })
+  }
+
+  function confirmDelete() {
+    const siblingRow =
+      rowRef.current?.nextElementSibling ?? rowRef.current?.previousElementSibling
+    const nextFocusTarget =
+      siblingRow?.querySelector<HTMLElement>('button:not(:disabled)') ??
+      document.getElementById('share-links-heading')
+    onDelete(link, () => {
+      setConfirmation(null)
+      onNotice(
+        `${link.label} and its associated activity were permanently deleted.`,
+      )
+      window.requestAnimationFrame(() => nextFocusTarget?.focus())
+    })
+  }
 
   function handleCopy() {
     if (!shareUrl) {
@@ -1318,85 +1414,250 @@ function ShareLinkRow({
   }
 
   return (
-    <div className="min-w-0 space-y-3 overflow-hidden rounded-[1.2rem] border border-border bg-muted/40 p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="w-0 min-w-0 flex-1">
-          <p className="truncate font-semibold text-foreground">{link.label}</p>
-          <p className="mt-1 max-w-full truncate text-xs text-muted-foreground">
-            {shareUrl ?? 'Token hidden after creation'}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Expires {link.expiresAt ? formatDateTimeLabel(link.expiresAt) : 'never'} · Last used {link.lastUsedAt ? link.lastUsedAt.toLowerCase() : 'never'}
-          </p>
+    <>
+      <div
+        data-share-link-row
+        ref={rowRef}
+        className={cn(
+          'min-w-0 space-y-3 overflow-hidden rounded-[1.2rem] border p-3',
+          isRevoked
+            ? 'border-destructive/25 bg-muted/75'
+            : 'border-border bg-muted/40',
+        )}
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <p className="truncate font-semibold text-foreground">{link.label}</p>
+              <span
+                className={cn(
+                  'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[0.7rem] font-semibold uppercase tracking-wide',
+                  isRevoked
+                    ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                    : 'border-primary/25 bg-primary/10 text-primary',
+                )}
+              >
+                {isRevoked ? (
+                  <Link2Off className="size-3" aria-hidden="true" />
+                ) : (
+                  <Link2 className="size-3" aria-hidden="true" />
+                )}
+                {isRevoked ? 'Revoked' : 'Active'}
+              </span>
+            </div>
+            <p className="mt-1 max-w-full truncate text-xs text-muted-foreground">
+              {shareUrl && !isRevoked ? shareUrl : 'Token hidden after creation'}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Expires {link.expiresAt ? formatDateTimeLabel(link.expiresAt) : 'never'} · Last used {link.lastUsedAt ? link.lastUsedAt.toLowerCase() : 'never'}
+            </p>
+            {link.revokedAt ? (
+              <p className="mt-1 text-xs font-medium text-destructive">
+                Revoked {formatDateTimeLabel(link.revokedAt)}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {!isRevoked ? (
+              <>
+                <Button
+                  className="h-8 px-2.5 text-xs"
+                  disabled={!shareUrl || isSaving}
+                  onClick={handleCopy}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Copy className="size-4" aria-hidden="true" />
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+                <Button
+                  aria-label={`Revoke access for ${link.label}`}
+                  className="h-8 px-2.5 text-xs"
+                  disabled={!canMutate || isSaving}
+                  onClick={(event) => {
+                    confirmationTriggerRef.current = event.currentTarget
+                    setConfirmation('revoke')
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Link2Off className="size-4" aria-hidden="true" />
+                  Revoke access
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  aria-label={`Restore access for ${link.label}`}
+                  className="h-8 px-2.5 text-xs"
+                  disabled={!canMutate || isSaving}
+                  onClick={(event) => {
+                    confirmationTriggerRef.current = event.currentTarget
+                    setConfirmation('restore')
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <RotateCcw className="size-4" aria-hidden="true" />
+                  Restore access
+                </Button>
+                <Button
+                  aria-label={`Delete ${link.label} permanently`}
+                  className="h-8 px-2.5 text-xs"
+                  disabled={!canMutate || isSaving}
+                  onClick={(event) => {
+                    confirmationTriggerRef.current = event.currentTarget
+                    setDeleteSecondsRemaining(3)
+                    setConfirmation('delete')
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="destructive"
+                >
+                  <Trash2 className="size-4" aria-hidden="true" />
+                  Delete permanently
+                </Button>
+              </>
+            )}
+          </div>
         </div>
-        <div className="flex shrink-0 gap-1">
-        <Button
-          className="h-8 px-2.5 text-xs"
-          disabled={!shareUrl}
-          onClick={handleCopy}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          <Copy className="size-4" aria-hidden="true" />
-          {copied ? 'Copied' : 'Copy'}
-        </Button>
-        <Button
-          aria-label={`Revoke ${link.label}`}
-          disabled={!canMutate || isSaving}
-          onClick={() => onRevoke(link)}
-          size="icon"
-          title={`Revoke ${link.label}`}
-          type="button"
-          variant="ghost"
-        >
-          <Trash2 className="size-4" aria-hidden="true" />
-        </Button>
-        </div>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <PublicDisplayNameField
-          disabled={!canMutate || isSaving}
-          displayName={displayName}
-          inputClassName="h-9"
-          locked={locked}
-          onDisplayNameChange={setDisplayName}
-          onLockedChange={setLocked}
-        />
-        <label className="grid gap-1.5 text-xs font-medium text-foreground">
-          Expiration
-          <DateTimePicker
-            disabled={!canMutate || isSaving}
-            onValueChange={setExpiresAt}
-            triggerClassName="h-9 rounded-xl"
-            value={expiresAt}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <PublicDisplayNameField
+            disabled={settingsDisabled}
+            displayName={displayName}
+            inputClassName="h-9"
+            locked={locked}
+            onDisplayNameChange={setDisplayName}
+            onLockedChange={setLocked}
           />
-        </label>
+          <label className="grid gap-1.5 text-xs font-medium text-foreground">
+            Expiration
+            <DateTimePicker
+              disabled={settingsDisabled}
+              onValueChange={setExpiresAt}
+              triggerClassName="h-9 rounded-xl"
+              value={expiresAt}
+            />
+          </label>
+        </div>
+        <ShareLinkSetting
+          checked={interactionsEnabled}
+          description="Visitors can like and comment."
+          disabled={settingsDisabled}
+          label="Allow interactions"
+          onCheckedChange={setInteractionsEnabled}
+        />
+        <div className="flex justify-end pt-1">
+          <Button
+            disabled={settingsDisabled || (locked && !displayName.trim())}
+            onClick={() => onUpdate({
+              ...link,
+              displayName: displayName.trim() || null,
+              displayNameLocked: locked,
+              expiresAt: expiresAt || null,
+              interactionsEnabled,
+            })}
+            size="sm"
+            type="button"
+          >
+            Save settings
+          </Button>
+        </div>
       </div>
-      <ShareLinkSetting
-        checked={interactionsEnabled}
-        description="Visitors can like and comment."
-        disabled={!canMutate || isSaving}
-        label="Allow interactions"
-        onCheckedChange={setInteractionsEnabled}
-      />
-      <div className="flex justify-end pt-1">
-        <Button
-          disabled={!canMutate || isSaving || (locked && !displayName.trim())}
-          onClick={() => onUpdate({
-            ...link,
-            displayName: displayName.trim() || null,
-            displayNameLocked: locked,
-            expiresAt: expiresAt || null,
-            interactionsEnabled,
-          })}
-          size="sm"
-          type="button"
-        >
-          Save settings
-        </Button>
-      </div>
-    </div>
+
+      <Modal
+        className="h-auto max-w-md"
+        description="Anyone using this link will immediately lose access. Its likes and comments will be kept. You can restore the same link later or delete it permanently."
+        onClose={closeConfirmation}
+        open={confirmation === 'revoke'}
+        title={`Revoke “${link.label}”?`}
+      >
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            disabled={isSaving}
+            onClick={closeConfirmation}
+            type="button"
+            variant="outline"
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={isSaving}
+            onClick={confirmRevoke}
+            type="button"
+            variant="destructive"
+          >
+            <Link2Off className="size-4" aria-hidden="true" />
+            {isSaving ? 'Revoking access' : 'Revoke access'}
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        className="h-auto max-w-md"
+        description="The original link will work again. Anyone who still has it can regain access."
+        onClose={closeConfirmation}
+        open={confirmation === 'restore'}
+        title={`Restore “${link.label}”?`}
+      >
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            disabled={isSaving}
+            onClick={closeConfirmation}
+            type="button"
+            variant="outline"
+          >
+            Cancel
+          </Button>
+          <Button disabled={isSaving} onClick={confirmRestore} type="button">
+            <RotateCcw className="size-4" aria-hidden="true" />
+            {isSaving ? 'Restoring access' : 'Restore access'}
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        className="h-auto max-w-md"
+        description="This deletes the link and every like and comment made through it. This cannot be undone."
+        onClose={closeConfirmation}
+        open={confirmation === 'delete'}
+        title={`Permanently delete “${link.label}”?`}
+      >
+        <div className="space-y-4">
+          {deleteSecondsRemaining > 0 ? (
+            <p aria-live="polite" className="text-sm font-medium text-destructive">
+              Deletion available in {deleteSecondsRemaining} second{deleteSecondsRemaining === 1 ? '' : 's'}
+            </p>
+          ) : null}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              disabled={isSaving}
+              onClick={closeConfirmation}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isSaving || deleteSecondsRemaining > 0}
+              onClick={confirmDelete}
+              type="button"
+              variant="destructive"
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+              {isSaving
+                ? 'Deleting permanently'
+                : deleteSecondsRemaining > 0
+                  ? `Delete in ${deleteSecondsRemaining}s`
+                  : 'Delete permanently'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
   )
 }
 

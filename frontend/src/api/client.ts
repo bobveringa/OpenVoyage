@@ -843,6 +843,42 @@ export async function revokeTripShareLink(options: {
   tripId: string
   shareLinkId: string
   accessToken: string
+}): Promise<TripShareLink> {
+  const tripId = encodeURIComponent(options.tripId)
+  const shareLinkId = encodeURIComponent(options.shareLinkId)
+
+  return requestJson<TripShareLink>(
+    `${API_V1_PREFIX}/trips/${tripId}/share-links/${shareLinkId}`,
+    {
+      method: 'PATCH',
+      accessToken: options.accessToken,
+      json: { revoked: true },
+    },
+  )
+}
+
+export async function restoreTripShareLink(options: {
+  tripId: string
+  shareLinkId: string
+  accessToken: string
+}): Promise<TripShareLink> {
+  const tripId = encodeURIComponent(options.tripId)
+  const shareLinkId = encodeURIComponent(options.shareLinkId)
+
+  return requestJson<TripShareLink>(
+    `${API_V1_PREFIX}/trips/${tripId}/share-links/${shareLinkId}`,
+    {
+      method: 'PATCH',
+      accessToken: options.accessToken,
+      json: { revoked: false },
+    },
+  )
+}
+
+export async function deleteTripShareLink(options: {
+  tripId: string
+  shareLinkId: string
+  accessToken: string
 }): Promise<void> {
   const tripId = encodeURIComponent(options.tripId)
   const shareLinkId = encodeURIComponent(options.shareLinkId)

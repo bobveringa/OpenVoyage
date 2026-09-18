@@ -119,6 +119,88 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
   }
 })
 
+test('revokes, restores, and permanently deletes a share link', async ({
+  page,
+  request,
+}) => {
+  const email = env.E2E_LOGIN_EMAIL
+  const password = env.E2E_LOGIN_PASSWORD
+
+  test.skip(
+    !email || !password,
+    'Set E2E_LOGIN_EMAIL and E2E_LOGIN_PASSWORD to run trip detail API tests.',
+  )
+
+  if (!email || !password) {
+    return
+  }
+
+  const tokens = await loginWithApi(request, email, password)
+  const trip = await createTripWithApi(request, tokens)
+
+  try {
+    await seedBrowserAuth(page, tokens)
+    await page.goto(`/trips/${trip.id}`)
+    await openShareLinkManagement(page)
+
+    await page.getByLabel('Link label').fill('Lifecycle share link')
+    await page.getByRole('button', { name: 'Create link' }).click()
+    await expect(page.getByText('Active', { exact: true })).toBeVisible()
+
+    await page
+      .getByRole('button', { name: 'Revoke access for Lifecycle share link' })
+      .click()
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Revoke access', exact: true })
+      .click()
+    await expect(page.getByText('Revoked', { exact: true })).toBeVisible()
+
+    await page.reload()
+    await openShareLinkManagement(page)
+    await expect(page.getByText('Revoked', { exact: true })).toBeVisible()
+
+    await page
+      .getByRole('button', { name: 'Restore access for Lifecycle share link' })
+      .click()
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Restore access', exact: true })
+      .click()
+    await expect(page.getByText('Active', { exact: true })).toBeVisible()
+
+    await page
+      .getByRole('button', { name: 'Revoke access for Lifecycle share link' })
+      .click()
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Revoke access', exact: true })
+      .click()
+    await page
+      .getByRole('button', { name: 'Delete Lifecycle share link permanently' })
+      .click()
+
+    const permanentDeleteButton = page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Delete permanently', exact: true })
+    await expect(permanentDeleteButton).toBeEnabled({ timeout: 5000 })
+    await permanentDeleteButton.click()
+
+    await expect(page.getByText('No share links yet.')).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: /Lifecycle share link/ }),
+    ).toHaveCount(0)
+  } finally {
+    await deleteTripWithApi(request, tokens, trip.id)
+  }
+})
+
+async function openShareLinkManagement(page: Page) {
+  await page.getByRole('button', { name: 'Manage trip' }).click()
+  await page.getByRole('button', { name: 'People & sharing' }).click()
+  await page.getByRole('button', { name: 'Sharing', exact: true }).click()
+}
+
 async function expectMapTilesRequested(page: Page) {
   await expect(
     page.locator('.trip-leaflet-map img.leaflet-tile').first(),

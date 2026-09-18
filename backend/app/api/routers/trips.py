@@ -37,6 +37,7 @@ from models.api.trips import (
     TripViewerResponse,
 )
 from services.trip_service import (
+    ActiveTripShareLinkDeletionError,
     CoverMediaAlreadyUsedError,
     CoverMediaOwnershipError,
     LastTripOwnerError,
@@ -553,14 +554,14 @@ def update_share_link_profile(
     '/{trip_id}/share-links/{share_link_id}',
     status_code=status.HTTP_204_NO_CONTENT,
 )
-def revoke_share_link(
+def delete_share_link(
     trip_id: uuid.UUID,
     share_link_id: uuid.UUID,
     trip_service: TripServiceDep,
     user: CurrentUser,
 ) -> None:
     try:
-        trip_service.revoke_share_link(
+        trip_service.delete_share_link(
             trip_id=trip_id,
             share_link_id=share_link_id,
             current_user_id=user.id,
@@ -569,6 +570,8 @@ def revoke_share_link(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except TripPermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ActiveTripShareLinkDeletionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
 @router.get(

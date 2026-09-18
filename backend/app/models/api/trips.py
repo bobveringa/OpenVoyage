@@ -3,7 +3,15 @@ import uuid
 from datetime import date, datetime
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
+from pydantic.json_schema import SkipJsonSchema
 from models.api.media import MediaResponse
 from models.api.users import TripMemberUserResponse, UserSummaryResponse
 from models.database.trips import (
@@ -155,10 +163,17 @@ class TripShareLinkCreateRequest(BaseModel):
 class TripShareLinkUpdateRequest(BaseModel):
     label: str | None = Field(default=None, max_length=255)
     expires_at: datetime | None = None
-    revoked: bool | None = None
+    revoked: StrictBool | SkipJsonSchema[None] = None
     display_name: str | None = Field(default=None, max_length=80)
     display_name_locked: bool | None = None
     interactions_enabled: bool | None = None
+
+    @field_validator('revoked')
+    @classmethod
+    def validate_revoked(cls, value: bool | None) -> bool:
+        if value is None:
+            raise ValueError('revoked must be a boolean when provided')
+        return value
 
     @field_validator('display_name')
     @classmethod

@@ -722,8 +722,8 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Revoke Share Link */
-        delete: operations["revoke_share_link_api_v1_trips__trip_id__share_links__share_link_id__delete"];
+        /** Delete Share Link */
+        delete: operations["delete_share_link_api_v1_trips__trip_id__share_links__share_link_id__delete"];
         options?: never;
         head?: never;
         /** Update Share Link */
@@ -2439,7 +2439,7 @@ export interface components {
             /** Label */
             label?: string | null;
             /** Revoked */
-            revoked?: boolean | null;
+            revoked?: boolean;
         };
         /**
          * TripSortField
@@ -4688,7 +4688,7 @@ export interface operations {
             };
         };
     };
-    revoke_share_link_api_v1_trips__trip_id__share_links__share_link_id__delete: {
+    delete_share_link_api_v1_trips__trip_id__share_links__share_link_id__delete: {
         parameters: {
             query?: never;
             header?: never;

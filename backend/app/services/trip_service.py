@@ -97,6 +97,10 @@ class TripShareLinkNotFoundError(Exception):
     """Raised when a trip share link cannot be found."""
 
 
+class ActiveTripShareLinkDeletionError(Exception):
+    """Raised when permanent deletion is attempted before revocation."""
+
+
 class LastTripOwnerError(Exception):
     """Raised when an action would remove the final trip owner."""
 
@@ -695,6 +699,7 @@ class TripService:
         share_link = self._get_share_link_or_raise(
             trip_id=trip_id,
             share_link_id=share_link_id,
+            for_update='revoked' in payload.model_fields_set,
         )
 
         if 'label' in payload.model_fields_set:
@@ -720,13 +725,13 @@ class TripService:
         self.db.refresh(share_link)
         return share_link
 
-    def revoke_share_link(
+    def delete_share_link(
         self,
         trip_id: uuid.UUID,
         share_link_id: uuid.UUID,
         current_user_id: uuid.UUID,
     ) -> None:
-        """Revoke a share link without deleting historical metadata."""
+        """Permanently delete an already-revoked share link and its data."""
         self._require_trip_permission(
             trip_id=trip_id,
             user_id=current_user_id,
@@ -735,10 +740,15 @@ class TripService:
         share_link = self._get_share_link_or_raise(
             trip_id=trip_id,
             share_link_id=share_link_id,
+            for_update=True,
         )
         if share_link.revoked_at is None:
-            share_link.revoked_at = utcnow()
-            self.db.commit()
+            raise ActiveTripShareLinkDeletionError(
+                'Share link must be revoked before permanent deletion.'
+            )
+
+        self.db.delete(share_link)
+        self.db.commit()
 
     def _get_membership(
         self,
@@ -784,14 +794,17 @@ class TripService:
         self,
         trip_id: uuid.UUID,
         share_link_id: uuid.UUID,
+        *,
+        for_update: bool = False,
     ) -> TripShareLink:
         """Return a share link for a trip, or raise if it does not exist."""
-        share_link = self.db.execute(
-            select(TripShareLink).where(
-                TripShareLink.trip_id == trip_id,
-                TripShareLink.id == share_link_id,
-            )
-        ).scalar_one_or_none()
+        statement = select(TripShareLink).where(
+            TripShareLink.trip_id == trip_id,
+            TripShareLink.id == share_link_id,
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        share_link = self.db.execute(statement).scalar_one_or_none()
         if share_link is None:
             raise TripShareLinkNotFoundError(f'Share link not found: {share_link_id}')
         return share_link

@@ -1023,6 +1023,98 @@ def test_share_link_comments_identify_only_the_presented_link_as_author(
 
 
 @pytest.mark.integration
+def test_permanently_deleting_share_link_cascades_only_its_social_data(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    owner = create_user(db_session, password='PostsPass123!')
+    member = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(
+        db_session,
+        owner_id=owner.id,
+        visibility=TripVisibility.PRIVATE,
+    )
+    add_trip_member(db_session, trip_id=trip.id, user_id=member.id)
+    place = create_place(db_session)
+    owner_headers = _auth_headers(owner)
+    member_headers = _auth_headers(member)
+    post = _create_post(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        place=place,
+        title='Link activity cleanup',
+        occurred_at=OCCURRED_AT,
+        publish=True,
+    )
+    first_link = client.post(
+        f'{api_prefix}/trips/{trip.id}/share-links',
+        headers=owner_headers,
+        json={'label': 'Delete me', 'display_name': 'First guest'},
+    ).json()
+    second_link = client.post(
+        f'{api_prefix}/trips/{trip.id}/share-links',
+        headers=owner_headers,
+        json={'label': 'Keep me', 'display_name': 'Second guest'},
+    ).json()
+    first_headers = {'X-Trip-Share-Token': first_link['token']}
+    second_headers = {'X-Trip-Share-Token': second_link['token']}
+    post_url = f'{api_prefix}/trips/{trip.id}/posts/{post["id"]}'
+    like_url = f'{post_url}/like'
+    comments_url = f'{post_url}/comments'
+
+    for headers in (first_headers, second_headers, member_headers):
+        like_response = client.put(like_url, headers=headers)
+        assert like_response.status_code == 200
+    for headers, body in (
+        (first_headers, 'Delete this comment'),
+        (second_headers, 'Keep the other link comment'),
+        (member_headers, 'Keep the user comment'),
+    ):
+        comment_response = client.post(
+            comments_url,
+            headers=headers,
+            json={'body': body},
+        )
+        assert comment_response.status_code == 201
+
+    revoke_response = client.patch(
+        f'{api_prefix}/trips/{trip.id}/share-links/{first_link["id"]}',
+        headers=owner_headers,
+        json={'revoked': True},
+    )
+    after_revoke = client.get(post_url, headers=owner_headers)
+    delete_response = client.delete(
+        f'{api_prefix}/trips/{trip.id}/share-links/{first_link["id"]}',
+        headers=owner_headers,
+    )
+    after_delete = client.get(post_url, headers=owner_headers)
+    comments_after_delete = client.get(comments_url, headers=owner_headers)
+    remaining_links = client.get(
+        f'{api_prefix}/trips/{trip.id}/share-links',
+        headers=owner_headers,
+    )
+
+    assert revoke_response.status_code == 200
+    assert after_revoke.status_code == 200
+    assert after_revoke.json()['social']['like_count'] == 3
+    assert after_revoke.json()['social']['comment_count'] == 3
+    assert delete_response.status_code == 204
+    assert after_delete.status_code == 200
+    assert after_delete.json()['social']['like_count'] == 2
+    assert after_delete.json()['social']['comment_count'] == 2
+    assert comments_after_delete.status_code == 200
+    assert {item['body'] for item in comments_after_delete.json()['items']} == {
+        'Keep the other link comment',
+        'Keep the user comment',
+    }
+    assert remaining_links.status_code == 200
+    assert [item['id'] for item in remaining_links.json()] == [second_link['id']]
+
+
+@pytest.mark.integration
 def test_update_post_translates_media_validation_errors(
     client,
     db_session,

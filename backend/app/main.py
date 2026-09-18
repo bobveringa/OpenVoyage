@@ -35,9 +35,12 @@ async def protect_social_responses_from_shared_caches(request, call_next):
     """Social state and link profiles are actor-specific, including errors."""
     response = await call_next(request)
     path = request.url.path
-    if ('/posts' in path or path.endswith('/share-link-profile')) and path.startswith(
-        settings.API_V1_STR
-    ):
+    protects_private_state = (
+        '/posts' in path
+        or '/share-links' in path
+        or path.endswith('/share-link-profile')
+    )
+    if protects_private_state and path.startswith(settings.API_V1_STR):
         response.headers['Cache-Control'] = 'private, no-store'
     return response
 
