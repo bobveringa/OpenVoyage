@@ -834,8 +834,7 @@ function PostSocialControls({
                           ? [comment.author.user.first_name, comment.author.user.last_name].filter(Boolean).join(' ') || comment.author.user.username || 'User'
                           : comment.author.display_name}
                       </p>
-                      {(comment.author.type === 'user' && comment.author.user.id === currentUserId) ||
-                      (comment.author.type === 'share_link' && !accessToken && shareToken) ? <Badge>You</Badge> : null}
+                      {comment.authored_by_viewer ? <Badge>You</Badge> : null}
                     </div>
                     <p className="text-xs text-muted-foreground">{formatCommentAge(comment.created_at)}</p>
                   </div>

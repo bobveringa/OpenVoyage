@@ -1800,6 +1800,8 @@ export interface components {
         PostCommentResponse: {
             /** Author */
             author: components["schemas"]["UserCommentAuthorResponse"] | components["schemas"]["ShareLinkCommentAuthorResponse"];
+            /** Authored By Viewer */
+            authored_by_viewer: boolean;
             /** Body */
             body: string;
             /** Can Delete */
