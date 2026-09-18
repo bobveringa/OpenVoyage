@@ -949,6 +949,80 @@ def test_share_link_reads_private_published_posts_but_not_drafts(
 
 
 @pytest.mark.integration
+def test_share_link_comments_identify_only_the_presented_link_as_author(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    owner = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(
+        db_session,
+        owner_id=owner.id,
+        visibility=TripVisibility.PRIVATE,
+    )
+    place = create_place(db_session)
+    owner_headers = _auth_headers(owner)
+    post = _create_post(
+        client,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        place=place,
+        title='Shared discussion',
+        occurred_at=OCCURRED_AT,
+        publish=True,
+    )
+
+    first_link = client.post(
+        f'{api_prefix}/trips/{trip.id}/share-links',
+        headers=owner_headers,
+        json={'label': 'First reader', 'display_name': 'Alex'},
+    ).json()
+    second_link = client.post(
+        f'{api_prefix}/trips/{trip.id}/share-links',
+        headers=owner_headers,
+        json={'label': 'Second reader', 'display_name': 'Blair'},
+    ).json()
+    first_headers = {'X-Trip-Share-Token': first_link['token']}
+    second_headers = {'X-Trip-Share-Token': second_link['token']}
+    comments_url = f'{api_prefix}/trips/{trip.id}/posts/{post["id"]}/comments'
+
+    first_comment = client.post(
+        comments_url,
+        headers=first_headers,
+        json={'body': 'Comment from Alex'},
+    )
+    second_comment = client.post(
+        comments_url,
+        headers=second_headers,
+        json={'body': 'Comment from Blair'},
+    )
+    viewed_by_first = client.get(comments_url, headers=first_headers)
+    viewed_by_second = client.get(comments_url, headers=second_headers)
+    viewed_by_owner = client.get(comments_url, headers=owner_headers)
+
+    assert first_comment.status_code == 201
+    assert first_comment.json()['authored_by_viewer'] is True
+    assert second_comment.status_code == 201
+    assert second_comment.json()['authored_by_viewer'] is True
+    assert viewed_by_first.status_code == 200
+    assert {
+        item['body']: item['authored_by_viewer']
+        for item in viewed_by_first.json()['items']
+    } == {'Comment from Alex': True, 'Comment from Blair': False}
+    assert viewed_by_second.status_code == 200
+    assert {
+        item['body']: item['authored_by_viewer']
+        for item in viewed_by_second.json()['items']
+    } == {'Comment from Alex': False, 'Comment from Blair': True}
+    assert viewed_by_owner.status_code == 200
+    assert all(
+        item['authored_by_viewer'] is False for item in viewed_by_owner.json()['items']
+    )
+    assert all(item['can_delete'] is True for item in viewed_by_owner.json()['items'])
+
+
+@pytest.mark.integration
 def test_update_post_translates_media_validation_errors(
     client,
     db_session,
@@ -1123,6 +1197,10 @@ def test_post_author_display_and_self_like_restriction(
         headers=_auth_headers(author),
         json={'body': 'An author follow-up'},
     )
+    comments_for_other_member = client.get(
+        f'{api_prefix}/trips/{trip.id}/posts/{post_id}/comments',
+        headers=_auth_headers(other_member),
+    )
     other_get_response = client.get(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
         headers=_auth_headers(other_member),
@@ -1146,9 +1224,12 @@ def test_post_author_display_and_self_like_restriction(
     assert self_like_response.status_code == 403
     assert self_like_response.json()['detail'] == 'You cannot like your own post.'
     assert self_comment_response.status_code == 201
+    assert self_comment_response.json()['authored_by_viewer'] is True
     assert self_comment_response.json()['author']['user']['profile_picture'][
         'id'
     ] == str(avatar.id)
+    assert comments_for_other_member.status_code == 200
+    assert comments_for_other_member.json()['items'][0]['authored_by_viewer'] is False
     assert other_get_response.status_code == 200
     assert other_get_response.json()['social']['can_like'] is True
     assert other_like_response.status_code == 200

@@ -542,8 +542,15 @@ class PostSocialService:
                     else 'Guest'
                 )
             )
+        authored_by_viewer = (
+            context.actor_user_id is not None
+            and context.actor_user_id == comment.user_id
+        ) or (
+            context.actor_share_link_id is not None
+            and context.actor_share_link_id == comment.share_link_id
+        )
         can_delete = is_published and (
-            (context.user_id is not None and context.user_id == comment.user_id)
+            authored_by_viewer
             or (
                 context.presented_share_link is not None
                 and context.presented_share_link.id == comment.share_link_id
@@ -559,6 +566,7 @@ class PostSocialService:
             author=author,
             body=comment.body,
             created_at=comment.created_at,
+            authored_by_viewer=authored_by_viewer,
             can_delete=can_delete,
         )
 

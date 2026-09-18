@@ -2010,6 +2010,10 @@
             ],
             "title": "Author"
           },
+          "authored_by_viewer": {
+            "title": "Authored By Viewer",
+            "type": "boolean"
+          },
           "body": {
             "title": "Body",
             "type": "string"
@@ -2040,6 +2044,7 @@
           "author",
           "body",
           "created_at",
+          "authored_by_viewer",
           "can_delete"
         ],
         "title": "PostCommentResponse",

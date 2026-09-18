@@ -150,6 +150,7 @@ class PostCommentResponse(BaseModel):
     author: PostCommentAuthorResponse
     body: str
     created_at: datetime
+    authored_by_viewer: bool
     can_delete: bool
 
 
