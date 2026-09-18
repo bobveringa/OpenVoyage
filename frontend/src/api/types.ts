@@ -1826,10 +1826,12 @@ export interface components {
         PostCreateRequest: {
             /** Body */
             body: string;
+            /** Bubble Media Id */
+            bubble_media_id?: string | null;
             /** Location */
             location: components["schemas"]["LocationPlaceInput"] | components["schemas"]["LocationCoordinatesInput"];
             /** Media Ids */
-            media_ids?: string[];
+            media_ids: string[];
             /**
              * Occurred At
              * Format: date-time
@@ -1848,6 +1850,11 @@ export interface components {
             author: components["schemas"]["UserDisplaySummaryResponse"];
             /** Body */
             body: string;
+            /**
+             * Bubble Media Id
+             * Format: uuid
+             */
+            bubble_media_id: string;
             /**
              * Created At
              * Format: date-time
@@ -1950,6 +1957,8 @@ export interface components {
         PostUpdateRequest: {
             /** Body */
             body?: string | null;
+            /** Bubble Media Id */
+            bubble_media_id?: string | null;
             /** Location */
             location?: components["schemas"]["LocationPlaceInput"] | components["schemas"]["LocationCoordinatesInput"] | null;
             /** Media Ids */

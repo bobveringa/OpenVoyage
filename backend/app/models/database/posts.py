@@ -3,9 +3,10 @@ import typing
 from datetime import datetime
 
 from sqlalchemy import (
-    DateTime,
     CheckConstraint,
+    DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -33,6 +34,13 @@ class Post(Base):
         Index('ix_posts_author_user_id', 'author_user_id'),
         Index('ix_posts_location_id', 'location_id'),
         CheckConstraint('revision >= 0', name='ck_posts_revision_non_negative'),
+        ForeignKeyConstraint(
+            ['id', 'bubble_media_id'],
+            ['post_media.post_id', 'post_media.media_id'],
+            name='fk_posts_bubble_media',
+            deferrable=True,
+            initially='DEFERRED',
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -62,6 +70,7 @@ class Post(Base):
         ),
         nullable=False,
     )
+    bubble_media_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     title: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
@@ -107,6 +116,7 @@ class Post(Base):
         'PostMedia',
         back_populates='post',
         cascade='all, delete-orphan',
+        foreign_keys='PostMedia.post_id',
         order_by='PostMedia.sort_order',
     )
     likes: Mapped[list['PostLike']] = relationship(
@@ -157,8 +167,9 @@ class PostMedia(Base):
         default=0,
         server_default='0',
     )
-
-    post: Mapped['Post'] = relationship('Post', back_populates='media_links')
+    post: Mapped['Post'] = relationship(
+        'Post', back_populates='media_links', foreign_keys=[post_id]
+    )
     media: Mapped['Media'] = relationship('Media')
 
 

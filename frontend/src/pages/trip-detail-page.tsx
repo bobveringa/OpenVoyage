@@ -1795,14 +1795,13 @@ function toTravelPostViewModel(
       initials: authorInitials.toUpperCase(),
       profilePicture: post.author.profile_picture,
     },
+    bubbleMediaId: post.bubble_media_id,
     coordinates,
     excerpt: post.body,
     id: post.id,
     isDraft: post.published_at === null,
     location: post.location.full_name || post.location.name,
-    media: toPostMediaTuple(
-      media.length > 0 ? media : [createFallbackPostMedia(post.title)],
-    ),
+    media: toPostMediaTuple(media),
     occurred_at: post.occurred_at,
     revision: post.revision,
     routeAfter,
@@ -1859,21 +1858,6 @@ function toPostMediaViewModel(media: Post['media'][number]): PostMedia {
   }
 }
 
-function createFallbackPostMedia(title: string): PostMedia {
-  const svg = [
-    '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520">',
-    '<rect width="800" height="520" fill="#ecfdf5"/>',
-    '<circle cx="400" cy="230" r="84" fill="#0f766e" opacity="0.18"/>',
-    '<path d="M250 345 355 240l68 68 43-43 105 80H250Z" fill="#0f766e" opacity="0.42"/>',
-    '</svg>',
-  ].join('')
-
-  return {
-    alt: `${title} media placeholder`,
-    src: `data:image/svg+xml,${encodeURIComponent(svg)}`,
-  }
-}
-
 function toCreateStopPayload(
   draft: CreateStopDraft,
   stops: readonly Stop[],
@@ -1914,6 +1898,7 @@ function toPostCreatePayload(
 ): PostCreatePayload {
   return {
     body: draft.story,
+    bubble_media_id: draft.bubbleMediaId,
     location: toLocationInput(draft.placeId, draft.coordinates),
     media_ids: mediaIds,
     occurred_at: draft.occurredAt,
@@ -1928,6 +1913,7 @@ function toPostUpdatePayload(
 ): PostUpdatePayload {
   return {
     body: draft.story,
+    bubble_media_id: draft.bubbleMediaId,
     location: toLocationInput(draft.placeId, draft.coordinates),
     media_ids: mediaIds,
     occurred_at: draft.occurredAt,

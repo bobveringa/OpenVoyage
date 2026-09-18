@@ -21,7 +21,7 @@ export function getPostMediaType(file: File): NonNullable<PostMedia['type']> {
 export function createExistingDraftPostMedia(media: PostMedia): DraftPostMedia {
   return {
     ...media,
-    clientId: createDraftMediaClientId(),
+    clientId: media.media_id ?? createDraftMediaClientId(),
     upload: {
       error: null,
       loadedBytes: null,
@@ -135,7 +135,7 @@ export function getDraftMediaSectionDescription(
   if (uploadSummary.pending > 0) {
     return `Uploading ${uploadSummary.ready} of ${uploadSummary.total}.`
   }
-  return `${mediaCount} ${mediaCount === 1 ? 'media item' : 'media items'} · first visual becomes the map bubble.`
+  return `${mediaCount} ${mediaCount === 1 ? 'media item' : 'media items'} · choose any photo or video for the map bubble.`
 }
 
 export function getDraftMediaUploadSummaryLabel(

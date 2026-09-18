@@ -18,8 +18,8 @@ import {
 import {
   escapeHtml,
   formatGpsCandidateTime,
-  getMediaThumbnailSrc,
-  getPrimaryPostMedia,
+  getMapBubbleMedia,
+  getMapBubbleThumbnailSrc,
   getStopCoordinates,
   getTravelModeLabel,
 } from '@/pages/trip-detail/shared-utils'
@@ -999,7 +999,8 @@ function createRouteKey(
                   ].join(','),
                 )
                 .join(';') ?? 'no-route',
-              getPrimaryPostMedia(post).src,
+              post.bubbleMediaId,
+              getMapBubbleThumbnailSrc(getMapBubbleMedia(post)),
             ].join(':'),
           )
           .join('|')
@@ -1261,15 +1262,15 @@ function createPlaceMarkerHtml(stopOrder: number | null) {
 }
 
 function createPostBubbleHtml(post: TravelPost, active: boolean) {
-  const primaryMedia = getPrimaryPostMedia(post)
-  const thumbnailSrc = getMediaThumbnailSrc(primaryMedia)
+  const bubbleMedia = getMapBubbleMedia(post)
+  const thumbnailSrc = getMapBubbleThumbnailSrc(bubbleMedia)
   const className = active
     ? 'trip-map-post-bubble trip-map-post-bubble--active'
     : 'trip-map-post-bubble'
 
   return `
     <div class="${className}">
-      <img class="trip-map-post-bubble__image" src="${escapeHtml(thumbnailSrc)}" alt="${escapeHtml(primaryMedia.alt)}" width="44" height="44" />
+      <img class="trip-map-post-bubble__image" src="${escapeHtml(thumbnailSrc)}" alt="${escapeHtml(bubbleMedia.alt)}" width="44" height="44" />
     </div>
   `
 }

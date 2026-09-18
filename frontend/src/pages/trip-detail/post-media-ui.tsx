@@ -32,7 +32,7 @@ export function MediaStripCard({
   media,
   onOpen,
 }: {
-  badge?: string | null
+  badge?: ReactNode | null
   children?: ReactNode
   media: PostMedia
   onOpen: () => void

@@ -71,6 +71,7 @@ export type TravelLegEditDraft = {
 }
 
 export type PostSubmitDraft = {
+  bubbleMediaId: string
   coordinates: L.LatLngTuple
   locationLabel: string
   media: readonly PostMedia[]
@@ -85,7 +86,7 @@ export type PostSubmitDraft = {
 export type PostSubmitIntent = 'draft' | 'publish' | 'save'
 
 export type PendingPostSubmit = {
-  draft: Omit<PostSubmitDraft, 'media'>
+  draft: Omit<PostSubmitDraft, 'bubbleMediaId' | 'media'>
   intent: PostSubmitIntent
 }
 
