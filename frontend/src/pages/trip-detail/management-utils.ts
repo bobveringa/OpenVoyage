@@ -1,4 +1,5 @@
 import type { UserSummary } from '@/api/client'
+import { getApiBaseUrl } from '@/api/client'
 import { formatDateTime } from '@/lib/date-time'
 import { parseDateOnly, parseDateTime } from './date-utils'
 import type { TripRole, TripVisibility } from './models'
@@ -62,10 +63,10 @@ export function formatDateTimeLabel(value: string) {
 }
 
 export function getShareUrl(token: string, tripId: string | undefined) {
-  const origin =
-    typeof window === 'undefined'
-      ? 'https://openvoyage.example'
-      : window.location.origin
+  // Native Capacitor builds run inside a localhost webview. The API base URL
+  // is the actual OpenVoyage server configured for the device, so use it for
+  // links that will be opened outside the webview.
+  const origin = getApiBaseUrl()
   const tripPath = tripId ? `/trips/${encodeURIComponent(tripId)}` : '/trips'
 
   return `${origin}${tripPath}?share=${encodeURIComponent(token)}`
