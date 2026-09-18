@@ -50,6 +50,7 @@ export type ShareLinkViewModel = {
   label: string
   lastUsedAt: string | null
   interactionsEnabled: boolean
+  revokedAt: string | null
   token?: string | null
   tripId?: string
 }

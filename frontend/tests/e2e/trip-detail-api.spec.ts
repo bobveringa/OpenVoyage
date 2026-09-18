@@ -60,6 +60,44 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     await page.getByLabel('Link label').fill('E2E share link')
     await page.getByRole('button', { name: 'Create link' }).click()
     await expect(page.getByText('E2E share link')).toBeVisible()
+    await expect(page.getByText('Active', { exact: true })).toBeVisible()
+
+    await page
+      .getByRole('button', { name: 'Revoke access for E2E share link' })
+      .click()
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Revoke access' })
+      .click()
+    await expect(page.getByText('Revoked', { exact: true })).toBeVisible()
+
+    await page.reload()
+    await expect(page.getByText('Revoked', { exact: true })).toBeVisible()
+    await page
+      .getByRole('button', { name: 'Restore access for E2E share link' })
+      .click()
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Restore access' })
+      .click()
+    await expect(page.getByText('Active', { exact: true })).toBeVisible()
+
+    await page
+      .getByRole('button', { name: 'Revoke access for E2E share link' })
+      .click()
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Revoke access' })
+      .click()
+    await page
+      .getByRole('button', { name: 'Delete E2E share link permanently' })
+      .click()
+    const permanentDeleteButton = page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Delete permanently' })
+    await expect(permanentDeleteButton).toBeEnabled({ timeout: 5000 })
+    await permanentDeleteButton.click()
+    await expect(page.getByText('E2E share link')).toHaveCount(0)
     await page.getByRole('button', { name: 'Close' }).click()
 
     await createStop(page, {

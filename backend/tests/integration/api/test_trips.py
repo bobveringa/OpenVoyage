@@ -1166,13 +1166,49 @@ def test_share_link_allows_private_trip_read_and_member_list(
         f'{api_prefix}/trips/{trip_id}/members',
         headers=share_headers,
     )
-    revoke_response = client.delete(
+    revoke_response = client.patch(
         f'{api_prefix}/trips/{trip_id}/share-links/{create_link_response.json()["id"]}',
         headers=owner_headers,
+        json={'revoked': True},
     )
     read_after_revoke_response = client.get(
         f'{api_prefix}/trips/{trip_id}',
         headers=share_headers,
+    )
+    repeat_revoke_response = client.patch(
+        f'{api_prefix}/trips/{trip_id}/share-links/{create_link_response.json()["id"]}',
+        headers=owner_headers,
+        json={'revoked': True},
+    )
+    list_after_revoke_response = client.get(
+        f'{api_prefix}/trips/{trip_id}/share-links',
+        headers=owner_headers,
+    )
+    restore_response = client.patch(
+        f'{api_prefix}/trips/{trip_id}/share-links/{create_link_response.json()["id"]}',
+        headers=owner_headers,
+        json={'revoked': False},
+    )
+    read_after_restore_response = client.get(
+        f'{api_prefix}/trips/{trip_id}',
+        headers=share_headers,
+    )
+    active_delete_response = client.delete(
+        f'{api_prefix}/trips/{trip_id}/share-links/{create_link_response.json()["id"]}',
+        headers=owner_headers,
+    )
+    final_revoke_response = client.patch(
+        f'{api_prefix}/trips/{trip_id}/share-links/{create_link_response.json()["id"]}',
+        headers=owner_headers,
+        json={'revoked': True},
+    )
+    delete_response = client.delete(
+        f'{api_prefix}/trips/{trip_id}/share-links/{create_link_response.json()["id"]}',
+        headers=owner_headers,
+    )
+    repeated_delete_response = client.delete(
+        f'{api_prefix}/trips/{trip_id}/share-links/{create_link_response.json()["id"]}',
+        headers=owner_headers,
     )
 
     assert create_trip_response.status_code == 201
@@ -1185,8 +1221,58 @@ def test_share_link_allows_private_trip_read_and_member_list(
     assert read_trip_response.json()['id'] == trip_id
     assert list_members_response.status_code == 200
     assert [item['user_id'] for item in list_members_response.json()] == [str(owner.id)]
-    assert revoke_response.status_code == 204
+    assert list_links_response.headers['Cache-Control'] == 'private, no-store'
+    assert revoke_response.status_code == 200
+    revoked_at = revoke_response.json()['revoked_at']
+    assert revoked_at is not None
     assert read_after_revoke_response.status_code == 404
+    assert repeat_revoke_response.status_code == 200
+    assert repeat_revoke_response.json()['revoked_at'] == revoked_at
+    assert list_after_revoke_response.status_code == 200
+    assert list_after_revoke_response.json()[0]['revoked_at'] == revoked_at
+    assert restore_response.status_code == 200
+    assert restore_response.json()['revoked_at'] is None
+    assert read_after_restore_response.status_code == 200
+    assert active_delete_response.status_code == 409
+    assert active_delete_response.json()['detail'] == (
+        'Share link must be revoked before permanent deletion.'
+    )
+    assert active_delete_response.headers['Cache-Control'] == 'private, no-store'
+    assert final_revoke_response.status_code == 200
+    assert delete_response.status_code == 204
+    assert repeated_delete_response.status_code == 404
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('invalid_revoked', [None, 'true', 1])
+def test_share_link_rejects_non_boolean_revoked_values(
+    client,
+    db_session,
+    api_prefix,
+    invalid_revoked,
+) -> None:
+    owner = create_user(db_session, password='TripsPass123!')
+    trip_id = _create_trip(client, db_session, api_prefix, owner)
+    owner_headers = _auth_headers(owner)
+    create_response = client.post(
+        f'{api_prefix}/trips/{trip_id}/share-links',
+        headers=owner_headers,
+        json={'label': 'Validation link'},
+    )
+
+    response = client.patch(
+        f'{api_prefix}/trips/{trip_id}/share-links/{create_response.json()["id"]}',
+        headers=owner_headers,
+        json={'revoked': invalid_revoked},
+    )
+    listed = client.get(
+        f'{api_prefix}/trips/{trip_id}/share-links',
+        headers=owner_headers,
+    )
+
+    assert response.status_code == 422
+    assert listed.status_code == 200
+    assert listed.json()[0]['revoked_at'] is None
 
 
 @pytest.mark.integration

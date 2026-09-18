@@ -15,6 +15,7 @@ import {
   createItineraryStop,
   createPost,
   createTripShareLink,
+  deleteTripShareLink,
   deletePost,
   deleteTrip,
   deleteItineraryStop,
@@ -34,6 +35,7 @@ import {
   replaceItineraryTravelLeg,
   reverseGeocodePlaces,
   revokeTripShareLink,
+  restoreTripShareLink,
   updateTripShareLink,
   updateItineraryStop,
   updatePost,
@@ -595,21 +597,81 @@ export function TripDetailPage({
     })
   }
 
-  function handleShareLinkRevoke(link: ShareLinkViewModel) {
+  function handleShareLinkRevoke(
+    link: ShareLinkViewModel,
+    onSuccess: () => void,
+  ) {
     if (!tripId || !accessToken) {
       setMutationError('Sign in to revoke share links.')
       return
     }
 
     void runMutation('Revoking share link', async () => {
-      await revokeTripShareLink({
+      const updated = await revokeTripShareLink({
         accessToken,
         shareLinkId: link.id,
         tripId,
       })
-      setTripShareLinks((currentLinks) =>
-        currentLinks.filter((currentLink) => currentLink.id !== link.id),
+      setTripShareLinks((links) =>
+        links.map((item) =>
+          item.id === link.id ? toShareLinkViewModel(updated) : item,
+        ),
       )
+      onSuccess()
+    })
+  }
+
+  function handleShareLinkRestore(
+    link: ShareLinkViewModel,
+    onSuccess: () => void,
+  ) {
+    if (!tripId || !accessToken) {
+      setMutationError('Sign in to restore share links.')
+      return
+    }
+
+    void runMutation('Restoring share link', async () => {
+      const updated = await restoreTripShareLink({
+        accessToken,
+        shareLinkId: link.id,
+        tripId,
+      })
+      setTripShareLinks((links) =>
+        links.map((item) =>
+          item.id === link.id ? toShareLinkViewModel(updated) : item,
+        ),
+      )
+      onSuccess()
+    })
+  }
+
+  function handleShareLinkDelete(
+    link: ShareLinkViewModel,
+    onSuccess: () => void,
+  ) {
+    if (!tripId || !accessToken) {
+      setMutationError('Sign in to delete share links.')
+      return
+    }
+
+    void runMutation('Deleting share link permanently', async () => {
+      try {
+        await deleteTripShareLink({
+          accessToken,
+          shareLinkId: link.id,
+          tripId,
+        })
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 409) {
+          const links = await listTripShareLinks({ accessToken, tripId })
+          setTripShareLinks(links.map(toShareLinkViewModel))
+        }
+        throw error
+      }
+      setTripShareLinks((links) =>
+        links.filter((item) => item.id !== link.id),
+      )
+      onSuccess()
     })
   }
 
@@ -1493,7 +1555,9 @@ export function TripDetailPage({
           onInviteViewer={handleViewerAdd}
           onRemoveMember={handleMemberRemove}
           onRemoveViewer={handleViewerRemove}
+          onDeleteLink={handleShareLinkDelete}
           onRevokeLink={handleShareLinkRevoke}
+          onRestoreLink={handleShareLinkRestore}
           onUpdateLink={handleShareLinkUpdate}
           onTrackingChanged={() => {
             // Mode edits and deletions change public geometry, so reload the
@@ -1678,6 +1742,7 @@ function toShareLinkViewModel(
       ? formatDateTimeLabel(link.last_used_at)
       : null,
     interactionsEnabled: link.interactions_enabled,
+    revokedAt: link.revoked_at,
     token: 'token' in link ? link.token : null,
     tripId: link.trip_id,
   }

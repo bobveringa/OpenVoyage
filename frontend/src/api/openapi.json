@@ -3715,15 +3715,8 @@
             "title": "Label"
           },
           "revoked": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Revoked"
+            "title": "Revoked",
+            "type": "boolean"
           }
         },
         "title": "TripShareLinkUpdateRequest",
@@ -8165,7 +8158,7 @@
     },
     "/api/v1/trips/{trip_id}/share-links/{share_link_id}": {
       "delete": {
-        "operationId": "revoke_share_link_api_v1_trips__trip_id__share_links__share_link_id__delete",
+        "operationId": "delete_share_link_api_v1_trips__trip_id__share_links__share_link_id__delete",
         "parameters": [
           {
             "in": "path",
@@ -8208,7 +8201,7 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Revoke Share Link",
+        "summary": "Delete Share Link",
         "tags": [
           "trips"
         ]
