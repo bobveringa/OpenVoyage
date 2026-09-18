@@ -8,9 +8,11 @@ import { cn } from '@/lib/utils'
 
 type ModalProps = {
   children: ReactNode
+  bottomSheetOnMobile?: boolean
   className?: string
   contentClassName?: string
   description?: string
+  dismissible?: boolean
   fullscreenOnMobile?: boolean
   onClose: () => void
   open: boolean
@@ -18,17 +20,19 @@ type ModalProps = {
 }
 
 export function Modal({
+  bottomSheetOnMobile = false,
   children,
   className,
   contentClassName,
   description,
+  dismissible = true,
   fullscreenOnMobile = false,
   onClose,
   open,
   title,
 }: ModalProps) {
   useEffect(() => {
-    if (!open) {
+    if (!open || !dismissible) {
       return undefined
     }
 
@@ -40,7 +44,7 @@ export function Modal({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, open])
+  }, [dismissible, onClose, open])
 
   if (!open) {
     return null
@@ -51,7 +55,11 @@ export function Modal({
       aria-modal="true"
       className={cn(
         'fixed inset-0 z-50 grid place-items-center bg-foreground/35 backdrop-blur-md',
-        fullscreenOnMobile ? 'p-0 sm:p-4' : 'p-4',
+        bottomSheetOnMobile
+          ? 'items-end p-0 sm:items-center sm:p-4'
+          : fullscreenOnMobile
+            ? 'p-0 sm:p-4'
+            : 'p-4',
       )}
       role="dialog"
     >
@@ -60,7 +68,9 @@ export function Modal({
           'grid w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-border bg-card shadow-soft',
           fullscreenOnMobile
             ? 'h-dvh max-w-none sm:h-[min(44rem,calc(100dvh-2rem))] sm:max-w-2xl sm:rounded-2xl'
-            : 'h-[min(44rem,calc(100dvh-2rem))] max-w-2xl rounded-2xl',
+            : bottomSheetOnMobile
+              ? 'h-auto max-h-[calc(100dvh-1rem)] max-w-none rounded-t-2xl sm:max-h-[min(28rem,calc(100dvh-2rem))] sm:max-w-md sm:rounded-2xl'
+              : 'h-[min(44rem,calc(100dvh-2rem))] max-w-2xl rounded-2xl',
           className,
         )}
       >
@@ -73,15 +83,17 @@ export function Modal({
               <p className="text-sm text-muted-foreground">{description}</p>
             ) : null}
           </div>
-          <Button
-            aria-label="Close"
-            onClick={onClose}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </Button>
+          {dismissible ? (
+            <Button
+              aria-label="Close"
+              onClick={onClose}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
+              <X className="size-4" aria-hidden="true" />
+            </Button>
+          ) : null}
         </div>
         <ScrollArea className={cn('m-2 min-h-0 rounded-xl px-3 py-3', contentClassName)}>
           {children}

@@ -2143,6 +2143,10 @@
             ],
             "title": "Published At"
           },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
           "social": {
             "$ref": "#/components/schemas/PostSocialSummaryResponse"
           },
@@ -2164,6 +2168,7 @@
         "required": [
           "id",
           "trip_id",
+          "revision",
           "author",
           "location",
           "title",
@@ -7166,6 +7171,22 @@
               "title": "Post Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
@@ -7286,6 +7307,22 @@
               "format": "uuid",
               "title": "Post Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -7762,6 +7799,22 @@
               "title": "Post Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
@@ -7819,6 +7872,22 @@
               "format": "uuid",
               "title": "Post Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],

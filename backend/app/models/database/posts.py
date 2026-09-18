@@ -32,6 +32,7 @@ class Post(Base):
         Index('ix_posts_trip_id_occurred_at', 'trip_id', 'occurred_at'),
         Index('ix_posts_author_user_id', 'author_user_id'),
         Index('ix_posts_location_id', 'location_id'),
+        CheckConstraint('revision >= 0', name='ck_posts_revision_non_negative'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -91,6 +92,12 @@ class Post(Base):
         default=utcnow,
         onupdate=utcnow,
         server_default=func.now(),
+    )
+    revision: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default='0',
     )
 
     trip: Mapped['Trip'] = relationship('Trip')

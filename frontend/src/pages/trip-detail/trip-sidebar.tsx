@@ -201,6 +201,8 @@ export function TripSidebar({
   onPostSocialSummary,
   onOpenManagement,
   onPostDelete,
+  onPostConflictKeep,
+  onPostConflictReload,
   onPostPublish,
   onPostSubmit,
   onPlanningViewChange,
@@ -213,6 +215,7 @@ export function TripSidebar({
   pendingAction,
   planningView,
   postScrollRequest,
+  postConflict,
   reserveMobileModeSwitchSpace,
   showMobileTravelMap,
   stops,
@@ -248,6 +251,8 @@ export function TripSidebar({
   onPostSocialSummary: (postId: string, social: import('@/api/client').PostSocialSummary) => void
   onOpenManagement: (section: TripManagementSection) => void
   onPostDelete: (postId: string) => void
+  onPostConflictKeep: () => void
+  onPostConflictReload: () => void
   onPostPublish: (postId: string) => void
   onPostSubmit: (postId: string | null, draft: PostSubmitDraft) => void
   onPlanningViewChange: (view: PlanningView) => void
@@ -260,6 +265,11 @@ export function TripSidebar({
   pendingAction: string | null
   planningView: PlanningView
   postScrollRequest: PostScrollRequest | null
+  postConflict: {
+    canRetry: boolean
+    currentPost: TravelPost
+    postId: string
+  } | null
   reserveMobileModeSwitchSpace: boolean
   showMobileTravelMap: boolean
   stops: readonly Stop[]
@@ -392,6 +402,11 @@ export function TripSidebar({
             onMapPointTargetChange={onMapPointTargetChange}
             onSubmit={(draft) => onPostSubmit(editingPost.id, draft)}
             post={editingPost}
+            postConflict={
+              postConflict?.postId === editingPost.id ? postConflict : null
+            }
+            onConflictReload={onPostConflictReload}
+            onConflictKeep={onPostConflictKeep}
           />
         ) : (
           <TravelingPanel

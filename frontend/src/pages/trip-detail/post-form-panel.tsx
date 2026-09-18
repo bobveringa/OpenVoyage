@@ -91,7 +91,10 @@ export function PostFormPanel({
   onCancel,
   onDelete,
   onMapPointTargetChange,
+  onConflictKeep,
+  onConflictReload,
   onSubmit,
+  postConflict = null,
   post = null,
 }: {
   accessToken?: string | null
@@ -103,7 +106,14 @@ export function PostFormPanel({
   onCancel: () => void
   onDelete?: () => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
+  onConflictKeep?: () => void
+  onConflictReload?: () => void
   onSubmit: (draft: PostSubmitDraft) => void
+  postConflict?: {
+    canRetry: boolean
+    currentPost: TravelPost
+    postId: string
+  } | null
   post?: TravelPost | null
 }) {
   const editingPost = mode === 'edit' ? post : null
@@ -121,6 +131,8 @@ export function PostFormPanel({
     number | null
   >(null)
   const [mediaNotice, setMediaNotice] = useState<string | null>(null)
+  const [conflictPromptOpen, setConflictPromptOpen] = useState(false)
+  const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false)
   const [pendingSubmit, setPendingSubmit] = useState<PendingPostSubmit | null>(
     null,
   )
@@ -143,6 +155,17 @@ export function PostFormPanel({
     editingPost?.excerpt ?? '',
   )
   const [title, setTitle] = useState(editingPost?.title ?? '')
+  const hasPostConflict = postConflict !== null
+
+  useEffect(() => {
+    if (hasPostConflict) {
+      setConflictPromptOpen(true)
+      setReloadConfirmationOpen(false)
+    } else {
+      setConflictPromptOpen(false)
+      setReloadConfirmationOpen(false)
+    }
+  }, [hasPostConflict])
 
   // The map selection belongs to the page-level map. Treat it as the source
   // of truth so the form cannot briefly fall back to its local search state
@@ -165,6 +188,9 @@ export function PostFormPanel({
       : editingPost?.location ?? selectedSearchLabel)
   const isFinishingUploads = pendingSubmit !== null
   const formDisabled = isSubmitting || isFinishingUploads
+  const conflictBlocksSubmit = Boolean(
+    postConflict && !postConflict.canRetry,
+  )
   const placeSearch = usePlaceSearch(
     searchValue,
     locationSource === 'search' && !formDisabled,
@@ -660,6 +686,76 @@ export function PostFormPanel({
         </div>
       </div>
 
+      {postConflict ? (
+        <Modal
+          bottomSheetOnMobile
+          contentClassName="p-4"
+          dismissible={false}
+          onClose={() => undefined}
+          open={conflictPromptOpen}
+          title="Post changed"
+        >
+          {reloadConfirmationOpen ? (
+            <div className="space-y-4" role="alert">
+              <div>
+                <p className="font-medium text-foreground">
+                  Discard your unsaved changes?
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  The latest version will replace your draft.
+                </p>
+              </div>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  onClick={() => setReloadConfirmationOpen(false)}
+                  type="button"
+                  variant="outline"
+                >
+                  Keep editing
+                </Button>
+                <Button
+                  onClick={() => {
+                    setReloadConfirmationOpen(false)
+                    setConflictPromptOpen(false)
+                    onConflictReload?.()
+                  }}
+                  type="button"
+                  variant="destructive"
+                >
+                  Discard and reload
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4" role="alert">
+              <p className="text-sm text-muted-foreground">
+                Another trip member saved changes while you were editing. Your
+                draft is still preserved.
+              </p>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  onClick={() => setReloadConfirmationOpen(true)}
+                  type="button"
+                  variant="outline"
+                >
+                  Reload current post
+                </Button>
+                <Button
+                  disabled={postConflict.canRetry}
+                  onClick={() => {
+                    onConflictKeep?.()
+                    setConflictPromptOpen(false)
+                  }}
+                  type="button"
+                >
+                  {postConflict.canRetry ? 'Changes kept' : 'Keep my changes'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      ) : null}
+
       <section className="space-y-3 rounded-[1.5rem] border border-border bg-muted/70 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -929,7 +1025,12 @@ export function PostFormPanel({
         {mode === 'edit' && editingPost?.isDraft ? (
           <>
             <Button
-              disabled={!canSubmit || isSubmitting || isFinishingUploads}
+              disabled={
+                !canSubmit ||
+                isSubmitting ||
+                isFinishingUploads ||
+                conflictBlocksSubmit
+              }
               onClick={() => submitPost('save')}
               type="button"
               variant="outline"
@@ -938,7 +1039,12 @@ export function PostFormPanel({
               Save draft
             </Button>
             <Button
-              disabled={!canSubmit || isSubmitting || isFinishingUploads}
+              disabled={
+                !canSubmit ||
+                isSubmitting ||
+                isFinishingUploads ||
+                conflictBlocksSubmit
+              }
               onClick={() => submitPost('publish')}
               type="button"
             >
@@ -949,7 +1055,12 @@ export function PostFormPanel({
         ) : mode === 'edit' ? (
           <>
             <Button
-              disabled={!canSubmit || isSubmitting || isFinishingUploads}
+              disabled={
+                !canSubmit ||
+                isSubmitting ||
+                isFinishingUploads ||
+                conflictBlocksSubmit
+              }
               onClick={() => submitPost('draft')}
               type="button"
               variant="outline"
@@ -957,7 +1068,12 @@ export function PostFormPanel({
               {moveToDraftSubmitLabel}
             </Button>
             <Button
-              disabled={!canSubmit || isSubmitting || isFinishingUploads}
+              disabled={
+                !canSubmit ||
+                isSubmitting ||
+                isFinishingUploads ||
+                conflictBlocksSubmit
+              }
               onClick={() => submitPost('save')}
               type="button"
             >
@@ -968,7 +1084,12 @@ export function PostFormPanel({
         ) : (
           <>
             <Button
-              disabled={!canSubmit || isSubmitting || isFinishingUploads}
+              disabled={
+                !canSubmit ||
+                isSubmitting ||
+                isFinishingUploads ||
+                conflictBlocksSubmit
+              }
               onClick={() => submitPost('draft')}
               type="button"
               variant="outline"

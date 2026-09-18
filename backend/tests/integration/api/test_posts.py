@@ -502,7 +502,7 @@ def test_post_timeline_recomputes_after_post_mutations(
 
     update_response = client.patch(
         f'{api_prefix}/trips/{trip.id}/posts/{first_post["id"]}',
-        headers=headers,
+        headers={**headers, 'If-Match': f'"{first_post["revision"]}"'},
         json={
             'location': _place_location(moved_place),
             'occurred_at': '2026-08-13T12:00:00+00:00',
@@ -525,7 +525,10 @@ def test_post_timeline_recomputes_after_post_mutations(
 
     unpublish_response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts/{first_post["id"]}/unpublish',
-        headers=headers,
+        headers={
+            **headers,
+            'If-Match': f'"{update_response.json()["revision"]}"',
+        },
     )
     published_timeline_response = client.get(
         f'{api_prefix}/trips/{trip.id}/posts/timeline'
@@ -692,7 +695,7 @@ def test_update_post_replaces_and_reorders_media_ids(
 
     update_response = client.patch(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
-        headers=headers,
+        headers={**headers, 'If-Match': '"0"'},
         json={
             'title': 'After',
             'body': 'After',
@@ -714,7 +717,7 @@ def test_update_post_replaces_and_reorders_media_ids(
 
 
 @pytest.mark.integration
-def test_post_update_requires_owner_or_author(
+def test_post_update_allows_any_member_with_update_permission(
     client,
     db_session,
     api_prefix,
@@ -752,17 +755,20 @@ def test_post_update_requires_owner_or_author(
 
     other_member_response = client.patch(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
-        headers=_auth_headers(other_member),
+        headers={**_auth_headers(other_member), 'If-Match': '"0"'},
         json={'body': 'Other member edit'},
     )
     owner_response = client.patch(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
-        headers=_auth_headers(owner),
+        headers={
+            **_auth_headers(owner),
+            'If-Match': f'"{other_member_response.json()["revision"]}"',
+        },
         json={'body': 'Owner edit'},
     )
 
     assert create_response.status_code == 201
-    assert other_member_response.status_code == 403
+    assert other_member_response.status_code == 200
     assert owner_response.status_code == 200
     assert owner_response.json()['body'] == 'Owner edit'
 
@@ -977,17 +983,17 @@ def test_update_post_translates_media_validation_errors(
 
     duplicate_response = client.patch(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
-        headers=headers,
+        headers={**headers, 'If-Match': '"0"'},
         json={'media_ids': [str(owned_media.id), str(owned_media.id)]},
     )
     ownership_response = client.patch(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
-        headers=headers,
+        headers={**headers, 'If-Match': '"0"'},
         json={'media_ids': [str(other_user_media.id)]},
     )
     missing_response = client.patch(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
-        headers=headers,
+        headers={**headers, 'If-Match': '"0"'},
         json={'media_ids': [str(uuid.uuid4())]},
     )
 
@@ -1024,27 +1030,36 @@ def test_publish_unpublish_and_delete_post_endpoints(
 
     forbidden_publish_response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}/publish',
-        headers=_auth_headers(other_member),
+        headers={**_auth_headers(other_member), 'If-Match': '"0"'},
     )
     publish_response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}/publish',
-        headers=_auth_headers(owner),
+        headers={**_auth_headers(owner), 'If-Match': '"0"'},
     )
     unpublish_response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}/unpublish',
-        headers=_auth_headers(author),
+        headers={
+            **_auth_headers(author),
+            'If-Match': f'"{publish_response.json()["revision"]}"',
+        },
     )
     forbidden_delete_response = client.delete(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
-        headers=_auth_headers(other_member),
+        headers={
+            **_auth_headers(other_member),
+            'If-Match': f'"{unpublish_response.json()["revision"]}"',
+        },
     )
     delete_response = client.delete(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}',
-        headers=_auth_headers(owner),
+        headers={
+            **_auth_headers(owner),
+            'If-Match': f'"{unpublish_response.json()["revision"]}"',
+        },
     )
     missing_publish_response = client.post(
         f'{api_prefix}/trips/{trip.id}/posts/{post_id}/publish',
-        headers=_auth_headers(owner),
+        headers={**_auth_headers(owner), 'If-Match': '"2"'},
     )
 
     assert create_response.status_code == 201

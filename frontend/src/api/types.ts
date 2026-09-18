@@ -1866,6 +1866,8 @@ export interface components {
             occurred_at: string;
             /** Published At */
             published_at: string | null;
+            /** Revision */
+            revision: number;
             social: components["schemas"]["PostSocialSummaryResponse"];
             /** Title */
             title: string;
@@ -4237,7 +4239,9 @@ export interface operations {
     delete_post_api_v1_trips__trip_id__posts__post_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 trip_id: string;
                 post_id: string;
@@ -4267,7 +4271,9 @@ export interface operations {
     update_post_api_v1_trips__trip_id__posts__post_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 trip_id: string;
                 post_id: string;
@@ -4479,7 +4485,9 @@ export interface operations {
     publish_post_api_v1_trips__trip_id__posts__post_id__publish_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 trip_id: string;
                 post_id: string;
@@ -4511,7 +4519,9 @@ export interface operations {
     unpublish_post_api_v1_trips__trip_id__posts__post_id__unpublish_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 trip_id: string;
                 post_id: string;

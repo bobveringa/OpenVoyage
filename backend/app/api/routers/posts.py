@@ -1,7 +1,8 @@
 import uuid
+import re
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Response
 from starlette import status
 from starlette.requests import Request
 
@@ -40,6 +41,7 @@ from services.post_service import (
     PostMediaOwnershipError,
     PostNotFoundError,
     PostPermissionError,
+    PostRevisionMismatchError,
 )
 from services.trip_errors import TripNotFoundError
 from services.post_social_service import (
@@ -50,6 +52,27 @@ from services.post_social_service import (
 )
 
 router = APIRouter(prefix='/trips/{trip_id}/posts', tags=['posts'])
+
+_IF_MATCH_RE = re.compile(r'^"([0-9]+)"$')
+
+
+def _etag(revision: int) -> str:
+    return f'"{revision}"'
+
+
+def _parse_if_match(if_match: str | None) -> int:
+    if if_match is None:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail='If-Match header is required',
+        )
+    match = _IF_MATCH_RE.fullmatch(if_match)
+    if match is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail='If-Match must be a quoted integer revision',
+        )
+    return int(match.group(1))
 
 
 def _post_response(
@@ -120,6 +143,7 @@ def create_post(
         share_token=None,
     )
     response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['ETag'] = _etag(post.revision)
     return _post_response(post, media_base_url=media_base_url, user=user, social=social)
 
 
@@ -282,6 +306,7 @@ def get_post(
         share_token=share_token,
     )
     response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['ETag'] = _etag(post.revision)
     return _post_response(
         post,
         media_base_url=media_base_url,
@@ -304,6 +329,7 @@ def update_post(
     post_service: PostServiceDep,
     social_service: PostSocialServiceDep,
     user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ) -> PostResponse:
     try:
         post = post_service.update_post(
@@ -311,6 +337,7 @@ def update_post(
             post_id=post_id,
             payload=payload,
             current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
         )
     except (TripNotFoundError, PostNotFoundError, LocationNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -320,6 +347,10 @@ def update_post(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except DuplicatePostMediaError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except PostRevisionMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED, detail=str(exc)
+        )
 
     media_base_url = str(request.base_url).rstrip('/')
     social = social_service.get_summary(
@@ -329,6 +360,7 @@ def update_post(
         share_token=None,
     )
     response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['ETag'] = _etag(post.revision)
     return _post_response(post, media_base_url=media_base_url, user=user, social=social)
 
 
@@ -344,17 +376,23 @@ def publish_post(
     post_service: PostServiceDep,
     social_service: PostSocialServiceDep,
     user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ) -> PostResponse:
     try:
         post = post_service.publish_post(
             trip_id=trip_id,
             post_id=post_id,
             current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
         )
     except (TripNotFoundError, PostNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except PostPermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except PostRevisionMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED, detail=str(exc)
+        )
 
     media_base_url = str(request.base_url).rstrip('/')
     social = social_service.get_summary(
@@ -364,6 +402,7 @@ def publish_post(
         share_token=None,
     )
     response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['ETag'] = _etag(post.revision)
     return _post_response(post, media_base_url=media_base_url, user=user, social=social)
 
 
@@ -379,17 +418,23 @@ def unpublish_post(
     post_service: PostServiceDep,
     social_service: PostSocialServiceDep,
     user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ) -> PostResponse:
     try:
         post = post_service.unpublish_post(
             trip_id=trip_id,
             post_id=post_id,
             current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
         )
     except (TripNotFoundError, PostNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except PostPermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except PostRevisionMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED, detail=str(exc)
+        )
 
     media_base_url = str(request.base_url).rstrip('/')
     social = social_service.get_summary(
@@ -399,6 +444,7 @@ def unpublish_post(
         share_token=None,
     )
     response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['ETag'] = _etag(post.revision)
     return _post_response(post, media_base_url=media_base_url, user=user, social=social)
 
 
@@ -411,17 +457,23 @@ def delete_post(
     post_id: uuid.UUID,
     post_service: PostServiceDep,
     user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ) -> None:
     try:
         post_service.delete_post(
             trip_id=trip_id,
             post_id=post_id,
             current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
         )
     except (TripNotFoundError, PostNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except PostPermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except PostRevisionMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED, detail=str(exc)
+        )
 
 
 @router.put('/{post_id}/like', response_model=PostSocialSummaryResponse)
