@@ -54,14 +54,27 @@ def _create_payload(
     occurred_at: datetime = OCCURRED_AT,
     publish: bool = False,
     media_ids: list[uuid.UUID] | None = None,
+    db_session: Session | None = None,
+    media_owner_id: uuid.UUID | None = None,
 ) -> PostCreateRequest:
+    if media_ids is None:
+        assert db_session is not None
+        assert media_owner_id is not None
+        media_ids = [
+            create_media(
+                db_session,
+                storage_path=f'media/post-{uuid.uuid4()}.jpg',
+                created_by=media_owner_id,
+            ).id
+        ]
+
     return PostCreateRequest(
         title=title or body,
         body=body,
         location=LocationPlaceInput(place_id=place_id),
         occurred_at=occurred_at,
         publish=publish,
-        media_ids=media_ids or [],
+        media_ids=media_ids,
     )
 
 
@@ -106,7 +119,12 @@ def test_list_posts_applies_draft_visibility_by_membership(
 
     service.create_post(
         trip_id=trip.id,
-        payload=_create_payload(place_id=place.id, body='Draft notes'),
+        payload=_create_payload(
+            place_id=place.id,
+            body='Draft notes',
+            db_session=db_session,
+            media_owner_id=owner.id,
+        ),
         current_user_id=owner.id,
     )
     service.create_post(
@@ -116,6 +134,8 @@ def test_list_posts_applies_draft_visibility_by_membership(
             body='Published notes',
             occurred_at=OCCURRED_AT + timedelta(hours=1),
             publish=True,
+            db_session=db_session,
+            media_owner_id=owner.id,
         ),
         current_user_id=owner.id,
     )
@@ -171,6 +191,8 @@ def test_private_trip_posts_require_trip_membership(db_session: Session) -> None
             place_id=place.id,
             body='Private published notes',
             publish=True,
+            db_session=db_session,
+            media_owner_id=owner.id,
         ),
         current_user_id=owner.id,
     )
@@ -221,7 +243,12 @@ def test_get_post_hides_drafts_from_users_without_draft_access(
     service = _post_service(db_session)
     draft = service.create_post(
         trip_id=trip.id,
-        payload=_create_payload(place_id=place.id, body='Hidden draft'),
+        payload=_create_payload(
+            place_id=place.id,
+            body='Hidden draft',
+            db_session=db_session,
+            media_owner_id=owner.id,
+        ),
         current_user_id=owner.id,
     )
 
@@ -260,7 +287,12 @@ def test_publish_and_unpublish_require_owner_or_author(
     service = _post_service(db_session)
     draft = service.create_post(
         trip_id=trip.id,
-        payload=_create_payload(place_id=place.id, body='Author draft'),
+        payload=_create_payload(
+            place_id=place.id,
+            body='Author draft',
+            db_session=db_session,
+            media_owner_id=author.id,
+        ),
         current_user_id=author.id,
     )
 
@@ -308,7 +340,12 @@ def test_delete_post_requires_owner_or_author_and_removes_post(
     service = _post_service(db_session)
     post = service.create_post(
         trip_id=trip.id,
-        payload=_create_payload(place_id=place.id, body='Delete me'),
+        payload=_create_payload(
+            place_id=place.id,
+            body='Delete me',
+            db_session=db_session,
+            media_owner_id=author.id,
+        ),
         current_user_id=author.id,
     )
 
@@ -390,7 +427,12 @@ def test_member_can_list_draft_posts(db_session: Session) -> None:
     service = _post_service(db_session)
     service.create_post(
         trip_id=trip.id,
-        payload=_create_payload(place_id=place.id, body='Member-visible draft'),
+        payload=_create_payload(
+            place_id=place.id,
+            body='Member-visible draft',
+            db_session=db_session,
+            media_owner_id=owner.id,
+        ),
         current_user_id=owner.id,
     )
 
@@ -424,7 +466,12 @@ def test_update_post_replaces_location_and_occurred_at(
     service = _post_service(db_session)
     post = service.create_post(
         trip_id=trip.id,
-        payload=_create_payload(place_id=original_place.id, body='Before update'),
+        payload=_create_payload(
+            place_id=original_place.id,
+            body='Before update',
+            db_session=db_session,
+            media_owner_id=owner.id,
+        ),
         current_user_id=owner.id,
     )
     new_occurred_at = OCCURRED_AT + timedelta(days=1)
@@ -462,7 +509,11 @@ def test_create_post_requires_member_with_create_permission(
     )
     place = create_place(db_session)
     service = _post_service(db_session)
-    payload = _create_payload(place_id=place.id, body='Not allowed')
+    payload = _create_payload(
+        place_id=place.id,
+        body='Not allowed',
+        media_ids=[uuid.uuid4()],
+    )
 
     with pytest.raises(PostPermissionError):
         service.create_post(
