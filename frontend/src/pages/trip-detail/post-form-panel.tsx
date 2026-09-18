@@ -79,6 +79,7 @@ import {
   toPostOccurredAtValue,
   updateDraftMediaUpload,
 } from '@/pages/trip-detail/post-form-utils'
+import { createVideoPreview } from '@/pages/trip-detail/video-preview'
 
 export function PostFormPanel({
   accessToken,
@@ -250,16 +251,23 @@ export function PostFormPanel({
       })
         .then((uploadedMedia) => {
           setDraftMedia((currentMedia) =>
-            updateDraftMediaUpload(currentMedia, media.clientId, {
-              error: null,
-              loadedBytes: media.file?.size ?? null,
-              mediaId: uploadedMedia.id,
-              progress: 1,
-              status: 'uploaded',
-              totalBytes: media.file?.size ?? null,
-            }).map((item) =>
+            currentMedia.map((item) =>
               item.clientId === media.clientId
-                ? { ...item, media_id: uploadedMedia.id }
+                ? {
+                    ...item,
+                    media_id: uploadedMedia.id,
+                    poster: uploadedMedia.urls.thumbnail ?? item.poster,
+                    thumbnail: uploadedMedia.urls.thumbnail ?? item.thumbnail,
+                    upload: {
+                      ...item.upload,
+                      error: null,
+                      loadedBytes: media.file?.size ?? null,
+                      mediaId: uploadedMedia.id,
+                      progress: 1,
+                      status: 'uploaded',
+                      totalBytes: media.file?.size ?? null,
+                    },
+                  }
                 : item,
             ),
           )
@@ -451,6 +459,27 @@ export function PostFormPanel({
     })
 
     setDraftMedia((currentMedia) => [...currentMedia, ...uploadedMedia])
+    for (const media of uploadedMedia) {
+      if (media.type !== 'video' || !media.file) {
+        continue
+      }
+
+      void createVideoPreview(media.file).then((preview) => {
+        if (!preview) {
+          return
+        }
+
+        const previewUrl = URL.createObjectURL(preview)
+        uploadedMediaUrlsRef.current.push(previewUrl)
+        setDraftMedia((currentMedia) =>
+          currentMedia.map((item) =>
+            item.clientId === media.clientId && !item.thumbnail
+              ? { ...item, poster: previewUrl, thumbnail: previewUrl }
+              : item,
+          ),
+        )
+      })
+    }
     setMediaNotice(
       `${mediaFiles.length} ${mediaFiles.length === 1 ? 'media item' : 'media items'} added.`,
     )
@@ -483,7 +512,7 @@ export function PostFormPanel({
   function removeDraftMedia(media: DraftPostMedia) {
     uploadControllersRef.current.get(media.clientId)?.abort()
     uploadControllersRef.current.delete(media.clientId)
-    revokeUploadedMediaUrl(media.src)
+    revokeDraftMediaUrls(media)
     setActiveDraftMediaIndex(null)
     setDraftMedia((currentMedia) =>
       currentMedia.filter((item) => item.clientId !== media.clientId),
@@ -528,6 +557,14 @@ export function PostFormPanel({
     uploadedMediaUrlsRef.current = uploadedMediaUrlsRef.current.filter(
       (objectUrl) => objectUrl !== src,
     )
+  }
+
+  function revokeDraftMediaUrls(media: DraftPostMedia) {
+    for (const url of new Set([media.src, media.poster, media.thumbnail])) {
+      if (url) {
+        revokeUploadedMediaUrl(url)
+      }
+    }
   }
 
   function discardUploadedMediaUrls() {

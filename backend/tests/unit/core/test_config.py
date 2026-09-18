@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from core.config import MINIMUM_KEY_MATERIAL_LENGTH, Settings
+from core.config import (
+    MINIMUM_KEY_MATERIAL_LENGTH,
+    NATIVE_APP_CORS_ORIGINS,
+    Settings,
+)
 
 STRONG_SECRET = 'q' * MINIMUM_KEY_MATERIAL_LENGTH
 STRONG_DB_PASSWORD = 'x2Tqf-9wPl0Zr'
@@ -94,3 +98,23 @@ def test_environment_defaults_to_the_strict_setting():
     )
 
     assert settings.ENVIRONMENT == 'production'
+
+
+@pytest.mark.unit
+def test_cors_origins_include_native_app_origins_without_configuration():
+    settings = build_settings()
+
+    assert settings.all_cors_origins == list(NATIVE_APP_CORS_ORIGINS)
+
+
+@pytest.mark.unit
+def test_cors_origins_combine_browser_and_native_app_origins():
+    settings = build_settings(
+        BACKEND_CORS_ORIGINS='https://app.example.com,http://localhost'
+    )
+
+    assert settings.all_cors_origins == [
+        'https://app.example.com',
+        *NATIVE_APP_CORS_ORIGINS[0:1],
+        *NATIVE_APP_CORS_ORIGINS[1:],
+    ]

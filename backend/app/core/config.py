@@ -31,6 +31,17 @@ PUBLISHED_PLACEHOLDER_SECRETS = frozenset(
 # Catches placeholders this project never shipped but operators still invent.
 PLACEHOLDER_MARKERS = ('changethis', 'change-this', 'change_this')
 
+# Capacitor serves the bundled application from a fixed local origin.  Native
+# HTTP is deliberately not used: it base64-encodes multipart files before
+# crossing the JS/native bridge, which can exhaust memory for video uploads.
+# Keep these origins independent of the operator's browser CORS configuration
+# so every self-hosted installation can use the native app without an env edit.
+NATIVE_APP_CORS_ORIGINS = (
+    'http://localhost',
+    'https://localhost',
+    'capacitor://localhost',
+)
+
 
 def parse_cors(v: Any) -> list[str] | str:
     if isinstance(v, str) and not v.startswith('['):
@@ -86,7 +97,10 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def all_cors_origins(self) -> list[str]:
-        return [str(origin).rstrip('/') for origin in self.BACKEND_CORS_ORIGINS]
+        configured_origins = [
+            str(origin).rstrip('/') for origin in self.BACKEND_CORS_ORIGINS
+        ]
+        return list(dict.fromkeys((*configured_origins, *NATIVE_APP_CORS_ORIGINS)))
 
     POSTGRES_SERVER: str = ''
     POSTGRES_PORT: int = 5432

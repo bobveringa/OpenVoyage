@@ -15,7 +15,9 @@
     "test:unit": "vitest run",
     "cap:sync": "npm run build && npx cap sync android",
     "cap:open": "npx cap open android",
-    "android:apk": "npm run cap:sync && node scripts/build-android.mjs"
+    "android:apk": "npm run cap:sync && node scripts/build-android.mjs",
+    "android:install": "node scripts/android-install.mjs",
+    "android:deploy": "node scripts/android-install.mjs --build"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.1.1",

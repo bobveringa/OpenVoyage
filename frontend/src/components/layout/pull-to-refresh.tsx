@@ -17,6 +17,25 @@ const IGNORE_GESTURE_SELECTOR = '.trip-leaflet-map'
 
 type PullPhase = 'idle' | 'pulling' | 'ready' | 'refreshing'
 
+function startsInsideScrollableRegion(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return false
+  }
+
+  for (let element: Element | null = target; element; element = element.parentElement) {
+    const overflowY = window.getComputedStyle(element).overflowY
+    const canScrollVertically =
+      (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
+      element.scrollHeight > element.clientHeight
+
+    if (canScrollVertically) {
+      return true
+    }
+  }
+
+  return false
+}
+
 export function PullToRefresh({ children }: { children: ReactNode }) {
   const [enabled] = useState(isNativePlatform)
   const [phase, setPhase] = useState<PullPhase>('idle')
@@ -61,7 +80,11 @@ export function PullToRefresh({ children }: { children: ReactNode }) {
 
       const target = event.target
       ignoredRef.current =
-        target instanceof Element && Boolean(target.closest(IGNORE_GESTURE_SELECTOR))
+        (target instanceof Element && Boolean(target.closest(IGNORE_GESTURE_SELECTOR))) ||
+        startsInsideScrollableRegion(target)
+      // A modal, list, or other nested scroll root does not affect window.scrollY.
+      // Let that element own every gesture rather than stealing a downward swipe for
+      // pull-to-refresh while the page itself happens to be at its top.
       trackingRef.current = !ignoredRef.current && window.scrollY === 0
       startRef.current = { x: touch.clientX, y: touch.clientY }
     }
