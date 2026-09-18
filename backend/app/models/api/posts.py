@@ -55,6 +55,7 @@ class PostSocialSummaryResponse(BaseModel):
 class PostResponse(BaseModel):
     id: uuid.UUID
     trip_id: uuid.UUID
+    revision: int
     author: UserDisplaySummaryResponse
     location: LocationResponse
     title: str
@@ -78,6 +79,7 @@ class PostResponse(BaseModel):
         return cls(
             id=post.id,
             trip_id=post.trip_id,
+            revision=post.revision,
             author=UserDisplaySummaryResponse.from_model(
                 post.author,
                 media_base_url=media_base_url,

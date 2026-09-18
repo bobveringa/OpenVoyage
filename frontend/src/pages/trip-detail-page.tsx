@@ -11,6 +11,7 @@ import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import {
   addTripMember,
   addTripViewer,
+  ApiError,
   createItineraryStop,
   createPost,
   createTripShareLink,
@@ -19,6 +20,7 @@ import {
   deleteItineraryStop,
   getErrorMessage,
   getItinerary,
+  getPost,
   listGpsPostCandidates,
   getPostTimeline,
   getTrip,
@@ -145,6 +147,12 @@ type TripDetailLoadState =
   | { error: null; status: 'idle' | 'loading' | 'success' }
   | { error: string; status: 'error' }
 
+type PostConflictState = {
+  canRetry: boolean
+  currentPost: TravelPost
+  postId: string
+}
+
 export function TripDetailPage({
   accessToken,
   authStatus,
@@ -169,6 +177,9 @@ export function TripDetailPage({
   )
   const [itineraryRevision, setItineraryRevision] = useState(0)
   const [mutationError, setMutationError] = useState<string | null>(null)
+  const [postConflict, setPostConflict] = useState<PostConflictState | null>(
+    null,
+  )
   const [pendingAction, setPendingAction] = useState<string | null>(null)
   const [tripMembers, setTripMembers] = useState<readonly TripMemberViewModel[]>([])
   const [tripViewers, setTripViewers] = useState<readonly TripViewerViewModel[]>([])
@@ -309,6 +320,7 @@ export function TripDetailPage({
         setLoadState({ error: null, status: 'loading' })
       }
       setMutationError(null)
+      setPostConflict(null)
 
       try {
         const [
@@ -874,16 +886,47 @@ export function TripDetailPage({
     void runMutation(postId ? 'Saving post' : 'Creating post', async () => {
       const mediaIds = getPostDraftMediaIds(draft.media)
       if (postId) {
-        await updatePost({
-          accessToken,
-          payload: toPostUpdatePayload(draft, mediaIds),
-          postId,
-          tripId,
-        })
-        if (draft.publicationAction === 'publish') {
-          await publishPost({ accessToken, postId, tripId })
-        } else if (draft.publicationAction === 'draft') {
-          await unpublishPost({ accessToken, postId, tripId })
+        if (postConflict?.postId === postId && !postConflict.canRetry) {
+          return
+        }
+        const existingPost = travelPosts.find((post) => post.id === postId)
+        const revision =
+          postConflict?.postId === postId
+            ? postConflict.currentPost.revision
+            : existingPost?.revision
+        if (!existingPost || revision === undefined) {
+          throw new Error('The post is no longer available. Reload the trip.')
+        }
+
+        try {
+          const savedPost = await updatePost({
+            accessToken,
+            payload: toPostUpdatePayload(draft, mediaIds),
+            postId,
+            postRevision: revision,
+            tripId,
+          })
+          if (draft.publicationAction === 'publish') {
+            await publishPost({
+              accessToken,
+              postId,
+              postRevision: savedPost.revision,
+              tripId,
+            })
+          } else if (draft.publicationAction === 'draft') {
+            await unpublishPost({
+              accessToken,
+              postId,
+              postRevision: savedPost.revision,
+              tripId,
+            })
+          }
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 412) {
+            await handlePostConflict(postId)
+            return
+          }
+          throw error
         }
       } else {
         await createPost({
@@ -895,6 +938,7 @@ export function TripDetailPage({
       const { posts, trackingGeometry } = await fetchTravelTimeline()
       setTravelPosts(posts)
       setTrackingGeometry(trackingGeometry)
+      setPostConflict(null)
 
       setDraftPostLocation(null)
       setSelectedGpsPostCandidate(null)
@@ -917,7 +961,27 @@ export function TripDetailPage({
     }
 
     void runMutation('Publishing post', async () => {
-      await publishPost({ accessToken, postId, tripId })
+      const post = travelPosts.find((item) => item.id === postId)
+      if (!post) {
+        throw new Error('The post is no longer available. Reload the trip.')
+      }
+      try {
+        await publishPost({
+          accessToken,
+          postId,
+          postRevision: post.revision,
+          tripId,
+        })
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 412) {
+          await handlePostConflict(postId)
+          setMutationError(
+            'Another trip member changed this post. Reload the trip before publishing.',
+          )
+          return
+        }
+        throw error
+      }
       const { posts, trackingGeometry } = await fetchTravelTimeline()
       setTravelPosts(posts)
       setTrackingGeometry(trackingGeometry)
@@ -949,13 +1013,82 @@ export function TripDetailPage({
     }
 
     void runMutation('Deleting post', async () => {
-      await deletePost({ accessToken, postId, tripId })
+      const post = travelPosts.find((item) => item.id === postId)
+      if (!post) {
+        throw new Error('The post is no longer available. Reload the trip.')
+      }
+      try {
+        await deletePost({
+          accessToken,
+          postId,
+          postRevision: post.revision,
+          tripId,
+        })
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 412) {
+          await handlePostConflict(postId)
+          setMutationError(
+            'Another trip member changed this post. Reload the trip before deleting.',
+          )
+          return
+        }
+        throw error
+      }
       const { posts, trackingGeometry } = await fetchTravelTimeline()
       setTravelPosts(posts)
       setTrackingGeometry(trackingGeometry)
       finishPostDelete()
     })
   }
+
+  const handlePostConflict = useCallback(
+    async (postId: string) => {
+      if (!tripId || !accessToken) {
+        return
+      }
+
+      try {
+        const currentPost = await getPost({ accessToken, postId, tripId })
+        const previousPost = travelPosts.find((post) => post.id === postId)
+        setPostConflict({
+          canRetry: false,
+          currentPost: toTravelPostViewModel(
+            currentPost,
+            previousPost?.routeAfter ?? null,
+          ),
+          postId,
+        })
+      } catch (error) {
+        setMutationError(getErrorMessage(error))
+      }
+    },
+    [accessToken, travelPosts, tripId],
+  )
+
+  const handlePostConflictReload = useCallback(() => {
+    if (!postConflict) {
+      return
+    }
+
+    setTravelPosts((posts) => upsertById(posts, postConflict.currentPost))
+    setPostConflict(null)
+    setMutationError(null)
+    navigateTripDetailUrlState(
+      {
+        editingPostId: null,
+        mode: 'traveling',
+        travelingView: 'posts',
+      },
+      'replace',
+    )
+  }, [navigateTripDetailUrlState, postConflict])
+
+  const handlePostConflictKeep = useCallback(() => {
+    setPostConflict((conflict) =>
+      conflict ? { ...conflict, canRetry: true } : conflict,
+    )
+    setMutationError(null)
+  }, [])
 
   const applyDraftMapPointLocation = useCallback(
     (target: MapPointTarget, coordinates: L.LatLngTuple) => {
@@ -1298,8 +1431,11 @@ export function TripDetailPage({
               onOpenManagement={openManagement}
               onEditPost={handleEditPost}
               onPostDelete={handlePostDelete}
+              onPostConflictReload={handlePostConflictReload}
+              onPostConflictKeep={handlePostConflictKeep}
               onPostPublish={handlePostPublish}
               onPostSubmit={handlePostSubmit}
+              postConflict={postConflict}
               onPlanningViewChange={handlePlanningViewChange}
               onRefreshTravelLegRoute={handleTravelLegRouteRefresh}
               onStopSave={handleStopSave}
@@ -1603,6 +1739,7 @@ function toTravelPostViewModel(
       media.length > 0 ? media : [createFallbackPostMedia(post.title)],
     ),
     occurred_at: post.occurred_at,
+    revision: post.revision,
     routeAfter,
     time: formatDateTimeLabel(post.occurred_at),
     title: post.title,

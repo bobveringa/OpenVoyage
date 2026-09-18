@@ -41,6 +41,10 @@ class PostPermissionError(Exception):
     """Raised when a trip member does not have enough post privileges."""
 
 
+class PostRevisionMismatchError(Exception):
+    """Raised when a post mutation uses a stale revision."""
+
+
 class PostService:
     """Coordinates post lifecycle, media ordering, and post authorization."""
 
@@ -176,17 +180,32 @@ class PostService:
         post_id: uuid.UUID,
         payload: PostUpdateRequest,
         current_user_id: uuid.UUID,
+        expected_revision: int | None = None,
     ) -> Post:
         post = self._get_writable_post(
             trip_id=trip_id,
             post_id=post_id,
             current_user_id=current_user_id,
             permission=TripPermission.UPDATE_POST,
+            expected_revision=expected_revision,
+            require_author_or_owner=False,
         )
 
+        media_ids_changed = False
+        if payload.media_ids is not None:
+            self._validate_collaborative_media_ids(
+                post=post,
+                media_ids=payload.media_ids,
+                current_user_id=current_user_id,
+            )
+            media_ids_changed = [link.media_id for link in post.media_links] != payload.media_ids
+
+        changed = False
         if payload.body is not None:
+            changed = changed or post.body != payload.body
             post.body = payload.body
         if payload.title is not None:
+            changed = changed or post.title != payload.title
             post.title = payload.title
         if payload.location is not None:
             location = self.location_service.create_location_for_trip(
@@ -194,15 +213,20 @@ class PostService:
                 created_by=current_user_id,
                 location_input=payload.location,
             )
-            post.location_id = location.id
+            if self._locations_differ(post.location, location):
+                changed = True
+                post.location_id = location.id
+            else:
+                self.db.delete(location)
         if payload.occurred_at is not None:
+            changed = changed or post.occurred_at != payload.occurred_at
             post.occurred_at = payload.occurred_at
-        if payload.media_ids is not None:
-            self._validate_media_ids(
-                media_ids=payload.media_ids,
-                current_user_id=current_user_id,
-            )
+        if payload.media_ids is not None and media_ids_changed:
             self._replace_post_media(post=post, media_ids=payload.media_ids)
+            changed = True
+
+        if changed:
+            post.revision += 1
 
         self.db.commit()
         return self._get_post_for_response(post_id=post_id, trip_id=trip_id)
@@ -212,12 +236,14 @@ class PostService:
         trip_id: uuid.UUID,
         post_id: uuid.UUID,
         current_user_id: uuid.UUID,
+        expected_revision: int | None = None,
     ) -> None:
         post = self._get_writable_post(
             trip_id=trip_id,
             post_id=post_id,
             current_user_id=current_user_id,
             permission=TripPermission.DELETE_POST,
+            expected_revision=expected_revision,
         )
         self.db.delete(post)
         self.db.commit()
@@ -227,15 +253,18 @@ class PostService:
         trip_id: uuid.UUID,
         post_id: uuid.UUID,
         current_user_id: uuid.UUID,
+        expected_revision: int | None = None,
     ) -> Post:
         post = self._get_writable_post(
             trip_id=trip_id,
             post_id=post_id,
             current_user_id=current_user_id,
             permission=TripPermission.PUBLISH_POST,
+            expected_revision=expected_revision,
         )
         if post.published_at is None:
             post.published_at = utcnow()
+            post.revision += 1
         self.db.commit()
         return self._get_post_for_response(post_id=post_id, trip_id=trip_id)
 
@@ -244,14 +273,18 @@ class PostService:
         trip_id: uuid.UUID,
         post_id: uuid.UUID,
         current_user_id: uuid.UUID,
+        expected_revision: int | None = None,
     ) -> Post:
         post = self._get_writable_post(
             trip_id=trip_id,
             post_id=post_id,
             current_user_id=current_user_id,
             permission=TripPermission.PUBLISH_POST,
+            expected_revision=expected_revision,
         )
-        post.published_at = None
+        if post.published_at is not None:
+            post.published_at = None
+            post.revision += 1
         self.db.commit()
         return self._get_post_for_response(post_id=post_id, trip_id=trip_id)
 
@@ -275,6 +308,8 @@ class PostService:
         post_id: uuid.UUID,
         current_user_id: uuid.UUID,
         permission: TripPermission,
+        expected_revision: int | None = None,
+        require_author_or_owner: bool = True,
     ) -> Post:
         membership = self._require_trip_permission(
             trip_id=trip_id,
@@ -283,9 +318,11 @@ class PostService:
         )
         post = self._get_post_for_write(post_id=post_id, trip_id=trip_id)
 
-        if membership.role == TripRole.OWNER:
+        if not require_author_or_owner or membership.role == TripRole.OWNER:
+            self._check_revision(post, expected_revision)
             return post
         if post.author_user_id == current_user_id:
+            self._check_revision(post, expected_revision)
             return post
 
         raise PostPermissionError('The user does not have enough privileges')
@@ -312,9 +349,53 @@ class PostService:
                 raise MediaNotFoundError(f'Media not found: {media_id}')
             if item.created_by != current_user_id:
                 raise PostMediaOwnershipError(
-                    'The selected media is not owned by the user'
+                    'New post media must be uploaded by the editor'
                 )
         return media_by_id
+
+    def _validate_collaborative_media_ids(
+        self,
+        post: Post,
+        media_ids: list[uuid.UUID],
+        current_user_id: uuid.UUID,
+    ) -> None:
+        if len(set(media_ids)) != len(media_ids):
+            raise DuplicatePostMediaError('Post media ids must be unique')
+        if not media_ids:
+            return
+
+        existing_ids = {link.media_id for link in post.media_links}
+        media = list(
+            self.db.execute(select(Media).where(Media.id.in_(media_ids)))
+            .scalars()
+            .all()
+        )
+        media_by_id = {item.id: item for item in media}
+        for media_id in media_ids:
+            item = media_by_id.get(media_id)
+            if item is None:
+                raise MediaNotFoundError(f'Media not found: {media_id}')
+            if media_id not in existing_ids and item.created_by != current_user_id:
+                raise PostMediaOwnershipError(
+                    'New post media must be uploaded by the editor'
+                )
+
+    def _check_revision(self, post: Post, expected_revision: int | None) -> None:
+        if expected_revision is not None and post.revision != expected_revision:
+            raise PostRevisionMismatchError('Post revision does not match')
+
+    def _locations_differ(self, current, replacement) -> bool:
+        return any(
+            getattr(current, field) != getattr(replacement, field)
+            for field in (
+                'name',
+                'latitude',
+                'longitude',
+                'country_code',
+                'region',
+                'full_name',
+            )
+        )
 
     def _get_readable_trip_access(
         self,
@@ -389,6 +470,7 @@ class PostService:
             select(Post)
             .options(selectinload(Post.media_links))
             .where(Post.id == post_id, Post.trip_id == trip_id)
+            .with_for_update()
         ).scalar_one_or_none()
         if post is None:
             raise PostNotFoundError(f'Post not found: {post_id}')

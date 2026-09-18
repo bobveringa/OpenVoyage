@@ -1142,11 +1142,30 @@ export async function createPost(options: {
   )
 }
 
+export async function getPost(options: {
+  tripId: string
+  postId: string
+  accessToken?: string | null
+  shareToken?: string | null
+}): Promise<Post> {
+  const tripId = encodeURIComponent(options.tripId)
+  const postId = encodeURIComponent(options.postId)
+
+  return requestJson<Post>(
+    `${API_V1_PREFIX}/trips/${tripId}/posts/${postId}`,
+    {
+      accessToken: options.accessToken,
+      shareToken: options.shareToken,
+    },
+  )
+}
+
 export async function updatePost(options: {
   tripId: string
   postId: string
   payload: PostUpdatePayload
   accessToken: string
+  postRevision: number
 }): Promise<Post> {
   const tripId = encodeURIComponent(options.tripId)
   const postId = encodeURIComponent(options.postId)
@@ -1154,6 +1173,7 @@ export async function updatePost(options: {
   return requestJson<Post>(`${API_V1_PREFIX}/trips/${tripId}/posts/${postId}`, {
     method: 'PATCH',
     accessToken: options.accessToken,
+    ifMatchRevision: options.postRevision,
     json: options.payload,
   })
 }
@@ -1162,6 +1182,7 @@ export async function deletePost(options: {
   tripId: string
   postId: string
   accessToken: string
+  postRevision: number
 }): Promise<void> {
   const tripId = encodeURIComponent(options.tripId)
   const postId = encodeURIComponent(options.postId)
@@ -1169,6 +1190,7 @@ export async function deletePost(options: {
   return requestJson<void>(`${API_V1_PREFIX}/trips/${tripId}/posts/${postId}`, {
     method: 'DELETE',
     accessToken: options.accessToken,
+    ifMatchRevision: options.postRevision,
   })
 }
 
@@ -1176,6 +1198,7 @@ export async function publishPost(options: {
   tripId: string
   postId: string
   accessToken: string
+  postRevision: number
 }): Promise<Post> {
   const tripId = encodeURIComponent(options.tripId)
   const postId = encodeURIComponent(options.postId)
@@ -1185,6 +1208,7 @@ export async function publishPost(options: {
     {
       method: 'POST',
       accessToken: options.accessToken,
+      ifMatchRevision: options.postRevision,
     },
   )
 }
@@ -1193,6 +1217,7 @@ export async function unpublishPost(options: {
   tripId: string
   postId: string
   accessToken: string
+  postRevision: number
 }): Promise<Post> {
   const tripId = encodeURIComponent(options.tripId)
   const postId = encodeURIComponent(options.postId)
@@ -1202,6 +1227,7 @@ export async function unpublishPost(options: {
     {
       method: 'POST',
       accessToken: options.accessToken,
+      ifMatchRevision: options.postRevision,
     },
   )
 }
