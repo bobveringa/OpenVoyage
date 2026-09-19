@@ -1802,7 +1802,7 @@ function toTravelPostViewModel(
     isDraft: post.published_at === null,
     location: post.location.full_name || post.location.name,
     media: toPostMediaTuple(media),
-    occurred_at: post.occurred_at,
+    occurredAt: post.occurred_at,
     revision: post.revision,
     routeAfter,
     time: formatDateTimeLabel(post.occurred_at),

@@ -988,7 +988,7 @@ function createRouteKey(
               post.location,
               post.coordinates[0],
               post.coordinates[1],
-              post.occurred_at,
+              post.occurredAt,
               post.routeAfter?.durationSeconds ?? 'open',
               post.routeAfter?.segments
                 .map((segment) =>

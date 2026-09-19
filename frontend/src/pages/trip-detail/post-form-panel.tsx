@@ -143,7 +143,7 @@ export function PostFormPanel({
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false)
   const [occurredAt, setOccurredAt] = useState(() =>
     editingPost
-      ? formatDateTimeInputValue(parseDateTime(editingPost.occurred_at))
+      ? formatDateTimeInputValue(parseDateTime(editingPost.occurredAt))
       : gpsPostCandidate
         ? formatGpsPostCandidateOccurredAt(gpsPostCandidate)
         : formatDateTimeInputValue(new Date()),
@@ -369,7 +369,7 @@ export function PostFormPanel({
     setDeleteConfirmationOpen(false)
     setOccurredAt(
       editingPost
-        ? formatDateTimeInputValue(parseDateTime(editingPost.occurred_at))
+        ? formatDateTimeInputValue(parseDateTime(editingPost.occurredAt))
         : formatDateTimeInputValue(new Date()),
     )
     setSearchValue(editingPost?.location ?? '')

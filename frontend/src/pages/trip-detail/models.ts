@@ -125,7 +125,7 @@ export type TravelPost = {
   isDraft: boolean
   location: string
   media: readonly [PostMedia, ...PostMedia[]]
-  occurred_at: string
+  occurredAt: string
   revision: number
   routeAfter: TravelPostRoute | null
   time: string
