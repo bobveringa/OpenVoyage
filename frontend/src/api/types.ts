@@ -624,6 +624,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/posts/{post_id}/comments/{comment_id}/like": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Like Post Comment */
+        put: operations["like_post_comment_api_v1_trips__trip_id__posts__post_id__comments__comment_id__like_put"];
+        post?: never;
+        /** Unlike Post Comment */
+        delete: operations["unlike_post_comment_api_v1_trips__trip_id__posts__post_id__comments__comment_id__like_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/posts/{post_id}/like": {
         parameters: {
             query?: never;
@@ -1794,7 +1812,31 @@ export interface components {
         /** PostCommentCreateRequest */
         PostCommentCreateRequest: {
             /** Body */
-            body: string;
+            body?: string | null;
+            /** Media Id */
+            media_id?: string | null;
+            /** Parent Comment Id */
+            parent_comment_id?: string | null;
+        };
+        /** PostCommentDeleteResponse */
+        PostCommentDeleteResponse: {
+            /** Deleted Comment Count */
+            deleted_comment_count: number;
+            social: components["schemas"]["PostSocialSummaryResponse"];
+        };
+        /** PostCommentLikeSummaryResponse */
+        PostCommentLikeSummaryResponse: {
+            /** Can Like */
+            can_like: boolean;
+            /**
+             * Comment Id
+             * Format: uuid
+             */
+            comment_id: string;
+            /** Like Count */
+            like_count: number;
+            /** Viewer Has Liked */
+            viewer_has_liked: boolean;
         };
         /** PostCommentResponse */
         PostCommentResponse: {
@@ -1806,6 +1848,10 @@ export interface components {
             body: string;
             /** Can Delete */
             can_delete: boolean;
+            /** Can Like */
+            can_like: boolean;
+            /** Can Reply */
+            can_reply: boolean;
             /**
              * Created At
              * Format: date-time
@@ -1816,11 +1862,22 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Like Count */
+            like_count: number;
+            media: components["schemas"]["MediaResponse"] | null;
+            /** Parent Comment Id */
+            parent_comment_id: string | null;
             /**
              * Post Id
              * Format: uuid
              */
             post_id: string;
+            /** Replies */
+            replies?: components["schemas"]["PostCommentResponse"][];
+            /** Reply Count */
+            reply_count: number;
+            /** Viewer Has Liked */
+            viewer_has_liked: boolean;
         };
         /** PostCreateRequest */
         PostCreateRequest: {
@@ -4408,11 +4465,83 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["PostCommentDeleteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    like_post_comment_api_v1_trips__trip_id__posts__post_id__comments__comment_id__like_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+                post_id: string;
+                comment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostCommentLikeSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unlike_post_comment_api_v1_trips__trip_id__posts__post_id__comments__comment_id__like_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+                post_id: string;
+                comment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostCommentLikeSummaryResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

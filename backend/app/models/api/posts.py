@@ -4,7 +4,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from models.api.geojson import GeoJsonLineString
 from models.api.locations import LocationInput, LocationResponse
@@ -124,15 +124,22 @@ class PostResponse(BaseModel):
 class PostCommentCreateRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    body: str = Field(min_length=1, max_length=2000)
+    body: str | None = None
+    parent_comment_id: uuid.UUID | None = None
+    media_id: uuid.UUID | None = None
 
     @field_validator('body')
     @classmethod
-    def normalize_body(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError('body cannot be blank')
-        return value
+    def normalize_body(cls, value: str | None) -> str:
+        return value.strip() if value else ''
+
+    @model_validator(mode='after')
+    def require_content(self) -> Self:
+        if len(self.body or '') > 2000:
+            raise ValueError('body must be at most 2000 characters')
+        if not self.body and self.media_id is None:
+            raise ValueError('A comment requires text or an image')
+        return self
 
 
 class UserCommentAuthorResponse(BaseModel):
@@ -154,11 +161,31 @@ PostCommentAuthorResponse = Annotated[
 class PostCommentResponse(BaseModel):
     id: uuid.UUID
     post_id: uuid.UUID
+    parent_comment_id: uuid.UUID | None
     author: PostCommentAuthorResponse
     body: str
+    media: MediaResponse | None
+    replies: list['PostCommentResponse'] = Field(default_factory=list)
+    reply_count: int = Field(ge=0)
+    like_count: int = Field(ge=0)
+    viewer_has_liked: bool
     created_at: datetime
     authored_by_viewer: bool
     can_delete: bool
+    can_like: bool
+    can_reply: bool
+
+
+class PostCommentLikeSummaryResponse(BaseModel):
+    comment_id: uuid.UUID
+    like_count: int = Field(ge=0)
+    viewer_has_liked: bool
+    can_like: bool
+
+
+class PostCommentDeleteResponse(BaseModel):
+    deleted_comment_count: int = Field(ge=1)
+    social: PostSocialSummaryResponse
 
 
 class PostTimelineRouteSegmentResponse(BaseModel):

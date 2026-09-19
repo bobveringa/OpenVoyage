@@ -1470,3 +1470,93 @@ def test_post_author_display_and_self_like_restriction(
     assert other_like_response.status_code == 200
     assert other_like_response.json()['like_count'] == 1
     assert other_like_response.json()['viewer_has_liked'] is True
+
+
+@pytest.mark.integration
+def test_comment_replies_likes_and_subtree_delete(
+    client, db_session, api_prefix
+) -> None:
+    author = create_user(db_session, password='PostsPass123!')
+    reader = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(db_session, owner_id=author.id)
+    add_trip_member(db_session, trip_id=trip.id, user_id=reader.id)
+    post = _create_post(
+        client,
+        db_session,
+        api_prefix,
+        trip_id=trip.id,
+        user=author,
+        place=create_place(db_session),
+        title='Nested discussion',
+        occurred_at=OCCURRED_AT,
+        publish=True,
+    )
+    author_headers = _auth_headers(author)
+    reader_headers = _auth_headers(reader)
+    comments_url = f'{api_prefix}/trips/{trip.id}/posts/{post["id"]}/comments'
+    root = client.post(comments_url, headers=author_headers, json={'body': 'Root'})
+    reply = client.post(
+        comments_url,
+        headers=reader_headers,
+        json={'body': 'Reply', 'parent_comment_id': root.json()['id']},
+    )
+    like_url = f'{comments_url}/{reply.json()["id"]}/like'
+    first_like = client.put(like_url, headers=author_headers)
+    repeated_like = client.put(like_url, headers=author_headers)
+    page = client.get(comments_url, headers=author_headers)
+    deleted = client.delete(
+        f'{comments_url}/{root.json()["id"]}', headers=author_headers
+    )
+
+    assert root.status_code == 201
+    assert reply.status_code == 201
+    assert reply.json()['parent_comment_id'] == root.json()['id']
+    assert first_like.status_code == 200
+    assert repeated_like.json()['like_count'] == 1
+    assert page.status_code == 200
+    assert page.json()['items'][0]['reply_count'] == 1
+    assert page.json()['items'][0]['replies'][0]['body'] == 'Reply'
+    assert deleted.status_code == 200
+    assert deleted.json()['deleted_comment_count'] == 2
+    assert deleted.json()['social']['comment_count'] == 0
+
+
+@pytest.mark.integration
+def test_root_comments_are_paginated_oldest_first(
+    client, db_session, api_prefix
+) -> None:
+    author = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(db_session, owner_id=author.id)
+    post = _create_post(
+        client,
+        db_session,
+        api_prefix,
+        trip_id=trip.id,
+        user=author,
+        place=create_place(db_session),
+        title='Ordered comments',
+        occurred_at=OCCURRED_AT,
+        publish=True,
+    )
+    headers = _auth_headers(author)
+    comments_url = f'{api_prefix}/trips/{trip.id}/posts/{post["id"]}/comments'
+    created = [
+        client.post(comments_url, headers=headers, json={'body': body}).json()
+        for body in ('First', 'Second', 'Third')
+    ]
+
+    first_page = client.get(
+        comments_url, headers=headers, params={'page_size': 2}
+    ).json()
+    second_page = client.get(
+        comments_url,
+        headers=headers,
+        params={'page_size': 2, 'cursor': first_page['next_cursor']},
+    ).json()
+
+    assert [item['id'] for item in first_page['items']] == [
+        created[0]['id'],
+        created[1]['id'],
+    ]
+    assert [item['id'] for item in second_page['items']] == [created[2]['id']]
+    assert second_page['next_cursor'] is None

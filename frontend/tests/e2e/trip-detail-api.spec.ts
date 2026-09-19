@@ -1,4 +1,10 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from '@playwright/test'
 import { env } from 'node:process'
 
 type AuthTokens = {
@@ -9,6 +15,10 @@ type AuthTokens = {
 }
 
 type CreatedTrip = {
+  id: string
+}
+
+type CreatedPost = {
   id: string
 }
 
@@ -195,6 +205,174 @@ test('revokes, restores, and permanently deletes a share link', async ({
   }
 })
 
+test('creates nested comment replies and deletes reply subtrees', async ({
+  page,
+  request,
+}) => {
+  const email = env.E2E_LOGIN_EMAIL
+  const password = env.E2E_LOGIN_PASSWORD
+
+  test.skip(
+    !email || !password,
+    'Set E2E_LOGIN_EMAIL and E2E_LOGIN_PASSWORD to run trip detail API tests.',
+  )
+
+  if (!email || !password) {
+    return
+  }
+
+  const tokens = await loginWithApi(request, email, password)
+  const trip = await createTripWithApi(request, tokens)
+  const postTitle = `E2E comment thread ${Date.now()}`
+  await createPublishedPostWithApi(request, tokens, trip.id, postTitle)
+
+  try {
+    await seedBrowserAuth(page, tokens)
+    await page.goto(`/trips/${trip.id}`)
+    await expect(page.getByText(postTitle, { exact: true })).toBeVisible()
+
+    await page.getByRole('button', { name: '0 comments' }).click()
+    const rootBody = 'E2E root comment'
+    await createRootComment(page, rootBody)
+
+    const levelOneBody = 'E2E level one reply'
+    const levelTwoBody = 'E2E level two reply'
+    const levelThreeBody = 'E2E level three reply'
+    await createReply(page, commentCard(page, rootBody), levelOneBody)
+    await createReply(page, commentCard(page, levelOneBody), levelTwoBody)
+    await createReply(page, commentCard(page, levelTwoBody), levelThreeBody)
+    await expect(page.getByRole('button', { name: '4 comments' })).toBeVisible()
+
+    await page.reload()
+    await page.getByRole('button', { name: '4 comments' }).click()
+
+    const rootCard = commentCard(page, rootBody)
+    const levelOneCard = commentCard(page, levelOneBody)
+    const levelTwoCard = commentCard(page, levelTwoBody)
+    const levelThreeCard = commentCard(page, levelThreeBody)
+    await expect(rootCard).toHaveAttribute('data-comment-depth', '0')
+    await expect(levelOneCard).toHaveAttribute('data-comment-depth', '1')
+    await expect(levelTwoCard).toHaveAttribute('data-comment-depth', '2')
+    await expect(levelThreeCard).toHaveAttribute('data-comment-depth', '3')
+    await expect(
+      levelThreeCard.getByRole('button', { name: 'Reply', exact: true }),
+    ).toHaveCount(0)
+
+    await levelOneCard.getByRole('button', { name: 'Delete comment' }).click()
+    const subtreeDeleteDialog = page.getByRole('dialog')
+    await expect(subtreeDeleteDialog).toContainText(
+      'every reply beneath it, including replies written by other people',
+    )
+    await subtreeDeleteDialog
+      .getByRole('button', { name: 'Delete comment' })
+      .click()
+
+    await expect(rootCard).toBeVisible()
+    await expect(levelOneCard).toHaveCount(0)
+    await expect(levelTwoCard).toHaveCount(0)
+    await expect(levelThreeCard).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '1 comments' })).toBeVisible()
+
+    await rootCard.getByRole('button', { name: 'Delete comment' }).click()
+    const leafDeleteDialog = page.getByRole('dialog')
+    await expect(leafDeleteDialog).toContainText(
+      'This permanently deletes the comment. This action cannot be undone.',
+    )
+    await leafDeleteDialog
+      .getByRole('button', { name: 'Delete comment' })
+      .click()
+
+    await expect(rootCard).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '0 comments' })).toBeVisible()
+  } finally {
+    await deleteTripWithApi(request, tokens, trip.id)
+  }
+})
+
+test('keeps the mobile post open when closing its media viewer', async ({
+  page,
+  request,
+}) => {
+  const email = env.E2E_LOGIN_EMAIL
+  const password = env.E2E_LOGIN_PASSWORD
+
+  test.skip(
+    !email || !password,
+    'Set E2E_LOGIN_EMAIL and E2E_LOGIN_PASSWORD to run trip detail API tests.',
+  )
+
+  if (!email || !password) {
+    return
+  }
+
+  const tokens = await loginWithApi(request, email, password)
+  const trip = await createTripWithApi(request, tokens)
+  const postTitle = `E2E mobile media ${Date.now()}`
+  await createPublishedPostWithApi(request, tokens, trip.id, postTitle)
+
+  try {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await seedBrowserAuth(page, tokens)
+    await page.goto(`/trips/${trip.id}?tab=travel`)
+    await page.getByRole('button', { name: `Open ${postTitle}` }).click()
+    const mobileBackButton = page.getByRole('button', {
+      name: 'Back to post carousel',
+    })
+    const mobilePost = mobileBackButton.locator('xpath=ancestor::article[1]')
+    await expect(mobileBackButton).toBeVisible()
+
+    const gallery = mobilePost.getByRole('region', {
+      name: 'Post media: 1 items',
+    })
+    await gallery.getByRole('button').click()
+    const mediaViewer = page.getByRole('dialog', {
+      name: `${postTitle} media viewer`,
+    })
+    await expect(mediaViewer).toBeVisible()
+    await mediaViewer.getByRole('button', { name: 'Close media viewer' }).click()
+
+    await expect(mediaViewer).toHaveCount(0)
+    await expect(mobileBackButton).toBeVisible()
+    await expect(
+      mobilePost.getByRole('heading', { name: postTitle }),
+    ).toBeVisible()
+
+    await gallery.getByRole('button').click()
+    await expect(mediaViewer).toBeVisible()
+    await page.goBack()
+
+    await expect(mediaViewer).toHaveCount(0)
+    await expect(mobileBackButton).toBeVisible()
+    await expect(
+      mobilePost.getByRole('heading', { name: postTitle }),
+    ).toBeVisible()
+  } finally {
+    await deleteTripWithApi(request, tokens, trip.id)
+  }
+})
+
+async function createRootComment(page: Page, body: string) {
+  const composer = page.locator('[data-comment-composer]').filter({
+    has: page.getByPlaceholder('Write a comment'),
+  })
+  await composer.getByPlaceholder('Write a comment').fill(body)
+  await composer.getByRole('button', { name: 'Comment', exact: true }).click()
+  await expect(commentCard(page, body)).toBeVisible()
+}
+
+async function createReply(page: Page, parent: Locator, body: string) {
+  await parent.locator('[data-comment-reply-action]').click()
+  const composer = parent.locator('[data-comment-composer]')
+  await composer.getByPlaceholder('Write a reply').fill(body)
+  await composer.getByRole('button', { name: 'Reply', exact: true }).click()
+  await expect(commentCard(page, body)).toBeVisible()
+  await expect(composer).toHaveCount(0)
+}
+
+function commentCard(page: Page, body: string) {
+  return page.locator('[data-comment-card]').filter({ hasText: body })
+}
+
 async function openShareLinkManagement(page: Page) {
   await page.getByRole('button', { name: 'Manage trip' }).click()
   await page.getByRole('button', { name: 'People & sharing' }).click()
@@ -332,6 +510,46 @@ async function createTripWithApi(
   })
   expect(response.ok()).toBe(true)
   return (await response.json()) as CreatedTrip
+}
+
+async function createPublishedPostWithApi(
+  request: APIRequestContext,
+  tokens: AuthTokens,
+  tripId: string,
+  title: string,
+): Promise<CreatedPost> {
+  const mediaResponse = await request.post(`${apiBaseUrl}/api/v1/media`, {
+    headers: authHeaders(tokens),
+    multipart: {
+      file: {
+        buffer: tinyPngBuffer(),
+        mimeType: 'image/png',
+        name: 'e2e-comment-post.png',
+      },
+    },
+  })
+  expect(mediaResponse.ok()).toBe(true)
+  const media = (await mediaResponse.json()) as { id: string }
+
+  const response = await request.post(
+    `${apiBaseUrl}/api/v1/trips/${tripId}/posts`,
+    {
+      data: {
+        body: 'Published for nested comment end-to-end coverage.',
+        location: {
+          latitude: 52.3676,
+          longitude: 4.9041,
+        },
+        media_ids: [media.id],
+        occurred_at: '2027-05-11T12:00:00Z',
+        publish: true,
+        title,
+      },
+      headers: authHeaders(tokens),
+    },
+  )
+  expect(response.ok()).toBe(true)
+  return (await response.json()) as CreatedPost
 }
 
 async function deleteTripWithApi(
