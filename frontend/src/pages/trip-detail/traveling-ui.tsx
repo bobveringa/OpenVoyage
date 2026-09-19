@@ -931,7 +931,7 @@ function PostSocialControls({
   function renderComposer() {
     const canSubmit = !isSubmitting && !isUploadingMedia && (Boolean(body.trim()) || Boolean(commentMediaFile) || Boolean(commentMediaId))
     return (
-      <div className="mt-3 space-y-2 rounded-lg border border-border/70 bg-muted/20 p-2">
+      <div className="mt-3 space-y-2 rounded-lg border border-border/70 bg-muted/20 p-2" data-comment-composer>
         {replyTo ? <p className="text-xs text-muted-foreground">Replying to {replyTo.author.type === 'user' ? replyTo.author.user.username || 'this reader' : replyTo.author.display_name}</p> : null}
         <textarea className="min-h-20 w-full rounded-xl border border-input bg-background p-2 text-sm" maxLength={2000} onChange={(event) => setBody(event.target.value)} placeholder={replyTo ? 'Write a reply' : 'Write a comment'} value={body} />
         {commentMediaPreviewUrl ? (
@@ -967,7 +967,7 @@ function PostSocialControls({
           isReply
             ? 'border-border/70 bg-muted/25'
             : 'border-border/80 bg-background shadow-sm',
-        )}>
+        )} data-comment-card data-comment-depth={depth}>
           <div className="flex items-start justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
               {comment.author.type === 'user' && comment.author.user.profile_picture ? (
@@ -981,7 +981,7 @@ function PostSocialControls({
           {comment.media ? <button aria-label="Open attached comment image" className="mt-2 block max-w-sm overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setActiveCommentMedia(comment.media)} type="button"><MediaImage alt="Attached comment image" className="max-h-64 w-full" media={comment.media} /></button> : null}
           <div className="mt-2 flex items-center gap-2">
             {!comment.authored_by_viewer && (comment.can_like || comment.viewer_has_liked) ? <Button aria-label={comment.viewer_has_liked ? 'Unlike comment' : 'Like comment'} aria-pressed={comment.viewer_has_liked} className="h-7 px-2" disabled={isSubmitting} onClick={() => void toggleCommentLike(comment)} size="sm" type="button" variant={comment.viewer_has_liked ? 'default' : 'outline'}><Heart className={cn('size-3', comment.viewer_has_liked && 'fill-current')} aria-hidden="true" />{comment.like_count}</Button> : <span className="text-xs text-muted-foreground">{comment.like_count} likes</span>}
-            {comment.can_reply ? <Button className="h-7 px-2" onClick={() => { setReplyTo(comment); setBody(''); clearCommentImage() }} size="sm" type="button" variant="ghost">Reply</Button> : null}
+            {comment.can_reply ? <Button className="h-7 px-2" data-comment-reply-action onClick={() => { setReplyTo(comment); setBody(''); clearCommentImage() }} size="sm" type="button" variant="ghost">Reply</Button> : null}
           </div>
           {replyTo?.id === comment.id ? renderComposer() : null}
         </div>
