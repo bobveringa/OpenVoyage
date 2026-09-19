@@ -149,6 +149,7 @@ export function TravelingPanel({
   gpsPostCandidates,
   isTripOngoing,
   isMutating,
+  newPostIds,
   onFocusedPostChange,
   onGpsPostCandidateSelect,
   onEditPost,
@@ -156,6 +157,7 @@ export function TravelingPanel({
   onPostMarkerSelect,
   onPostSocialSummary,
   onPublishPost,
+  onViewedPostChange,
   scrollRootRef,
   scrollRequest,
   showMobileMap,
@@ -173,6 +175,7 @@ export function TravelingPanel({
   gpsPostCandidates: readonly GpsPostCandidate[]
   isTripOngoing: boolean
   isMutating: boolean
+  newPostIds: ReadonlySet<string>
   onFocusedPostChange: (postId: string | null) => void
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onEditPost: (postId: string) => void
@@ -180,6 +183,7 @@ export function TravelingPanel({
   onPostMarkerSelect: (postId: string) => void
   onPostSocialSummary: (postId: string, social: PostSocialSummary) => void
   onPublishPost: (postId: string) => void
+  onViewedPostChange: (postId: string) => void
   scrollRootRef: PostScrollRootRef
   scrollRequest: PostScrollRequest | null
   showMobileMap: boolean
@@ -205,11 +209,17 @@ export function TravelingPanel({
     () => displayedPosts.filter((post) => post.isDraft).length,
     [displayedPosts],
   )
+  const newPosts = useMemo(
+    () => displayedPosts.filter((post) => newPostIds.has(post.id)),
+    [displayedPosts, newPostIds],
+  )
+  const [viewedPostId, setViewedPostId] = useState<string | null>(null)
   const firstPostId = displayedPostIds[0] ?? null
   const desktopPostElementsRef = useRef(new Map<string, HTMLElement>())
   const mobilePostElementsRef = useRef(new Map<string, HTMLElement>())
   const mobileCarouselRef = useRef<HTMLDivElement | null>(null)
   const mobileReturnPostIdRef = useRef<string | null>(null)
+  const lastRecordedPostIdRef = useRef<string | null>(null)
   const suppressScrollFocusRef = useRef(false)
   const handleScrollFocusedPostChange = useCallback(
     (postId: string | null) => {
@@ -219,12 +229,45 @@ export function TravelingPanel({
     },
     [onFocusedPostChange],
   )
+  const handleViewedPostChange = useCallback(
+    (postId: string) => {
+      setViewedPostId(postId)
+      if (lastRecordedPostIdRef.current === postId) {
+        return
+      }
+
+      lastRecordedPostIdRef.current = postId
+      onViewedPostChange(postId)
+    },
+    [onViewedPostChange],
+  )
+  const jumpToNextNewPost = useCallback(() => {
+    const viewedPostIndex = viewedPostId
+      ? displayedPostIds.indexOf(viewedPostId)
+      : -1
+    const nextPost =
+      displayedPosts.find(
+        (post, index) => index > viewedPostIndex && newPostIds.has(post.id),
+      ) ?? newPosts[0]
+
+    if (nextPost) {
+      onPostMarkerSelect(nextPost.id)
+    }
+  }, [
+    displayedPostIds,
+    displayedPosts,
+    newPostIds,
+    newPosts,
+    onPostMarkerSelect,
+    viewedPostId,
+  ])
 
   usePostScrollFocus({
     axis: 'y',
     enabled: !showMobileMap,
     firstPostId,
     onFocusedPostChange: handleScrollFocusedPostChange,
+    onViewedPostChange: handleViewedPostChange,
     postElementsRef: desktopPostElementsRef,
     postIds: displayedPostIds,
     rootRef: scrollRootRef,
@@ -234,6 +277,7 @@ export function TravelingPanel({
     enabled: showMobileMap && !activePost,
     firstPostId,
     onFocusedPostChange: handleScrollFocusedPostChange,
+    onViewedPostChange: handleViewedPostChange,
     postElementsRef: mobilePostElementsRef,
     postIds: displayedPostIds,
     rootRef: mobileCarouselRef,
@@ -360,6 +404,7 @@ export function TravelingPanel({
               }
               publishDisabled={isMutating}
               post={activePost}
+              isNew={newPostIds.has(activePost.id)}
               accessToken={accessToken}
               currentUserId={currentUserId}
               onPostSocialSummary={onPostSocialSummary}
@@ -380,17 +425,30 @@ export function TravelingPanel({
                 travelPosts={travelPosts}
               />
 
-              {canMutate ? (
-                <div className="pointer-events-none absolute left-3 top-3 z-[500]">
-                  <Button
-                    className="pointer-events-auto shadow-xl shadow-foreground/10"
-                    onClick={onNewPost}
-                    size="sm"
-                    type="button"
-                  >
-                    <Camera className="size-4" aria-hidden="true" />
-                    New post
-                  </Button>
+              {canMutate || newPosts.length > 0 ? (
+                <div className="pointer-events-none absolute left-3 top-3 z-[500] flex flex-col items-start gap-2">
+                  {canMutate ? (
+                    <Button
+                      className="pointer-events-auto shadow-xl shadow-foreground/10"
+                      onClick={onNewPost}
+                      size="sm"
+                      type="button"
+                    >
+                      <Camera className="size-4" aria-hidden="true" />
+                      New post
+                    </Button>
+                  ) : null}
+                  {newPosts.length > 0 ? (
+                    <Button
+                      className="pointer-events-auto bg-card/90 shadow-xl shadow-foreground/10 backdrop-blur"
+                      onClick={jumpToNextNewPost}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      {newPosts.length} new · Jump to next
+                    </Button>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -403,6 +461,7 @@ export function TravelingPanel({
                     <Fragment key={post.id}>
                       <TravelPostPreviewCard
                         active={focusedPostId === post.id}
+                        isNew={newPostIds.has(post.id)}
                         onOpen={() => openMobilePostDetail(post)}
                         post={post}
                         postRef={(element) =>
@@ -431,12 +490,24 @@ export function TravelingPanel({
               {draftCount > 0 ? ` · ${draftCount} drafts` : ''}
             </p>
           </div>
-          {canMutate ? (
-            <Button onClick={onNewPost} size="sm" type="button">
-              <Camera className="size-4" aria-hidden="true" />
-              New post
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            {newPosts.length > 0 ? (
+              <Button
+                onClick={jumpToNextNewPost}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {newPosts.length} new · Jump to next
+              </Button>
+            ) : null}
+            {canMutate ? (
+              <Button onClick={onNewPost} size="sm" type="button">
+                <Camera className="size-4" aria-hidden="true" />
+                New post
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         <div className="space-y-5">
@@ -450,6 +521,7 @@ export function TravelingPanel({
             <Fragment key={post.id}>
               <TravelPostCard
                 active={focusedPostId === post.id}
+                isNew={newPostIds.has(post.id)}
                 onEdit={canMutate ? () => onEditPost(post.id) : undefined}
                 onPublish={
                   canMutate && post.isDraft
@@ -517,6 +589,7 @@ export function TravelPostCard({
   accessToken,
   currentUserId,
   active = false,
+  isNew = false,
   onEdit,
   onPublish,
   onPostSocialSummary,
@@ -529,6 +602,7 @@ export function TravelPostCard({
   accessToken?: string | null
   currentUserId: string | null
   active?: boolean
+  isNew?: boolean
   onEdit?: () => void
   onPublish?: () => void
   onPostSocialSummary: (postId: string, social: PostSocialSummary) => void
@@ -561,6 +635,7 @@ export function TravelPostCard({
               <h3 className="text-lg font-semibold leading-6 text-foreground">
                 {post.title}
               </h3>
+              {isNew ? <Badge variant="secondary">New</Badge> : null}
               {post.isDraft ? <Badge>Draft</Badge> : null}
             </div>
             {post.isDraft ? (
@@ -1194,11 +1269,13 @@ function PostRouteDuration({
 
 function TravelPostPreviewCard({
   active = false,
+  isNew = false,
   onOpen,
   post,
   postRef,
 }: {
   active?: boolean
+  isNew?: boolean
   onOpen: () => void
   post: TravelPost
   postRef?: (element: HTMLElement | null) => void
@@ -1233,8 +1310,13 @@ function TravelPostPreviewCard({
             source="thumbnail"
           />
           <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
-          {post.isDraft ? (
-            <Badge className="absolute left-2 top-2 shadow-sm">Draft</Badge>
+          {isNew || post.isDraft ? (
+            <span className="absolute left-2 top-2 flex gap-1.5">
+              {isNew ? (
+                <Badge className="shadow-sm" variant="secondary">New</Badge>
+              ) : null}
+              {post.isDraft ? <Badge className="shadow-sm">Draft</Badge> : null}
+            </span>
           ) : null}
           {isVideo ? (
             <span className="pointer-events-none absolute inset-0 grid place-items-center">
@@ -1273,6 +1355,7 @@ function TravelPostPreviewCard({
 function MobilePostDetailCard({
   accessToken,
   currentUserId,
+  isNew = false,
   onBack,
   onEdit,
   onPublish,
@@ -1284,6 +1367,7 @@ function MobilePostDetailCard({
 }: {
   accessToken?: string | null
   currentUserId: string | null
+  isNew?: boolean
   onBack: () => void
   onEdit?: () => void
   onPublish?: () => void
@@ -1339,9 +1423,12 @@ function MobilePostDetailCard({
             <ArrowLeft className="size-4" aria-hidden="true" />
           </Button>
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold leading-6 text-foreground">
-              {post.title}
-            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base font-semibold leading-6 text-foreground">
+                {post.title}
+              </h3>
+              {isNew ? <Badge variant="secondary">New</Badge> : null}
+            </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               {post.isDraft ? <Badge>Draft</Badge> : null}
               <PostAuthor author={post.author} />

@@ -90,6 +90,13 @@ import {
   getMapFocusedPostId,
   getUpcomingStops,
 } from '@/pages/trip-detail/trip-selectors'
+import {
+  getLatestPublishedAt,
+  getNewPostIds,
+  readTripProgress,
+  updateLastViewedPost,
+  writeTripProgress,
+} from '@/pages/trip-detail/trip-progress-storage'
 import type {
   ShareLinkViewModel,
   TripViewModel,
@@ -207,6 +214,9 @@ export function TripDetailPage({
   const [focusedPostId, setFocusedPostId] = useState<string | null>(null)
   const [postScrollRequest, setPostScrollRequest] =
     useState<PostScrollRequest | null>(null)
+  const [newPostIds, setNewPostIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
   const [activeDialog, setActiveDialog] = useState<TripDialog | null>(
     initialUrlState.activeDialog,
   )
@@ -225,6 +235,7 @@ export function TripDetailPage({
   // Which trip the rendered content belongs to, so a reload of the trip
   // already on screen can keep showing it instead of blanking out.
   const loadedTripIdRef = useRef<string | null>(null)
+  const progressInitializedKeyRef = useRef<string | null>(null)
   const shareToken = useMemo(readShareTokenFromUrl, [])
   const currentUserId = currentUser?.id ?? null
   const isTripCurrentlyOngoing = isTripOngoing({
@@ -353,6 +364,45 @@ export function TripDetailPage({
             : loadedTripMembers.find(
                 (member) => member.userId === currentUserId,
               ) ?? null
+
+        const progressKey = {
+          tripId,
+          userId: currentUserId,
+        }
+        const progressInitializationKey = `${currentUserId ?? 'visitor'}:${tripId}`
+        if (progressInitializedKeyRef.current !== progressInitializationKey) {
+          const previousProgress = readTripProgress(progressKey)
+          const loadedNewPostIds = getNewPostIds(
+            loadedPosts,
+            previousProgress,
+          )
+          const visibleLastViewedPostId = loadedPosts.some(
+            (post) => post.id === previousProgress?.lastViewedPostId,
+          )
+            ? previousProgress?.lastViewedPostId ?? null
+            : null
+
+          setNewPostIds(new Set(loadedNewPostIds))
+          writeTripProgress(progressKey, {
+            lastViewedPostId: visibleLastViewedPostId,
+            seenThroughPublishedAt: getLatestPublishedAt(loadedPosts),
+          })
+
+          const restorePostId =
+            loadedNewPostIds[0] ?? visibleLastViewedPostId
+          if (
+            restorePostId &&
+            urlStateRef.current.mode === 'traveling' &&
+            urlStateRef.current.travelingView === 'posts'
+          ) {
+            setPostScrollRequest((currentRequest) => ({
+              postId: restorePostId,
+              sequence: (currentRequest?.sequence ?? 0) + 1,
+            }))
+          }
+
+          progressInitializedKeyRef.current = progressInitializationKey
+        }
 
         setTrip(toTripViewModel(loadedTrip))
         applyItinerary(loadedItinerary)
@@ -1306,6 +1356,20 @@ export function TripDetailPage({
     )
   }, [])
 
+  const handleViewedPostChange = useCallback(
+    (postId: string) => {
+      if (!tripId) {
+        return
+      }
+
+      updateLastViewedPost(
+        { tripId, userId: currentUserId },
+        postId,
+      )
+    },
+    [currentUserId, tripId],
+  )
+
   const handlePostSocialSummary = useCallback(
     (postId: string, social: PostSocialSummary) => {
       setTravelPosts((posts) =>
@@ -1489,6 +1553,7 @@ export function TripDetailPage({
               onPostMarkerSelect={handleMapPostSelect}
               onCreateStop={handleCreateStop}
               onFocusedPostChange={handleFocusedPostChange}
+              onViewedPostChange={handleViewedPostChange}
               onPostSocialSummary={handlePostSocialSummary}
               onOpenManagement={openManagement}
               onEditPost={handleEditPost}
@@ -1507,6 +1572,7 @@ export function TripDetailPage({
               onTravelingViewChange={handleTravelingViewChange}
               pendingAction={pendingAction}
               postScrollRequest={postScrollRequest}
+              newPostIds={newPostIds}
               editingPostId={editingPostId}
               planningView={planningView}
               reserveMobileModeSwitchSpace={canSwitchModes}
@@ -1803,6 +1869,7 @@ function toTravelPostViewModel(
     location: post.location.full_name || post.location.name,
     media: toPostMediaTuple(media),
     occurred_at: post.occurred_at,
+    publishedAt: post.published_at,
     revision: post.revision,
     routeAfter,
     time: formatDateTimeLabel(post.occurred_at),

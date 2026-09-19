@@ -191,10 +191,12 @@ export function TripSidebar({
   isTripOngoing,
   mapPointTarget,
   mutationError,
+  newPostIds,
   onCreateStop,
   mode,
   onEditPost,
   onFocusedPostChange,
+  onViewedPostChange,
   onGpsPostCandidateSelect,
   onMapPointTargetChange,
   onPostMarkerSelect,
@@ -241,10 +243,12 @@ export function TripSidebar({
   isTripOngoing: boolean
   mapPointTarget: MapPointTarget | null
   mutationError: string | null
+  newPostIds: ReadonlySet<string>
   onCreateStop: (draft: CreateStopDraft) => void
   mode: TripMode
   onEditPost: (postId: string) => void
   onFocusedPostChange: (postId: string | null) => void
+  onViewedPostChange: (postId: string) => void
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
   onPostMarkerSelect: (postId: string) => void
@@ -417,8 +421,10 @@ export function TripSidebar({
             gpsPostCandidates={gpsPostCandidates}
             isTripOngoing={isTripOngoing}
             isMutating={isMutating}
+            newPostIds={newPostIds}
             onEditPost={editPost}
             onFocusedPostChange={onFocusedPostChange}
+            onViewedPostChange={onViewedPostChange}
             onGpsPostCandidateSelect={onGpsPostCandidateSelect}
             onPostMarkerSelect={onPostMarkerSelect}
             onPostSocialSummary={onPostSocialSummary}

@@ -65,6 +65,7 @@ export function usePostScrollFocus({
   enabled,
   firstPostId,
   onFocusedPostChange,
+  onViewedPostChange,
   postElementsRef,
   postIds,
   rootRef,
@@ -73,6 +74,7 @@ export function usePostScrollFocus({
   enabled: boolean
   firstPostId: string | null
   onFocusedPostChange: (postId: string | null) => void
+  onViewedPostChange?: (postId: string) => void
   postElementsRef: PostScrollElementsRef
   postIds: readonly string[]
   rootRef?: PostScrollRootRef
@@ -109,6 +111,10 @@ export function usePostScrollFocus({
         postIds,
         rootElement,
       })
+
+      if (nextPostId) {
+        onViewedPostChange?.(nextPostId)
+      }
 
       latestFocusedPostChangeRef.current(
         nextPostId === firstPostId ? null : nextPostId,
@@ -150,7 +156,15 @@ export function usePostScrollFocus({
         window.cancelAnimationFrame(animationFrameId)
       }
     }
-  }, [axis, enabled, firstPostId, postElementsRef, postIds, rootRef])
+  }, [
+    axis,
+    enabled,
+    firstPostId,
+    onViewedPostChange,
+    postElementsRef,
+    postIds,
+    rootRef,
+  ])
 }
 
 function getFocusedPostIdFromScrollPosition({
