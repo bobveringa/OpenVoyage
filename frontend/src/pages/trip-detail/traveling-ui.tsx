@@ -956,27 +956,40 @@ function PostSocialControls({
     )
   }
 
-  function renderComment(comment: PostComment) {
+  function renderComment(comment: PostComment, depth = 0) {
     if (deletedCommentIds.has(comment.id)) return null
+    const isReply = depth > 0
     return (
-      <div className="rounded-xl border border-border/80 bg-background p-3 text-sm shadow-sm" key={comment.id}>
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            {comment.author.type === 'user' && comment.author.user.profile_picture ? (
-              <img alt="" className="size-8 shrink-0 rounded-full object-cover" src={comment.author.user.profile_picture.urls.thumbnail ?? comment.author.user.profile_picture.urls.content} />
-            ) : <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-primary">{comment.author.type === 'user' ? getCommentInitials(comment.author.user.first_name, comment.author.user.last_name, comment.author.user.username) : comment.author.display_name.slice(0, 1).toUpperCase()}</span>}
-            <div className="min-w-0"><div className="flex min-w-0 items-center gap-1"><p className="truncate font-semibold text-foreground">{comment.author.type === 'user' ? [comment.author.user.first_name, comment.author.user.last_name].filter(Boolean).join(' ') || comment.author.user.username || 'User' : comment.author.display_name}</p>{comment.authored_by_viewer ? <Badge>You</Badge> : null}</div><p className="text-xs text-muted-foreground">{formatCommentAge(comment.created_at)}</p></div>
+      <div className="relative min-w-0" key={comment.id}>
+        {isReply ? <span aria-hidden="true" className="absolute -left-3 top-5 h-px w-3 bg-border sm:-left-4 sm:w-4" /> : null}
+        <div className={cn(
+          'rounded-xl border p-3 text-sm',
+          isReply
+            ? 'border-border/70 bg-muted/25'
+            : 'border-border/80 bg-background shadow-sm',
+        )}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              {comment.author.type === 'user' && comment.author.user.profile_picture ? (
+                <img alt="" className="size-8 shrink-0 rounded-full object-cover" src={comment.author.user.profile_picture.urls.thumbnail ?? comment.author.user.profile_picture.urls.content} />
+              ) : <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-primary">{comment.author.type === 'user' ? getCommentInitials(comment.author.user.first_name, comment.author.user.last_name, comment.author.user.username) : comment.author.display_name.slice(0, 1).toUpperCase()}</span>}
+              <div className="min-w-0"><div className="flex min-w-0 items-center gap-1"><p className="truncate font-semibold text-foreground">{comment.author.type === 'user' ? [comment.author.user.first_name, comment.author.user.last_name].filter(Boolean).join(' ') || comment.author.user.username || 'User' : comment.author.display_name}</p>{comment.authored_by_viewer ? <Badge>You</Badge> : null}</div><p className="text-xs text-muted-foreground">{formatCommentAge(comment.created_at)}</p></div>
+            </div>
+            {comment.can_delete ? <Button aria-label="Delete comment" className="size-7" onClick={() => requestCommentDeletion(comment)} size="icon" type="button" variant="ghost"><Trash2 className="size-3.5" /></Button> : null}
           </div>
-          {comment.can_delete ? <Button aria-label="Delete comment" className="size-7" onClick={() => requestCommentDeletion(comment)} size="icon" type="button" variant="ghost"><Trash2 className="size-3.5" /></Button> : null}
+          {comment.body ? <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{comment.body}</p> : null}
+          {comment.media ? <button aria-label="Open attached comment image" className="mt-2 block max-w-sm overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setActiveCommentMedia(comment.media)} type="button"><MediaImage alt="Attached comment image" className="max-h-64 w-full" media={comment.media} /></button> : null}
+          <div className="mt-2 flex items-center gap-2">
+            {!comment.authored_by_viewer && (comment.can_like || comment.viewer_has_liked) ? <Button aria-label={comment.viewer_has_liked ? 'Unlike comment' : 'Like comment'} aria-pressed={comment.viewer_has_liked} className="h-7 px-2" disabled={isSubmitting} onClick={() => void toggleCommentLike(comment)} size="sm" type="button" variant={comment.viewer_has_liked ? 'default' : 'outline'}><Heart className={cn('size-3', comment.viewer_has_liked && 'fill-current')} aria-hidden="true" />{comment.like_count}</Button> : <span className="text-xs text-muted-foreground">{comment.like_count} likes</span>}
+            {comment.can_reply ? <Button className="h-7 px-2" onClick={() => { setReplyTo(comment); setBody(''); clearCommentImage() }} size="sm" type="button" variant="ghost">Reply</Button> : null}
+          </div>
+          {replyTo?.id === comment.id ? renderComposer() : null}
         </div>
-        {comment.body ? <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{comment.body}</p> : null}
-        {comment.media ? <button aria-label="Open attached comment image" className="mt-2 block max-w-sm overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setActiveCommentMedia(comment.media)} type="button"><MediaImage alt="Attached comment image" className="max-h-64 w-full" media={comment.media} /></button> : null}
-        <div className="mt-2 flex items-center gap-2">
-          {!comment.authored_by_viewer && (comment.can_like || comment.viewer_has_liked) ? <Button aria-label={comment.viewer_has_liked ? 'Unlike comment' : 'Like comment'} aria-pressed={comment.viewer_has_liked} className="h-7 px-2" disabled={isSubmitting} onClick={() => void toggleCommentLike(comment)} size="sm" type="button" variant={comment.viewer_has_liked ? 'default' : 'outline'}><Heart className={cn('size-3', comment.viewer_has_liked && 'fill-current')} aria-hidden="true" />{comment.like_count}</Button> : <span className="text-xs text-muted-foreground">{comment.like_count} likes</span>}
-          {comment.can_reply ? <Button className="h-7 px-2" onClick={() => { setReplyTo(comment); setBody(''); clearCommentImage() }} size="sm" type="button" variant="ghost">Reply</Button> : null}
-        </div>
-        {replyTo?.id === comment.id ? renderComposer() : null}
-        {(comment.replies?.length ?? 0) > 0 ? <div className="mt-3 space-y-3 border-l-2 border-border pl-3">{comment.replies?.map(renderComment)}</div> : null}
+        {(comment.replies?.length ?? 0) > 0 ? (
+          <div className="ml-3 mt-2 space-y-2 border-l border-border/80 pl-3 sm:ml-4 sm:pl-4">
+            {comment.replies?.map((reply) => renderComment(reply, depth + 1))}
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -1017,7 +1030,7 @@ function PostSocialControls({
       </div>
       {expanded ? (
         <div className="mt-3 space-y-3">
-          {comments.map(renderComment)}
+          {comments.map((comment) => renderComment(comment))}
           {nextCursor ? <Button disabled={isLoading} onClick={() => void loadComments(nextCursor)} size="sm" type="button" variant="outline">Load more comments</Button> : null}
           {isLoading ? <p className="text-xs text-muted-foreground">Loading comments…</p> : null}
           {canAttemptInteraction && !replyTo ? renderComposer() : null}
