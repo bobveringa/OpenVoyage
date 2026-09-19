@@ -75,6 +75,7 @@ import {
 } from '@/pages/trip-detail/shared-utils'
 import { TripLeafletMap } from '@/pages/trip-detail/trip-map'
 import {
+  scrollPostElementToCenter,
   setPostScrollElement,
   usePostScrollFocus,
   type PostScrollRootRef,
@@ -246,16 +247,20 @@ export function TravelingPanel({
     const postElementsRef = showMobileMap
       ? mobilePostElementsRef
       : desktopPostElementsRef
+    const scrollRoot = showMobileMap
+      ? mobileCarouselRef.current
+      : scrollRootRef.current
     const postElement = postElementsRef.current.get(scrollRequest.postId)
-    if (!postElement) {
+    if (!postElement || !scrollRoot) {
       return undefined
     }
 
     suppressScrollFocusRef.current = true
-    postElement.scrollIntoView({
+    scrollPostElementToCenter({
+      axis: showMobileMap ? 'x' : 'y',
       behavior: 'smooth',
-      block: 'center',
-      inline: 'center',
+      element: postElement,
+      rootElement: scrollRoot,
     })
 
     const releaseTimeout = window.setTimeout(() => {
@@ -266,7 +271,7 @@ export function TravelingPanel({
       window.clearTimeout(releaseTimeout)
       suppressScrollFocusRef.current = false
     }
-  }, [scrollRequest, showMobileMap])
+  }, [scrollRequest, scrollRootRef, showMobileMap])
 
   const closeMobilePostDetail = useCallback(() => {
     if (!activePostId) {
@@ -318,9 +323,16 @@ export function TravelingPanel({
     }
 
     const animationFrameId = window.requestAnimationFrame(() => {
-      mobilePostElementsRef.current
-        .get(postId)
-        ?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' })
+      const postElement = mobilePostElementsRef.current.get(postId)
+      const scrollRoot = mobileCarouselRef.current
+      if (postElement && scrollRoot) {
+        scrollPostElementToCenter({
+          axis: 'x',
+          behavior: 'auto',
+          element: postElement,
+          rootElement: scrollRoot,
+        })
+      }
       mobileReturnPostIdRef.current = null
     })
 

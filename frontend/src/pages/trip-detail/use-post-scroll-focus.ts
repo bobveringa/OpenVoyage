@@ -24,6 +24,42 @@ export function setPostScrollElement(
   postElementsRef.current.set(postId, element)
 }
 
+export function scrollPostElementToCenter({
+  axis,
+  behavior,
+  element,
+  rootElement,
+}: {
+  axis: PostScrollAxis
+  behavior: ScrollBehavior
+  element: HTMLElement
+  rootElement: HTMLElement
+}) {
+  const elementRect = element.getBoundingClientRect()
+  const rootRect = rootElement.getBoundingClientRect()
+  const elementCenter =
+    axis === 'x'
+      ? elementRect.left + elementRect.width / 2
+      : elementRect.top + elementRect.height / 2
+  const rootCenter =
+    axis === 'x'
+      ? rootRect.left + rootRect.width / 2
+      : rootRect.top + rootRect.height / 2
+
+  if (axis === 'x') {
+    rootElement.scrollTo({
+      behavior,
+      left: rootElement.scrollLeft + elementCenter - rootCenter,
+    })
+    return
+  }
+
+  rootElement.scrollTo({
+    behavior,
+    top: rootElement.scrollTop + elementCenter - rootCenter,
+  })
+}
+
 export function usePostScrollFocus({
   axis,
   enabled,
