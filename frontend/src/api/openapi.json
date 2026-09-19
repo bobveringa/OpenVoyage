@@ -1978,16 +1978,90 @@
         "additionalProperties": false,
         "properties": {
           "body": {
-            "maxLength": 2000,
-            "minLength": 1,
-            "title": "Body",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          },
+          "media_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Id"
+          },
+          "parent_comment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Comment Id"
+          }
+        },
+        "title": "PostCommentCreateRequest",
+        "type": "object"
+      },
+      "PostCommentDeleteResponse": {
+        "properties": {
+          "deleted_comment_count": {
+            "minimum": 1.0,
+            "title": "Deleted Comment Count",
+            "type": "integer"
+          },
+          "social": {
+            "$ref": "#/components/schemas/PostSocialSummaryResponse"
           }
         },
         "required": [
-          "body"
+          "deleted_comment_count",
+          "social"
         ],
-        "title": "PostCommentCreateRequest",
+        "title": "PostCommentDeleteResponse",
+        "type": "object"
+      },
+      "PostCommentLikeSummaryResponse": {
+        "properties": {
+          "can_like": {
+            "title": "Can Like",
+            "type": "boolean"
+          },
+          "comment_id": {
+            "format": "uuid",
+            "title": "Comment Id",
+            "type": "string"
+          },
+          "like_count": {
+            "minimum": 0.0,
+            "title": "Like Count",
+            "type": "integer"
+          },
+          "viewer_has_liked": {
+            "title": "Viewer Has Liked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "comment_id",
+          "like_count",
+          "viewer_has_liked",
+          "can_like"
+        ],
+        "title": "PostCommentLikeSummaryResponse",
         "type": "object"
       },
       "PostCommentResponse": {
@@ -2022,6 +2096,14 @@
             "title": "Can Delete",
             "type": "boolean"
           },
+          "can_like": {
+            "title": "Can Like",
+            "type": "boolean"
+          },
+          "can_reply": {
+            "title": "Can Reply",
+            "type": "boolean"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -2032,20 +2114,70 @@
             "title": "Id",
             "type": "string"
           },
+          "like_count": {
+            "minimum": 0.0,
+            "title": "Like Count",
+            "type": "integer"
+          },
+          "media": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MediaResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parent_comment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Comment Id"
+          },
           "post_id": {
             "format": "uuid",
             "title": "Post Id",
             "type": "string"
+          },
+          "replies": {
+            "items": {
+              "$ref": "#/components/schemas/PostCommentResponse"
+            },
+            "title": "Replies",
+            "type": "array"
+          },
+          "reply_count": {
+            "minimum": 0.0,
+            "title": "Reply Count",
+            "type": "integer"
+          },
+          "viewer_has_liked": {
+            "title": "Viewer Has Liked",
+            "type": "boolean"
           }
         },
         "required": [
           "id",
           "post_id",
+          "parent_comment_id",
           "author",
           "body",
+          "media",
+          "reply_count",
+          "like_count",
+          "viewer_has_liked",
           "created_at",
           "authored_by_viewer",
-          "can_delete"
+          "can_delete",
+          "can_like",
+          "can_reply"
         ],
         "title": "PostCommentResponse",
         "type": "object"
@@ -7635,7 +7767,14 @@
           }
         ],
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostCommentDeleteResponse"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {
@@ -7655,6 +7794,172 @@
           }
         ],
         "summary": "Delete Post Comment",
+        "tags": [
+          "posts"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/posts/{post_id}/comments/{comment_id}/like": {
+      "delete": {
+        "operationId": "unlike_post_comment_api_v1_trips__trip_id__posts__post_id__comments__comment_id__like_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "comment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Comment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostCommentLikeSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Unlike Post Comment",
+        "tags": [
+          "posts"
+        ]
+      },
+      "put": {
+        "operationId": "like_post_comment_api_v1_trips__trip_id__posts__post_id__comments__comment_id__like_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Post Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "comment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Comment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostCommentLikeSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Like Post Comment",
         "tags": [
           "posts"
         ]

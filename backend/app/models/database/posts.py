@@ -123,7 +123,7 @@ class Post(Base):
         'PostLike', cascade='all, delete-orphan'
     )
     comments: Mapped[list['PostComment']] = relationship(
-        'PostComment', cascade='all, delete-orphan'
+        'PostComment', cascade='all, delete-orphan', passive_deletes=True
     )
 
 
@@ -214,6 +214,14 @@ class PostComment(Base):
     __tablename__ = 'post_comments'
     __table_args__ = (
         Index('ix_post_comments_post_created_id', 'post_id', 'created_at', 'id'),
+        Index(
+            'ix_post_comments_post_parent_created_id',
+            'post_id',
+            'parent_comment_id',
+            'created_at',
+            'id',
+        ),
+        CheckConstraint('depth >= 0', name='ck_post_comments_depth_non_negative'),
         CheckConstraint(
             '(user_id IS NULL) <> (share_link_id IS NULL)',
             name='ck_post_comments_one_actor',
@@ -224,6 +232,23 @@ class PostComment(Base):
     post_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey('posts.id', ondelete='CASCADE', name='fk_post_comments_post_id'),
         nullable=False,
+    )
+    parent_comment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            'post_comments.id',
+            ondelete='CASCADE',
+            name='fk_post_comments_parent_comment_id',
+        ),
+        nullable=True,
+    )
+    media_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            'media.id', ondelete='RESTRICT', name='fk_post_comments_media_id'
+        ),
+        nullable=True,
+    )
+    depth: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default='0'
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey('users.id', ondelete='CASCADE', name='fk_post_comments_user_id'),
@@ -248,4 +273,69 @@ class PostComment(Base):
     user: Mapped['User | None'] = relationship('User', foreign_keys=[user_id])
     share_link: Mapped['TripShareLink | None'] = relationship(
         'TripShareLink', foreign_keys=[share_link_id]
+    )
+    parent: Mapped['PostComment | None'] = relationship(
+        'PostComment',
+        remote_side=[id],
+        back_populates='replies',
+        foreign_keys=[parent_comment_id],
+    )
+    replies: Mapped[list['PostComment']] = relationship(
+        'PostComment',
+        back_populates='parent',
+        passive_deletes=True,
+        foreign_keys=[parent_comment_id],
+    )
+    media: Mapped['Media | None'] = relationship('Media', foreign_keys=[media_id])
+    likes: Mapped[list['PostCommentLike']] = relationship(
+        'PostCommentLike', cascade='all, delete-orphan', passive_deletes=True
+    )
+
+
+class PostCommentLike(Base):
+    __tablename__ = 'post_comment_likes'
+    __table_args__ = (
+        UniqueConstraint(
+            'comment_id', 'user_id', name='uq_post_comment_likes_comment_user'
+        ),
+        UniqueConstraint(
+            'comment_id',
+            'share_link_id',
+            name='uq_post_comment_likes_comment_link',
+        ),
+        Index('ix_post_comment_likes_comment_id', 'comment_id'),
+        CheckConstraint(
+            '(user_id IS NULL) <> (share_link_id IS NULL)',
+            name='ck_post_comment_likes_one_actor',
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    comment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            'post_comments.id',
+            ondelete='CASCADE',
+            name='fk_post_comment_likes_comment_id',
+        ),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            'users.id', ondelete='CASCADE', name='fk_post_comment_likes_user_id'
+        ),
+        nullable=True,
+    )
+    share_link_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            'trip_share_links.id',
+            ondelete='CASCADE',
+            name='fk_post_comment_likes_share_link_id',
+        ),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        server_default=func.now(),
     )

@@ -7,7 +7,7 @@ from core.config import settings
 from core.db import get_engine
 from fastapi import BackgroundTasks, UploadFile
 from models.database.media import Media, MediaStatus, MediaStorageBackend, MediaType
-from models.database.posts import Post, PostMedia
+from models.database.posts import Post, PostComment, PostMedia
 from models.database.trips import Trip
 from models.database.user import User, UserProfile
 from services.trip_access import get_trip_read_access
@@ -257,7 +257,9 @@ class MediaService:
         if self._is_readable_trip_cover(media.id, current_user_id):
             return True
 
-        return self._is_readable_post_media(media.id, current_user_id)
+        return self._is_readable_post_media(media.id, current_user_id) or self._is_readable_comment_media(
+            media.id, current_user_id
+        )
 
     def _is_profile_picture(self, media_id: uuid.UUID) -> bool:
         statement = (
@@ -310,6 +312,24 @@ class MediaService:
             if published_at is not None or access.can_read_drafts:
                 return True
 
+        return False
+
+    def _is_readable_comment_media(
+        self,
+        media_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+    ) -> bool:
+        post_rows = self.db.execute(
+            select(Post.trip_id, Post.published_at)
+            .join(PostComment, PostComment.post_id == Post.id)
+            .where(PostComment.media_id == media_id)
+        ).all()
+        for trip_id, published_at in post_rows:
+            access = get_trip_read_access(
+                self.db, trip_id=trip_id, current_user_id=current_user_id
+            )
+            if access is not None and (published_at is not None or access.can_read_drafts):
+                return True
         return False
 
 

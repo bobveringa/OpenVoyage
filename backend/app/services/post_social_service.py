@@ -8,11 +8,15 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, joinedload
 
 from models.api.pagination import CursorPaginatedResponse
 from models.api.posts import (
     PostCommentCreateRequest,
+    PostCommentDeleteResponse,
+    PostCommentLikeSummaryResponse,
     PostCommentResponse,
     PostSocialSummaryResponse,
     ShareLinkCommentAuthorResponse,
@@ -20,7 +24,9 @@ from models.api.posts import (
 )
 from models.api.users import UserDisplaySummaryResponse
 from models.api.trips import ShareLinkDisplayNameUpdateRequest
-from models.database.posts import Post, PostComment, PostLike
+from models.api.media import MediaResponse
+from models.database.media import Media, MediaType
+from models.database.posts import Post, PostComment, PostCommentLike, PostLike
 from models.database.trips import TripMember, TripRole, TripShareLink, TripViewer
 from models.database.trips import TripVisibility
 from models.database.user import User, UserProfile
@@ -50,6 +56,21 @@ class SocialProfileLockedError(Exception):
 
 class InvalidCommentCursorError(Exception):
     pass
+
+
+class InvalidCommentDepthError(Exception):
+    pass
+
+
+class CommentMediaNotFoundError(Exception):
+    pass
+
+
+class InvalidCommentMediaError(Exception):
+    pass
+
+
+MAX_COMMENT_REPLY_DEPTH = 3
 
 
 @dataclass(frozen=True)
@@ -247,6 +268,70 @@ class PostSocialService:
             context=context,
         )
 
+    def like_comment(
+        self,
+        *,
+        trip_id: uuid.UUID,
+        post_id: uuid.UUID,
+        comment_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+        share_token: str | None,
+    ) -> PostCommentLikeSummaryResponse:
+        context, post = self._get_mutable_post(
+            trip_id=trip_id,
+            post_id=post_id,
+            current_user_id=current_user_id,
+            share_token=share_token,
+            creation=True,
+        )
+        comment = self._get_post_comment(post.id, comment_id)
+        if self._is_comment_author(comment, context):
+            raise SocialPermissionError('You cannot like your own comment')
+        values = {
+            'comment_id': comment.id,
+            'user_id': context.actor_user_id,
+            'share_link_id': context.actor_share_link_id,
+        }
+        dialect = self.db.get_bind().dialect.name
+        statement = (
+            sqlite_insert(PostCommentLike).values(**values).on_conflict_do_nothing()
+            if dialect == 'sqlite'
+            else postgresql_insert(PostCommentLike)
+            .values(**values)
+            .on_conflict_do_nothing()
+        )
+        self.db.execute(statement)
+        self.db.commit()
+        return self._comment_like_summary(comment, context, post.published_at is not None)
+
+    def unlike_comment(
+        self,
+        *,
+        trip_id: uuid.UUID,
+        post_id: uuid.UUID,
+        comment_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+        share_token: str | None,
+    ) -> PostCommentLikeSummaryResponse:
+        context, post = self._get_mutable_post(
+            trip_id=trip_id,
+            post_id=post_id,
+            current_user_id=current_user_id,
+            share_token=share_token,
+            creation=False,
+        )
+        comment = self._get_post_comment(post.id, comment_id)
+        condition = self._actor_comment_like_condition(context)
+        if condition is None:
+            raise SocialPermissionError('An interaction identity is required')
+        self.db.execute(
+            delete(PostCommentLike).where(
+                PostCommentLike.comment_id == comment.id, condition
+            )
+        )
+        self.db.commit()
+        return self._comment_like_summary(comment, context, post.published_at is not None)
+
     def list_comments(
         self,
         *,
@@ -273,17 +358,20 @@ class PostSocialService:
                 .joinedload(UserProfile.profile_picture),
                 joinedload(PostComment.share_link),
             )
-            .where(PostComment.post_id == post.id)
-            .order_by(PostComment.created_at.desc(), PostComment.id.desc())
+            .where(
+                PostComment.post_id == post.id,
+                PostComment.parent_comment_id.is_(None),
+            )
+            .order_by(PostComment.created_at.asc(), PostComment.id.asc())
         )
         if cursor:
             created_at, comment_id = self._decode_cursor(cursor)
             statement = statement.where(
                 or_(
-                    PostComment.created_at < created_at,
+                    PostComment.created_at > created_at,
                     and_(
                         PostComment.created_at == created_at,
-                        PostComment.id < comment_id,
+                        PostComment.id > comment_id,
                     ),
                 )
             )
@@ -295,16 +383,13 @@ class PostSocialService:
             else None
         )
         return CursorPaginatedResponse(
-            items=[
-                self._comment_response(
-                    comment,
-                    context,
-                    post.published_at is not None,
-                    media_base_url,
-                    media_token_factory,
-                )
-                for comment in page
-            ],
+            items=self._comment_trees(
+                page,
+                context,
+                post.published_at is not None,
+                media_base_url,
+                media_token_factory,
+            ),
             next_cursor=next_cursor,
         )
 
@@ -326,11 +411,47 @@ class PostSocialService:
             share_token=share_token,
             creation=True,
         )
+        parent: PostComment | None = None
+        depth = 0
+        if payload.parent_comment_id is not None:
+            parent = self.db.execute(
+                select(PostComment).where(
+                    PostComment.id == payload.parent_comment_id,
+                    PostComment.post_id == post.id,
+                )
+            ).scalar_one_or_none()
+            if parent is None:
+                raise SocialNotFoundError(
+                    f'Comment not found: {payload.parent_comment_id}'
+                )
+            if parent.depth >= MAX_COMMENT_REPLY_DEPTH:
+                raise InvalidCommentDepthError(
+                    f'Replies may be nested at most {MAX_COMMENT_REPLY_DEPTH} levels'
+                )
+            depth = parent.depth + 1
+        media = None
+        if payload.media_id is not None:
+            if current_user_id is None:
+                raise SocialPermissionError(
+                    'Only signed-in users can attach comment media'
+                )
+            media = self.db.get(Media, payload.media_id)
+            if media is None:
+                raise CommentMediaNotFoundError('Media not found')
+            if media.created_by != current_user_id:
+                raise SocialPermissionError(
+                    'Comment media must be uploaded by the current user'
+                )
+            if media.media_type != MediaType.IMAGE:
+                raise InvalidCommentMediaError('Comment media must be an image')
         comment = PostComment(
             post_id=post.id,
-            body=payload.body,
+            body=payload.body or '',
             user_id=context.actor_user_id,
             share_link_id=context.actor_share_link_id,
+            parent_comment_id=parent.id if parent else None,
+            media_id=media.id if media else None,
+            depth=depth,
         )
         self.db.add(comment)
         self.db.commit()
@@ -345,8 +466,16 @@ class PostSocialService:
             ).scalar_one()
         if comment.share_link_id:
             comment.share_link = self.db.get(TripShareLink, comment.share_link_id)
+        comment.media = media
         return self._comment_response(
-            comment, context, True, media_base_url, media_token_factory
+            comment,
+            context,
+            True,
+            media_base_url,
+            media_token_factory,
+            like_count=0,
+            viewer_has_liked=False,
+            replies=[],
         )
 
     def delete_comment(
@@ -357,7 +486,7 @@ class PostSocialService:
         comment_id: uuid.UUID,
         current_user_id: uuid.UUID | None,
         share_token: str | None,
-    ) -> None:
+    ) -> PostCommentDeleteResponse:
         context, post = self._get_readable_post(
             trip_id=trip_id,
             post_id=post_id,
@@ -386,8 +515,20 @@ class PostSocialService:
             )
         ):
             raise SocialPermissionError('The actor cannot delete this comment')
+        descendant_ids = self._descendant_ids([comment.id])
+        deleted_count = len(descendant_ids)
         self.db.delete(comment)
         self.db.commit()
+        return PostCommentDeleteResponse(
+            deleted_comment_count=deleted_count,
+            social=self.get_summary(
+                trip_id=trip_id,
+                post_id=post_id,
+                current_user_id=current_user_id,
+                share_token=share_token,
+                context=context,
+            ),
+        )
 
     def get_share_link_profile(
         self, *, trip_id: uuid.UUID, share_token: str | None
@@ -502,7 +643,9 @@ class PostSocialService:
         if context.actor_user_id is not None:
             return self._can_create(context)
         link = context.access.share_link
-        return bool(link and link.interactions_enabled)
+        return bool(
+            link and link.interactions_enabled and link.display_name is not None
+        )
 
     @staticmethod
     def _actor_like_condition(context: SocialRequestContext):
@@ -512,6 +655,150 @@ class PostSocialService:
             return PostLike.share_link_id == context.actor_share_link_id
         return None
 
+    @staticmethod
+    def _actor_comment_like_condition(context: SocialRequestContext):
+        if context.actor_user_id is not None:
+            return PostCommentLike.user_id == context.actor_user_id
+        if context.actor_share_link_id is not None:
+            return PostCommentLike.share_link_id == context.actor_share_link_id
+        return None
+
+    def _get_post_comment(
+        self, post_id: uuid.UUID, comment_id: uuid.UUID
+    ) -> PostComment:
+        comment = self.db.execute(
+            select(PostComment).where(
+                PostComment.id == comment_id, PostComment.post_id == post_id
+            )
+        ).scalar_one_or_none()
+        if comment is None:
+            raise SocialNotFoundError(f'Comment not found: {comment_id}')
+        return comment
+
+    @staticmethod
+    def _is_comment_author(
+        comment: PostComment, context: SocialRequestContext
+    ) -> bool:
+        return (
+            context.actor_user_id is not None
+            and context.actor_user_id == comment.user_id
+        ) or (
+            context.actor_share_link_id is not None
+            and context.actor_share_link_id == comment.share_link_id
+        )
+
+    def _comment_like_summary(
+        self,
+        comment: PostComment,
+        context: SocialRequestContext,
+        is_published: bool,
+    ) -> PostCommentLikeSummaryResponse:
+        count = self.db.scalar(
+            select(func.count(PostCommentLike.id)).where(
+                PostCommentLike.comment_id == comment.id
+            )
+        )
+        authored_by_viewer = self._is_comment_author(comment, context)
+        liked = False
+        condition = self._actor_comment_like_condition(context)
+        if condition is not None and not authored_by_viewer:
+            liked = self.db.scalar(
+                select(PostCommentLike.id).where(
+                    PostCommentLike.comment_id == comment.id, condition
+                )
+            ) is not None
+        return PostCommentLikeSummaryResponse(
+            comment_id=comment.id,
+            like_count=count or 0,
+            viewer_has_liked=liked,
+            can_like=(
+                self._can_start_like(context)
+                and is_published
+                and not authored_by_viewer
+            ),
+        )
+
+    def _descendant_ids(self, root_ids: list[uuid.UUID]) -> list[uuid.UUID]:
+        if not root_ids:
+            return []
+        descendants = select(PostComment.id).where(PostComment.id.in_(root_ids)).cte(
+            name='comment_descendants', recursive=True
+        )
+        descendants = descendants.union_all(
+            select(PostComment.id).join(
+                descendants, PostComment.parent_comment_id == descendants.c.id
+            )
+        )
+        return list(self.db.execute(select(descendants.c.id)).scalars())
+
+    def _comment_trees(
+        self,
+        roots: list[PostComment],
+        context: SocialRequestContext,
+        is_published: bool,
+        media_base_url: str,
+        media_token_factory: Callable[[uuid.UUID], str | None] | None,
+    ) -> list[PostCommentResponse]:
+        descendant_ids = self._descendant_ids([root.id for root in roots])
+        if not descendant_ids:
+            return []
+        comments = list(
+            self.db.execute(
+                select(PostComment)
+                .options(
+                    joinedload(PostComment.user)
+                    .joinedload(User.profile)
+                    .joinedload(UserProfile.profile_picture),
+                    joinedload(PostComment.share_link),
+                    joinedload(PostComment.media),
+                )
+                .where(PostComment.id.in_(descendant_ids))
+            ).scalars()
+        )
+        comment_ids = [comment.id for comment in comments]
+        like_counts = dict(
+            self.db.execute(
+                select(PostCommentLike.comment_id, func.count(PostCommentLike.id))
+                .where(PostCommentLike.comment_id.in_(comment_ids))
+                .group_by(PostCommentLike.comment_id)
+            ).all()
+        )
+        liked_ids: set[uuid.UUID] = set()
+        condition = self._actor_comment_like_condition(context)
+        if condition is not None:
+            liked_ids = set(
+                self.db.execute(
+                    select(PostCommentLike.comment_id).where(
+                        PostCommentLike.comment_id.in_(comment_ids), condition
+                    )
+                ).scalars()
+            )
+        children: dict[uuid.UUID, list[PostComment]] = {}
+        by_id = {comment.id: comment for comment in comments}
+        for comment in comments:
+            if comment.parent_comment_id is not None:
+                children.setdefault(comment.parent_comment_id, []).append(comment)
+        for nested in children.values():
+            nested.sort(key=lambda comment: (comment.created_at, comment.id))
+
+        def serialize(comment: PostComment) -> PostCommentResponse:
+            replies = [serialize(child) for child in children.get(comment.id, [])]
+            return self._comment_response(
+                comment,
+                context,
+                is_published,
+                media_base_url,
+                media_token_factory,
+                like_count=like_counts.get(comment.id, 0),
+                viewer_has_liked=(
+                    comment.id in liked_ids
+                    and not self._is_comment_author(comment, context)
+                ),
+                replies=replies,
+            )
+
+        return [serialize(by_id[root.id]) for root in roots if root.id in by_id]
+
     def _comment_response(
         self,
         comment: PostComment,
@@ -519,6 +806,10 @@ class PostSocialService:
         is_published: bool,
         media_base_url: str,
         media_token_factory: Callable[[uuid.UUID], str | None] | None,
+        *,
+        like_count: int,
+        viewer_has_liked: bool,
+        replies: list[PostCommentResponse],
     ) -> PostCommentResponse:
         if comment.user_id is not None:
             assert comment.user is not None
@@ -542,13 +833,7 @@ class PostSocialService:
                     else 'Guest'
                 )
             )
-        authored_by_viewer = (
-            context.actor_user_id is not None
-            and context.actor_user_id == comment.user_id
-        ) or (
-            context.actor_share_link_id is not None
-            and context.actor_share_link_id == comment.share_link_id
-        )
+        authored_by_viewer = self._is_comment_author(comment, context)
         can_delete = is_published and (
             authored_by_viewer
             or (
@@ -563,11 +848,39 @@ class PostSocialService:
         return PostCommentResponse(
             id=comment.id,
             post_id=comment.post_id,
+            parent_comment_id=comment.parent_comment_id,
             author=author,
             body=comment.body,
+            media=(
+                MediaResponse.from_model(
+                    comment.media,
+                    media_base_url=media_base_url,
+                    media_token=(
+                        media_token_factory(comment.media.id)
+                        if media_token_factory
+                        else None
+                    ),
+                )
+                if comment.media
+                else None
+            ),
+            replies=replies,
+            reply_count=len(replies),
+            like_count=like_count,
+            viewer_has_liked=viewer_has_liked,
             created_at=comment.created_at,
             authored_by_viewer=authored_by_viewer,
             can_delete=can_delete,
+            can_like=(
+                self._can_start_like(context)
+                and is_published
+                and not authored_by_viewer
+            ),
+            can_reply=(
+                self._can_create(context)
+                and is_published
+                and comment.depth < MAX_COMMENT_REPLY_DEPTH
+            ),
         )
 
     @staticmethod

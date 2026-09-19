@@ -24,6 +24,8 @@ from models.api.pagination import (
 from models.api.posts import (
     PostCreateRequest,
     PostCommentCreateRequest,
+    PostCommentDeleteResponse,
+    PostCommentLikeSummaryResponse,
     PostCommentResponse,
     PostResponse,
     PostSocialSummaryResponse,
@@ -47,6 +49,9 @@ from services.post_service import (
 )
 from services.trip_errors import TripNotFoundError
 from services.post_social_service import (
+    CommentMediaNotFoundError,
+    InvalidCommentDepthError,
+    InvalidCommentMediaError,
     InvalidCommentCursorError,
     SocialNameRequiredError,
     SocialNotFoundError,
@@ -97,13 +102,13 @@ def _post_response(
 
 
 def _social_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, SocialNotFoundError):
+    if isinstance(exc, (SocialNotFoundError, CommentMediaNotFoundError)):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     if isinstance(exc, SocialNameRequiredError):
         return HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED, detail=str(exc)
         )
-    if isinstance(exc, InvalidCommentCursorError):
+    if isinstance(exc, (InvalidCommentCursorError, InvalidCommentDepthError, InvalidCommentMediaError)):
         return HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
@@ -591,14 +596,69 @@ def create_post_comment(
                 security.create_media_url_token if user or share_token else None
             ),
         )
-    except (SocialNotFoundError, SocialPermissionError, SocialNameRequiredError) as exc:
+    except (
+        SocialNotFoundError,
+        SocialPermissionError,
+        SocialNameRequiredError,
+        InvalidCommentDepthError,
+        CommentMediaNotFoundError,
+        InvalidCommentMediaError,
+    ) as exc:
         raise _social_error(exc)
     response.headers['Cache-Control'] = 'private, no-store'
     return comment
 
 
+@router.put(
+    '/{post_id}/comments/{comment_id}/like',
+    response_model=PostCommentLikeSummaryResponse,
+)
+def like_post_comment(
+    trip_id: uuid.UUID,
+    post_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    social_service: PostSocialServiceDep,
+    response: Response,
+    user: OptionalCurrentUser,
+    share_token: ShareToken = None,
+) -> PostCommentLikeSummaryResponse:
+    try:
+        summary = social_service.like_comment(
+            trip_id=trip_id, post_id=post_id, comment_id=comment_id,
+            current_user_id=user.id if user else None, share_token=share_token,
+        )
+    except (SocialNotFoundError, SocialPermissionError, SocialNameRequiredError) as exc:
+        raise _social_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return summary
+
+
 @router.delete(
-    '/{post_id}/comments/{comment_id}', status_code=status.HTTP_204_NO_CONTENT
+    '/{post_id}/comments/{comment_id}/like',
+    response_model=PostCommentLikeSummaryResponse,
+)
+def unlike_post_comment(
+    trip_id: uuid.UUID,
+    post_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    social_service: PostSocialServiceDep,
+    response: Response,
+    user: OptionalCurrentUser,
+    share_token: ShareToken = None,
+) -> PostCommentLikeSummaryResponse:
+    try:
+        summary = social_service.unlike_comment(
+            trip_id=trip_id, post_id=post_id, comment_id=comment_id,
+            current_user_id=user.id if user else None, share_token=share_token,
+        )
+    except (SocialNotFoundError, SocialPermissionError) as exc:
+        raise _social_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return summary
+
+
+@router.delete(
+    '/{post_id}/comments/{comment_id}', response_model=PostCommentDeleteResponse
 )
 def delete_post_comment(
     trip_id: uuid.UUID,
@@ -608,9 +668,9 @@ def delete_post_comment(
     response: Response,
     user: OptionalCurrentUser,
     share_token: ShareToken = None,
-) -> None:
+) -> PostCommentDeleteResponse:
     try:
-        social_service.delete_comment(
+        deleted = social_service.delete_comment(
             trip_id=trip_id,
             post_id=post_id,
             comment_id=comment_id,
@@ -620,3 +680,4 @@ def delete_post_comment(
     except (SocialNotFoundError, SocialPermissionError) as exc:
         raise _social_error(exc)
     response.headers['Cache-Control'] = 'private, no-store'
+    return deleted

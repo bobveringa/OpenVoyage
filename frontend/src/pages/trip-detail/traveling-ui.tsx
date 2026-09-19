@@ -10,6 +10,7 @@ import {
   Play,
   Send,
   Heart,
+  ImagePlus,
   MessageCircle,
   Trash2,
 } from 'lucide-react'
@@ -28,8 +29,11 @@ import {
   deletePostComment,
   getShareLinkProfile,
   likePost,
+  likePostComment,
   listPostComments,
+  unlikePostComment,
   unlikePost,
+  uploadMedia,
   updateShareLinkDisplayName,
   type GpsPostCandidate,
   type PostComment,
@@ -645,9 +649,22 @@ function PostSocialControls({
   tripId: string
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [comments, setComments] = useState<readonly PostComment[]>([])
+  const [comments, setComments] = useState<PostComment[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [body, setBody] = useState('')
+  const [replyTo, setReplyTo] = useState<PostComment | null>(null)
+  const [commentMediaId, setCommentMediaId] = useState<string | null>(null)
+  const [commentMediaFile, setCommentMediaFile] = useState<File | null>(null)
+  const [commentMediaName, setCommentMediaName] = useState<string | null>(null)
+  const [commentMediaPreviewUrl, setCommentMediaPreviewUrl] = useState<string | null>(null)
+  const [activeCommentMedia, setActiveCommentMedia] = useState<PostComment['media']>(null)
+  const [deleteTarget, setDeleteTarget] = useState<PostComment | null>(null)
+  const [deletedCommentIds, setDeletedCommentIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+  const [deleteCommentError, setDeleteCommentError] = useState<string | null>(null)
+  const [isDeletingComment, setDeletingComment] = useState(false)
+  const [isUploadingMedia, setUploadingMedia] = useState(false)
   const [isLoading, setLoading] = useState(false)
   const [isSubmitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -656,6 +673,12 @@ function PostSocialControls({
   const canAttemptInteraction = Boolean(accessToken || shareToken)
   const isOwnPost = currentUserId === post.author.id
   const selfLikeHelpId = `post-${post.id}-self-like-help`
+  const commentMediaInputRef = useRef<HTMLInputElement>(null)
+  const deletedCommentIdsRef = useRef(new Set<string>())
+
+  useEffect(() => () => {
+    if (commentMediaPreviewUrl) URL.revokeObjectURL(commentMediaPreviewUrl)
+  }, [commentMediaPreviewUrl])
 
   const loadComments = useCallback(
     async (cursor?: string | null) => {
@@ -670,10 +693,14 @@ function PostSocialControls({
           shareToken,
           tripId,
         })
+        let pageItems = page.items
+        for (const commentId of deletedCommentIdsRef.current) {
+          pageItems = removeCommentTree(pageItems, commentId)
+        }
         setComments((current) =>
           cursor
-            ? [...current, ...page.items.filter((item) => !current.some((known) => known.id === item.id))]
-            : page.items,
+            ? [...current, ...pageItems.filter((item) => !current.some((known) => known.id === item.id))]
+            : pageItems,
         )
         setNextCursor(page.next_cursor)
       } catch (failure) {
@@ -728,18 +755,70 @@ function PostSocialControls({
     if (nextExpanded && comments.length === 0) void loadComments()
   }
 
+  function appendComment(current: PostComment[], comment: PostComment): PostComment[] {
+    if (!comment.parent_comment_id) return [...current, comment]
+    return current.map((item) => item.id === comment.parent_comment_id
+      ? { ...item, replies: [...(item.replies ?? []), comment], reply_count: (item.replies?.length ?? 0) + 1 }
+      : { ...item, replies: appendComment(item.replies ?? [], comment) })
+  }
+
+  function updateComment(current: PostComment[], commentId: string, update: (comment: PostComment) => PostComment): PostComment[] {
+    return current.map((item) => item.id === commentId
+      ? update(item)
+      : { ...item, replies: updateComment(item.replies ?? [], commentId, update) })
+  }
+
+  function clearCommentImage() {
+    setCommentMediaFile(null)
+    setCommentMediaId(null)
+    setCommentMediaName(null)
+    setCommentMediaPreviewUrl(null)
+    if (commentMediaInputRef.current) commentMediaInputRef.current.value = ''
+  }
+
+  function selectCommentImage(file: File | undefined) {
+    if (!file) return
+    if (file.type && !file.type.startsWith('image/')) {
+      setError('Please select an image file.')
+      return
+    }
+    setCommentMediaId(null)
+    setCommentMediaFile(file)
+    setCommentMediaName(file.name)
+    setCommentMediaPreviewUrl(URL.createObjectURL(file))
+    setError(null)
+  }
+
   async function submitComment() {
     const normalizedBody = body.trim()
-    if (!normalizedBody || normalizedBody.length > 2000) return
+    if ((!normalizedBody && !commentMediaFile && !commentMediaId) || normalizedBody.length > 2000) return
     setSubmitting(true)
     setError(null)
-    const submit = () => createPostComment({
-      accessToken, payload: { body: normalizedBody }, postId: post.id, shareToken, tripId,
+    const submit = (mediaId: string | null) => createPostComment({
+      accessToken,
+      payload: {
+        body: normalizedBody || null,
+        media_id: mediaId,
+        parent_comment_id: replyTo?.id ?? null,
+      },
+      postId: post.id,
+      shareToken,
+      tripId,
     })
+    let mediaId = commentMediaId
     try {
-      const comment = await submit()
-      setComments((current) => [comment, ...current])
+      if (commentMediaFile) {
+        if (!accessToken) return
+        setUploadingMedia(true)
+        mediaId = await uploadMedia(commentMediaFile, accessToken)
+        setCommentMediaId(mediaId)
+        setUploadingMedia(false)
+      }
+      const comment = await submit(mediaId)
+      setComments((current) => appendComment(current, comment))
       setBody('')
+      setReplyTo(null)
+      clearCommentImage()
       onSummary(post.id, {
         can_interact: post.social.canInteract,
         can_like: post.social.canLike,
@@ -751,9 +830,11 @@ function PostSocialControls({
       let commentFailure = failure
       try {
         if (commentFailure instanceof ApiError && commentFailure.status === 428 && await ensureShareName()) {
-          const comment = await submit()
-          setComments((current) => [comment, ...current])
+          const comment = await submit(mediaId)
+          setComments((current) => appendComment(current, comment))
           setBody('')
+          setReplyTo(null)
+          clearCommentImage()
           return
         }
       } catch (retryFailure) {
@@ -762,26 +843,142 @@ function PostSocialControls({
       setError(commentFailure instanceof Error ? commentFailure.message : 'Unable to post comment.')
     } finally {
       setSubmitting(false)
+      setUploadingMedia(false)
     }
   }
 
-  async function removeComment(comment: PostComment) {
-    if (!window.confirm('Delete this comment permanently?')) return
-    try {
-      await deletePostComment({
-        accessToken, commentId: comment.id, postId: post.id, shareToken, tripId,
+  function requestCommentDeletion(comment: PostComment) {
+    setDeleteCommentError(null)
+    setDeleteTarget(comment)
+  }
+
+  async function confirmCommentDeletion() {
+    if (!deleteTarget || isDeletingComment) return
+    const commentId = deleteTarget.id
+    const removeDeletedComment = () => {
+      deletedCommentIdsRef.current.add(commentId)
+      setDeletedCommentIds((current) => {
+        const next = new Set(current)
+        next.add(commentId)
+        return next
       })
-      setComments((current) => current.filter((item) => item.id !== comment.id))
-      onSummary(post.id, {
-        can_interact: post.social.canInteract,
-        can_like: post.social.canLike,
-        comment_count: Math.max(0, post.social.commentCount - 1),
-        like_count: post.social.likeCount,
-        viewer_has_liked: post.social.viewerHasLiked,
-      })
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Unable to delete comment.')
+      setComments((current) => removeCommentTree(current, commentId))
+      setDeleteTarget(null)
     }
+    setDeletingComment(true)
+    setDeleteCommentError(null)
+    try {
+      const result = await deletePostComment({
+        accessToken,
+        commentId,
+        postId: post.id,
+        shareToken,
+        tripId,
+      })
+      removeDeletedComment()
+      onSummary(post.id, result.social)
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.status === 404) {
+        removeDeletedComment()
+        return
+      }
+      try {
+        let cursor: string | null = null
+        let commentStillExists = false
+        do {
+          const page = await listPostComments({
+            accessToken,
+            cursor,
+            pageSize: 100,
+            postId: post.id,
+            shareToken,
+            tripId,
+          })
+          commentStillExists = page.items.some((comment) => commentTreeContains(comment, commentId))
+          cursor = page.next_cursor
+        } while (!commentStillExists && cursor)
+        if (!commentStillExists) {
+          removeDeletedComment()
+          return
+        }
+      } catch {
+        setDeleteCommentError(failure instanceof Error ? failure.message : 'Unable to delete comment.')
+        return
+      }
+      setDeleteCommentError(failure instanceof Error ? failure.message : 'Unable to delete comment.')
+    } finally {
+      setDeletingComment(false)
+    }
+  }
+
+  async function toggleCommentLike(comment: PostComment) {
+    setError(null)
+    try {
+      const summary = await (comment.viewer_has_liked
+        ? unlikePostComment({ accessToken, commentId: comment.id, postId: post.id, shareToken, tripId })
+        : likePostComment({ accessToken, commentId: comment.id, postId: post.id, shareToken, tripId }))
+      setComments((current) => updateComment(current, comment.id, (item) => ({
+        ...item,
+        can_like: summary.can_like,
+        like_count: summary.like_count,
+        viewer_has_liked: summary.viewer_has_liked,
+      })))
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Unable to update comment like.')
+    }
+  }
+
+  function renderComposer() {
+    const canSubmit = !isSubmitting && !isUploadingMedia && (Boolean(body.trim()) || Boolean(commentMediaFile) || Boolean(commentMediaId))
+    return (
+      <div className="mt-3 space-y-2 rounded-lg border border-border/70 bg-muted/20 p-2">
+        {replyTo ? <p className="text-xs text-muted-foreground">Replying to {replyTo.author.type === 'user' ? replyTo.author.user.username || 'this reader' : replyTo.author.display_name}</p> : null}
+        <textarea className="min-h-20 w-full rounded-xl border border-input bg-background p-2 text-sm" maxLength={2000} onChange={(event) => setBody(event.target.value)} placeholder={replyTo ? 'Write a reply' : 'Write a comment'} value={body} />
+        {commentMediaPreviewUrl ? (
+          <div className="relative w-fit max-w-full overflow-hidden rounded-xl border border-border bg-secondary">
+            <img alt={`Preview of ${commentMediaName ?? 'selected image'}`} className="max-h-56 max-w-full object-contain" src={commentMediaPreviewUrl} />
+            <button aria-label="Remove selected image" className="absolute right-2 top-2 rounded-full bg-slate-950/70 px-2 py-1 text-xs font-semibold text-white shadow-sm hover:bg-slate-950/85" onClick={clearCommentImage} type="button">Remove</button>
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {accessToken ? (
+            <>
+              <Button disabled={isUploadingMedia} onClick={() => commentMediaInputRef.current?.click()} size="sm" type="button" variant="outline"><ImagePlus className="size-3.5" aria-hidden="true" />{commentMediaFile ? 'Replace image' : 'Select image'}</Button>
+              <input accept="image/*" className="hidden" disabled={isUploadingMedia} onChange={(event) => selectCommentImage(event.target.files?.[0])} ref={commentMediaInputRef} tabIndex={-1} type="file" />
+            </>
+          ) : null}
+          {isUploadingMedia ? <span className="text-xs text-muted-foreground">Uploading image…</span> : null}
+          {commentMediaName ? <span className="max-w-full truncate text-xs text-muted-foreground">{commentMediaName}</span> : null}
+          <Button disabled={!canSubmit || (!post.social.canInteract && !shareToken)} onClick={() => void submitComment()} size="sm" type="button">{replyTo ? 'Reply' : 'Comment'}</Button>
+          {replyTo ? <Button onClick={() => { setReplyTo(null); setBody(''); clearCommentImage() }} size="sm" type="button" variant="ghost">Cancel</Button> : null}
+        </div>
+      </div>
+    )
+  }
+
+  function renderComment(comment: PostComment) {
+    if (deletedCommentIds.has(comment.id)) return null
+    return (
+      <div className="rounded-xl border border-border/80 bg-background p-3 text-sm shadow-sm" key={comment.id}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {comment.author.type === 'user' && comment.author.user.profile_picture ? (
+              <img alt="" className="size-8 shrink-0 rounded-full object-cover" src={comment.author.user.profile_picture.urls.thumbnail ?? comment.author.user.profile_picture.urls.content} />
+            ) : <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-primary">{comment.author.type === 'user' ? getCommentInitials(comment.author.user.first_name, comment.author.user.last_name, comment.author.user.username) : comment.author.display_name.slice(0, 1).toUpperCase()}</span>}
+            <div className="min-w-0"><div className="flex min-w-0 items-center gap-1"><p className="truncate font-semibold text-foreground">{comment.author.type === 'user' ? [comment.author.user.first_name, comment.author.user.last_name].filter(Boolean).join(' ') || comment.author.user.username || 'User' : comment.author.display_name}</p>{comment.authored_by_viewer ? <Badge>You</Badge> : null}</div><p className="text-xs text-muted-foreground">{formatCommentAge(comment.created_at)}</p></div>
+          </div>
+          {comment.can_delete ? <Button aria-label="Delete comment" className="size-7" onClick={() => requestCommentDeletion(comment)} size="icon" type="button" variant="ghost"><Trash2 className="size-3.5" /></Button> : null}
+        </div>
+        {comment.body ? <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{comment.body}</p> : null}
+        {comment.media ? <button aria-label="Open attached comment image" className="mt-2 block max-w-sm overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setActiveCommentMedia(comment.media)} type="button"><MediaImage alt="Attached comment image" className="max-h-64 w-full" media={comment.media} /></button> : null}
+        <div className="mt-2 flex items-center gap-2">
+          {!comment.authored_by_viewer && (comment.can_like || comment.viewer_has_liked) ? <Button aria-label={comment.viewer_has_liked ? 'Unlike comment' : 'Like comment'} aria-pressed={comment.viewer_has_liked} className="h-7 px-2" disabled={isSubmitting} onClick={() => void toggleCommentLike(comment)} size="sm" type="button" variant={comment.viewer_has_liked ? 'default' : 'outline'}><Heart className={cn('size-3', comment.viewer_has_liked && 'fill-current')} aria-hidden="true" />{comment.like_count}</Button> : <span className="text-xs text-muted-foreground">{comment.like_count} likes</span>}
+          {comment.can_reply ? <Button className="h-7 px-2" onClick={() => { setReplyTo(comment); setBody(''); clearCommentImage() }} size="sm" type="button" variant="ghost">Reply</Button> : null}
+        </div>
+        {replyTo?.id === comment.id ? renderComposer() : null}
+        {(comment.replies?.length ?? 0) > 0 ? <div className="mt-3 space-y-3 border-l-2 border-border pl-3">{comment.replies?.map(renderComment)}</div> : null}
+      </div>
+    )
   }
 
   if (post.isDraft) return null
@@ -820,41 +1017,54 @@ function PostSocialControls({
       </div>
       {expanded ? (
         <div className="mt-3 space-y-3">
-          {comments.map((comment) => (
-            <div className="rounded-xl border border-border/80 bg-background p-3 text-sm shadow-sm" key={comment.id}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  {comment.author.type === 'user' && comment.author.user.profile_picture ? (
-                    <img alt="" className="size-8 shrink-0 rounded-full object-cover" src={comment.author.user.profile_picture.urls.thumbnail ?? comment.author.user.profile_picture.urls.content} />
-                  ) : <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-primary">{comment.author.type === 'user' ? getCommentInitials(comment.author.user.first_name, comment.author.user.last_name, comment.author.user.username) : comment.author.display_name.slice(0, 1).toUpperCase()}</span>}
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-1">
-                      <p className="truncate font-semibold text-foreground">
-                        {comment.author.type === 'user'
-                          ? [comment.author.user.first_name, comment.author.user.last_name].filter(Boolean).join(' ') || comment.author.user.username || 'User'
-                          : comment.author.display_name}
-                      </p>
-                      {comment.authored_by_viewer ? <Badge>You</Badge> : null}
-                    </div>
-                    <p className="text-xs text-muted-foreground">{formatCommentAge(comment.created_at)}</p>
-                  </div>
-                </div>
-                {comment.can_delete ? <Button aria-label="Delete comment" className="size-7" onClick={() => void removeComment(comment)} size="icon" type="button" variant="ghost"><Trash2 className="size-3.5" /></Button> : null}
-              </div>
-              <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{comment.body}</p>
-            </div>
-          ))}
+          {comments.map(renderComment)}
           {nextCursor ? <Button disabled={isLoading} onClick={() => void loadComments(nextCursor)} size="sm" type="button" variant="outline">Load more comments</Button> : null}
           {isLoading ? <p className="text-xs text-muted-foreground">Loading comments…</p> : null}
-          {canAttemptInteraction ? (
-            <div className="space-y-2">
-              <textarea className="min-h-20 w-full rounded-xl border border-input bg-background p-2 text-sm" maxLength={2000} onChange={(event) => setBody(event.target.value)} placeholder="Write a comment" value={body} />
-              <Button disabled={isSubmitting || !body.trim() || body.trim().length > 2000 || (!post.social.canInteract && !shareToken)} onClick={() => void submitComment()} size="sm" type="button">Comment</Button>
-            </div>
-          ) : null}
+          {canAttemptInteraction && !replyTo ? renderComposer() : null}
           {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
         </div>
       ) : null}
+      {activeCommentMedia ? (
+        <MediaLightbox
+          activeIndex={0}
+          media={[{
+            alt: 'Attached comment image',
+            media_id: activeCommentMedia.id,
+            src: activeCommentMedia.urls.content,
+            thumbnail: activeCommentMedia.urls.thumbnail ?? undefined,
+            type: 'image',
+          }]}
+          onClose={() => setActiveCommentMedia(null)}
+          onIndexChange={() => undefined}
+          title="Comment image"
+        />
+      ) : null}
+      <Modal
+        bottomSheetOnMobile
+        className="sm:max-w-md"
+        description={deleteTarget?.reply_count
+          ? 'This permanently deletes the comment and every reply beneath it, including replies written by other people.'
+          : 'This permanently deletes the comment. This action cannot be undone.'}
+        dismissible={!isDeletingComment}
+        onClose={() => {
+          if (!isDeletingComment) setDeleteTarget(null)
+        }}
+        open={deleteTarget !== null}
+        title="Delete comment?"
+      >
+        <div className="space-y-5 p-1">
+          {deleteTarget?.body ? (
+            <p className="line-clamp-4 rounded-xl bg-muted px-4 py-3 text-sm text-foreground">
+              {deleteTarget.body}
+            </p>
+          ) : null}
+          {deleteCommentError ? <p className="text-sm text-destructive" role="alert">{deleteCommentError}</p> : null}
+          <div className="flex justify-end gap-2">
+            <Button disabled={isDeletingComment} onClick={() => setDeleteTarget(null)} type="button" variant="ghost">Cancel</Button>
+            <Button disabled={isDeletingComment} onClick={() => void confirmCommentDeletion()} type="button" variant="destructive"><Trash2 className="size-4" aria-hidden="true" />{isDeletingComment ? 'Deleting…' : 'Delete comment'}</Button>
+          </div>
+        </div>
+      </Modal>
       <Modal
         description="This name belongs to the shared link: every holder uses it, any holder may change it while unlocked, and earlier comments are relabeled."
         onClose={() => setNameModalOpen(false)}
@@ -868,6 +1078,22 @@ function PostSocialControls({
       </Modal>
     </section>
   )
+}
+
+function removeCommentTree(current: PostComment[], commentId: string): PostComment[] {
+  return current
+    .filter((item) => item.id !== commentId)
+    .map((item) => {
+      const replies = removeCommentTree(item.replies ?? [], commentId)
+      return replies.length === (item.replies?.length ?? 0)
+        ? item
+        : { ...item, replies, reply_count: replies.length }
+    })
+}
+
+function commentTreeContains(comment: PostComment, commentId: string): boolean {
+  return comment.id === commentId
+    || (comment.replies ?? []).some((reply) => commentTreeContains(reply, commentId))
 }
 
 function formatCommentAge(value: string) {

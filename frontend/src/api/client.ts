@@ -132,6 +132,10 @@ export type PostCommentCreatePayload =
   components['schemas']['PostCommentCreateRequest']
 export type PostCommentPage =
   components['schemas']['CursorPaginatedResponse_PostCommentResponse_']
+export type PostCommentLikeSummary =
+  components['schemas']['PostCommentLikeSummaryResponse']
+export type PostCommentDeleteResponse =
+  components['schemas']['PostCommentDeleteResponse']
 export type UserProfileUpdatePayload =
   components['schemas']['UserProfileUpdateRequest']
 export type PasswordChangePayload = components['schemas']['PasswordChangeRequest']
@@ -1138,9 +1142,35 @@ export async function deletePostComment(options: {
   commentId: string
   accessToken?: string | null
   shareToken?: string | null
-}): Promise<void> {
-  return requestJson<void>(
+}): Promise<PostCommentDeleteResponse> {
+  return requestJson<PostCommentDeleteResponse>(
     `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts/${encodeURIComponent(options.postId)}/comments/${encodeURIComponent(options.commentId)}`,
+    { method: 'DELETE', accessToken: options.accessToken, shareToken: options.shareToken },
+  )
+}
+
+export async function likePostComment(options: {
+  tripId: string
+  postId: string
+  commentId: string
+  accessToken?: string | null
+  shareToken?: string | null
+}): Promise<PostCommentLikeSummary> {
+  return requestJson<PostCommentLikeSummary>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts/${encodeURIComponent(options.postId)}/comments/${encodeURIComponent(options.commentId)}/like`,
+    { method: 'PUT', accessToken: options.accessToken, shareToken: options.shareToken },
+  )
+}
+
+export async function unlikePostComment(options: {
+  tripId: string
+  postId: string
+  commentId: string
+  accessToken?: string | null
+  shareToken?: string | null
+}): Promise<PostCommentLikeSummary> {
+  return requestJson<PostCommentLikeSummary>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/posts/${encodeURIComponent(options.postId)}/comments/${encodeURIComponent(options.commentId)}/like`,
     { method: 'DELETE', accessToken: options.accessToken, shareToken: options.shareToken },
   )
 }

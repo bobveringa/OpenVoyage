@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from models.database.media import Media, MediaStorageBackend
-from models.database.posts import PostMedia
+from models.database.posts import PostComment, PostMedia
 from models.database.trips import Trip
 from models.database.user import UserProfile
 
@@ -47,6 +47,7 @@ class MediaCleanupService:
                 ),
                 ~exists(select(Trip.id).where(Trip.cover_media_id == Media.id)),
                 ~exists(select(PostMedia.id).where(PostMedia.media_id == Media.id)),
+                ~exists(select(PostComment.id).where(PostComment.media_id == Media.id)),
             )
             if failed_ids:
                 statement = statement.where(Media.id.not_in(failed_ids))
@@ -103,6 +104,7 @@ class MediaCleanupService:
                 ),
                 self.db.scalar(select(exists().where(Trip.cover_media_id == media.id))),
                 self.db.scalar(select(exists().where(PostMedia.media_id == media.id))),
+                self.db.scalar(select(exists().where(PostComment.media_id == media.id))),
             )
         )
 
