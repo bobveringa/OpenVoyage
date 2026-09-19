@@ -24,11 +24,48 @@ export function setPostScrollElement(
   postElementsRef.current.set(postId, element)
 }
 
+export function scrollPostElementToCenter({
+  axis,
+  behavior,
+  element,
+  rootElement,
+}: {
+  axis: PostScrollAxis
+  behavior: ScrollBehavior
+  element: HTMLElement
+  rootElement: HTMLElement
+}) {
+  const elementRect = element.getBoundingClientRect()
+  const rootRect = rootElement.getBoundingClientRect()
+  const elementCenter =
+    axis === 'x'
+      ? elementRect.left + elementRect.width / 2
+      : elementRect.top + elementRect.height / 2
+  const rootCenter =
+    axis === 'x'
+      ? rootRect.left + rootRect.width / 2
+      : rootRect.top + rootRect.height / 2
+
+  if (axis === 'x') {
+    rootElement.scrollTo({
+      behavior,
+      left: rootElement.scrollLeft + elementCenter - rootCenter,
+    })
+    return
+  }
+
+  rootElement.scrollTo({
+    behavior,
+    top: rootElement.scrollTop + elementCenter - rootCenter,
+  })
+}
+
 export function usePostScrollFocus({
   axis,
   enabled,
   firstPostId,
   onFocusedPostChange,
+  onViewedPostChange,
   postElementsRef,
   postIds,
   rootRef,
@@ -37,6 +74,7 @@ export function usePostScrollFocus({
   enabled: boolean
   firstPostId: string | null
   onFocusedPostChange: (postId: string | null) => void
+  onViewedPostChange?: (postId: string) => void
   postElementsRef: PostScrollElementsRef
   postIds: readonly string[]
   rootRef?: PostScrollRootRef
@@ -73,6 +111,10 @@ export function usePostScrollFocus({
         postIds,
         rootElement,
       })
+
+      if (nextPostId) {
+        onViewedPostChange?.(nextPostId)
+      }
 
       latestFocusedPostChangeRef.current(
         nextPostId === firstPostId ? null : nextPostId,
@@ -114,7 +156,15 @@ export function usePostScrollFocus({
         window.cancelAnimationFrame(animationFrameId)
       }
     }
-  }, [axis, enabled, firstPostId, postElementsRef, postIds, rootRef])
+  }, [
+    axis,
+    enabled,
+    firstPostId,
+    onViewedPostChange,
+    postElementsRef,
+    postIds,
+    rootRef,
+  ])
 }
 
 function getFocusedPostIdFromScrollPosition({

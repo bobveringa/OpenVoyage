@@ -126,6 +126,7 @@ export type TravelPost = {
   location: string
   media: readonly [PostMedia, ...PostMedia[]]
   occurredAt: string
+  publishedAt: string | null
   revision: number
   routeAfter: TravelPostRoute | null
   time: string
