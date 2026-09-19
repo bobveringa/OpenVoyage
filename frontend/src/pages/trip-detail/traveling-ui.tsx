@@ -295,8 +295,11 @@ export function TravelingPanel({
   )
 
   useEffect(() => {
-    function handlePopState() {
-      if (!activePostId) {
+    function handlePopState(event: PopStateEvent) {
+      if (
+        !activePostId ||
+        event.state?.openVoyageMobilePostId === activePostId
+      ) {
         return
       }
 

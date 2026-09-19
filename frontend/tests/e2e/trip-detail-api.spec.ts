@@ -289,6 +289,68 @@ test('creates nested comment replies and deletes reply subtrees', async ({
   }
 })
 
+test('keeps the mobile post open when closing its media viewer', async ({
+  page,
+  request,
+}) => {
+  const email = env.E2E_LOGIN_EMAIL
+  const password = env.E2E_LOGIN_PASSWORD
+
+  test.skip(
+    !email || !password,
+    'Set E2E_LOGIN_EMAIL and E2E_LOGIN_PASSWORD to run trip detail API tests.',
+  )
+
+  if (!email || !password) {
+    return
+  }
+
+  const tokens = await loginWithApi(request, email, password)
+  const trip = await createTripWithApi(request, tokens)
+  const postTitle = `E2E mobile media ${Date.now()}`
+  await createPublishedPostWithApi(request, tokens, trip.id, postTitle)
+
+  try {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await seedBrowserAuth(page, tokens)
+    await page.goto(`/trips/${trip.id}?tab=travel`)
+    await page.getByRole('button', { name: `Open ${postTitle}` }).click()
+    const mobileBackButton = page.getByRole('button', {
+      name: 'Back to post carousel',
+    })
+    const mobilePost = mobileBackButton.locator('xpath=ancestor::article[1]')
+    await expect(mobileBackButton).toBeVisible()
+
+    const gallery = mobilePost.getByRole('region', {
+      name: 'Post media: 1 items',
+    })
+    await gallery.getByRole('button').click()
+    const mediaViewer = page.getByRole('dialog', {
+      name: `${postTitle} media viewer`,
+    })
+    await expect(mediaViewer).toBeVisible()
+    await mediaViewer.getByRole('button', { name: 'Close media viewer' }).click()
+
+    await expect(mediaViewer).toHaveCount(0)
+    await expect(mobileBackButton).toBeVisible()
+    await expect(
+      mobilePost.getByRole('heading', { name: postTitle }),
+    ).toBeVisible()
+
+    await gallery.getByRole('button').click()
+    await expect(mediaViewer).toBeVisible()
+    await page.goBack()
+
+    await expect(mediaViewer).toHaveCount(0)
+    await expect(mobileBackButton).toBeVisible()
+    await expect(
+      mobilePost.getByRole('heading', { name: postTitle }),
+    ).toBeVisible()
+  } finally {
+    await deleteTripWithApi(request, tokens, trip.id)
+  }
+})
+
 async function createRootComment(page: Page, body: string) {
   const composer = page.locator('[data-comment-composer]').filter({
     has: page.getByPlaceholder('Write a comment'),
