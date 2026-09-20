@@ -15,6 +15,37 @@ const transparentPng = Buffer.from(
 test.describe('mobile reading', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })
 
+  test('separates owner settings, account preferences, and map GPS controls', async ({ page }) => {
+    await seedBrowserAuth(page)
+    const release = await mockTripApi(page, 'OWNER')
+    release()
+    await mockTileServers(page)
+    await page.goto(`/trips/${tripId}`)
+    await page.getByRole('button', { name: 'Travel', exact: true }).click()
+    await page.getByRole('button', { name: 'Trip settings', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Manage trip', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.getByRole('button', { name: 'Account menu', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Your account' })).toBeVisible()
+    await expect(page.getByRole('dialog').getByRole('button', { name: /GPS|Manage trip/ })).toHaveCount(0)
+    await expect(page.getByRole('group', { name: 'Color mode' })).toBeVisible()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.getByRole('button', { name: 'Manage GPS tracking', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible()
+    // Recording is intentionally native-only; the web shows recording management.
+    await expect(page.getByRole('button', { name: 'Start tracking', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.getByRole('button', { name: 'Open fullscreen map' }).click()
+    await page.getByRole('button', { name: 'Manage GPS tracking', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Fullscreen travel map' })).toHaveCount(0)
+    await expect(page.locator('#root')).toHaveJSProperty('inert', false)
+    await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.setViewportSize({ width: 320, height: 568 })
+    await page.screenshot({ path: 'test-results/mobile-settings-gps.png' })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320)
+  })
+
   test('keeps vertical reading scroll native on long posts', async ({ page }) => {
     await seedBrowserAuth(page)
     const release = await mockTripApi(page)
@@ -93,9 +124,11 @@ test.describe('mobile reading', () => {
     await page.goto(`/trips/${tripId}`)
     await page.getByRole('button', { name: 'Travel', exact: true }).click()
     await expect(page.getByRole('banner')).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Trip settings', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Manage GPS tracking', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Provider test trip', exact: true })).toBeVisible()
-    await page.getByRole('button', { name: 'Trip menu', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'GPS tracking', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Account menu', exact: true }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'GPS tracking', exact: true })).toHaveCount(0)
     await expect(page.getByRole('group', { name: 'Color mode' })).toBeVisible()
     await page.getByRole('button', { name: 'Close', exact: true }).click()
     await page.getByRole('button', { name: 'Open First timeline post', exact: true }).click()
@@ -206,6 +239,8 @@ test('mobile visitors can explore an empty trip without editing controls', async
   await page.route('**/api/v1/trips/*/members', (route) => fulfillJson(route, []))
   await page.goto(`/trips/${tripId}`)
   await expect(page.getByText('Your journey starts here')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Trip settings', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Manage GPS tracking', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'New post' })).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: 'Trip mode' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Open fullscreen map' }).click()
@@ -303,7 +338,7 @@ async function seedBrowserAuth(page: Page) {
   }, `test.${tokenPayload}.signature`)
 }
 
-async function mockTripApi(page: Page) {
+async function mockTripApi(page: Page, role: 'MEMBER' | 'OWNER' = 'MEMBER') {
   let releaseTileProviderSetting = () => {}
   const tileProviderSettingGate = new Promise<void>((resolve) => {
     releaseTileProviderSetting = resolve
@@ -365,7 +400,7 @@ async function mockTripApi(page: Page) {
     if (url.pathname.endsWith(`/trips/${tripId}/members`)) {
       await fulfillJson(route, [
         {
-          role: 'MEMBER',
+          role,
           trip_id: tripId,
           user: {
             first_name: 'Map',

@@ -107,7 +107,7 @@ export function TripSidebarHeader({
 }) {
   return (
     <>
-    <MobileTripToolbar trip={trip} members={members} canMutate={canMutate} canManageTrip={canManageTrip} onOpenManagement={onOpenManagement} />
+    <MobileTripToolbar trip={trip} members={members} canManageTrip={canManageTrip} onOpenManagement={onOpenManagement} />
     <div className="hidden space-y-2 border-b border-border px-4 py-3 lg:block">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">

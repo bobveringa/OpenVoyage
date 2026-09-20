@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarDays, EllipsisVertical } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Settings, UserRound } from 'lucide-react'
 import { useState } from 'react'
 
 import { useAuth } from '@/auth/use-auth'
@@ -7,16 +7,16 @@ import { ThemeModeToggle } from '@/components/layout/theme-mode-toggle'
 import { TripMemberPresence } from '@/components/trips/trip-member-presence'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
-import { getUserUsername } from '@/lib/users'
+import { MediaImage } from '@/components/ui/media-image'
+import { getUserInitials, getUserProfileMedia, getUserUsername } from '@/lib/users'
 import { formatTripDateRange } from './management-utils'
 import { parseDateOnly } from './date-utils'
 import type { TripMemberViewModel, TripViewModel } from './models'
 import type { TripManagementSection } from './url-state'
 
-export function MobileTripToolbar({ trip, members, canMutate, canManageTrip, onOpenManagement }: {
+export function MobileTripToolbar({ trip, members, canManageTrip, onOpenManagement }: {
   trip: TripViewModel
   members: readonly TripMemberViewModel[]
-  canMutate: boolean
   canManageTrip: boolean
   onOpenManagement: (section: TripManagementSection) => void
 }) {
@@ -31,10 +31,6 @@ export function MobileTripToolbar({ trip, members, canMutate, canManageTrip, onO
     ? dateFormatter.formatRange(startDate, endDate) as string
     : formatTripDateRange(trip.startDate, trip.endDate)
   const navigate = (to: string) => { window.location.assign(to) }
-  const openManagement = (section: TripManagementSection) => {
-    setMenuOpen(false)
-    onOpenManagement(section)
-  }
 
   return (
     <>
@@ -46,9 +42,16 @@ export function MobileTripToolbar({ trip, members, canMutate, canManageTrip, onO
           <h1 className="min-w-0 flex-1 truncate px-1 text-lg font-semibold" title={trip.name}>
             {trip.name}
           </h1>
+          {canManageTrip ? (
+            <Button aria-label="Trip settings" title="Trip settings" className="size-11 shrink-0" onClick={() => onOpenManagement('general')} size="icon" variant="ghost">
+              <Settings className="size-5" aria-hidden="true" />
+            </Button>
+          ) : null}
           {currentUser ? <TrackingIndicator onNavigate={navigate} /> : null}
-          <Button aria-label="Trip menu" aria-expanded={menuOpen} className="size-11 shrink-0" onClick={() => setMenuOpen(true)} size="icon" variant="ghost">
-            <EllipsisVertical className="size-5" aria-hidden="true" />
+          <Button aria-label="Account menu" aria-expanded={menuOpen} className="size-11 shrink-0 rounded-full" onClick={() => setMenuOpen(true)} size="icon" variant="ghost">
+            {currentUser ? (
+              <MediaImage alt="" className="size-8 rounded-full border border-border" media={getUserProfileMedia(currentUser)} fallback={<span className="text-xs font-semibold">{getUserInitials(currentUser)}</span>} />
+            ) : <UserRound className="size-5" aria-hidden="true" />}
           </Button>
         </div>
         <div className="flex min-w-0 items-center gap-3 px-4 pb-2">
@@ -59,10 +62,8 @@ export function MobileTripToolbar({ trip, members, canMutate, canManageTrip, onO
           <TripMemberPresence currentUserId={currentUser?.id} members={members} />
         </div>
       </div>
-      <Modal bottomSheetOnMobile open={menuOpen} onClose={() => setMenuOpen(false)} title="Trip menu" contentClassName="pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <Modal bottomSheetOnMobile open={menuOpen} onClose={() => setMenuOpen(false)} title="Your account" contentClassName="pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="grid gap-2">
-            {canMutate ? <Button className="h-11 justify-start" variant="ghost" onClick={() => openManagement('gps')}>GPS tracking</Button> : null}
-            {canManageTrip ? <Button className="h-11 justify-start" variant="ghost" onClick={() => openManagement('general')}>Manage trip</Button> : null}
             <a className="rounded-xl px-4 py-3 text-sm font-semibold hover:bg-muted" href={home}>{currentUser ? 'My trips' : 'Sign in'}</a>
             {currentUser ? <a className="rounded-xl px-4 py-3 text-sm font-semibold hover:bg-muted" href="/settings">Account settings</a> : null}
             {currentUser?.role === 'ADMIN' ? <a className="rounded-xl px-4 py-3 text-sm font-semibold hover:bg-muted" href="/admin">Admin</a> : null}

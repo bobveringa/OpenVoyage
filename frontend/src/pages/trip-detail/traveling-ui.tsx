@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Clock,
   Compass,
+  Radio,
   EllipsisVertical,
   Images,
   MapPin,
@@ -89,6 +90,9 @@ import {
 } from '@/pages/trip-detail/use-post-scroll-focus'
 
 export function MobileTravelMap({
+  onOpenGps,
+  onNewPost,
+  tripId,
   fullscreenOnMount = false,
   focusedPostId,
   gpsPostCandidates,
@@ -101,6 +105,9 @@ export function MobileTravelMap({
   travelLegs,
   travelPosts,
 }: {
+  onOpenGps?: () => void
+  onNewPost?: () => void
+  tripId: string
   fullscreenOnMount?: boolean
   focusedPostId: string | null
   gpsPostCandidates: readonly GpsPostCandidate[]
@@ -116,6 +123,9 @@ export function MobileTravelMap({
   const [resetNonce, setResetNonce] = useState(0)
   const [fullscreen, setFullscreen] = useState(fullscreenOnMount)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const { activeSession } = useTracking()
+  const trackingThisTrip = activeSession?.tripId === tripId
+  const gpsLabel = trackingThisTrip ? (activeSession?.endedAt ? 'Syncing' : 'Recording') : 'GPS'
 
   useEffect(() => {
     if (!fullscreen) return
@@ -183,13 +193,7 @@ export function MobileTravelMap({
         travelPosts={travelPosts}
       />
 
-      {fullscreen ? (
-        <div className="pointer-events-none absolute left-[max(1rem,env(safe-area-inset-left))] top-[max(1rem,env(safe-area-inset-top))] z-[500] rounded-2xl border border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur">
-          <p className="text-sm font-semibold">Explore the route</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">Tap a post to see its story</p>
-        </div>
-      ) : null}
-      <div className="pointer-events-none absolute right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-[500] flex flex-col gap-2">
+      <div className="pointer-events-none absolute right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-[500] flex flex-col items-end gap-2">
         <Button
           aria-label={fullscreen ? 'Exit fullscreen map' : 'Open fullscreen map'}
           className="pointer-events-auto size-11 rounded-2xl bg-card/95 shadow-lg shadow-foreground/10 backdrop-blur hover:bg-card"
@@ -213,6 +217,33 @@ export function MobileTravelMap({
           <Compass className="size-4" aria-hidden="true" />
         </Button>
       </div>
+      {onNewPost || onOpenGps ? (
+        <div className="pointer-events-none absolute left-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[500] flex items-center gap-2">
+          {onNewPost ? (
+            <Button
+              className="pointer-events-auto h-11 rounded-2xl px-4 shadow-xl shadow-foreground/10"
+              onClick={onNewPost}
+              size="sm"
+              type="button"
+            >
+              <Camera className="size-4" aria-hidden="true" />
+              New post
+            </Button>
+          ) : null}
+          {onOpenGps ? (
+            <Button
+              aria-label="Manage GPS tracking"
+              className={cn('pointer-events-auto h-11 rounded-2xl bg-card/95 px-3 shadow-lg shadow-foreground/10 backdrop-blur hover:bg-card', trackingThisTrip && 'border-destructive/40 text-destructive')}
+              onClick={() => { setFullscreen(false); onOpenGps() }}
+              type="button"
+              variant="outline"
+            >
+              <Radio className="size-4" aria-hidden="true" />
+              {gpsLabel}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   )
 
@@ -220,6 +251,7 @@ export function MobileTravelMap({
 }
 
 export function TravelingPanel({
+  onOpenGps,
   accessToken,
   currentUserId,
   canMutate,
@@ -246,6 +278,7 @@ export function TravelingPanel({
   travelPosts,
   tripId,
 }: {
+  onOpenGps: () => void
   accessToken?: string | null
   currentUserId: string | null
   canMutate: boolean
@@ -519,6 +552,9 @@ export function TravelingPanel({
           ) : (
             <>
                 <MobileTravelMap
+                onOpenGps={canMutate ? onOpenGps : undefined}
+                onNewPost={canMutate ? onNewPost : undefined}
+                tripId={tripId}
                 fullscreenOnMount={restoreFullscreenMap}
                 focusedPostId={focusedPostId}
                 gpsPostCandidates={gpsPostCandidates}
@@ -538,19 +574,8 @@ export function TravelingPanel({
                 travelPosts={travelPosts}
               />
 
-              {canMutate || newPosts.length > 0 ? (
-                <div className="pointer-events-none absolute left-3 top-3 z-[500] flex flex-col items-start gap-2">
-                  {canMutate ? (
-                    <Button
-                      className="pointer-events-auto h-11 rounded-2xl px-4 shadow-xl shadow-foreground/10"
-                      onClick={onNewPost}
-                      size="sm"
-                      type="button"
-                    >
-                      <Camera className="size-4" aria-hidden="true" />
-                      New post
-                    </Button>
-                  ) : null}
+              {newPosts.length > 0 ? (
+                <div className="pointer-events-none absolute left-3 top-[calc(max(0.75rem,env(safe-area-inset-top))+3.5rem)] z-[500] flex flex-col items-start gap-2">
                   {newPosts.length > 0 ? (
                     <Button
                       className="pointer-events-auto bg-card/90 shadow-xl shadow-foreground/10 backdrop-blur"

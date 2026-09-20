@@ -415,6 +415,7 @@ export function TripSidebar({
           />
         ) : (
           <TravelingPanel
+            onOpenGps={() => onOpenManagement('gps')}
             accessToken={accessToken}
             currentUserId={currentUserId}
             canMutate={canMutate}
