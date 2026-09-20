@@ -85,20 +85,24 @@ import {
 } from '@/pages/trip-detail/use-post-scroll-focus'
 
 export function MobileTravelMap({
+  fullscreenOnMount = false,
   focusedPostId,
   gpsPostCandidates,
   isTripOngoing,
   onGpsPostCandidateSelect,
+  onPostOpen,
   onPostMarkerSelect,
   stops,
   trackingGeometry,
   travelLegs,
   travelPosts,
 }: {
+  fullscreenOnMount?: boolean
   focusedPostId: string | null
   gpsPostCandidates: readonly GpsPostCandidate[]
   isTripOngoing: boolean
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
+  onPostOpen?: (postId: string) => void
   onPostMarkerSelect: (postId: string) => void
   stops: readonly Stop[]
   trackingGeometry: TripTrackingGeometry
@@ -106,7 +110,7 @@ export function MobileTravelMap({
   travelPosts: readonly TravelPost[]
 }) {
   const [resetNonce, setResetNonce] = useState(0)
-  const [fullscreen, setFullscreen] = useState(false)
+  const [fullscreen, setFullscreen] = useState(fullscreenOnMount)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -160,7 +164,11 @@ export function MobileTravelMap({
         }}
         onPostMarkerSelect={(postId) => {
           setFullscreen(false)
-          onPostMarkerSelect(postId)
+          if (fullscreen && onPostOpen) {
+            onPostOpen(postId)
+          } else {
+            onPostMarkerSelect(postId)
+          }
         }}
         resetNonce={resetNonce}
         routeMode="travel-timeline"
@@ -261,6 +269,7 @@ export function TravelingPanel({
   tripId: string
 }) {
   const [activePostId, setActivePostId] = useState<string | null>(null)
+  const [restoreFullscreenMap, setRestoreFullscreenMap] = useState(false)
   const activePost =
     travelPosts.find((post) => post.id === activePostId) ?? null
   const displayedPosts = useMemo(
@@ -399,6 +408,7 @@ export function TravelingPanel({
 
   const openMobilePostDetail = useCallback(
     (post: TravelPost) => {
+      setRestoreFullscreenMap(false)
       onFocusedPostChange(getMapFocusedPostId(post.id, travelPosts))
       window.history.pushState(
         { ...window.history.state, openVoyageMobilePostId: post.id },
@@ -479,11 +489,19 @@ export function TravelingPanel({
             />
           ) : (
             <>
-              <MobileTravelMap
+                <MobileTravelMap
+                fullscreenOnMount={restoreFullscreenMap}
                 focusedPostId={focusedPostId}
                 gpsPostCandidates={gpsPostCandidates}
                 isTripOngoing={isTripOngoing}
                 onGpsPostCandidateSelect={onGpsPostCandidateSelect}
+                onPostOpen={(postId) => {
+                  const post = travelPosts.find((item) => item.id === postId)
+                  if (post) {
+                    openMobilePostDetail(post)
+                    setRestoreFullscreenMap(true)
+                  }
+                }}
                 onPostMarkerSelect={onPostMarkerSelect}
                 stops={stops}
                 travelLegs={travelLegs}
