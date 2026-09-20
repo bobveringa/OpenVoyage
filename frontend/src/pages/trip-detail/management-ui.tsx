@@ -111,7 +111,7 @@ export function TripSidebarHeader({
           <h1 className="truncate text-lg font-semibold tracking-normal text-foreground">
             {trip.name}
           </h1>
-          <div className="flex min-w-0 items-center gap-3 text-xs text-muted-foreground">
+          <div className="flex min-w-0 flex-col items-start gap-x-3 gap-y-1 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center">
             <span className="inline-flex items-center gap-1.5">
               <CalendarDays className="size-3.5" aria-hidden="true" />
               {formatTripDateRange(trip.startDate, trip.endDate)}
@@ -124,7 +124,7 @@ export function TripSidebarHeader({
           <div className="flex shrink-0 items-center gap-1">
             <Button
               aria-label="GPS tracking"
-              className="size-8 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
+              className="size-11 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
               onClick={() => onOpenManagement('gps')}
               size="sm"
               title="GPS tracking"
@@ -137,7 +137,7 @@ export function TripSidebarHeader({
             {canManageTrip ? (
               <Button
                 aria-label="Manage trip"
-                className="size-8 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
+                className="size-11 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
                 onClick={() => onOpenManagement('general')}
                 size="sm"
                 title="Manage trip"

@@ -42,7 +42,7 @@ import {
 import { usePublicSetting } from '@/settings/public-settings'
 import { useTheme } from '@/theme'
 
-type RouteFitMode = 'mobile-picker' | 'mobile-travel' | 'workspace'
+type RouteFitMode = 'mobile-picker' | 'mobile-travel' | 'mobile-fullscreen' | 'workspace'
 
 type RouteEndpoint = {
   coordinates: L.LatLngTuple
@@ -304,9 +304,13 @@ export function TripLeafletMap({
     gpsPostCandidateLayerRef.current = L.layerGroup().addTo(map)
     routeEndpointLayerRef.current = L.layerGroup().addTo(map)
 
-    window.requestAnimationFrame(() => map.invalidateSize())
+    const resizeObserver = new ResizeObserver(() => map.invalidateSize({ animate: false }))
+    resizeObserver.observe(container)
+    const initialFrame = window.requestAnimationFrame(() => map.invalidateSize())
 
     return () => {
+      resizeObserver.disconnect()
+      window.cancelAnimationFrame(initialFrame)
       map.off('click', handleMapClick)
       map.remove()
       draftMarkerRef.current = null
@@ -738,6 +742,9 @@ function fitRouteBounds(
 }
 
 function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
+  if (fitMode === 'mobile-fullscreen') {
+    return { maxZoom: 8, paddingTopLeft: [32, 112], paddingBottomRight: [64, 48] }
+  }
   if (fitMode === 'mobile-picker') {
     return {
       maxZoom: 7,
@@ -749,8 +756,8 @@ function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
   if (fitMode === 'mobile-travel') {
     return {
       maxZoom: 8,
-      paddingBottomRight: [36, 280],
-      paddingTopLeft: [36, 96],
+      paddingBottomRight: [36, 144],
+      paddingTopLeft: [36, 72],
     }
   }
 
@@ -897,6 +904,9 @@ function selectFocusedPostZoomNeighbors(
 function getFocusedPostFitOptions(
   fitMode: RouteFitMode,
 ): L.FitBoundsOptions {
+  if (fitMode === 'mobile-fullscreen') {
+    return getRouteFitOptions(fitMode)
+  }
   if (fitMode === 'mobile-picker') {
     return {
       paddingBottomRight: [44, 280],
@@ -906,8 +916,8 @@ function getFocusedPostFitOptions(
 
   if (fitMode === 'mobile-travel') {
     return {
-      paddingBottomRight: [48, 320],
-      paddingTopLeft: [48, 112],
+      paddingBottomRight: [40, 156],
+      paddingTopLeft: [40, 80],
     }
   }
 
@@ -918,6 +928,9 @@ function getFocusedPostFitOptions(
 }
 
 function getFocusedPostZoomPadding(fitMode: RouteFitMode): L.Point {
+  if (fitMode === 'mobile-fullscreen') {
+    return L.point(56, 100)
+  }
   if (fitMode === 'mobile-picker') {
     return L.point(52, 150)
   }

@@ -1512,7 +1512,7 @@ export function TripDetailPage({
   }
 
   return (
-    <div className="relative z-0 min-h-[calc(100dvh-4rem-1px)] w-full overflow-x-hidden py-3 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-hidden lg:px-6">
+    <div className="relative z-0 -mx-4 min-h-[calc(100dvh-4rem-1px)] w-[calc(100%+2rem)] overflow-x-hidden sm:-mx-6 sm:w-[calc(100%+3rem)] lg:mx-0 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-hidden lg:px-6 lg:py-3">
       <div className="min-h-0 w-full lg:h-full">
         <div
           className={cn(

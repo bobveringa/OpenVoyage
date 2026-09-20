@@ -6,6 +6,8 @@ import {
   EllipsisVertical,
   Images,
   MapPin,
+  Maximize2,
+  Minimize2,
   PenLine,
   Play,
   Send,
@@ -22,6 +24,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { createPortal } from 'react-dom'
 
 import {
   ApiError,
@@ -103,18 +106,62 @@ export function MobileTravelMap({
   travelPosts: readonly TravelPost[]
 }) {
   const [resetNonce, setResetNonce] = useState(0)
+  const [fullscreen, setFullscreen] = useState(false)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
 
-  return (
-    <section className="trip-mobile-travel-map absolute inset-0 overflow-hidden bg-card lg:hidden">
+  useEffect(() => {
+    if (!fullscreen) return
+    const previousFocus = document.activeElement
+    const background = Array.from(document.body.children)
+      .filter((element): element is HTMLElement => element instanceof HTMLElement && !element.contains(closeButtonRef.current))
+      .map((element) => ({ element, inert: element.inert }))
+    const previousOverflow = document.body.style.overflow
+    background.forEach(({ element }) => { element.inert = true })
+    document.body.style.overflow = 'hidden'
+    closeButtonRef.current?.focus()
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setFullscreen(false)
+    }
+    function onResize() {
+      if (window.matchMedia('(min-width: 1024px)').matches) setFullscreen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', onResize)
+    return () => {
+      background.forEach(({ element, inert }) => { element.inert = inert })
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', onResize)
+      if (previousFocus instanceof HTMLElement && previousFocus !== document.body && previousFocus.isConnected) previousFocus.focus()
+      else document.querySelector<HTMLButtonElement>('button[aria-label="Open fullscreen map"]')?.focus()
+    }
+  }, [fullscreen])
+
+  const map = (
+    <section
+      aria-label={fullscreen ? 'Fullscreen travel map' : 'Travel map'}
+      aria-modal={fullscreen ? true : undefined}
+      role={fullscreen ? 'dialog' : undefined}
+      className={cn(
+        'trip-mobile-travel-map overflow-hidden bg-card lg:hidden',
+        fullscreen ? 'trip-fullscreen-map fixed inset-0 z-[60]' : 'absolute inset-0',
+      )}
+    >
       <TripLeafletMap
         draftMapLocation={null}
-        fitMode="mobile-travel"
+        fitMode={fullscreen ? 'mobile-fullscreen' : 'mobile-travel'}
         gpsPostCandidates={gpsPostCandidates}
         isTripOngoing={isTripOngoing}
         mapPointEnabled={false}
         onDraftMapPointSelect={() => undefined}
-        onGpsPostCandidateSelect={onGpsPostCandidateSelect}
-        onPostMarkerSelect={onPostMarkerSelect}
+        onGpsPostCandidateSelect={(candidate) => {
+          setFullscreen(false)
+          onGpsPostCandidateSelect(candidate)
+        }}
+        onPostMarkerSelect={(postId) => {
+          setFullscreen(false)
+          onPostMarkerSelect(postId)
+        }}
         resetNonce={resetNonce}
         routeMode="travel-timeline"
         focusedPostId={focusedPostId}
@@ -124,10 +171,27 @@ export function MobileTravelMap({
         travelPosts={travelPosts}
       />
 
-      <div className="pointer-events-none absolute right-3 top-3 z-[500]">
+      {fullscreen ? (
+        <div className="pointer-events-none absolute left-[max(1rem,env(safe-area-inset-left))] top-[max(1rem,env(safe-area-inset-top))] z-[500] rounded-2xl border border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur">
+          <p className="text-sm font-semibold">Explore the route</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Tap a post to see its story</p>
+        </div>
+      ) : null}
+      <div className="pointer-events-none absolute right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-[500] flex flex-col gap-2">
+        <Button
+          aria-label={fullscreen ? 'Exit fullscreen map' : 'Open fullscreen map'}
+          className="pointer-events-auto size-11 rounded-2xl bg-card/95 shadow-lg shadow-foreground/10 backdrop-blur hover:bg-card"
+          onClick={() => setFullscreen((current) => !current)}
+          ref={closeButtonRef}
+          size="icon"
+          type="button"
+          variant="outline"
+        >
+          {fullscreen ? <Minimize2 className="size-5" aria-hidden="true" /> : <Maximize2 className="size-5" aria-hidden="true" />}
+        </Button>
         <Button
           aria-label="Recenter travel map"
-          className="pointer-events-auto size-10 rounded-full bg-card/90 shadow-lg shadow-foreground/10 backdrop-blur hover:bg-card"
+          className="pointer-events-auto size-11 rounded-2xl bg-card/95 shadow-lg shadow-foreground/10 backdrop-blur hover:bg-card"
           onClick={() => setResetNonce((current) => current + 1)}
           size="icon"
           title="Recenter"
@@ -139,6 +203,8 @@ export function MobileTravelMap({
       </div>
     </section>
   )
+
+  return fullscreen ? createPortal(map, document.body) : map
 }
 
 export function TravelingPanel({
@@ -429,7 +495,7 @@ export function TravelingPanel({
                 <div className="pointer-events-none absolute left-3 top-3 z-[500] flex flex-col items-start gap-2">
                   {canMutate ? (
                     <Button
-                      className="pointer-events-auto shadow-xl shadow-foreground/10"
+                      className="pointer-events-auto h-11 rounded-2xl px-4 shadow-xl shadow-foreground/10"
                       onClick={onNewPost}
                       size="sm"
                       type="button"
@@ -452,9 +518,16 @@ export function TravelingPanel({
                 </div>
               ) : null}
 
-              <div className="absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-background/90 via-background/45 to-transparent pb-3 pt-10">
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-background/80 to-transparent pb-6 pt-6">
+                {displayedPosts.length === 0 ? (
+                  <div className="mx-4 rounded-2xl border border-border bg-card/95 p-4 text-center shadow-sm backdrop-blur">
+                    <p className="text-sm font-semibold">Your journey starts here</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{canMutate ? 'Add your first post to bring the map to life.' : 'Stories will appear here as the journey unfolds.'}</p>
+                  </div>
+                ) : null}
                 <div
-                  className="trip-mobile-post-carousel scrollbar-subtle flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1"
+                  aria-label="Trip stories"
+                  className="trip-mobile-post-carousel pointer-events-auto flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1"
                   ref={mobileCarouselRef}
                 >
                   {displayedPosts.map((post) => (
@@ -1286,24 +1359,24 @@ function TravelPostPreviewCard({
   return (
     <article
       className={cn(
-        'trip-mobile-post-carousel__card shrink-0 snap-center overflow-hidden rounded-[1.5rem] border shadow-sm shadow-foreground/5 transition-colors',
+        'trip-mobile-post-carousel__card shrink-0 snap-center overflow-hidden rounded-2xl border bg-card shadow-lg shadow-foreground/10 transition-colors',
         post.isDraft
           ? active
-            ? 'border-primary/55 bg-primary/5'
-            : 'border-primary/45 bg-primary/5'
+            ? 'border-primary/55'
+            : 'border-primary/45'
           : active
-            ? 'border-primary/55 bg-muted/45'
-            : 'border-border bg-muted/45',
+            ? 'border-primary/55'
+            : 'border-border',
       )}
       ref={postRef}
     >
       <button
         aria-label={`Open ${post.title}`}
-        className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="flex w-full items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         onClick={onOpen}
         type="button"
       >
-        <div className="relative h-36 overflow-hidden bg-secondary">
+        <div className="relative m-2 size-20 shrink-0 overflow-hidden rounded-xl bg-secondary">
           <MediaPreview
             className="size-full object-cover"
             media={primaryMedia}
@@ -1325,21 +1398,16 @@ function TravelPostPreviewCard({
               </span>
             </span>
           ) : null}
-          {post.media.length > 1 ? (
-            <span className="absolute right-2 top-2 rounded-full bg-card/90 px-2 py-1 text-[0.68rem] font-semibold text-primary shadow-sm">
-              {post.media.length} media
-            </span>
-          ) : null}
         </div>
 
-        <div className="space-y-1.5 p-3">
-          <h3 className="text-base font-semibold leading-6 text-foreground">
+        <div className="min-w-0 space-y-1.5 py-3 pl-1 pr-3">
+          <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-foreground">
             {post.title}
           </h3>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5">
-              <MapPin className="size-3.5" aria-hidden="true" />
-              {post.location}
+          <div className="space-y-1 text-xs text-muted-foreground">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{post.location}</span>
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Clock className="size-3.5" aria-hidden="true" />
@@ -1412,8 +1480,8 @@ function MobilePostDetailCard({
       <div className="min-w-0 border-b border-border bg-card/85 p-3">
         <div className="flex min-w-0 items-start gap-3">
           <Button
-            aria-label="Back to post carousel"
-            className="size-9 rounded-full"
+            aria-label="Back to map"
+            className="size-11 shrink-0 rounded-2xl"
             onClick={onBack}
             size="icon"
             title="Back"
@@ -1449,7 +1517,7 @@ function MobilePostDetailCard({
                 aria-expanded={isActionMenuOpen}
                 aria-haspopup="menu"
                 aria-label={`Actions for ${post.title}`}
-                className="size-9 rounded-full"
+                className="size-11 rounded-2xl"
                 onClick={() => setIsActionMenuOpen((open) => !open)}
                 size="icon"
                 title="Post actions"
