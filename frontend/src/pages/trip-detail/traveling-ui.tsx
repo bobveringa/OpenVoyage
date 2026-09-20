@@ -1,6 +1,8 @@
 import {
   ArrowLeft,
   Camera,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Compass,
   EllipsisVertical,
@@ -46,6 +48,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { MediaImage } from '@/components/ui/media-image'
 import { Modal } from '@/components/ui/modal'
+import { useTracking } from '@/tracking/use-tracking'
 import { cn } from '@/lib/utils'
 import {
   getMapFocusedPostId,
@@ -423,6 +426,18 @@ export function TravelingPanel({
     [onFocusedPostChange, travelPosts],
   )
 
+  function moveMobilePost(direction: -1 | 1) {
+    const index = displayedPosts.findIndex((post) => post.id === activePostId)
+    const next = displayedPosts[index + direction]
+    if (index < 0 || !next) return
+    window.history.replaceState(
+      { ...window.history.state, openVoyageMobilePostId: next.id }, '',
+    )
+    onFocusedPostChange(getMapFocusedPostId(next.id, travelPosts))
+    handleViewedPostChange(next.id)
+    setActivePostId(next.id)
+  }
+
   useEffect(() => {
     function handlePopState(event: PopStateEvent) {
       if (
@@ -475,6 +490,11 @@ export function TravelingPanel({
         <div className="relative h-full min-h-0 overflow-hidden lg:hidden">
           {activePost ? (
             <MobilePostDetailCard
+              key={activePost.id}
+              postIndex={displayedPosts.findIndex((post) => post.id === activePost.id)}
+              postCount={displayedPosts.length}
+              onPrevious={() => moveMobilePost(-1)}
+              onNext={() => moveMobilePost(1)}
               onBack={closeMobilePostDetail}
               onEdit={canMutate ? () => onEditPost(activePost.id) : undefined}
               onPublish={
@@ -1443,6 +1463,10 @@ function TravelPostPreviewCard({
 }
 
 function MobilePostDetailCard({
+  postIndex,
+  postCount,
+  onPrevious,
+  onNext,
   accessToken,
   currentUserId,
   isNew = false,
@@ -1455,6 +1479,10 @@ function MobilePostDetailCard({
   shareToken,
   tripId,
 }: {
+  postIndex: number
+  postCount: number
+  onPrevious: () => void
+  onNext: () => void
   accessToken?: string | null
   currentUserId: string | null
   isNew?: boolean
@@ -1471,6 +1499,16 @@ function MobilePostDetailCard({
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false)
   const [isPublishConfirmationOpen, setPublishConfirmationOpen] = useState(false)
   const actionMenuRef = useRef<HTMLDivElement | null>(null)
+  const readerRef = useRef<HTMLDivElement>(null)
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const { activeSession } = useTracking()
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    readerRef.current?.focus({ preventScroll: true })
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [])
 
   useEffect(() => {
     if (!isActionMenuOpen) {
@@ -1498,39 +1536,26 @@ function MobilePostDetailCard({
   }, [isActionMenuOpen])
 
   return (
-    <article className="scrollbar-subtle h-full min-h-0 overflow-y-auto bg-card lg:hidden">
-      <div className="min-w-0 border-b border-border bg-card/85 p-3">
-        <div className="flex min-w-0 items-start gap-3">
+    <article aria-label="Post reader" className="mobile-post-reader fixed inset-0 z-40 flex flex-col bg-card lg:hidden">
+      <div className="shrink-0 border-b border-border bg-card pt-[env(safe-area-inset-top)]">
+        <div className="flex h-14 min-w-0 items-center gap-1 px-2">
           <Button
             aria-label="Back to map"
-            className="size-11 shrink-0 rounded-2xl"
+            className="h-11 shrink-0 gap-1 rounded-xl px-2"
             onClick={onBack}
-            size="icon"
+            size="sm"
             title="Back"
             type="button"
-            variant="outline"
+            variant="ghost"
           >
             <ArrowLeft className="size-4" aria-hidden="true" />
+            <span>Back</span>
+            {activeSession ? <span role="img" aria-label={activeSession.endedAt ? 'GPS recording syncing' : 'GPS recording active'} className={cn('size-2 rounded-full', activeSession.endedAt ? 'bg-amber-500' : 'bg-destructive')} /> : null}
           </Button>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold leading-6 text-foreground">
-                {post.title}
-              </h3>
-              {isNew ? <Badge variant="secondary">New</Badge> : null}
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              {post.isDraft ? <Badge>Draft</Badge> : null}
-              <PostAuthor author={post.author} />
-              <span className="inline-flex items-center gap-1.5">
-                <MapPin className="size-3.5" aria-hidden="true" />
-                {post.location}
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <Clock className="size-3.5" aria-hidden="true" />
-                {post.time}
-              </span>
-            </div>
+          <div className="flex min-w-0 flex-1 items-center justify-center">
+            <Button aria-label="Previous post" className="size-11 shrink-0" size="icon" variant="ghost" disabled={postIndex <= 0} onClick={onPrevious}><ChevronLeft className="size-5" aria-hidden="true" /></Button>
+            <span className="whitespace-nowrap text-xs font-medium tabular-nums text-muted-foreground" aria-live="polite">Post {postIndex + 1} of {postCount}</span>
+            <Button aria-label="Next post" className="size-11 shrink-0" size="icon" variant="ghost" disabled={postIndex >= postCount - 1} onClick={onNext}><ChevronRight className="size-5" aria-hidden="true" /></Button>
           </div>
           {onPublish || onEdit ? (
             <div className="relative shrink-0" ref={actionMenuRef}>
@@ -1544,7 +1569,7 @@ function MobilePostDetailCard({
                 size="icon"
                 title="Post actions"
                 type="button"
-                variant="outline"
+                variant="ghost"
               >
                 <EllipsisVertical className="size-4" aria-hidden="true" />
               </Button>
@@ -1590,7 +1615,57 @@ function MobilePostDetailCard({
         </div>
       </div>
 
-      <div className="space-y-4 p-4">
+      <div
+        aria-label={`Reading ${post.title}`}
+        className="scrollbar-subtle min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain px-5 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] outline-none"
+        ref={readerRef}
+        tabIndex={-1}
+        onTouchStart={(event) => {
+          const target = event.target as Element
+          const interactiveTarget = target.closest('button, a, input, textarea, video, [role="dialog"]')
+          if (activeMediaIndex !== null || event.touches.length !== 1 || (interactiveTarget && !target.closest('[data-post-gallery]'))) {
+            touchStartRef.current = null
+            return
+          }
+          const touch = event.touches[0]
+          touchStartRef.current = { x: touch.clientX, y: touch.clientY }
+        }}
+        onTouchMove={(event) => {
+          const start = touchStartRef.current
+          if (!start) return
+          if (event.touches.length !== 1 || Math.abs(event.touches[0].clientY - start.y) > 30) touchStartRef.current = null
+        }}
+        onTouchCancel={() => { touchStartRef.current = null }}
+        onTouchEnd={(event) => {
+          const start = touchStartRef.current
+          touchStartRef.current = null
+          const end = event.changedTouches[0]
+          if (!start || !end || activeMediaIndex !== null) return
+          const dx = end.clientX - start.x
+          const dy = end.clientY - start.y
+          if (Math.abs(dx) < 65 || Math.abs(dx) < Math.abs(dy) * 2) return
+          if (dx < 0 && postIndex < postCount - 1) onNext()
+          if (dx > 0 && postIndex > 0) onPrevious()
+        }}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return
+          if (event.key === 'ArrowLeft' && postIndex > 0) { event.preventDefault(); onPrevious() }
+          if (event.key === 'ArrowRight' && postIndex < postCount - 1) { event.preventDefault(); onNext() }
+        }}
+      >
+        <div className="mx-auto max-w-2xl space-y-5">
+        <div className="space-y-3">
+          {isNew || post.isDraft ? <div className="flex flex-wrap items-center gap-2">
+            {isNew ? <Badge variant="secondary">New</Badge> : null}
+            {post.isDraft ? <Badge>Draft</Badge> : null}
+          </div> : null}
+          <h2 className="text-2xl font-semibold leading-tight">{post.title}</h2>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+            <PostAuthor author={post.author} />
+            <span className="inline-flex items-center gap-1.5"><MapPin className="size-3.5" aria-hidden="true" />{post.location}</span>
+            <span className="inline-flex items-center gap-1.5"><Clock className="size-3.5" aria-hidden="true" />{post.time}</span>
+          </div>
+        </div>
         <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
           {post.excerpt}
         </p>
@@ -1608,6 +1683,7 @@ function MobilePostDetailCard({
           shareToken={shareToken}
           tripId={tripId}
         />
+        </div>
       </div>
 
       {activeMediaIndex !== null ? (
@@ -1663,7 +1739,7 @@ function MobilePostMediaGallery({
   const mediaCount = media.length
 
   return (
-    <section aria-label={`Post media: ${mediaCount} items`}>
+    <section aria-label={`Post media: ${mediaCount} items`} data-post-gallery>
       <div
         className={cn(
           'relative grid h-56 overflow-hidden rounded-[1.35rem] border border-border bg-secondary shadow-sm sm:h-72',

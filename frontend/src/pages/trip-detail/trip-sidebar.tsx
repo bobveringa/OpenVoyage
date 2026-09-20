@@ -292,8 +292,8 @@ export function TripSidebar({
   const editingPost =
     travelPosts.find((post) => post.id === editingPostId) ?? null
   const mobileTravelMapHeight = reserveMobileModeSwitchSpace
-    ? 'h-[calc(100dvh-8.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))]'
-    : 'h-[calc(100dvh-4rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))]'
+    ? 'h-[calc(100dvh-4.5rem-env(safe-area-inset-bottom))]'
+    : 'h-[calc(100dvh-env(safe-area-inset-bottom))]'
   const fallbackStopInsertionPoint = useMemo(
     () => createFirstStopInsertionPoint(trip.startDate),
     [trip.startDate],

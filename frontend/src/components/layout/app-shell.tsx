@@ -21,6 +21,7 @@ type AppShellProps = {
   onNavigate?: (to: string) => void
   passwordChangeRequired?: boolean
   showHeader?: boolean
+  hideMobileHeader?: boolean
 }
 
 export function AppShell({
@@ -31,6 +32,7 @@ export function AppShell({
   onNavigate,
   passwordChangeRequired = false,
   showHeader = true,
+  hideMobileHeader = false,
 }: AppShellProps) {
   const username = getUserUsername(currentUser)
   const homePath = passwordChangeRequired
@@ -47,7 +49,7 @@ export function AppShell({
     <div className="relative isolate min-h-dvh text-foreground">
       <AppBackground />
       {showHeader ? (
-        <header className="sticky top-0 z-10 border-b border-border/80 bg-card/80 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
+        <header className={cn('sticky top-0 z-10 border-b border-border/80 bg-card/80 pt-[env(safe-area-inset-top)] backdrop-blur-xl', hideMobileHeader && 'trip-app-header')}>
           <div className="mx-auto flex h-16 w-full max-w-6xl min-w-0 items-center justify-between px-4 sm:px-6 lg:px-8">
             <button
               className="inline-flex items-center gap-3 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -111,7 +113,7 @@ export function AppShell({
 // panel used to be the only place this state showed up, which made it easy
 // to lose track of which trip (if any) was being recorded, and impossible
 // to reach the stop control while offline if that trip page couldn't load.
-function TrackingIndicator({ onNavigate }: { onNavigate: (to: string) => void }) {
+export function TrackingIndicator({ onNavigate }: { onNavigate: (to: string) => void }) {
   const { activeSession } = useTracking()
 
   if (!activeSession) {

@@ -227,6 +227,7 @@ function AppRoutes() {
 
   return (
     <AppShell
+      hideMobileHeader={renderedRoute.name === 'trip-detail'}
       authStatus={status}
       currentUser={currentUser}
       onLogout={handleLogout}

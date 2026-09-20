@@ -13,7 +13,7 @@ const INDICATOR_HEIGHT = 56
 // Leaflet drives its own drag/pan/zoom touch handling on this element; a
 // pull gesture that starts on the map must be left alone rather than
 // hijacked into a page refresh (see TripLeafletMap in trip-detail-page.tsx).
-const IGNORE_GESTURE_SELECTOR = '.trip-leaflet-map'
+const IGNORE_GESTURE_SELECTOR = '.trip-leaflet-map, .mobile-post-reader'
 
 type PullPhase = 'idle' | 'pulling' | 'ready' | 'refreshing'
 

@@ -331,6 +331,15 @@
 }
 
 @media (max-width: 1023px) {
+  body:has(.mobile-trip-toolbar) .trip-app-header {
+    display: none;
+  }
+
+  body:has(.mobile-post-reader) .mobile-trip-toolbar,
+  body:has(.mobile-post-reader) nav[aria-label="Trip mode"] {
+    display: none;
+  }
+
   html, .scrollbar-subtle {
     scrollbar-gutter: auto;
   }

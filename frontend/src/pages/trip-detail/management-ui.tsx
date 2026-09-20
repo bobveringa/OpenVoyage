@@ -74,6 +74,7 @@ import type {
 } from '@/pages/trip-detail/page-types'
 import type { TripManagementSection } from '@/pages/trip-detail/url-state'
 import { useMediaQuery } from '@/pages/trip-detail/use-media-query'
+import { MobileTripToolbar } from '@/pages/trip-detail/mobile-trip-toolbar'
 
 const visibilityOptions = [
   { label: 'Private', value: 'PRIVATE' },
@@ -105,7 +106,9 @@ export function TripSidebarHeader({
   trip: TripViewModel
 }) {
   return (
-    <div className="space-y-2 border-b border-border px-4 py-3">
+    <>
+    <MobileTripToolbar trip={trip} members={members} canMutate={canMutate} canManageTrip={canManageTrip} onOpenManagement={onOpenManagement} />
+    <div className="hidden space-y-2 border-b border-border px-4 py-3 lg:block">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <h1 className="truncate text-lg font-semibold tracking-normal text-foreground">
@@ -152,6 +155,7 @@ export function TripSidebarHeader({
         ) : null}
       </div>
     </div>
+    </>
   )
 }
 
