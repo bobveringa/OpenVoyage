@@ -307,6 +307,9 @@ export function TravelingPanel({
   const handleViewedPostChange = useCallback(
     (postId: string) => {
       setViewedPostId(postId)
+      if (showMobileMap) {
+        onFocusedPostChange(postId)
+      }
       if (lastRecordedPostIdRef.current === postId) {
         return
       }
@@ -314,7 +317,7 @@ export function TravelingPanel({
       lastRecordedPostIdRef.current = postId
       onViewedPostChange(postId)
     },
-    [onViewedPostChange],
+    [onFocusedPostChange, onViewedPostChange, showMobileMap],
   )
   const jumpToNextNewPost = useCallback(() => {
     const viewedPostIndex = viewedPostId
