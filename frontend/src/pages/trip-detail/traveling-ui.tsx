@@ -351,6 +351,7 @@ export function TravelingPanel({
     axis: 'x',
     enabled: showMobileMap && !activePost,
     firstPostId,
+    keepFirstPostFocused: true,
     onFocusedPostChange: handleScrollFocusedPostChange,
     onViewedPostChange: handleViewedPostChange,
     postElementsRef: mobilePostElementsRef,
