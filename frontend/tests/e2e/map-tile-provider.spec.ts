@@ -15,6 +15,76 @@ const transparentPng = Buffer.from(
 test.describe('mobile reading', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })
 
+  test('keeps vertical reading scroll native on long posts', async ({ page }) => {
+    await seedBrowserAuth(page)
+    const release = await mockTripApi(page)
+    release()
+    await mockTileServers(page)
+    const timeline = createPostTimeline()
+    timeline.entries[0].post.body = 'A longer story to read while traveling.\n\n'.repeat(40)
+    await page.route('**/api/v1/trips/*/posts/timeline**', (route) => fulfillJson(route, timeline))
+    await page.goto(`/trips/${tripId}`)
+    await page.getByRole('button', { name: 'Travel', exact: true }).click()
+    await page.getByRole('button', { name: 'Open First timeline post', exact: true }).click()
+    const reader = page.getByLabel('Reading First timeline post', { exact: true })
+    await swipeReader(page, 180, 220, 600, 280)
+    await expect.poll(() => reader.evaluate((element) => element.scrollTop)).toBeGreaterThan(50)
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+    await expect(reader).toHaveCSS('transform', 'none')
+  })
+
+  test('tracks diagonal thumb drags, animates, and recovers from cancelled gestures', async ({ page }) => {
+    await seedBrowserAuth(page)
+    const release = await mockTripApi(page)
+    release()
+    await mockTileServers(page)
+    await page.goto(`/trips/${tripId}`)
+    await page.getByRole('button', { name: 'Travel', exact: true }).click()
+    await page.getByRole('button', { name: 'Open First timeline post', exact: true }).click()
+    const reader = page.getByLabel('Reading First timeline post', { exact: true })
+    const session = await page.context().newCDPSession(page)
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 320, y: 200 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 260, y: 220 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 210, y: 248 }] })
+    // The old 30px vertical-drift rule discarded this horizontal gesture.
+    await expect(reader).toHaveCSS('transform', 'matrix(1, 0, 0, 1, -110, 0)')
+    await expect(reader).toHaveJSProperty('scrollTop', 0)
+    await page.screenshot({ path: 'test-results/mobile-swipe-drag.png' })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect(page.getByText('Post 2 of 2', { exact: true })).toBeVisible()
+
+    // A short, quick flick is intentional even without a long drag.
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 140, y: 200 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 182, y: 210 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+
+    await swipeReader(page, 300, 110, 340, 382)
+    await expect(page.getByText('Post 2 of 2', { exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: /media viewer/ })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Previous post', exact: true }).click()
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 300, y: 200 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 200, y: 210 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] })
+    await expect(reader).toHaveCSS('transform', 'none')
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+
+    // A sub-threshold drag settles back instead of unexpectedly changing posts.
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 250, y: 200 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 230, y: 201 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect(reader).toHaveCSS('transform', 'none')
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+    await session.detach()
+
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await swipeReader(page, 300, 90, 200, 245)
+    await expect(page.getByText('Post 2 of 2', { exact: true })).toBeVisible()
+    expect(await page.getByLabel('Reading Second timeline post', { exact: true }).evaluate((element) => element.getAnimations().length)).toBe(0)
+  })
+
   test('uses one toolbar and pages through stories without adding Back steps', async ({ page }) => {
     await seedBrowserAuth(page)
     const release = await mockTripApi(page)

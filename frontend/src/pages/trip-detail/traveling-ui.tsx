@@ -49,6 +49,7 @@ import { Button } from '@/components/ui/button'
 import { MediaImage } from '@/components/ui/media-image'
 import { Modal } from '@/components/ui/modal'
 import { useTracking } from '@/tracking/use-tracking'
+import { usePostSwipe } from '@/pages/trip-detail/use-post-swipe'
 import { cn } from '@/lib/utils'
 import {
   getMapFocusedPostId,
@@ -272,6 +273,7 @@ export function TravelingPanel({
   tripId: string
 }) {
   const [activePostId, setActivePostId] = useState<string | null>(null)
+  const [postEntryDirection, setPostEntryDirection] = useState<-1 | 0 | 1>(0)
   const [restoreFullscreenMap, setRestoreFullscreenMap] = useState(false)
   const activePost =
     travelPosts.find((post) => post.id === activePostId) ?? null
@@ -415,6 +417,7 @@ export function TravelingPanel({
 
   const openMobilePostDetail = useCallback(
     (post: TravelPost) => {
+      setPostEntryDirection(0)
       setRestoreFullscreenMap(false)
       onFocusedPostChange(getMapFocusedPostId(post.id, travelPosts))
       window.history.pushState(
@@ -435,6 +438,7 @@ export function TravelingPanel({
     )
     onFocusedPostChange(getMapFocusedPostId(next.id, travelPosts))
     handleViewedPostChange(next.id)
+    setPostEntryDirection(direction)
     setActivePostId(next.id)
   }
 
@@ -490,6 +494,7 @@ export function TravelingPanel({
         <div className="relative h-full min-h-0 overflow-hidden lg:hidden">
           {activePost ? (
             <MobilePostDetailCard
+              entryDirection={postEntryDirection}
               key={activePost.id}
               postIndex={displayedPosts.findIndex((post) => post.id === activePost.id)}
               postCount={displayedPosts.length}
@@ -1463,6 +1468,7 @@ function TravelPostPreviewCard({
 }
 
 function MobilePostDetailCard({
+  entryDirection,
   postIndex,
   postCount,
   onPrevious,
@@ -1479,6 +1485,7 @@ function MobilePostDetailCard({
   shareToken,
   tripId,
 }: {
+  entryDirection: -1 | 0 | 1
   postIndex: number
   postCount: number
   onPrevious: () => void
@@ -1500,7 +1507,15 @@ function MobilePostDetailCard({
   const [isPublishConfirmationOpen, setPublishConfirmationOpen] = useState(false)
   const actionMenuRef = useRef<HTMLDivElement | null>(null)
   const readerRef = useRef<HTMLDivElement>(null)
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const navigatePost = usePostSwipe({
+    readerRef,
+    entryDirection,
+    blocked: activeMediaIndex !== null || isActionMenuOpen || isPublishConfirmationOpen,
+    canPrevious: postIndex > 0,
+    canNext: postIndex < postCount - 1,
+    onPrevious,
+    onNext,
+  })
   const { activeSession } = useTracking()
 
   useEffect(() => {
@@ -1553,9 +1568,9 @@ function MobilePostDetailCard({
             {activeSession ? <span role="img" aria-label={activeSession.endedAt ? 'GPS recording syncing' : 'GPS recording active'} className={cn('size-2 rounded-full', activeSession.endedAt ? 'bg-amber-500' : 'bg-destructive')} /> : null}
           </Button>
           <div className="flex min-w-0 flex-1 items-center justify-center">
-            <Button aria-label="Previous post" className="size-11 shrink-0" size="icon" variant="ghost" disabled={postIndex <= 0} onClick={onPrevious}><ChevronLeft className="size-5" aria-hidden="true" /></Button>
+            <Button aria-label="Previous post" className="size-11 shrink-0" size="icon" variant="ghost" disabled={postIndex <= 0} onClick={() => navigatePost(-1)}><ChevronLeft className="size-5" aria-hidden="true" /></Button>
             <span className="whitespace-nowrap text-xs font-medium tabular-nums text-muted-foreground" aria-live="polite">Post {postIndex + 1} of {postCount}</span>
-            <Button aria-label="Next post" className="size-11 shrink-0" size="icon" variant="ghost" disabled={postIndex >= postCount - 1} onClick={onNext}><ChevronRight className="size-5" aria-hidden="true" /></Button>
+            <Button aria-label="Next post" className="size-11 shrink-0" size="icon" variant="ghost" disabled={postIndex >= postCount - 1} onClick={() => navigatePost(1)}><ChevronRight className="size-5" aria-hidden="true" /></Button>
           </div>
           {onPublish || onEdit ? (
             <div className="relative shrink-0" ref={actionMenuRef}>
@@ -1615,42 +1630,22 @@ function MobilePostDetailCard({
         </div>
       </div>
 
+      <div className="mobile-post-swipe-stage relative min-h-0 flex-1 overflow-hidden bg-muted/50">
+        <div aria-hidden="true" className="mobile-post-swipe-hint mobile-post-swipe-hint--previous pointer-events-none absolute inset-y-0 left-3 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <ChevronLeft className="size-5" />{postIndex > 0 ? 'Previous post' : 'First post'}
+        </div>
+        <div aria-hidden="true" className="mobile-post-swipe-hint mobile-post-swipe-hint--next pointer-events-none absolute inset-y-0 right-3 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          {postIndex < postCount - 1 ? 'Next post' : 'Last post'}<ChevronRight className="size-5" />
+        </div>
       <div
         aria-label={`Reading ${post.title}`}
-        className="scrollbar-subtle min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain px-5 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] outline-none"
+        className="scrollbar-subtle relative h-full min-h-0 bg-card [touch-action:pan-y_pinch-zoom] overflow-y-auto overscroll-y-contain px-5 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] outline-none"
         ref={readerRef}
         tabIndex={-1}
-        onTouchStart={(event) => {
-          const target = event.target as Element
-          const interactiveTarget = target.closest('button, a, input, textarea, video, [role="dialog"]')
-          if (activeMediaIndex !== null || event.touches.length !== 1 || (interactiveTarget && !target.closest('[data-post-gallery]'))) {
-            touchStartRef.current = null
-            return
-          }
-          const touch = event.touches[0]
-          touchStartRef.current = { x: touch.clientX, y: touch.clientY }
-        }}
-        onTouchMove={(event) => {
-          const start = touchStartRef.current
-          if (!start) return
-          if (event.touches.length !== 1 || Math.abs(event.touches[0].clientY - start.y) > 30) touchStartRef.current = null
-        }}
-        onTouchCancel={() => { touchStartRef.current = null }}
-        onTouchEnd={(event) => {
-          const start = touchStartRef.current
-          touchStartRef.current = null
-          const end = event.changedTouches[0]
-          if (!start || !end || activeMediaIndex !== null) return
-          const dx = end.clientX - start.x
-          const dy = end.clientY - start.y
-          if (Math.abs(dx) < 65 || Math.abs(dx) < Math.abs(dy) * 2) return
-          if (dx < 0 && postIndex < postCount - 1) onNext()
-          if (dx > 0 && postIndex > 0) onPrevious()
-        }}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return
-          if (event.key === 'ArrowLeft' && postIndex > 0) { event.preventDefault(); onPrevious() }
-          if (event.key === 'ArrowRight' && postIndex < postCount - 1) { event.preventDefault(); onNext() }
+          if (event.key === 'ArrowLeft' && postIndex > 0) { event.preventDefault(); navigatePost(-1) }
+          if (event.key === 'ArrowRight' && postIndex < postCount - 1) { event.preventDefault(); navigatePost(1) }
         }}
       >
         <div className="mx-auto max-w-2xl space-y-5">
@@ -1684,6 +1679,8 @@ function MobilePostDetailCard({
           tripId={tripId}
         />
         </div>
+      </div>
+
       </div>
 
       {activeMediaIndex !== null ? (

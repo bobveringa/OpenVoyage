@@ -83,6 +83,15 @@
 }
 
 @layer components {
+  .mobile-post-swipe-hint {
+    visibility: hidden;
+  }
+
+  .mobile-post-swipe-stage[data-swipe="next"] .mobile-post-swipe-hint--next,
+  .mobile-post-swipe-stage[data-swipe="previous"] .mobile-post-swipe-hint--previous {
+    visibility: visible;
+  }
+
   .trip-leaflet-map {
     min-height: 40rem;
     width: 100%;
