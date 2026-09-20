@@ -1666,12 +1666,16 @@ function MobilePostDetailCard({
       </div>
 
       <div className="mobile-post-swipe-stage relative min-h-0 flex-1 overflow-hidden bg-muted/50">
-        <div aria-hidden="true" className="mobile-post-swipe-hint mobile-post-swipe-hint--previous pointer-events-none absolute inset-y-0 left-3 flex items-center gap-1 text-xs font-medium text-muted-foreground">
-          <ChevronLeft className="size-5" />{postIndex > 0 ? 'Previous post' : 'First post'}
-        </div>
-        <div aria-hidden="true" className="mobile-post-swipe-hint mobile-post-swipe-hint--next pointer-events-none absolute inset-y-0 right-3 flex items-center gap-1 text-xs font-medium text-muted-foreground">
-          {postIndex < postCount - 1 ? 'Next post' : 'Last post'}<ChevronRight className="size-5" />
-        </div>
+        {postIndex > 0 ? (
+          <div aria-hidden="true" className="mobile-post-swipe-hint mobile-post-swipe-hint--previous pointer-events-none absolute inset-y-0 left-3 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            <ChevronLeft className="size-5" />Previous post
+          </div>
+        ) : null}
+        {postIndex < postCount - 1 ? (
+          <div aria-hidden="true" className="mobile-post-swipe-hint mobile-post-swipe-hint--next pointer-events-none absolute inset-y-0 right-3 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            Next post<ChevronRight className="size-5" />
+          </div>
+        ) : null}
       <div
         aria-label={`Reading ${post.title}`}
         className="scrollbar-subtle relative h-full min-h-0 bg-card [touch-action:pan-y_pinch-zoom] overflow-y-auto overscroll-y-contain px-5 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] outline-none"
