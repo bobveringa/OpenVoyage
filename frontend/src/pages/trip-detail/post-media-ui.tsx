@@ -167,6 +167,7 @@ export function MediaLightbox({
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const onCloseRef = useRef(onClose)
   const historyEntryId = useId()
+  const historyCleanupTimerRef = useRef<number | null>(null)
 
   onCloseRef.current = onClose
 
@@ -183,13 +184,22 @@ export function MediaLightbox({
   }, [historyEntryId])
 
   useEffect(() => {
-    window.history.pushState(
-      {
-        ...window.history.state,
-        [mediaLightboxHistoryStateKey]: historyEntryId,
-      },
-      '',
-    )
+    if (historyCleanupTimerRef.current !== null) {
+      window.clearTimeout(historyCleanupTimerRef.current)
+      historyCleanupTimerRef.current = null
+    }
+
+    if (
+      window.history.state?.[mediaLightboxHistoryStateKey] !== historyEntryId
+    ) {
+      window.history.pushState(
+        {
+          ...window.history.state,
+          [mediaLightboxHistoryStateKey]: historyEntryId,
+        },
+        '',
+      )
+    }
 
     function handlePopState() {
       onCloseRef.current()
@@ -199,11 +209,15 @@ export function MediaLightbox({
     return () => {
       window.removeEventListener('popstate', handlePopState)
 
-      if (window.history.state?.[mediaLightboxHistoryStateKey] === historyEntryId) {
-        const historyState = { ...window.history.state }
-        delete historyState[mediaLightboxHistoryStateKey]
-        window.history.replaceState(historyState, '')
-      }
+      historyCleanupTimerRef.current = window.setTimeout(() => {
+        historyCleanupTimerRef.current = null
+        if (
+          window.history.state?.[mediaLightboxHistoryStateKey] ===
+          historyEntryId
+        ) {
+          window.history.back()
+        }
+      }, 0)
     }
   }, [historyEntryId])
 
