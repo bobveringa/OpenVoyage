@@ -13,7 +13,8 @@ const INDICATOR_HEIGHT = 56
 // Leaflet drives its own drag/pan/zoom touch handling on this element; a
 // pull gesture that starts on the map must be left alone rather than
 // hijacked into a page refresh (see TripLeafletMap in trip-detail-page.tsx).
-const IGNORE_GESTURE_SELECTOR = '.trip-leaflet-map, .mobile-post-reader'
+const IGNORE_GESTURE_SELECTOR = '.trip-leaflet-map'
+const SCROLL_ROOT_SELECTOR = '[data-pull-to-refresh-scroll-root]'
 
 type PullPhase = 'idle' | 'pulling' | 'ready' | 'refreshing'
 
@@ -29,7 +30,9 @@ function startsInsideScrollableRegion(target: EventTarget | null) {
       element.scrollHeight > element.clientHeight
 
     if (canScrollVertically) {
-      return true
+      return !(
+        element.matches(SCROLL_ROOT_SELECTOR) && element.scrollTop <= 0
+      )
     }
   }
 
@@ -37,7 +40,7 @@ function startsInsideScrollableRegion(target: EventTarget | null) {
 }
 
 export function PullToRefresh({ children }: { children: ReactNode }) {
-  const [enabled] = useState(isNativePlatform)
+  const [nativeEnabled] = useState(isNativePlatform)
   const [phase, setPhase] = useState<PullPhase>('idle')
   const [pullDistance, setPullDistance] = useState(0)
   const [animated, setAnimated] = useState(false)
@@ -45,16 +48,15 @@ export function PullToRefresh({ children }: { children: ReactNode }) {
   const phaseRef = useRef<PullPhase>('idle')
   const trackingRef = useRef(false)
   const ignoredRef = useRef(false)
+  const scrollRootRef = useRef<HTMLElement | null>(null)
   const startRef = useRef({ x: 0, y: 0 })
 
   useEffect(() => {
-    if (!enabled) {
-      return
-    }
-
     const root = document.documentElement
     const previousOverscroll = root.style.overscrollBehaviorY
-    root.style.overscrollBehaviorY = 'contain'
+    if (nativeEnabled) {
+      root.style.overscrollBehaviorY = 'contain'
+    }
 
     function setPhaseState(next: PullPhase) {
       phaseRef.current = next
@@ -63,6 +65,7 @@ export function PullToRefresh({ children }: { children: ReactNode }) {
 
     function reset() {
       trackingRef.current = false
+      scrollRootRef.current = null
       setAnimated(true)
       setPullDistance(0)
       setPhaseState('idle')
@@ -79,13 +82,19 @@ export function PullToRefresh({ children }: { children: ReactNode }) {
       }
 
       const target = event.target
+      const scrollRoot = target instanceof Element
+        ? target.closest<HTMLElement>(SCROLL_ROOT_SELECTOR)
+        : null
+      scrollRootRef.current = scrollRoot
       ignoredRef.current =
         (target instanceof Element && Boolean(target.closest(IGNORE_GESTURE_SELECTOR))) ||
         startsInsideScrollableRegion(target)
       // A modal, list, or other nested scroll root does not affect window.scrollY.
       // Let that element own every gesture rather than stealing a downward swipe for
       // pull-to-refresh while the page itself happens to be at its top.
-      trackingRef.current = !ignoredRef.current && window.scrollY === 0
+      trackingRef.current =
+        !ignoredRef.current &&
+        (scrollRoot ? scrollRoot.scrollTop <= 0 : nativeEnabled && window.scrollY === 0)
       startRef.current = { x: touch.clientX, y: touch.clientY }
     }
 
@@ -102,7 +111,8 @@ export function PullToRefresh({ children }: { children: ReactNode }) {
       const deltaX = touch.clientX - startRef.current.x
       const deltaY = touch.clientY - startRef.current.y
 
-      if (window.scrollY > 0 || deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY)) {
+      const scrollTop = scrollRootRef.current?.scrollTop ?? window.scrollY
+      if (scrollTop > 0 || deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY)) {
         reset()
         return
       }
@@ -119,6 +129,7 @@ export function PullToRefresh({ children }: { children: ReactNode }) {
         return
       }
       trackingRef.current = false
+      scrollRootRef.current = null
       setAnimated(true)
 
       if (phaseRef.current === 'ready') {
@@ -138,17 +149,15 @@ export function PullToRefresh({ children }: { children: ReactNode }) {
     window.addEventListener('touchcancel', handleTouchEnd, { passive: true })
 
     return () => {
-      root.style.overscrollBehaviorY = previousOverscroll
+      if (nativeEnabled) {
+        root.style.overscrollBehaviorY = previousOverscroll
+      }
       window.removeEventListener('touchstart', handleTouchStart)
       window.removeEventListener('touchmove', handleTouchMove)
       window.removeEventListener('touchend', handleTouchEnd)
       window.removeEventListener('touchcancel', handleTouchEnd)
     }
-  }, [enabled])
-
-  if (!enabled) {
-    return <>{children}</>
-  }
+  }, [nativeEnabled])
 
   const rotation = Math.min((pullDistance / PULL_TRIGGER_DISTANCE) * 180, 180)
 

@@ -315,7 +315,11 @@ export function TravelingPanel({
   travelPosts: readonly TravelPost[]
   tripId: string
 }) {
-  const [activePostId, setActivePostId] = useState<string | null>(null)
+  const [activePostId, setActivePostId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    const savedPostId = window.history.state?.openVoyageMobilePostId
+    return typeof savedPostId === 'string' ? savedPostId : null
+  })
   const [postEntryDirection, setPostEntryDirection] = useState<-1 | 0 | 1>(0)
   const [restoreFullscreenMap, setRestoreFullscreenMap] = useState(false)
   const activePost =
@@ -1679,6 +1683,7 @@ function MobilePostDetailCard({
       <div
         aria-label={`Reading ${post.title}`}
         className="scrollbar-subtle relative h-full min-h-0 bg-card [touch-action:pan-y_pinch-zoom] overflow-y-auto overscroll-y-contain px-5 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] outline-none"
+        data-pull-to-refresh-scroll-root
         ref={readerRef}
         tabIndex={-1}
         onKeyDown={(event) => {
