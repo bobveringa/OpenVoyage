@@ -193,7 +193,12 @@ export function MobileTravelMap({
         travelPosts={travelPosts}
       />
 
-      <div className="pointer-events-none absolute right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-[500] flex flex-col items-end gap-2">
+      <div
+        className={cn(
+          'pointer-events-none absolute right-[max(0.75rem,env(safe-area-inset-right))] z-[500] flex flex-col items-end gap-2',
+          fullscreen ? 'top-[max(0.75rem,env(safe-area-inset-top))]' : 'top-3',
+        )}
+      >
         <Button
           aria-label={fullscreen ? 'Exit fullscreen map' : 'Open fullscreen map'}
           className="pointer-events-auto size-11 rounded-2xl bg-card/95 shadow-lg shadow-foreground/10 backdrop-blur hover:bg-card"
@@ -218,7 +223,12 @@ export function MobileTravelMap({
         </Button>
       </div>
       {onNewPost || onOpenGps ? (
-        <div className="pointer-events-none absolute left-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[500] flex items-center gap-2">
+        <div
+          className={cn(
+            'pointer-events-none absolute left-3 z-[500] flex items-center gap-2',
+            fullscreen ? 'top-[max(0.75rem,env(safe-area-inset-top))]' : 'top-3',
+          )}
+        >
           {onNewPost ? (
             <Button
               className="pointer-events-auto h-11 rounded-2xl px-4 shadow-xl shadow-foreground/10"
@@ -575,7 +585,7 @@ export function TravelingPanel({
               />
 
               {newPosts.length > 0 ? (
-                <div className="pointer-events-none absolute left-3 top-[calc(max(0.75rem,env(safe-area-inset-top))+3.5rem)] z-[500] flex flex-col items-start gap-2">
+                <div className="pointer-events-none absolute left-3 top-[4.25rem] z-[500] flex flex-col items-start gap-2">
                   {newPosts.length > 0 ? (
                     <Button
                       className="pointer-events-auto bg-card/90 shadow-xl shadow-foreground/10 backdrop-blur"

@@ -37,6 +37,11 @@ export function readTripDetailUrlState(
   const tab = searchParams.get('tab')
   const panel = searchParams.get('panel')
   const postId = searchParams.get('post')
+  const dialog = searchParams.get('dialog')
+  const section = searchParams.get('section')
+  const managementSection = isTripManagementSection(section)
+    ? section
+    : 'general'
   const mode: TripMode =
     tab === 'travel'
       ? 'traveling'
@@ -46,8 +51,8 @@ export function readTripDetailUrlState(
 
   return normalizeTripDetailUrlState(
     {
-      activeDialog: null,
-      managementSection: 'general',
+      activeDialog: dialog === 'management' ? 'management' : null,
+      managementSection,
       editingPostId: panel === 'edit-post' ? postId : null,
       mode,
       planningView: panel === 'new-stop' ? 'create-stop' : 'stops',
@@ -100,7 +105,6 @@ export function normalizeTripDetailUrlState(
     travelingView = 'posts'
     editingPostId = null
   }
-
   return {
     activeDialog: canOpenManagementDialogs ? state.activeDialog : null,
     managementSection: state.managementSection,
@@ -109,6 +113,18 @@ export function normalizeTripDetailUrlState(
     planningView,
     travelingView,
   }
+}
+
+function isTripManagementSection(
+  value: string | null,
+): value is TripManagementSection {
+  return (
+    value === 'general' ||
+    value === 'people' ||
+    value === 'sharing' ||
+    value === 'gps' ||
+    value === 'danger'
+  )
 }
 
 export function writeTripDetailUrlState(
@@ -141,6 +157,10 @@ export function writeTripDetailUrlState(
   ) {
     url.searchParams.set('panel', 'edit-post')
     url.searchParams.set('post', state.editingPostId)
+  }
+  if (state.activeDialog === 'management') {
+    url.searchParams.set('dialog', 'management')
+    url.searchParams.set('section', state.managementSection)
   }
   const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
   const nextUrl = `${url.pathname}${url.search}${url.hash}`

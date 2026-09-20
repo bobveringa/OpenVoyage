@@ -74,7 +74,14 @@ export function Modal({
           className,
         )}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border bg-card p-5">
+        <div
+          className={cn(
+            'flex items-start justify-between gap-4 border-b border-border bg-card',
+            fullscreenOnMobile
+              ? 'px-5 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))] sm:p-5'
+              : 'p-5',
+          )}
+        >
           <div className="space-y-1">
             <h2 className="text-xl font-semibold tracking-normal text-popover-foreground">
               {title}
