@@ -21,6 +21,7 @@ from models.api.tracking import (
     TrackSampleModeUpdateRequest,
     TrackSampleModeUpdateResponse,
     TrackSampleResponse,
+    TrackSessionPointsReplaceRequest,
 )
 from services.gps.tracking_service import (
     InvalidCursorError,
@@ -34,6 +35,43 @@ from services.gps.tracking_service import (
 from services.trip_errors import TripNotFoundError
 
 router = APIRouter(prefix='/trips/{trip_id}/tracking', tags=['tracking'])
+
+
+@router.post('/sessions/{session_id}/stop', response_model=TrackingSessionResponse)
+def stop_tracking_session(
+    trip_id: uuid.UUID,
+    session_id: uuid.UUID,
+    user: CurrentUser,
+    tracking_service: GpsTrackingServiceDep,
+):
+    try:
+        return _session_response(
+            tracking_service.stop_session(
+                trip_id=trip_id, session_id=session_id, current_user_id=user.id
+            )
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+
+
+@router.put('/sessions/{session_id}/points', status_code=status.HTTP_204_NO_CONTENT)
+def replace_session_points(
+    trip_id: uuid.UUID,
+    session_id: uuid.UUID,
+    payload: TrackSessionPointsReplaceRequest,
+    user: CurrentUser,
+    tracking_service: GpsTrackingServiceDep,
+) -> Response:
+    try:
+        tracking_service.replace_session_points(
+            trip_id=trip_id,
+            session_id=session_id,
+            current_user_id=user.id,
+            payload=payload,
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _raise_http_error(exc: Exception) -> None:

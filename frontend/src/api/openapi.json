@@ -3181,6 +3181,61 @@
         "title": "TrackSampleResponse",
         "type": "object"
       },
+      "TrackSessionPointReplacement": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "latitude": {
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "type": "number"
+          },
+          "travel_mode": {
+            "$ref": "#/components/schemas/TravelMode"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude",
+          "travel_mode"
+        ],
+        "title": "TrackSessionPointReplacement",
+        "type": "object"
+      },
+      "TrackSessionPointsReplaceRequest": {
+        "properties": {
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TrackSessionPointReplacement"
+            },
+            "maxItems": 6000,
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "points"
+        ],
+        "title": "TrackSessionPointsReplaceRequest",
+        "type": "object"
+      },
       "TrackingSessionCreateRequest": {
         "properties": {
           "ended_at": {
@@ -9010,6 +9065,67 @@
         ]
       }
     },
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/points": {
+      "put": {
+        "operationId": "replace_session_points_api_v1_trips__trip_id__tracking_sessions__session_id__points_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackSessionPointsReplaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Replace Session Points",
+        "tags": [
+          "tracking"
+        ]
+      }
+    },
     "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/samples": {
       "get": {
         "operationId": "list_track_samples_api_v1_trips__trip_id__tracking_sessions__session_id__samples_get",
@@ -9159,6 +9275,64 @@
           }
         ],
         "summary": "Upload Track Samples",
+        "tags": [
+          "tracking"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/stop": {
+      "post": {
+        "operationId": "stop_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Stop Tracking Session",
         "tags": [
           "tracking"
         ]
