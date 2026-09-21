@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   getErrorMessage,
@@ -39,6 +39,9 @@ export function TrackingSessionDetail({
   onBack,
   onSaved,
 }: Props) {
+  const root = useRef<HTMLDivElement>(null)
+  const [tool, setTool] = useState<'point' | 'transport'>('point')
+  const [bulkMode, setBulkMode] = useState<TravelMode>('WALK')
   const [draft, setDraft] = useState<readonly DraftPoint[]>(initial)
   const [history, setHistory] = useState<(readonly DraftPoint[])[]>([])
   const [selectedId, setSelectedId] = useState(initial[0]?.id ?? '')
@@ -69,6 +72,8 @@ export function TrackingSessionDetail({
     [draft, range],
   )
   const dirty = history.length > 0
+  const bulkIds = new Set(visible.map(p => p.id))
+  const bulkChangeCount = visible.filter(p => p.travel_mode !== bulkMode).length
   const index = draft.findIndex((p) => p.id === selectedId)
   const visibleIndex = visible.findIndex((p) => p.id === selectedId)
   const selected = visible[visibleIndex]
@@ -139,6 +144,7 @@ export function TrackingSessionDetail({
     }
     // The parent management modal must not close behind a dirty editor.
     const escape = (event: KeyboardEvent) => {
+      if (document.querySelector('[role="listbox"]')) return
       if (event.key === 'Escape' && !confirmLeave) {
         event.stopImmediatePropagation()
         if (!busy) {
@@ -154,6 +160,38 @@ export function TrackingSessionDetail({
       window.removeEventListener('keydown', escape, true)
     }
   }, [dirty, busy, onBack, confirmLeave])
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
+    const overflow = document.body.style.overflow
+    const siblings = Array.from(document.body.children).filter(
+      (node): node is HTMLElement => node instanceof HTMLElement && node !== root.current,
+    )
+    const inert = siblings.map(node => node.inert)
+    siblings.forEach(node => { node.inert = true })
+    document.body.style.overflow = 'hidden'
+    root.current?.focus()
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || document.querySelector('[role="alertdialog"], [role="listbox"]')) return
+      const elements = Array.from(root.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), summary, [tabindex="0"]',
+      ) ?? []).filter(node => node.getClientRects().length > 0)
+      const first = elements[0], last = elements[elements.length - 1]
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === root.current)) {
+        event.preventDefault()
+        last?.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first?.focus()
+      }
+    }
+    window.addEventListener('keydown', trapFocus, true)
+    return () => {
+      siblings.forEach((node, i) => { node.inert = inert[i] })
+      document.body.style.overflow = overflow
+      window.removeEventListener('keydown', trapFocus, true)
+      previous?.focus()
+    }
+  }, [])
   const save = async () => {
     setBusy(true)
     setError('')
@@ -180,102 +218,28 @@ export function TrackingSessionDetail({
   }
   return createPortal(
     <div
-      className="fixed inset-0 z-[60] overflow-y-auto bg-background pb-[max(1rem,env(safe-area-inset-bottom))]"
+      ref={root}
+      tabIndex={-1}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 outline-none md:p-6"
       role="dialog"
       aria-modal="true"
       aria-label="Recording details"
     >
-      <div className="mx-auto max-w-7xl space-y-4 px-3 sm:px-8">
-        <header className="sticky top-0 z-20 -mx-3 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-background px-3 pb-3 pt-[max(1rem,env(safe-area-inset-top))] sm:-mx-8 sm:px-8">
-          <div>
-            <Button variant="ghost" disabled={busy} onClick={back}>
-              ← Recordings
-            </Button>
-            <h2 className="text-xl font-semibold">
-              Session · {new Date(session.started_at).toLocaleString()}
-            </h2>
+      <div className="flex h-dvh w-full flex-col overflow-hidden bg-background shadow-2xl md:h-[min(800px,90dvh)] md:max-w-6xl md:rounded-2xl md:border md:border-border">
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3 pt-[max(.75rem,env(safe-area-inset-top))]">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold">Edit recording</h2>
+            <p className="truncate text-xs text-muted-foreground">{new Date(session.started_at).toLocaleString()}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              disabled={!dirty || busy}
-              onClick={() => {
-                const previous = history[history.length - 1]
-                setDraft(previous)
-                if (!previous.some(p => p.id === selectedId)) {
-                  setSelectedId(previous.find(p => Date.parse(p.recorded_at) >= range[0] && Date.parse(p.recorded_at) <= range[1])?.id ?? '')
-                }
-                setNotice('')
-                setHistory((h) => h.slice(0, -1))
-                setInserting(false)
-              }}
-            >
-              Undo
-            </Button>
-            <Button
-              variant="outline"
-              disabled={!dirty || busy}
-              onClick={() => setConfirmLeave(true)}
-            >
-              Discard
-            </Button>
-            <Button disabled={!dirty || busy} onClick={() => void save()}>
-              {busy ? 'Saving…' : 'Save changes'}
-            </Button>
-          </div>
+          <Button variant="ghost" disabled={busy} onClick={back}>{'\u2190 Recordings'}</Button>
         </header>
-        <p className="text-sm text-muted-foreground">
-          Select a point, then drag its handle. Moves are limited to 400 m from
-          the last saved position. Other sessions are reference paths only.
-          Changes stay local until saved.
-        </p>
-        {error && (
-          <p role="alert" className="text-destructive">
-            {error}
-          </p>
-        )}
-        <section className="space-y-2 rounded-xl border border-border bg-card p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-semibold">Editing time range</h3>
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                setRange([minTime, maxTime])
-                setInserting(false)
-              }}
-            >
-              Whole session
-            </Button>
-          </div>
-          <TimeRangeSlider
-            min={minTime}
-            max={maxTime}
-            value={range}
-            disabled={busy}
-            onChange={(value) => {
-              setRange(value)
-              setNotice('')
-              setInserting(false)
-              const first = draft.find(
-                (p) =>
-                  Date.parse(p.recorded_at) >= value[0] &&
-                  Date.parse(p.recorded_at) <= value[1],
-              )
-              setSelectedId(first?.id ?? '')
-            }}
-          />
-          <p className="text-xs text-muted-foreground">
-            {visible.length} of {draft.length} points in range. Only these
-            points can be selected or edited. The full session trace remains
-            visible on the map.
-          </p>
-        </section>
+        <div className="min-h-0 flex-1 overflow-y-auto md:grid md:grid-cols-[minmax(0,1fr)_360px] md:overflow-hidden">
+          <div className="flex min-h-0 flex-col p-3 md:p-4">
         <TrackingSessionMap
           paths={displayPaths}
           editablePoints={visible}
           selectedSessionId={session.id}
-          selectedPoint={selected}
+          selectedPoint={tool === 'point' ? selected : undefined}
           origin={origin}
           insertion={insertion}
           disabled={busy}
@@ -317,13 +281,70 @@ export function TrackingSessionDetail({
             setSelectedId(point.id)
           }}
         />
-        <p role="status" className="min-h-6 text-sm">
+        <p role="status" className="mt-2 text-xs text-muted-foreground">
           {insertion
-            ? `Tap inside the green area to insert a point (within ${Math.round(insertDistanceLimit(coordinates(insertion[0]), coordinates(insertion[1])))} m of this segment).`
-            : notice}
+            ? `Tap inside the highlighted area to insert a point (within ${Math.round(insertDistanceLimit(coordinates(insertion[0]), coordinates(insertion[1])))} m of this segment).`
+            : notice || (tool === 'point' ? 'Tap a point, then drag its handle to move it (up to 400 m).' : 'The highlighted route is your selected time range.')}
         </p>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <section className="space-y-3 rounded-xl border border-border p-4">
+          </div>
+          <aside className="space-y-4 border-t border-border p-3 md:overflow-y-auto md:border-l md:border-t-0 md:p-4">
+            <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1" role="group" aria-label="Editing tools">
+              <Button variant={tool === 'point' ? 'default' : 'ghost'} aria-pressed={tool === 'point'} disabled={busy} onClick={() => { setTool('point'); setInserting(false) }}>Edit point</Button>
+              <Button variant={tool === 'transport' ? 'default' : 'ghost'} aria-pressed={tool === 'transport'} disabled={busy} onClick={() => { setTool('transport'); setInserting(false); setNotice('') }}>Bulk transport</Button>
+            </div>
+        <details open={tool === 'transport' ? true : undefined} className="space-y-2 border-b border-border pb-3">
+          <summary className="cursor-pointer text-sm font-medium">Time range · {visible.length} of {draft.length} points</summary>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold">Editing time range</h3>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                setRange([minTime, maxTime])
+                setSelectedId(selectedId || draft[0]?.id || '')
+                setNotice('')
+                setInserting(false)
+              }}
+            >
+              Whole session
+            </Button>
+          </div>
+          <TimeRangeSlider
+            min={minTime}
+            max={maxTime}
+            value={range}
+            disabled={busy}
+            onChange={(value) => {
+              setRange(value)
+              setNotice('')
+              setInserting(false)
+              const first = draft.find(
+                (p) =>
+                  Date.parse(p.recorded_at) >= value[0] &&
+                  Date.parse(p.recorded_at) <= value[1],
+              )
+              setSelectedId(first?.id ?? '')
+            }}
+          />
+          <p className="text-xs text-muted-foreground">
+            {visible.length} of {draft.length} points in range. Only these
+            points can be edited.
+          </p>
+        </details>
+            {tool === 'transport' && (
+              <section className="space-y-3">
+                <h3 className="font-semibold">Transport for {visible.length} points</h3>
+                <p className="text-sm text-muted-foreground">Choose a time range above, then apply a transport type to every point in it.</p>
+                <Select ariaLabel="Bulk transport type" value={bulkMode} options={TRAVEL_MODE_OPTIONS} disabled={busy || !visible.length} onValueChange={setBulkMode} />
+                <Button className="w-full" disabled={busy || !bulkChangeCount} onClick={() => {
+                  change(draft.map(p => bulkIds.has(p.id) ? { ...p, travel_mode: bulkMode } : p))
+                  setNotice(`Transport updated for ${bulkChangeCount} points. Save changes to finish.`)
+                }}>Apply to {visible.length} points</Button>
+                <p className="text-xs text-muted-foreground">Transport describes travel arriving at each point. Undo restores the entire batch before saving.</p>
+              </section>
+            )}
+            <div hidden={tool !== 'point'} className="space-y-4">
+          <section className="space-y-3">
             <h3 className="font-semibold">
               Points in range ({visible.length})
             </h3>
@@ -339,7 +360,7 @@ export function TrackingSessionDetail({
                 Point{' '}
                 <input
                   aria-label="Point number"
-                  className="w-20 rounded border border-input bg-background p-2"
+                  className="w-16 rounded border border-input bg-background p-2"
                   type="number"
                   min={1}
                   max={visible.length}
@@ -359,32 +380,12 @@ export function TrackingSessionDetail({
                 Next
               </Button>
             </div>
-            <ul className="max-h-52 overflow-auto divide-y divide-border">
-              {visible
-                .slice(
-                  Math.max(0, visibleIndex - 10),
-                  Math.max(0, visibleIndex - 10) + 25,
-                )
-                .map((p) => (
-                  <li key={p.id}>
-                    <button
-                      disabled={busy}
-                      className={`min-h-11 w-full px-2 py-3 text-left text-sm ${p.id === selectedId ? 'bg-primary/15 font-semibold' : ''}`}
-                      aria-pressed={p.id === selectedId}
-                      onClick={() => select(p.id)}
-                    >
-                      {new Date(p.recorded_at).toLocaleTimeString()} ·{' '}
-                      {p.latitude.toFixed(5)}, {p.longitude.toFixed(5)} ·{' '}
-                      {p.travel_mode}
-                    </button>
-                  </li>
-                ))}
-            </ul>
+
             {!visible.length && <p>No points in this time range.</p>}
           </section>
           {selected && (
-            <section className="space-y-3 rounded-xl border border-border p-4">
-              <h3 className="font-semibold">Edit selected point</h3>
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium">Transport type</h3>
               <Select
                 ariaLabel="Point travel mode"
                 value={selected.travel_mode}
@@ -450,8 +451,32 @@ export function TrackingSessionDetail({
             </section>
           )}
         </div>
+        <div hidden={tool !== 'point'}>
+            <details><summary className="cursor-pointer py-2 text-sm text-muted-foreground">Browse point list</summary>
+            <ul className="max-h-52 overflow-auto divide-y divide-border">
+              {visible
+                .slice(
+                  Math.max(0, visibleIndex - 10),
+                  Math.max(0, visibleIndex - 10) + 25,
+                )
+                .map((p) => (
+                  <li key={p.id}>
+                    <button
+                      disabled={busy}
+                      className={`min-h-11 w-full px-2 py-3 text-left text-sm ${p.id === selectedId ? 'bg-primary/15 font-semibold' : ''}`}
+                      aria-pressed={p.id === selectedId}
+                      onClick={() => select(p.id)}
+                    >
+                      {new Date(p.recorded_at).toLocaleTimeString()} ·{' '}
+                      {p.latitude.toFixed(5)}, {p.longitude.toFixed(5)} ·{' '}
+                      {p.travel_mode}
+                    </button>
+                  </li>
+                ))}
+            </ul></details>
+        </div>
         {sessions.length > 1 && (
-          <details className="rounded-xl border border-border bg-card p-4">
+          <details className="border-t border-border pt-3">
             <summary className="cursor-pointer font-semibold">
               Other recordings on the map
             </summary>
@@ -490,6 +515,32 @@ export function TrackingSessionDetail({
             </ul>
           </details>
         )}
+          </aside>
+        </div>
+        <footer className="shrink-0 border-t border-border bg-background px-4 pt-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
+          {error && <p role="alert" className="mb-2 text-sm text-destructive">{error}</p>}
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              variant="outline"
+              disabled={!dirty || busy}
+              onClick={() => {
+                const previous = history[history.length - 1]
+                setDraft(previous)
+                if (!previous.some(p => p.id === selectedId)) {
+                  setSelectedId(previous.find(p => Date.parse(p.recorded_at) >= range[0] && Date.parse(p.recorded_at) <= range[1])?.id ?? '')
+                }
+                setNotice('')
+                setHistory((h) => h.slice(0, -1))
+                setInserting(false)
+              }}
+            >
+              Undo
+            </Button>
+
+            <span className="hidden text-xs text-muted-foreground sm:block">{dirty ? 'Unsaved changes' : 'All changes saved'}</span>
+            <Button disabled={!dirty || busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save changes'}</Button>
+          </div>
+        </footer>
         {confirmLeave && (
           <TrackingConfirmation
             title="Discard point changes?"

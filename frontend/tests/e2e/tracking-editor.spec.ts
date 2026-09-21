@@ -86,6 +86,15 @@ for (const mobile of [false, true]) {
       page.getByRole('dialog', { name: 'Recording details' }),
     ).toHaveCSS('position', 'fixed')
     await expect(page.getByLabel('Recording paths map')).toBeVisible()
+    const editor = page.getByRole('dialog', { name: 'Recording details' })
+    const panel = await editor.locator(':scope > div').boundingBox()
+    if (!mobile) {
+      expect(panel!.width).toBeLessThan(1280)
+      expect(panel!.height).toBeLessThan(900)
+    }
+    await expect(page.getByRole('button', { name: 'Bulk transport', exact: true })).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Delete point', exact: true })).toBeInViewport()
+    await page.screenshot({ path: test.info().outputPath('editor-default.png') })
     const mapPane = page.locator('.leaflet-map-pane')
     const mapTransformBeforeMove = await mapPane.getAttribute('style')
     const marker = page.locator('.leaflet-marker-icon').first()
@@ -123,8 +132,9 @@ for (const mobile of [false, true]) {
     const insertY = mapBox.y + markerOffsetY
     if (mobile) await page.touchscreen.tap(insertX, insertY)
     else await page.mouse.click(insertX, insertY)
-    await expect(page.getByText('6 of 6 points in range.', { exact: false })).toBeVisible()
+    await expect(page.locator('summary').filter({ hasText: 'Time range' })).toContainText('6 of 6 points')
     await page.getByRole('button', { name: 'Undo', exact: true }).click()
+    await page.locator('summary').filter({ hasText: 'Time range' }).click()
     const lower = page.getByRole('slider', { name: 'Editing range start' })
     const upper = page.getByRole('slider', { name: 'Editing range end' })
     const initialMapTransform = await mapPane.getAttribute('style')
@@ -141,6 +151,26 @@ for (const mobile of [false, true]) {
         () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
       ),
     ).toBe(true)
+    await page.getByRole('button', { name: 'Bulk transport', exact: true }).click()
+    await page.getByRole('button', { name: 'Apply to 3 points' }).click()
+    await expect(page.getByRole('button', { name: 'Apply to 3 points' })).toBeDisabled()
+    expect(saves).toHaveLength(0)
+    await page.getByRole('button', { name: 'Undo', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Save changes' })).toBeDisabled()
+    await page.getByRole('button', { name: 'Apply to 3 points' }).click()
+    await page.getByRole('button', { name: 'Save changes' }).click()
+    expect(saves).toHaveLength(1)
+    expect(saves.pop()).toMatchObject({ points: [
+      { id: 'point-0', travel_mode: 'UNKNOWN' },
+      { id: 'point-1', travel_mode: 'WALK' },
+      { id: 'point-2', travel_mode: 'WALK' },
+      { id: 'point-3', travel_mode: 'WALK' },
+      { id: 'point-4', travel_mode: 'UNKNOWN' },
+    ] })
+    await page.getByRole('button').filter({ hasText: '5 points' }).click()
+    await page.locator('summary').filter({ hasText: 'Time range' }).click()
+    await lower.fill(String(start + 60_000))
+    await upper.fill(String(start + 180_000))
     const pointMode = page.getByRole('button', { name: 'Point travel mode' })
     await pointMode.click()
     await page.getByRole('option', { name: 'Walk' }).click()

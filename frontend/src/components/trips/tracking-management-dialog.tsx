@@ -1,4 +1,4 @@
-import { Loader2, Play, Radio, Square, Trash2 } from 'lucide-react'
+import { ChevronRight, Loader2, Play, Radio, Square, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import {
@@ -395,12 +395,12 @@ export function TrackingManagementPanel({
                 key={session.id}
               >
                 <button
-                  className="min-w-0 flex-1 text-left"
+                  className="group flex min-h-11 min-w-0 flex-1 items-center justify-between gap-3 text-left"
                   onClick={() => void openSession(session.id)}
                   disabled={isBusy}
                   type="button"
                 >
-                  <p className="text-sm font-medium text-foreground">
+                  <div className="min-w-0"><p className="text-sm font-medium text-foreground">
                     {formatMoment(session.started_at)}
                     {session.ended_at
                       ? ` – ${formatMoment(session.ended_at)}`
@@ -412,7 +412,8 @@ export function TrackingManagementPanel({
                     {session.recorded_by_user_id
                       ? ''
                       : ' · recorded by a removed account'}
-                  </p>
+                  </p></div>
+                  <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-primary">Edit <ChevronRight className="size-4" /></span>
                 </button>
                 {!session.ended_at &&
                   (session.recorded_by_user_id === currentUser?.id ||

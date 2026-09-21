@@ -317,7 +317,7 @@ export function TrackingSessionMap(props: Props) {
   return (
     <div
       ref={element}
-      className="tracking-session-map trip-leaflet-map relative z-0 h-[min(48dvh,28rem)] min-h-72 w-full rounded-xl border border-border bg-muted"
+      className="tracking-session-map trip-leaflet-map relative z-0 h-[30dvh] min-h-48 md:h-full md:min-h-0 md:flex-1 w-full rounded-xl border border-border bg-muted"
       aria-label="Recording paths map"
     />
   )
