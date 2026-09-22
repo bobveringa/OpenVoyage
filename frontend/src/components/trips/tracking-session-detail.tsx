@@ -434,7 +434,6 @@ export function TrackingSessionDetail({
                   disabled={
                     busy ||
                     !next ||
-                    Boolean(selected.after_id || next.after_id) ||
                     Date.parse(next.recorded_at) -
                       Date.parse(selected.recorded_at) <
                       2
@@ -461,15 +460,9 @@ export function TrackingSessionDetail({
                   Delete point
                 </Button>
               </div>
-              {selected.after_id && (
-                <p className="text-sm text-muted-foreground">
-                  Save this inserted point before moving it or inserting beside
-                  it.
-                </p>
-              )}
               <p className="text-xs text-muted-foreground">
-                Point deletion can be undone before saving. Save between
-                successive insertions on the same segment.
+                Point deletion and successive insertions can be undone before
+                saving.
               </p>
             </section>
           )}
