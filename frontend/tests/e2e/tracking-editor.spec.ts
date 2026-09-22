@@ -155,7 +155,7 @@ for (const { mobile, insecure } of [
       await page.mouse.down()
       await page.mouse.move(x + 1000, y, { steps: 15 })
       await page.mouse.up()
-      await expect(page.getByRole('status')).toHaveText('400 m move limit reached.')
+      await expect(page.getByRole('status')).toHaveText('500 m move limit reached.')
     }
     await expect.poll(() => mapPane.getAttribute('style')).toBe(mapTransformBeforeMove)
     await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled()
