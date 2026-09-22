@@ -179,3 +179,25 @@ class TrackSampleDeleteRequest(BaseModel):
 
 class TrackSampleDeleteResponse(BaseModel):
     deleted_count: int
+
+
+class TrackSessionPointReplacement(BaseModel):
+    id: uuid.UUID | None = None
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    travel_mode: TravelMode
+
+
+class TrackSessionPointsReplaceRequest(BaseModel):
+    points: list[TrackSessionPointReplacement] = Field(max_length=6000)
+
+    @field_validator('points')
+    @classmethod
+    def validate_unique_ids(
+        cls,
+        points: list[TrackSessionPointReplacement],
+    ) -> list[TrackSessionPointReplacement]:
+        ids = [point.id for point in points if point.id is not None]
+        if len(set(ids)) != len(ids):
+            raise ValueError('point ids must be unique')
+        return points

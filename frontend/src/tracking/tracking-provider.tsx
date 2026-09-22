@@ -357,6 +357,45 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   )
 
   const stopTrackingRef = useRef<() => Promise<void>>(async () => {})
+  useEffect(() => {
+    if (!activeSession || activeSession.endedAt || !accessToken || status !== 'recording') return
+    let cancelled = false
+    let checking = false
+    const checkRemoteState = async () => {
+      if (checking) return
+      checking = true
+      try {
+        const pending = await getPendingSession(activeSession.sessionId)
+        if (!pending?.createAcked || pending.recordedByUserId !== currentUser?.id) return
+        const { sessions } = await listTrackingSessionsWithServerDate({ accessToken, tripId: activeSession.tripId })
+        if (cancelled) return
+        const remote = sessions.find(s => s.id === activeSession.sessionId)
+        if (!remote) {
+          uploaderRef.current?.stop()
+          await purgeSession(activeSession.sessionId)
+          handleTerminated('This recording was deleted remotely.')
+        } else if (remote.ended_at) {
+          await stopCapture()
+          // Queue times are device times; the uploader applies the pinned offset.
+          const endedAt = new Date(Date.parse(remote.ended_at) - (pending.clockOffsetMs ?? 0)).toISOString()
+          const latest = await getPendingSession(activeSession.sessionId)
+          if (latest) await putPendingSession({ ...latest, endedAt, endAcked: false })
+          setActiveSession({ ...activeSession, endedAt })
+          setStatus('syncing')
+          setLocationWarning('This recording was stopped remotely. Finishing sync.')
+          uploaderRef.current?.requestSync()
+        }
+      } catch {
+        // Offline capture remains available; synchronize on reconnection.
+      } finally { checking = false }
+    }
+    void checkRemoteState()
+    const timer = window.setInterval(() => void checkRemoteState(), 15_000)
+    const check = () => { void checkRemoteState() }
+    window.addEventListener('online', check)
+    window.addEventListener('focus', check)
+    return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener('online', check); window.removeEventListener('focus', check) }
+  }, [activeSession, accessToken, currentUser?.id, status, handleTerminated, stopCapture])
   const engineFailedRef = useRef<(message: string) => Promise<void>>(async () => {})
 
   const buildSourceOptions = useCallback(

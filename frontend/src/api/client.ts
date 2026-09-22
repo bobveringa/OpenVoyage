@@ -1469,6 +1469,36 @@ export async function deleteTrackingSession(options: {
   )
 }
 
+export async function stopTrackingSession(options: {
+  tripId: string
+  sessionId: string
+  accessToken: string
+}): Promise<TrackingSession> {
+  return requestJson<TrackingSession>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/sessions/${encodeURIComponent(options.sessionId)}/stop`,
+    { method: 'POST', accessToken: options.accessToken },
+  )
+}
+
+export type SessionPointReplacement =
+  components['schemas']['TrackSessionPointReplacement']
+
+export async function saveSessionPoints(options: {
+  tripId: string
+  sessionId: string
+  accessToken: string
+  points: SessionPointReplacement[]
+}): Promise<void> {
+  return requestJson<void>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/sessions/${encodeURIComponent(options.sessionId)}/points`,
+    {
+      method: 'PUT',
+      accessToken: options.accessToken,
+      json: { points: options.points },
+    },
+  )
+}
+
 // Also surfaces the response's Date header (same pattern as
 // listTrackingSessionsWithServerDate) so the uploader can re-check clock
 // skew whenever a batch comes back with a non-zero discarded count, without

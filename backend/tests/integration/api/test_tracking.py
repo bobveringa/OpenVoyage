@@ -12,6 +12,7 @@ from factories.trips import add_trip_member, add_trip_viewer, create_trip
 from factories.users import create_user
 from models.database.gps_privacy_zones import GpsPrivacyZone
 from models.database.trips import TripMember, TripRole, TripVisibility
+from models.database.user import UserRole
 
 START = datetime(2026, 8, 14, 8, 0, tzinfo=timezone.utc)
 
@@ -319,6 +320,78 @@ def test_creating_an_existing_session_conflicts(tracking) -> None:
 
     replayed = tracking.put_session(session_id, started_at=START)
     assert replayed.status_code == 409
+
+
+@pytest.mark.integration
+def test_remote_stop_requires_owner_or_admin_and_preserves_cutoff(
+    tracking, client, db_session, trip
+):
+    session_id = uuid.uuid4()
+    tracking.put_session(session_id, started_at=START)
+    member = create_user(db_session)
+    add_trip_member(
+        db_session, trip_id=trip.id, user_id=member.id, role=TripRole.MEMBER
+    )
+    url = f'{tracking.base}/sessions/{session_id}/stop'
+    assert client.post(url, headers=_auth_headers(member)).status_code == 403
+    admin = create_user(db_session, role=UserRole.ADMIN)
+    stopped = client.post(url, headers=_auth_headers(admin))
+    assert stopped.status_code == 200
+    cutoff = stopped.json()['ended_at']
+    retry = tracking.end_session(
+        session_id, ended_at=datetime.now(timezone.utc) + timedelta(hours=2)
+    )
+    assert retry.status_code == 200
+    assert retry.json()['ended_at'] == cutoff
+    assert (
+        tracking.upload(session_id, [_sample(offset_seconds=60)]).json()[
+            'accepted_samples'
+        ]
+        == 1
+    )
+
+
+@pytest.mark.integration
+def test_session_point_replacement_is_atomic_and_scoped(tracking):
+    session_id = uuid.uuid4()
+    tracking.put_session(session_id, started_at=START)
+    tracking.upload(
+        session_id,
+        [_sample(offset_seconds=60), _sample(offset_seconds=120, longitude=5.501)],
+    )
+    points = tracking.raw_samples(session_id).json()['items']
+    url = f'{tracking.base}/sessions/{session_id}/points'
+
+    def replacement(p, latitude=None):
+        return dict(
+            id=p['id'],
+            latitude=p['latitude'] if latitude is None else latitude,
+            longitude=p['longitude'],
+            travel_mode=p['travel_mode'],
+        )
+
+    invalid = tracking.client.put(
+        url,
+        headers=tracking.headers,
+        json={'points': [replacement(points[0], 51.501), replacement(points[1], 52)]},
+    )
+    assert invalid.status_code == 422
+    assert tracking.raw_samples(session_id).json()['items'] == points
+    saved = tracking.client.put(
+        url,
+        headers=tracking.headers,
+        json={'points': [replacement(points[0], 51.501), replacement(points[1])]},
+    )
+    assert saved.status_code == 204
+    other_id = uuid.uuid4()
+    tracking.end_session(session_id, ended_at=START + timedelta(hours=1))
+    tracking.put_session(other_id, started_at=START + timedelta(hours=2))
+    wrong_session = tracking.client.put(
+        f'{tracking.base}/sessions/{other_id}/points',
+        headers=tracking.headers,
+        json={'points': [replacement(points[1], 51.501)]},
+    )
+    assert wrong_session.status_code == 409
 
 
 @pytest.mark.integration
@@ -719,7 +792,7 @@ def test_out_of_order_and_late_batches_are_accepted(tracking) -> None:
 
 
 @pytest.mark.integration
-def test_a_trailing_sample_can_be_recovered_by_advancing_the_end(
+def test_a_stopped_session_cannot_be_extended_by_a_late_device(
     tracking,
 ) -> None:
     session_id = uuid.uuid4()
@@ -738,7 +811,7 @@ def test_a_trailing_sample_can_be_recovered_by_advancing_the_end(
         session_id,
         ended_at=START + timedelta(minutes=30),
     )
-    assert tracking.upload(session_id, [late]).json()['accepted_samples'] == 1
+    assert tracking.upload(session_id, [late]).json()['discarded_samples'] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -771,15 +844,15 @@ def test_only_the_recorder_may_upload(
         == 403
     )
 
-    # Lifecycle is separate: a non-recorder may still end the session.
+    # Ordinary members cannot stop somebody else's recording.
     assert (
         member_tracking.end_session(
             session_id,
             ended_at=START + timedelta(hours=1),
         ).status_code
-        == 200
+        == 403
     )
-    # And the original recorder can still upload after that correction.
+    # The original recorder remains able to upload.
     assert (
         owner_tracking.upload(
             session_id,

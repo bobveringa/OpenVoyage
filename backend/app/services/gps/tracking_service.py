@@ -18,11 +18,18 @@ from models.api.tracking import (
     TrackSampleRequest,
     TrackingSessionCreateRequest,
     TrackingSessionEndRequest,
+    TrackSessionPointsReplaceRequest,
 )
 from models.database.base import utcnow
 from models.database.posts import Post
 from models.database.gps_tracking import GpsTrackingSession, GpsTrackSample
 from models.database.travel import TravelMode
+from models.database.user import User, UserRole
+from services.gps.edit_geometry import (
+    distance,
+    insertion_area,
+    move_area_radius,
+)
 from models.database.trips import Trip, TripMember
 from services.gps.derived_track import (
     SessionTrackPoint,
@@ -227,12 +234,16 @@ class GpsTrackingService:
         current_user_id: uuid.UUID,
         payload: TrackingSessionEndRequest,
     ) -> SessionSummary:
-        """Advance a session's end time without changing its creation data."""
-        self._require_trip_permission(
-            trip_id=trip_id,
-            user_id=current_user_id,
-            permission=TripPermission.MANAGE_TRACKING,
-        )
+        """Close a recording once; repeated end requests preserve that cutoff."""
+        user = self.db.get(User, current_user_id)
+        if user is not None and user.role == UserRole.ADMIN:
+            self._require_trip(trip_id)
+        else:
+            self._require_trip_permission(
+                trip_id=trip_id,
+                user_id=current_user_id,
+                permission=TripPermission.MANAGE_TRACKING,
+            )
         self._lock_trip(trip_id)
         existing = self.db.get(GpsTrackingSession, session_id)
         if existing is None:
@@ -241,11 +252,16 @@ class GpsTrackingService:
             raise TrackingSessionConflictError(
                 f'Session belongs to another trip: {session_id}'
             )
+        self._require_session_controller(existing, current_user_id)
+        # Offline end retries must never extend a remotely stopped recording.
+        if existing.ended_at is not None:
+            return SessionSummary(
+                session=existing, sample_count=self._count_samples(session_id)
+            )
         if payload.ended_at < existing.started_at:
             raise TrackingValidationError('ended_at must not precede started_at')
 
-        # The end is monotonic so an offline retry or an older device cannot
-        # shorten an already-recorded session.
+        # Include the final buffered fix when closing for the first time.
         newest_sample = self.db.execute(
             select(func.max(GpsTrackSample.recorded_at)).where(
                 GpsTrackSample.session_id == session_id
@@ -275,6 +291,155 @@ class GpsTrackingService:
             session=existing,
             sample_count=self._count_samples(session_id),
         )
+
+    def _require_session_controller(self, session, user_id):
+        user = self.db.get(User, user_id)
+        if session.recorded_by_user_id != user_id and (
+            user is None or user.role != UserRole.ADMIN
+        ):
+            raise TrackingPermissionError(
+                'Only the recording owner or an admin can stop this session'
+            )
+
+    def stop_session(self, *, trip_id, session_id, current_user_id):
+        return self.end_session(
+            trip_id=trip_id,
+            session_id=session_id,
+            current_user_id=current_user_id,
+            payload=TrackingSessionEndRequest(ended_at=utcnow()),
+        )
+
+    def replace_session_points(
+        self,
+        *,
+        trip_id,
+        session_id,
+        current_user_id,
+        payload: TrackSessionPointsReplaceRequest,
+    ):
+        self._require_trip_permission(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            permission=TripPermission.MANAGE_TRACKING,
+        )
+        self._lock_trip(trip_id)
+        session = self._get_session(trip_id=trip_id, session_id=session_id)
+        rows = list(
+            self.db.scalars(
+                select(GpsTrackSample)
+                .where(GpsTrackSample.session_id == session_id)
+                .order_by(GpsTrackSample.recorded_at, GpsTrackSample.id)
+            )
+        )
+        by_id = {row.id: row for row in rows}
+        zones = self.privacy_zones.list_trip_member_zone_coordinates(trip_id=trip_id)
+
+        def check_privacy(lat, lon):
+            if self.privacy_zones.is_within_any_zone(
+                latitude=lat, longitude=lon, zones=zones
+            ):
+                raise TrackingValidationError(
+                    'Edited points cannot be placed inside a privacy zone'
+                )
+
+        requested_ids = [point.id for point in payload.points if point.id is not None]
+        if any(point_id not in by_id for point_id in requested_ids):
+            raise TrackingSessionConflictError(
+                'Point was deleted or belongs to another session; reload the recording'
+            )
+        original_indexes = {row.id: index for index, row in enumerate(rows)}
+        requested_indexes = [original_indexes[point_id] for point_id in requested_ids]
+        if requested_indexes != sorted(requested_indexes):
+            raise TrackingValidationError(
+                'Existing points must remain in recorded order'
+            )
+
+        # Validate the complete replacement before mutating ORM objects.
+        positions = {r.id: (r.latitude, r.longitude) for r in rows}
+        replacements = {
+            point.id: point for point in payload.points if point.id is not None
+        }
+        for row_index, row in enumerate(rows):
+            replacement = replacements.get(row.id)
+            if replacement is None:
+                continue
+            point_id = row.id
+            target = (replacement.latitude, replacement.longitude)
+            connections = [
+                (rows[index].latitude, rows[index].longitude)
+                for index in (row_index - 1, row_index + 1)
+                if 0 <= index < len(rows)
+            ]
+            move_radius = move_area_radius(positions[point_id], connections)
+            if distance(positions[point_id], target) > move_radius + 0.001:
+                raise TrackingValidationError(
+                    'Point is outside its allowed connection-aware movement area'
+                )
+            if target != positions[point_id]:
+                check_privacy(*target)
+            positions[point_id] = target
+
+        additions = []
+        index = 0
+        while index < len(payload.points):
+            if payload.points[index].id is not None:
+                index += 1
+                continue
+            start = index
+            while index < len(payload.points) and payload.points[index].id is None:
+                index += 1
+            if start == 0 or index == len(payload.points):
+                raise TrackingSessionConflictError(
+                    'New points must be placed between existing points'
+                )
+            before_id = payload.points[start - 1].id
+            after_id = payload.points[index].id
+            if before_id is None or after_id is None:
+                raise TrackingSessionConflictError('Invalid point placement')
+            before_row, after_row = by_id[before_id], by_id[after_id]
+            inserted = payload.points[start:index]
+            interval = (after_row.recorded_at - before_row.recorded_at) / (
+                len(inserted) + 1
+            )
+            if interval <= timedelta(0):
+                raise TrackingValidationError(
+                    'These points are too close in time to insert between them'
+                )
+            for offset, point in enumerate(inserted, start=1):
+                target = (point.latitude, point.longitude)
+                center, radius = insertion_area(
+                    positions[before_id], positions[after_id]
+                )
+                if distance(target, center) > radius + 0.001:
+                    raise TrackingValidationError(
+                        'Inserted point is outside the allowed connection area'
+                    )
+                check_privacy(*target)
+                additions.append(
+                    GpsTrackSample(
+                        id=uuid.uuid4(),
+                        trip_id=trip_id,
+                        session_id=session_id,
+                        recorded_at=before_row.recorded_at + interval * offset,
+                        latitude=point.latitude,
+                        longitude=point.longitude,
+                        travel_mode=point.travel_mode,
+                    )
+                )
+        for row in rows:
+            replacement = replacements.get(row.id)
+            if replacement is None:
+                self.db.delete(row)
+            else:
+                row.latitude, row.longitude, row.travel_mode = (
+                    replacement.latitude,
+                    replacement.longitude,
+                    replacement.travel_mode,
+                )
+        self.db.add_all(additions)
+        self.db.flush()
+        self._refresh_session_derived_track(session)
+        self.db.commit()
 
     def _count_samples(self, session_id: uuid.UUID) -> int:
         return self.db.execute(
@@ -798,6 +963,8 @@ class GpsTrackingService:
             raise TrackSampleNotFoundError(
                 'Every sample id must be a retained point in this trip'
             )
+        if len(session_ids) > 1:
+            raise TrackingValidationError('Edit only one recording at a time')
         return session_ids
 
     # ------------------------------------------------------------------

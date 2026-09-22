@@ -1,0 +1,45 @@
+.tracking-session-map .tracking-path-halo {
+  stroke: var(--background);
+}
+
+.tracking-session-map .tracking-path-active {
+  stroke: var(--primary);
+}
+
+.tracking-session-map .tracking-path-muted {
+  stroke: var(--muted-foreground);
+}
+
+.tracking-session-map .tracking-point {
+  fill: var(--card);
+  stroke: var(--primary);
+}
+
+.tracking-session-map .tracking-insert-area {
+  fill: color-mix(in srgb, var(--accent) 22%, transparent);
+  stroke: var(--accent);
+}
+
+.tracking-session-map .tracking-move-limit {
+  fill: color-mix(in srgb, var(--primary) 8%, transparent);
+  stroke: var(--primary);
+}
+
+.tracking-selected-point {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+}
+
+.tracking-selected-point::after {
+  width: 22px;
+  height: 22px;
+  content: '';
+  border: 4px solid var(--card);
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow:
+    0 0 0 2px var(--primary),
+    0 4px 14px color-mix(in srgb, var(--foreground) 32%, transparent);
+}

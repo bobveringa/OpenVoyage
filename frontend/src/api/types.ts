@@ -838,6 +838,23 @@ export interface paths {
         patch: operations["end_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__patch"];
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace Session Points */
+        put: operations["replace_session_points_api_v1_trips__trip_id__tracking_sessions__session_id__points_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/samples": {
         parameters: {
             query?: never;
@@ -866,6 +883,23 @@ export interface paths {
         put?: never;
         /** Upload Track Samples */
         post: operations["upload_track_samples_api_v1_trips__trip_id__tracking_sessions__session_id__samples_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop Tracking Session */
+        post: operations["stop_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__stop_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2245,6 +2279,21 @@ export interface components {
             /** Speed Mps */
             speed_mps: number | null;
             travel_mode: components["schemas"]["TravelMode"];
+        };
+        /** TrackSessionPointReplacement */
+        TrackSessionPointReplacement: {
+            /** Id */
+            id?: string | null;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            travel_mode: components["schemas"]["TravelMode"];
+        };
+        /** TrackSessionPointsReplaceRequest */
+        TrackSessionPointsReplaceRequest: {
+            /** Points */
+            points: components["schemas"]["TrackSessionPointReplacement"][];
         };
         /** TrackingSessionCreateRequest */
         TrackingSessionCreateRequest: {
@@ -5126,6 +5175,40 @@ export interface operations {
             };
         };
     };
+    replace_session_points_api_v1_trips__trip_id__tracking_sessions__session_id__points_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackSessionPointsReplaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_track_samples_api_v1_trips__trip_id__tracking_sessions__session_id__samples_get: {
         parameters: {
             query?: {
@@ -5184,6 +5267,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackSampleBatchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_tracking_session_api_v1_trips__trip_id__tracking_sessions__session_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackingSessionResponse"];
                 };
             };
             /** @description Validation Error */
