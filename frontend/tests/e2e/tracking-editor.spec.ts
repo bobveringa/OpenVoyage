@@ -13,12 +13,28 @@ const points = Array.from({ length: 5 }, (_, i) => ({
   heading_degrees: null,
 }))
 
-for (const mobile of [false, true]) {
-  test.describe(mobile ? 'touch' : 'mouse', () => {
+for (const { mobile, insecure } of [
+  { mobile: false, insecure: false },
+  { mobile: true, insecure: false },
+  { mobile: true, insecure: true },
+]) {
+  test.describe(`${mobile ? 'touch' : 'mouse'}${insecure ? ' over plain HTTP' : ''}`, () => {
   test.use({ hasTouch: mobile, isMobile: mobile })
   test(`session editor uses a scoped timeline and explicit save (${mobile ? 'mobile' : 'desktop'})`, async ({
-    page,
+    page, baseURL,
   }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', error => pageErrors.push(error.message))
+    const insecureOrigin = 'http://tracking-editor.test'
+    if (insecure) {
+      // Serve the same fixture under a real non-loopback HTTP origin. Unlike
+      // localhost, this naturally omits secure-context-only browser APIs.
+      await page.route(`${insecureOrigin}/**`, async route => {
+        const url = new URL(route.request().url())
+        const response = await route.fetch({ url: `${baseURL}${url.pathname}${url.search}` })
+        await route.fulfill({ response })
+      })
+    }
     await page.setViewportSize(
       mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 },
     )
@@ -65,9 +81,16 @@ for (const mobile of [false, true]) {
       await route.fulfill({ json: {} })
     })
     await page.route('**/tile.openstreetmap.org/**', (route) =>
-      route.fulfill({ status: 204 }),
+      route.fulfill({
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#d5e5cf"/><path d="M0 80H256M80 0V256" stroke="#fff" stroke-width="12"/></svg>',
+      }),
     )
-    await page.goto('/tests/e2e/fixtures/tracking-editor.html')
+    await page.goto(`${insecure ? insecureOrigin : ''}/tests/e2e/fixtures/tracking-editor.html`)
+    if (insecure) {
+      expect(await page.evaluate(() => window.isSecureContext)).toBe(false)
+      expect(await page.evaluate(() => typeof crypto.randomUUID)).toBe('undefined')
+    }
     await expect(
       page.getByRole('heading', { name: 'Recordings', exact: true }),
     ).toBeVisible()
@@ -93,8 +116,28 @@ for (const mobile of [false, true]) {
       expect(panel!.height).toBeLessThan(900)
     }
     await expect(page.getByRole('button', { name: 'Bulk transport', exact: true })).toBeInViewport()
-    await expect(page.getByRole('button', { name: 'Delete point', exact: true })).toBeInViewport()
+    await expect(page.getByRole('slider', { name: 'Editing range start' })).toBeInViewport()
     await page.screenshot({ path: test.info().outputPath('editor-default.png') })
+    if (mobile) {
+      const mapView = page.getByLabel('Recording paths map')
+      const compactTransform = await page.locator('.leaflet-map-pane').getAttribute('style')
+      const compactHeight = (await mapView.boundingBox())!.height
+      await page.getByRole('button', { name: 'Expand map', exact: true }).click()
+      await expect(page.getByRole('button', { name: 'Compact map', exact: true })).toHaveAttribute('aria-expanded', 'true')
+      expect((await mapView.boundingBox())!.height).toBeGreaterThan(compactHeight * 2)
+      await expect(mapView).toHaveClass(/leaflet-container/)
+      await expect(mapView.locator('.leaflet-tile-loaded').first()).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Save changes' })).toBeInViewport()
+      await page.screenshot({ path: test.info().outputPath('editor-expanded.png') })
+      await page.getByRole('button', { name: 'Compact map', exact: true }).click()
+      expect((await mapView.boundingBox())!.height).toBe(compactHeight)
+      await expect(mapView).toHaveClass(/leaflet-container/)
+      await expect(mapView.locator('.leaflet-tile-loaded').first()).toBeVisible()
+      await expect.poll(() => page.locator('.leaflet-map-pane').getAttribute('style')).toBe(compactTransform)
+      await expect(page.getByRole('button', { name: 'Save changes' })).toBeDisabled()
+    } else {
+      await expect(page.getByRole('button', { name: 'Expand map', exact: true })).toBeHidden()
+    }
     const mapPane = page.locator('.leaflet-map-pane')
     const mapTransformBeforeMove = await mapPane.getAttribute('style')
     const marker = page.locator('.leaflet-marker-icon').first()
@@ -132,19 +175,82 @@ for (const mobile of [false, true]) {
     const insertY = mapBox.y + markerOffsetY
     if (mobile) await page.touchscreen.tap(insertX, insertY)
     else await page.mouse.click(insertX, insertY)
-    await expect(page.locator('summary').filter({ hasText: 'Time range' })).toContainText('6 of 6 points')
+    expect(pageErrors, 'insertion must not throw in the browser').toEqual([])
+    await expect(page.getByRole('region', { name: 'Recording timeline' })).toContainText('6 of 6 points')
+    const insertedMarker = page.locator('.leaflet-marker-icon').first()
+    const insertedMarkerBox = (await insertedMarker.boundingBox())!
+    if (mobile) {
+      const cdp = await page.context().newCDPSession(page)
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [
+          {
+            x: insertedMarkerBox.x + insertedMarkerBox.width / 2,
+            y: insertedMarkerBox.y + insertedMarkerBox.height / 2,
+          },
+        ],
+      })
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [
+          {
+            x: insertedMarkerBox.x + insertedMarkerBox.width / 2 + 20,
+            y: insertedMarkerBox.y + insertedMarkerBox.height / 2,
+          },
+        ],
+      })
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      await cdp.detach()
+    } else {
+      await page.mouse.move(
+        insertedMarkerBox.x + insertedMarkerBox.width / 2,
+        insertedMarkerBox.y + insertedMarkerBox.height / 2,
+      )
+      await page.mouse.down()
+      await page.mouse.move(
+        insertedMarkerBox.x + insertedMarkerBox.width / 2 + 20,
+        insertedMarkerBox.y + insertedMarkerBox.height / 2,
+      )
+      await page.mouse.up()
+    }
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled()
     await page.getByRole('button', { name: 'Undo', exact: true }).click()
-    await page.locator('summary').filter({ hasText: 'Time range' }).click()
+    await page.getByRole('button', { name: 'Undo', exact: true }).click()
+    if (insecure) {
+      // Reinsert after undo, then verify the temporary ID never reaches the
+      // API: the server must still recognize this as a new point.
+      await page.getByRole('button', { name: 'Insert after point' }).click()
+      await map.scrollIntoViewIfNeeded()
+      const currentMapBox = (await map.boundingBox())!
+      await page.touchscreen.tap(currentMapBox.x + markerOffsetX, currentMapBox.y + markerOffsetY)
+      await expect(page.getByRole('region', { name: 'Recording timeline' })).toContainText('6 of 6 points')
+      await page.getByRole('button', { name: 'Save changes' }).click()
+      await expect(editor).toHaveCount(0)
+      expect(saves).toHaveLength(1)
+      const savedPoints = points.map(({ id, latitude, longitude, travel_mode }) => ({ id, latitude, longitude, travel_mode }))
+      expect(saves.pop()).toEqual({ points: [
+        savedPoints[0],
+        { latitude: expect.any(Number), longitude: expect.any(Number), travel_mode: 'UNKNOWN' },
+        ...savedPoints.slice(1),
+      ] })
+      await page.getByRole('button').filter({ hasText: '5 points' }).click()
+    }
     const lower = page.getByRole('slider', { name: 'Editing range start' })
     const upper = page.getByRole('slider', { name: 'Editing range end' })
     const initialMapTransform = await mapPane.getAttribute('style')
     await lower.fill(String(start + 60_000))
     await upper.fill(String(start + 180_000))
+    await page.getByRole('button', { name: 'Next', exact: true }).click()
+    await lower.fill(String(start + 90_000))
+    await expect(page.getByLabel('Point number')).toHaveValue('1')
+    await lower.fill(String(start + 60_000))
+    await expect(page.getByLabel('Point number')).toHaveValue('2')
+    await page.getByRole('button', { name: 'Previous', exact: true }).click()
     await expect.poll(() => mapPane.getAttribute('style')).toBe(initialMapTransform)
     await expect(
-      page.getByText('3 of 5 points in range.', { exact: false }),
+      page.getByText('3 of 5 points in view.', { exact: false }),
     ).toBeVisible()
-    await page.getByRole('heading', { name: 'Editing time range' }).scrollIntoViewIfNeeded()
+    await page.getByRole('heading', { name: 'Timeline' }).scrollIntoViewIfNeeded()
     await page.screenshot({ path: test.info().outputPath('session-editor.png') })
     expect(
       await page.evaluate(
@@ -168,7 +274,6 @@ for (const mobile of [false, true]) {
       { id: 'point-4', travel_mode: 'UNKNOWN' },
     ] })
     await page.getByRole('button').filter({ hasText: '5 points' }).click()
-    await page.locator('summary').filter({ hasText: 'Time range' }).click()
     await lower.fill(String(start + 60_000))
     await upper.fill(String(start + 180_000))
     const pointMode = page.getByRole('button', { name: 'Point travel mode' })
@@ -224,6 +329,7 @@ for (const mobile of [false, true]) {
         .getByRole('button', { name: 'Delete recording', exact: true })
         .last(),
     ).toHaveClass(/bg-destructive/)
+    expect(pageErrors).toEqual([])
   })
   })
 }

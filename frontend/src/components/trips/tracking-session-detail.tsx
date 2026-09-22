@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Maximize2, Minimize2 } from 'lucide-react'
 import {
   getErrorMessage,
   saveSessionPoints,
@@ -40,6 +41,9 @@ export function TrackingSessionDetail({
   onSaved,
 }: Props) {
   const root = useRef<HTMLDivElement>(null)
+  const mapContainer = useRef<HTMLDivElement>(null)
+  const nextDraftPointId = useRef(0)
+  const [mapExpanded, setMapExpanded] = useState(false)
   const [tool, setTool] = useState<'point' | 'transport'>('point')
   const [bulkMode, setBulkMode] = useState<TravelMode>('WALK')
   const [draft, setDraft] = useState<readonly DraftPoint[]>(initial)
@@ -78,7 +82,9 @@ export function TrackingSessionDetail({
   const visibleIndex = visible.findIndex((p) => p.id === selectedId)
   const selected = visible[visibleIndex]
   const next = visible[visibleIndex + 1]
-  const origin = initial.find((p) => p.id === selectedId)
+  // A newly inserted point has no saved counterpart yet. Its insertion
+  // position is still a valid anchor for the same 400 m movement limit.
+  const origin = initial.find((p) => p.id === selectedId) ?? selected
   const insertion: [TrackSample, TrackSample] | null =
     inserting && selected && next ? [selected, next] : null
   const displayPaths = useMemo(
@@ -235,6 +241,7 @@ export function TrackingSessionDetail({
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto md:grid md:grid-cols-[minmax(0,1fr)_360px] md:overflow-hidden">
           <div className="flex min-h-0 flex-col p-3 md:p-4">
+        <div ref={mapContainer} className={`relative ${mapExpanded ? 'h-[65dvh]' : 'h-[24dvh]'} min-h-40 md:h-auto md:min-h-0 md:flex-1`}>
         <TrackingSessionMap
           paths={displayPaths}
           editablePoints={visible}
@@ -257,7 +264,10 @@ export function TrackingSessionDetail({
             if (!selected || !next) return
             const point: DraftPoint = {
               ...selected,
-              id: crypto.randomUUID(),
+              // Editor-only identity: save omits this ID and the server assigns
+              // a UUID. A counter also works on LAN HTTP, where randomUUID is
+              // unavailable. Do not rewind it on undo or reuse a draft's ID.
+              id: `draft-point-${nextDraftPointId.current++}`,
               latitude,
               longitude,
               recorded_at: new Date(
@@ -281,22 +291,25 @@ export function TrackingSessionDetail({
             setSelectedId(point.id)
           }}
         />
-        <p role="status" className="mt-2 text-xs text-muted-foreground">
-          {insertion
-            ? `Tap inside the highlighted area to insert a point (within ${Math.round(insertDistanceLimit(coordinates(insertion[0]), coordinates(insertion[1])))} m of this segment).`
-            : notice || (tool === 'point' ? 'Tap a point, then drag its handle to move it (up to 400 m).' : 'The highlighted route is your selected time range.')}
-        </p>
-          </div>
-          <aside className="space-y-4 border-t border-border p-3 md:overflow-y-auto md:border-l md:border-t-0 md:p-4">
-            <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1" role="group" aria-label="Editing tools">
-              <Button variant={tool === 'point' ? 'default' : 'ghost'} aria-pressed={tool === 'point'} disabled={busy} onClick={() => { setTool('point'); setInserting(false) }}>Edit point</Button>
-              <Button variant={tool === 'transport' ? 'default' : 'ghost'} aria-pressed={tool === 'transport'} disabled={busy} onClick={() => { setTool('transport'); setInserting(false); setNotice('') }}>Bulk transport</Button>
-            </div>
-        <details open={tool === 'transport' ? true : undefined} className="space-y-2 border-b border-border pb-3">
-          <summary className="cursor-pointer text-sm font-medium">Time range · {visible.length} of {draft.length} points</summary>
+        <Button
+          className="absolute right-2 top-2 z-10 min-h-11 bg-background shadow-sm md:hidden"
+          variant="outline"
+          disabled={busy}
+          aria-expanded={mapExpanded}
+          onClick={() => {
+            setMapExpanded(value => !value)
+            requestAnimationFrame(() => mapContainer.current?.scrollIntoView({ block: 'start' }))
+          }}
+        >
+          {mapExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          {mapExpanded ? 'Compact map' : 'Expand map'}
+        </Button>
+        </div>
+        <section aria-label="Recording timeline" className="mt-3 shrink-0 space-y-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-semibold">Editing time range</h3>
+            <h3 className="text-sm font-medium">Timeline</h3>
             <Button
+              size="sm"
               variant="ghost"
               disabled={busy}
               onClick={() => {
@@ -318,6 +331,8 @@ export function TrackingSessionDetail({
               setRange(value)
               setNotice('')
               setInserting(false)
+              const focused = draft.find(p => p.id === selectedId)
+              if (focused && Date.parse(focused.recorded_at) >= value[0] && Date.parse(focused.recorded_at) <= value[1]) return
               const first = draft.find(
                 (p) =>
                   Date.parse(p.recorded_at) >= value[0] &&
@@ -327,14 +342,25 @@ export function TrackingSessionDetail({
             }}
           />
           <p className="text-xs text-muted-foreground">
-            {visible.length} of {draft.length} points in range. Only these
-            points can be edited.
+            {visible.length} of {draft.length} points in view. Other times are faded to separate overlapping routes.
           </p>
-        </details>
+        </section>
+        <p role="status" className="mt-2 text-xs text-muted-foreground">
+          {insertion
+            ? `Tap inside the highlighted area to insert a point (within ${Math.round(insertDistanceLimit(coordinates(insertion[0]), coordinates(insertion[1])))} m of this segment).`
+            : notice || (tool === 'point' ? 'Tap a point, then drag its handle to move it (up to 400 m).' : 'Apply a transport type to the points in this timeline window.')}
+        </p>
+          </div>
+          <aside className="space-y-4 border-t border-border p-3 md:overflow-y-auto md:border-l md:border-t-0 md:p-4">
+            <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1" role="group" aria-label="Editing tools">
+              <Button variant={tool === 'point' ? 'default' : 'ghost'} aria-pressed={tool === 'point'} disabled={busy} onClick={() => { setTool('point'); setInserting(false) }}>Edit point</Button>
+              <Button variant={tool === 'transport' ? 'default' : 'ghost'} aria-pressed={tool === 'transport'} disabled={busy} onClick={() => { setTool('transport'); setInserting(false); setNotice('') }}>Bulk transport</Button>
+            </div>
+
             {tool === 'transport' && (
               <section className="space-y-3">
                 <h3 className="font-semibold">Transport for {visible.length} points</h3>
-                <p className="text-sm text-muted-foreground">Choose a time range above, then apply a transport type to every point in it.</p>
+                <p className="text-sm text-muted-foreground">Use the timeline to focus on part of the recording, then apply a transport type to all points in view.</p>
                 <Select ariaLabel="Bulk transport type" value={bulkMode} options={TRAVEL_MODE_OPTIONS} disabled={busy || !visible.length} onValueChange={setBulkMode} />
                 <Button className="w-full" disabled={busy || !bulkChangeCount} onClick={() => {
                   change(draft.map(p => bulkIds.has(p.id) ? { ...p, travel_mode: bulkMode } : p))
@@ -345,9 +371,6 @@ export function TrackingSessionDetail({
             )}
             <div hidden={tool !== 'point'} className="space-y-4">
           <section className="space-y-3">
-            <h3 className="font-semibold">
-              Points in range ({visible.length})
-            </h3>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"

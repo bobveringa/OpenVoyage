@@ -255,17 +255,21 @@ export function TrackingSessionMap(props: Props) {
         callbacks.current.onMove?.(p.lat, p.lng)
       })
     }
+    const insertAt = (point: [number, number]) => {
+      const [a, b] = props.insertion ?? []
+      if (!a || !b) return
+      if (segmentDistance(point, coordinates(a), coordinates(b)) <= insertDistanceLimit(coordinates(a), coordinates(b)))
+        callbacks.current.onInsert?.(...point)
+      else
+        callbacks.current.onNotice?.(
+          'Choose a position inside the highlighted allowed area.',
+        )
+    }
     const click = (event: L.LeafletMouseEvent) => {
       if (props.disabled) return
       const point: [number, number] = [event.latlng.lat, event.latlng.lng]
       if (props.insertion) {
-        const [a, b] = props.insertion.map(coordinates)
-        if (segmentDistance(point, a, b) <= insertDistanceLimit(a, b))
-          callbacks.current.onInsert?.(...point)
-        else
-          callbacks.current.onNotice?.(
-            'Choose a position inside the highlighted allowed area.',
-          )
+        insertAt(point)
         return
       }
       const editablePoints = props.editablePoints ?? []
@@ -314,10 +318,12 @@ export function TrackingSessionMap(props: Props) {
       padding: [36, 36],
     })
   }, [props.fitKey, props.selectedSessionId])
+  // Keep this className stable: Leaflet adds its own classes to this node.
+  // Resize the parent instead so React does not overwrite those classes.
   return (
     <div
       ref={element}
-      className="tracking-session-map trip-leaflet-map relative z-0 h-[30dvh] min-h-48 md:h-full md:min-h-0 md:flex-1 w-full rounded-xl border border-border bg-muted"
+      className="tracking-session-map trip-leaflet-map relative z-0 h-full min-h-0 w-full rounded-xl border border-border bg-muted"
       aria-label="Recording paths map"
     />
   )
