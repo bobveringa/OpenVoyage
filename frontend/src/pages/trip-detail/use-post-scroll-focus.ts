@@ -64,6 +64,7 @@ export function usePostScrollFocus({
   axis,
   enabled,
   firstPostId,
+  keepFirstPostFocused = false,
   onFocusedPostChange,
   onViewedPostChange,
   postElementsRef,
@@ -73,6 +74,7 @@ export function usePostScrollFocus({
   axis: PostScrollAxis
   enabled: boolean
   firstPostId: string | null
+  keepFirstPostFocused?: boolean
   onFocusedPostChange: (postId: string | null) => void
   onViewedPostChange?: (postId: string) => void
   postElementsRef: PostScrollElementsRef
@@ -117,7 +119,9 @@ export function usePostScrollFocus({
       }
 
       latestFocusedPostChangeRef.current(
-        nextPostId === firstPostId ? null : nextPostId,
+        !keepFirstPostFocused && nextPostId === firstPostId
+          ? null
+          : nextPostId,
       )
     }
 
@@ -130,6 +134,11 @@ export function usePostScrollFocus({
     }
 
     scheduleFocusedPostUpdate()
+    const initialSyncTimeoutId = window.setTimeout(
+      scheduleFocusedPostUpdate,
+      0,
+    )
+    window.addEventListener('pageshow', scheduleFocusedPostUpdate)
     scrollTarget.addEventListener('scroll', scheduleFocusedPostUpdate, {
       passive: true,
     })
@@ -149,6 +158,8 @@ export function usePostScrollFocus({
     }
 
     return () => {
+      window.clearTimeout(initialSyncTimeoutId)
+      window.removeEventListener('pageshow', scheduleFocusedPostUpdate)
       scrollTarget.removeEventListener('scroll', scheduleFocusedPostUpdate)
       window.removeEventListener('resize', scheduleFocusedPostUpdate)
       resizeObserver?.disconnect()
@@ -160,6 +171,7 @@ export function usePostScrollFocus({
     axis,
     enabled,
     firstPostId,
+    keepFirstPostFocused,
     onViewedPostChange,
     postElementsRef,
     postIds,

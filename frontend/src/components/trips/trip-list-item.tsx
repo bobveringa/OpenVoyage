@@ -26,7 +26,7 @@ export function TripListItem({
       className="group overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition hover:-translate-y-1 hover:border-input hover:shadow-xl hover:shadow-foreground/10"
       href={`/trips/${trip.id}`}
     >
-      <div className="relative aspect-[4/3] overflow-hidden bg-muted">
+      <div className="relative aspect-[16/10] overflow-hidden bg-muted sm:aspect-[4/3]">
         <MediaImage
           alt={`${trip.name} cover`}
           className="absolute inset-0 size-full transition-transform duration-300 group-hover:scale-[1.03]"
@@ -55,7 +55,7 @@ export function TripListItem({
         ) : null}
       </div>
 
-      <div className="grid min-h-48 content-start gap-3 p-5">
+      <div className="grid content-start gap-3 p-4 sm:min-h-48 sm:p-5">
         <div className="space-y-2">
           <h2 className="text-lg font-semibold tracking-normal text-foreground group-hover:text-primary">
             {trip.name}

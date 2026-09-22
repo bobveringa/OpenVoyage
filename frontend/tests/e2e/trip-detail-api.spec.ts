@@ -316,7 +316,7 @@ test('keeps the mobile post open when closing its media viewer', async ({
     await page.goto(`/trips/${trip.id}?tab=travel`)
     await page.getByRole('button', { name: `Open ${postTitle}` }).click()
     const mobileBackButton = page.getByRole('button', {
-      name: 'Back to post carousel',
+      name: 'Back to map',
     })
     const mobilePost = mobileBackButton.locator('xpath=ancestor::article[1]')
     await expect(mobileBackButton).toBeVisible()

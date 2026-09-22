@@ -12,6 +12,243 @@ const transparentPng = Buffer.from(
   'base64',
 )
 
+test.describe('mobile reading', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })
+
+  test('separates owner settings, account preferences, and map GPS controls', async ({ page }) => {
+    await seedBrowserAuth(page)
+    const release = await mockTripApi(page, 'OWNER')
+    release()
+    await mockTileServers(page)
+    await page.goto(`/trips/${tripId}`)
+    await page.getByRole('button', { name: 'Travel', exact: true }).click()
+    await page.getByRole('button', { name: 'Trip settings', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Manage trip', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.getByRole('button', { name: 'Account menu', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Your account' })).toBeVisible()
+    await expect(page.getByRole('dialog').getByRole('button', { name: /GPS|Manage trip/ })).toHaveCount(0)
+    await expect(page.getByRole('group', { name: 'Color mode' })).toBeVisible()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.getByRole('button', { name: 'Manage GPS tracking', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible()
+    // Recording is intentionally native-only; the web shows recording management.
+    await expect(page.getByRole('button', { name: 'Start tracking', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.getByRole('button', { name: 'Open fullscreen map' }).click()
+    await page.getByRole('button', { name: 'Manage GPS tracking', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Fullscreen travel map' })).toHaveCount(0)
+    await expect(page.locator('#root')).toHaveJSProperty('inert', false)
+    await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.setViewportSize({ width: 320, height: 568 })
+    await page.screenshot({ path: 'test-results/mobile-settings-gps.png' })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320)
+  })
+
+  test('keeps vertical reading scroll native on long posts', async ({ page }) => {
+    await seedBrowserAuth(page)
+    const release = await mockTripApi(page)
+    release()
+    await mockTileServers(page)
+    const timeline = createPostTimeline()
+    timeline.entries[0].post.body = 'A longer story to read while traveling.\n\n'.repeat(40)
+    await page.route('**/api/v1/trips/*/posts/timeline**', (route) => fulfillJson(route, timeline))
+    await page.goto(`/trips/${tripId}`)
+    await page.getByRole('button', { name: 'Travel', exact: true }).click()
+    await page.getByRole('button', { name: 'Open First timeline post', exact: true }).click()
+    const reader = page.getByLabel('Reading First timeline post', { exact: true })
+    await swipeReader(page, 180, 220, 600, 280)
+    await expect.poll(() => reader.evaluate((element) => element.scrollTop)).toBeGreaterThan(50)
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+    await expect(reader).toHaveCSS('transform', 'none')
+  })
+
+  test('tracks diagonal thumb drags, animates, and recovers from cancelled gestures', async ({ page }) => {
+    await seedBrowserAuth(page)
+    const release = await mockTripApi(page)
+    release()
+    await mockTileServers(page)
+    await page.goto(`/trips/${tripId}`)
+    await page.getByRole('button', { name: 'Travel', exact: true }).click()
+    await page.getByRole('button', { name: 'Open First timeline post', exact: true }).click()
+    const reader = page.getByLabel('Reading First timeline post', { exact: true })
+    const session = await page.context().newCDPSession(page)
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 320, y: 200 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 260, y: 220 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 210, y: 248 }] })
+    // The old 30px vertical-drift rule discarded this horizontal gesture.
+    await expect(reader).toHaveCSS('transform', 'matrix(1, 0, 0, 1, -110, 0)')
+    await expect(reader).toHaveJSProperty('scrollTop', 0)
+    await page.screenshot({ path: 'test-results/mobile-swipe-drag.png' })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect(page.getByText('Post 2 of 2', { exact: true })).toBeVisible()
+
+    // A short, quick flick is intentional even without a long drag.
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 140, y: 200 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 182, y: 210 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+
+    await swipeReader(page, 300, 110, 340, 382)
+    await expect(page.getByText('Post 2 of 2', { exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: /media viewer/ })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Previous post', exact: true }).click()
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 300, y: 200 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 200, y: 210 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] })
+    await expect(reader).toHaveCSS('transform', 'none')
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+
+    // A sub-threshold drag settles back instead of unexpectedly changing posts.
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 250, y: 200 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 230, y: 201 }] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect(reader).toHaveCSS('transform', 'none')
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+    await session.detach()
+
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await swipeReader(page, 300, 90, 200, 245)
+    await expect(page.getByText('Post 2 of 2', { exact: true })).toBeVisible()
+    expect(await page.getByLabel('Reading Second timeline post', { exact: true }).evaluate((element) => element.getAnimations().length)).toBe(0)
+  })
+
+  test('uses one toolbar and pages through stories without adding Back steps', async ({ page }) => {
+    await seedBrowserAuth(page)
+    const release = await mockTripApi(page)
+    release()
+    await mockTileServers(page)
+    await page.goto(`/trips/${tripId}`)
+    await page.getByRole('button', { name: 'Travel', exact: true }).click()
+    await expect(page.getByRole('banner')).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Trip settings', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Manage GPS tracking', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Provider test trip', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Account menu', exact: true }).click()
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'GPS tracking', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('group', { name: 'Color mode' })).toBeVisible()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.getByRole('button', { name: 'Open First timeline post', exact: true }).click()
+    const historyLength = await page.evaluate(() => history.length)
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Previous post', exact: true })).toBeDisabled()
+    await expect(page.getByRole('heading', { name: 'Provider test trip', exact: true })).toBeHidden()
+    await expect(page.getByRole('navigation', { name: 'Trip mode' })).toBeHidden()
+    await page.screenshot({ path: 'test-results/mobile-reader.png' })
+    await swipeReader(page, 300, 90, 200, 200)
+    await expect(page.getByText('Post 2 of 2', { exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Second timeline post', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Next post', exact: true })).toBeDisabled()
+    await swipeReader(page, 300, 90, 200, 200)
+    await expect(page.getByText('Post 2 of 2', { exact: true })).toBeVisible()
+    await swipeReader(page, 90, 300, 200, 200)
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+    await swipeReader(page, 280, 260, 260, 180)
+    await expect(page.getByText('Post 1 of 2', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Next post', exact: true }).click()
+    await page.setViewportSize({ width: 320, height: 568 })
+    await page.screenshot({ path: 'test-results/mobile-reader-small.png' })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320)
+    expect(await page.evaluate(() => history.length)).toBe(historyLength)
+    await page.getByRole('region', { name: 'Post media: 1 items' }).getByRole('button').click()
+    const viewer = page.getByRole('dialog', { name: 'Second timeline post media viewer' })
+    await expect(viewer).toBeVisible()
+    await swipeReader(page, 260, 80, 200, 200)
+    await page.getByRole('button', { name: 'Close media viewer' }).click()
+    await expect(viewer).toHaveCount(0)
+    await expect(page.getByText('Post 2 of 2', { exact: true })).toBeVisible()
+    await page.goBack()
+    await expect(page.getByRole('article', { name: 'Post reader' })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Provider test trip', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Open Second timeline post', exact: true })).toBeInViewport()
+  })
+})
+
+async function swipeReader(page: Page, fromX: number, toX: number, fromY: number, toY: number) {
+  const session = await page.context().newCDPSession(page)
+  await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: fromX, y: fromY }] })
+  for (let step = 1; step <= 6; step++) {
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: fromX + (toX - fromX) * step / 6, y: fromY + (toY - fromY) * step / 6 }] })
+  }
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await session.detach()
+}
+
+test('mobile map layout and fullscreen exploration', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await seedBrowserAuth(page)
+  const release = await mockTripApi(page)
+  release()
+  await mockTileServers(page)
+  await page.goto(`/trips/${tripId}`)
+  await page.getByRole('button', { name: 'Travel', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Open First timeline post' })).toBeVisible()
+  const map = page.getByLabel('Interactive trip route map')
+  await expect(map).toBeVisible()
+  const normalBounds = await map.boundingBox()
+  expect(normalBounds?.width).toBe(390)
+  await page.screenshot({ path: 'test-results/mobile-after.png' })
+  await page.getByRole('button', { name: 'Open fullscreen map' }).click()
+  const fullscreen = page.getByRole('dialog', { name: 'Fullscreen travel map' })
+  await expect(fullscreen).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Exit fullscreen map' })).toBeFocused()
+  await expect(map).toHaveCSS('height', '844px')
+  await expect(page.locator('nav[aria-label="Trip mode"]')).toHaveJSProperty('inert', true)
+  await expect(page.locator('#root')).toHaveJSProperty('inert', true)
+  await page.getByRole('button', { name: 'Recenter travel map' }).click()
+  await page.screenshot({ path: 'test-results/mobile-fullscreen.png' })
+  await page.keyboard.press('Escape')
+  await expect(fullscreen).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Open fullscreen map' })).toBeFocused()
+  await page.getByRole('button', { name: 'Open First timeline post' }).click()
+  await expect(page.getByRole('button', { name: 'Back to map' })).toBeVisible()
+  await page.getByRole('button', { name: 'Back to map' }).click()
+  await page.getByRole('button', { name: 'Open fullscreen map' }).click()
+  await map.locator('.leaflet-marker-icon:has(img[alt="Second timeline post media placeholder"])').click()
+  await expect(fullscreen).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Back to map' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Second timeline post' })).toBeVisible()
+  await page.getByRole('button', { name: 'Previous post', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'First timeline post' })).toBeVisible()
+  await page.getByRole('button', { name: 'Back to map' }).click()
+  await expect(page.getByRole('dialog', { name: 'Fullscreen travel map' })).toBeVisible()
+  await page.setViewportSize({ width: 844, height: 390 })
+  await expect(map).toHaveCSS('height', '390px')
+  await page.screenshot({ path: 'test-results/mobile-landscape.png' })
+  await page.getByRole('button', { name: 'Exit fullscreen map' }).click()
+  await page.setViewportSize({ width: 320, height: 568 })
+  await expect(page.getByRole('button', { name: 'New post' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320)
+  await page.screenshot({ path: 'test-results/mobile-small.png' })
+  await page.getByRole('button', { name: 'Plan', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Planning', exact: true })).toBeVisible()
+})
+
+test('mobile visitors can explore an empty trip without editing controls', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await seedBrowserAuth(page)
+  const release = await mockTripApi(page)
+  release()
+  await mockTileServers(page)
+  await page.route('**/api/v1/trips/*/posts/timeline**', (route) =>
+    fulfillJson(route, { entries: [], opening_route: null }),
+  )
+  await page.route('**/api/v1/trips/*/members', (route) => fulfillJson(route, []))
+  await page.goto(`/trips/${tripId}`)
+  await expect(page.getByText('Your journey starts here')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Trip settings', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Manage GPS tracking', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'New post' })).toHaveCount(0)
+  await expect(page.getByRole('navigation', { name: 'Trip mode' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Open fullscreen map' }).click()
+  await expect(page.getByRole('dialog', { name: 'Fullscreen travel map' })).toBeVisible()
+  await page.getByRole('button', { name: 'Exit fullscreen map' }).click()
+  await expect(page.getByText('Your journey starts here')).toBeVisible()
+})
+
 test('swaps only the base tiles and preserves routes and point selection', async ({
   page,
 }) => {
@@ -101,7 +338,7 @@ async function seedBrowserAuth(page: Page) {
   }, `test.${tokenPayload}.signature`)
 }
 
-async function mockTripApi(page: Page) {
+async function mockTripApi(page: Page, role: 'MEMBER' | 'OWNER' = 'MEMBER') {
   let releaseTileProviderSetting = () => {}
   const tileProviderSettingGate = new Promise<void>((resolve) => {
     releaseTileProviderSetting = resolve
@@ -163,7 +400,7 @@ async function mockTripApi(page: Page) {
     if (url.pathname.endsWith(`/trips/${tripId}/members`)) {
       await fulfillJson(route, [
         {
-          role: 'MEMBER',
+          role,
           trip_id: tripId,
           user: {
             first_name: 'Map',

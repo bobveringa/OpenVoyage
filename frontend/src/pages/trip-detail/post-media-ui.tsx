@@ -4,6 +4,9 @@ import {
   ArrowRight,
   Check,
   Loader2,
+  Maximize,
+  Minimize,
+  Eye,
   Play,
   RefreshCw,
   X,
@@ -15,7 +18,6 @@ import {
   useRef,
   useState,
   type ReactNode,
-  type TouchEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -27,6 +29,9 @@ import {
   getMediaThumbnailSrc,
   getMediaType,
 } from '@/pages/trip-detail/shared-utils'
+
+import { LightboxPhoto } from './lightbox-photo'
+import { photoWindow } from './photo-gestures'
 
 const mediaLightboxHistoryStateKey = 'openVoyageMediaLightboxId'
 
@@ -164,9 +169,40 @@ export function MediaLightbox({
 }) {
   const activeMedia = media[activeIndex]
   const hasMultipleMedia = media.length > 1
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const [controlsVisible, setControlsVisible] = useState(true)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [fullscreenError, setFullscreenError] = useState('')
+  const [visited, setVisited] = useState<number[]>([])
+  const mountedIndices = photoWindow(visited, activeIndex, media.length)
+
+  useEffect(() => {
+    setVisited(previous => photoWindow(previous, activeIndex, media.length))
+  }, [activeIndex, media.length])
+
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null
+    dialogRef.current?.focus()
+    function syncFullscreen() { setFullscreen(document.fullscreenElement === dialogRef.current) }
+    document.addEventListener('fullscreenchange', syncFullscreen)
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen)
+      previousFocus?.focus()
+    }
+  }, [])
+
+  async function toggleFullscreen() {
+    try {
+      setFullscreenError('')
+      if (document.fullscreenElement === dialogRef.current) await document.exitFullscreen()
+      else await dialogRef.current?.requestFullscreen()
+    } catch {
+      setFullscreenError('Fullscreen is unavailable in this browser. Tap the photo to hide controls.')
+    }
+  }
   const onCloseRef = useRef(onClose)
   const historyEntryId = useId()
+  const historyCleanupTimerRef = useRef<number | null>(null)
 
   onCloseRef.current = onClose
 
@@ -183,13 +219,22 @@ export function MediaLightbox({
   }, [historyEntryId])
 
   useEffect(() => {
-    window.history.pushState(
-      {
-        ...window.history.state,
-        [mediaLightboxHistoryStateKey]: historyEntryId,
-      },
-      '',
-    )
+    if (historyCleanupTimerRef.current !== null) {
+      window.clearTimeout(historyCleanupTimerRef.current)
+      historyCleanupTimerRef.current = null
+    }
+
+    if (
+      window.history.state?.[mediaLightboxHistoryStateKey] !== historyEntryId
+    ) {
+      window.history.pushState(
+        {
+          ...window.history.state,
+          [mediaLightboxHistoryStateKey]: historyEntryId,
+        },
+        '',
+      )
+    }
 
     function handlePopState() {
       onCloseRef.current()
@@ -199,11 +244,15 @@ export function MediaLightbox({
     return () => {
       window.removeEventListener('popstate', handlePopState)
 
-      if (window.history.state?.[mediaLightboxHistoryStateKey] === historyEntryId) {
-        const historyState = { ...window.history.state }
-        delete historyState[mediaLightboxHistoryStateKey]
-        window.history.replaceState(historyState, '')
-      }
+      historyCleanupTimerRef.current = window.setTimeout(() => {
+        historyCleanupTimerRef.current = null
+        if (
+          window.history.state?.[mediaLightboxHistoryStateKey] ===
+          historyEntryId
+        ) {
+          window.history.back()
+        }
+      }, 0)
     }
   }, [historyEntryId])
 
@@ -224,6 +273,15 @@ export function MediaLightbox({
     document.body.style.overflow = 'hidden'
 
     function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Tab') {
+        const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), video[controls]') ?? []).filter(element => !element.closest('[inert]') && element.getClientRects().length > 0)
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (!first) { event.preventDefault(); return }
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last.focus() }
+        else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) { event.preventDefault(); first.focus() }
+        return
+      }
       if (event.key === 'Escape') {
         event.preventDefault()
         closeLightbox()
@@ -260,192 +318,71 @@ export function MediaLightbox({
     return null
   }
 
-  function handleTouchStart(event: TouchEvent<HTMLDivElement>) {
-    const touch = event.touches[0]
-    if (!touch) {
-      return
-    }
-
-    touchStartRef.current = {
-      x: touch.clientX,
-      y: touch.clientY,
-    }
-  }
-
-  function handleTouchEnd(event: TouchEvent<HTMLDivElement>) {
-    const start = touchStartRef.current
-    const touch = event.changedTouches[0]
-    touchStartRef.current = null
-
-    if (!start || !touch || !hasMultipleMedia) {
-      return
-    }
-
-    const deltaX = touch.clientX - start.x
-    const deltaY = touch.clientY - start.y
-    if (Math.abs(deltaX) < 50 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) {
-      return
-    }
-
-    showRelativeMedia(deltaX > 0 ? -1 : 1)
-  }
+  const chromeButton = 'grid size-11 shrink-0 place-items-center rounded-full border border-white/15 bg-black/55 text-white hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-35'
 
   return createPortal(
-    <div
-      aria-label={`${title} media viewer`}
-      aria-modal="true"
-      className="fixed inset-0 z-[1000] bg-slate-950/95 text-white"
-      onClick={closeLightbox}
-      role="dialog"
-    >
-      <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 px-4 py-4 sm:px-6">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-white">{title}</p>
-          <p className="truncate text-xs text-white/65">
-            {activeMedia.alt} · {activeIndex + 1} of {media.length}
-          </p>
+    <div ref={dialogRef} aria-label={`${title} media viewer`} aria-modal="true" role="dialog" tabIndex={-1}
+      className="fixed inset-0 z-[1000] overflow-hidden bg-black text-white outline-none" style={{ height: '100dvh', overscrollBehavior: 'none' }}>
+      {mountedIndices.map(index => {
+        const item = media[index]
+        const active = index === activeIndex
+        return <div key={`${index}:${item.src}`} aria-hidden={!active} inert={!active}
+          className="absolute inset-0 transition-opacity duration-200 motion-reduce:transition-none"
+          style={{ opacity: active ? 1 : 0, pointerEvents: active ? 'auto' : 'none', zIndex: active ? 1 : 0 }}>
+          {getMediaType(item) === 'video' ? active && <LightboxVideo media={item} onNavigate={showRelativeMedia} /> :
+            <LightboxPhoto media={item} active={active} controlsVisible={controlsVisible} onNavigate={showRelativeMedia} onToggleControls={() => setControlsVisible(value => !value)} />}
         </div>
-        <Button
-          aria-label="Close media viewer"
-          className="size-10 rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-          onClick={(event) => {
-            event.stopPropagation()
-            closeLightbox()
-          }}
-          size="icon"
-          title="Close"
-          type="button"
-          variant="ghost"
-        >
-          <X className="size-5" aria-hidden="true" />
-        </Button>
-      </div>
+      })}
 
-      <button
-        aria-label="Previous media"
-        className="absolute left-3 top-1/2 z-20 hidden size-12 -translate-y-1/2 place-items-center rounded-full border border-white/15 bg-white/10 text-white shadow-xl transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35 sm:grid"
-        disabled={!hasMultipleMedia}
-        onClick={(event) => {
-          event.stopPropagation()
-          showRelativeMedia(-1)
-        }}
-        type="button"
-      >
-        <ArrowLeft className="size-5" aria-hidden="true" />
-      </button>
-
-      <button
-        aria-label="Next media"
-        className="absolute right-3 top-1/2 z-20 hidden size-12 -translate-y-1/2 place-items-center rounded-full border border-white/15 bg-white/10 text-white shadow-xl transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35 sm:grid"
-        disabled={!hasMultipleMedia}
-        onClick={(event) => {
-          event.stopPropagation()
-          showRelativeMedia(1)
-        }}
-        type="button"
-      >
-        <ArrowRight className="size-5" aria-hidden="true" />
-      </button>
-
-      <div
-        className="flex h-full items-center justify-center px-4 py-20 sm:px-20"
-        onClick={(event) => event.stopPropagation()}
-        onTouchEnd={handleTouchEnd}
-        onTouchStart={handleTouchStart}
-      >
-        <LightboxMediaPreview media={activeMedia} />
-      </div>
-
-      <div className="absolute inset-x-4 bottom-4 z-20 flex items-center justify-between gap-3 sm:justify-center">
-        <Button
-          aria-label="Previous media"
-          className="size-11 rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/20 hover:text-white disabled:opacity-35 sm:hidden"
-          disabled={!hasMultipleMedia}
-          onClick={(event) => {
-            event.stopPropagation()
-            showRelativeMedia(-1)
-          }}
-          size="icon"
-          type="button"
-          variant="ghost"
-        >
-          <ArrowLeft className="size-5" aria-hidden="true" />
-        </Button>
-        <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
-          {activeIndex + 1} / {media.length}
-        </span>
-        <Button
-          aria-label="Next media"
-          className="size-11 rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/20 hover:text-white disabled:opacity-35 sm:hidden"
-          disabled={!hasMultipleMedia}
-          onClick={(event) => {
-            event.stopPropagation()
-            showRelativeMedia(1)
-          }}
-          size="icon"
-          type="button"
-          variant="ghost"
-        >
-          <ArrowRight className="size-5" aria-hidden="true" />
-        </Button>
-      </div>
-    </div>,
-    document.body,
+      {controlsVisible ? <>
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 bg-gradient-to-b from-black/75 to-transparent px-4 pb-10 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6">
+          <div className="min-w-0 pt-1">
+            <p className="truncate text-sm font-semibold">{title}</p>
+            <p aria-live="polite" className="truncate text-xs text-white/75">{activeMedia.alt} · {activeIndex + 1} of {media.length}</p>
+            {getMediaType(activeMedia) !== 'video' && <p className="mt-1 text-xs text-white/60">Pinch or double-tap to zoom · Tap to hide controls</p>}
+          </div>
+          <div className="pointer-events-auto flex gap-2">
+            {typeof document !== 'undefined' && document.fullscreenEnabled && <button type="button" aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} className={chromeButton} onClick={toggleFullscreen}>{fullscreen ? <Minimize className="size-5" /> : <Maximize className="size-5" />}</button>}
+            <button type="button" aria-label="Close media viewer" className={chromeButton} onClick={closeLightbox}><X className="size-5" /></button>
+          </div>
+        </div>
+        {fullscreenError && <p role="status" className="absolute inset-x-4 top-20 z-30 rounded-xl bg-black/80 p-3 text-center text-sm">{fullscreenError}</p>}
+        <div className="absolute inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 flex items-center justify-between gap-3 sm:justify-center sm:gap-6">
+          <button type="button" aria-label="Previous media" className={chromeButton} disabled={!hasMultipleMedia} onClick={() => showRelativeMedia(-1)}><ArrowLeft className="size-5" /></button>
+          <span className="rounded-full bg-black/55 px-3 py-2 text-xs tabular-nums">{activeIndex + 1} / {media.length}</span>
+          <button type="button" aria-label="Next media" className={chromeButton} disabled={!hasMultipleMedia} onClick={() => showRelativeMedia(1)}><ArrowRight className="size-5" /></button>
+        </div>
+      </> : <button type="button" aria-label="Show gallery controls" className={`${chromeButton} absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-20 opacity-50`} onClick={() => setControlsVisible(true)}><Eye className="size-5" /></button>}
+    </div>, document.body,
   )
 }
 
-function LightboxMediaPreview({ media }: { media: PostMedia }) {
-  const [loadState, setLoadState] = useState<'error' | 'loading' | 'ready'>(
-    'loading',
-  )
-  const mediaKey = `${getMediaType(media)}:${media.src}:${media.poster ?? ''}`
-  const mediaClassName =
-    'max-h-[calc(100dvh-10rem)] max-w-[calc(100dvw-2rem)] rounded-[1.35rem] object-contain shadow-2xl shadow-black/35 sm:max-w-[calc(100dvw-10rem)]'
-
-  useEffect(() => {
-    setLoadState('loading')
-  }, [mediaKey])
-
-  return (
-    <div className="relative grid min-h-48 min-w-48 place-items-center">
-      {getMediaType(media) === 'video' ? (
-        <video
-          aria-label={media.alt}
-          className={cn('bg-black', mediaClassName)}
-          controls
-          onError={() => setLoadState('error')}
-          onLoadedData={() => setLoadState('ready')}
-          playsInline
-          poster={media.poster ?? media.thumbnail}
-          preload="metadata"
-          src={media.src}
-        />
-      ) : (
-        <img
-          alt={media.alt}
-          className={mediaClassName}
-          onError={() => setLoadState('error')}
-          onLoad={() => setLoadState('ready')}
-          src={media.src}
-        />
-      )}
-
-      {loadState !== 'ready' ? (
-        <div className="absolute inset-0 grid place-items-center rounded-[1.35rem] bg-slate-950/45 text-white backdrop-blur-sm">
-          <div className="grid justify-items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold shadow-xl shadow-black/25">
-            {loadState === 'loading' ? (
-              <Loader2 className="size-5 animate-spin" aria-hidden="true" />
-            ) : (
-              <AlertCircle className="size-5" aria-hidden="true" />
-            )}
-            {loadState === 'loading'
-              ? 'Loading full resolution'
-              : 'Unable to load media'}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
+function LightboxVideo({ media, onNavigate }: { media: PostMedia; onNavigate: (offset: number) => void }) {
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
+  return <div className="absolute inset-0 flex items-center justify-center px-2 pb-20 pt-20"
+    onTouchStart={event => {
+      const touch = event.touches[0]
+      const target = event.target
+      // Leave the video's native playback controls and scrubber alone.
+      const onControls = target instanceof HTMLVideoElement && touch && touch.clientY > target.getBoundingClientRect().bottom - 56
+      touchStart.current = event.touches.length === 1 && touch && !onControls ? { x: touch.clientX, y: touch.clientY } : null
+    }}
+    onTouchMove={event => { if (event.touches.length !== 1) touchStart.current = null }}
+    onTouchCancel={() => { touchStart.current = null }}
+    onTouchEnd={event => {
+      const start = touchStart.current
+      const touch = event.changedTouches[0]
+      touchStart.current = null
+      if (!start || !touch) return
+      const dx = touch.clientX - start.x
+      const dy = touch.clientY - start.y
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) onNavigate(dx > 0 ? -1 : 1)
+    }}>
+    <video key={attempt} aria-label={media.alt} className="max-h-full max-w-full" controls playsInline poster={media.poster ?? media.thumbnail} preload="metadata" src={media.src} onError={() => setFailed(true)} />
+    {failed && <button type="button" className="absolute rounded-xl bg-slate-900 p-4" onClick={() => { setFailed(false); setAttempt(value => value + 1) }}>Unable to load video. Retry</button>}
+  </div>
 }
 
 export function MediaPreview({

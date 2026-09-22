@@ -83,6 +83,15 @@
 }
 
 @layer components {
+  .mobile-post-swipe-hint {
+    visibility: hidden;
+  }
+
+  .mobile-post-swipe-stage[data-swipe="next"] .mobile-post-swipe-hint--next,
+  .mobile-post-swipe-stage[data-swipe="previous"] .mobile-post-swipe-hint--previous {
+    visibility: visible;
+  }
+
   .trip-leaflet-map {
     min-height: 40rem;
     width: 100%;
@@ -271,11 +280,16 @@
   }
 
   .trip-mobile-post-carousel {
-    --trip-mobile-post-card-width: min(17rem, calc(100vw - 4rem));
+    --trip-mobile-post-card-width: min(21rem, calc(100vw - 3rem));
+    scrollbar-width: none;
     padding-inline: calc((100% - var(--trip-mobile-post-card-width)) / 2);
     scroll-padding-inline: calc(
       (100% - var(--trip-mobile-post-card-width)) / 2
     );
+  }
+
+  .trip-mobile-post-carousel::-webkit-scrollbar {
+    display: none;
   }
 
   .trip-mobile-post-carousel__card {
@@ -322,6 +336,54 @@
 
   .privacy-zone-marker__dot {
     fill: var(--primary);
+  }
+}
+
+@media (max-width: 1023px) {
+  body:has(.mobile-trip-toolbar) .trip-app-header {
+    display: none;
+  }
+
+  body:has(.mobile-post-reader) .mobile-trip-toolbar,
+  body:has(.mobile-post-reader) nav[aria-label="Trip mode"] {
+    display: none;
+  }
+
+  html, .scrollbar-subtle {
+    scrollbar-gutter: auto;
+  }
+
+  /* Keep map credits accessible below the story cards. */
+  body .trip-mobile-travel-map .leaflet-control-attribution {
+    margin: 0 0.5rem 0.2rem 0 !important;
+    font-size: 0.6rem;
+  }
+
+  .trip-fullscreen-map .leaflet-bottom {
+    bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  .trip-fullscreen-map .leaflet-right {
+    right: env(safe-area-inset-right);
+  }
+}
+
+@media (pointer: coarse) {
+  button, a, input, select, textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  input, select, textarea {
+    font-size: max(1rem, 1em);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

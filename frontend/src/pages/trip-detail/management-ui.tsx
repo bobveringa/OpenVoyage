@@ -74,6 +74,7 @@ import type {
 } from '@/pages/trip-detail/page-types'
 import type { TripManagementSection } from '@/pages/trip-detail/url-state'
 import { useMediaQuery } from '@/pages/trip-detail/use-media-query'
+import { MobileTripToolbar } from '@/pages/trip-detail/mobile-trip-toolbar'
 
 const visibilityOptions = [
   { label: 'Private', value: 'PRIVATE' },
@@ -105,13 +106,15 @@ export function TripSidebarHeader({
   trip: TripViewModel
 }) {
   return (
-    <div className="space-y-2 border-b border-border px-4 py-3">
+    <>
+    <MobileTripToolbar trip={trip} members={members} canManageTrip={canManageTrip} onOpenManagement={onOpenManagement} />
+    <div className="hidden space-y-2 border-b border-border px-4 py-3 lg:block">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <h1 className="truncate text-lg font-semibold tracking-normal text-foreground">
             {trip.name}
           </h1>
-          <div className="flex min-w-0 items-center gap-3 text-xs text-muted-foreground">
+          <div className="flex min-w-0 flex-col items-start gap-x-3 gap-y-1 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center">
             <span className="inline-flex items-center gap-1.5">
               <CalendarDays className="size-3.5" aria-hidden="true" />
               {formatTripDateRange(trip.startDate, trip.endDate)}
@@ -124,7 +127,7 @@ export function TripSidebarHeader({
           <div className="flex shrink-0 items-center gap-1">
             <Button
               aria-label="GPS tracking"
-              className="size-8 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
+              className="size-11 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
               onClick={() => onOpenManagement('gps')}
               size="sm"
               title="GPS tracking"
@@ -137,7 +140,7 @@ export function TripSidebarHeader({
             {canManageTrip ? (
               <Button
                 aria-label="Manage trip"
-                className="size-8 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
+                className="size-11 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
                 onClick={() => onOpenManagement('general')}
                 size="sm"
                 title="Manage trip"
@@ -152,6 +155,7 @@ export function TripSidebarHeader({
         ) : null}
       </div>
     </div>
+    </>
   )
 }
 
