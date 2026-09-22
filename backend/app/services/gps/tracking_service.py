@@ -27,9 +27,8 @@ from models.database.travel import TravelMode
 from models.database.user import User, UserRole
 from services.gps.edit_geometry import (
     distance,
-    segment_distance,
-    insert_distance_limit,
-    MAX_MOVE_DISTANCE_METERS,
+    insertion_area,
+    move_area_radius,
 )
 from models.database.trips import Trip, TripMember
 from services.gps.derived_track import (
@@ -360,11 +359,21 @@ class GpsTrackingService:
         replacements = {
             point.id: point for point in payload.points if point.id is not None
         }
-        for point_id, replacement in replacements.items():
+        for row_index, row in enumerate(rows):
+            replacement = replacements.get(row.id)
+            if replacement is None:
+                continue
+            point_id = row.id
             target = (replacement.latitude, replacement.longitude)
-            if distance(positions[point_id], target) > MAX_MOVE_DISTANCE_METERS + 0.001:
+            connections = [
+                (rows[index].latitude, rows[index].longitude)
+                for index in (row_index - 1, row_index + 1)
+                if 0 <= index < len(rows)
+            ]
+            move_radius = move_area_radius(positions[point_id], connections)
+            if distance(positions[point_id], target) > move_radius + 0.001:
                 raise TrackingValidationError(
-                    'A point can move at most 400 m from its last saved position'
+                    'Point is outside its allowed connection-aware movement area'
                 )
             if target != positions[point_id]:
                 check_privacy(*target)
@@ -398,13 +407,12 @@ class GpsTrackingService:
                 )
             for offset, point in enumerate(inserted, start=1):
                 target = (point.latitude, point.longitude)
-                if (
-                    segment_distance(target, positions[before_id], positions[after_id])
-                    > insert_distance_limit(positions[before_id], positions[after_id])
-                    + 0.001
-                ):
+                center, radius = insertion_area(
+                    positions[before_id], positions[after_id]
+                )
+                if distance(target, center) > radius + 0.001:
                     raise TrackingValidationError(
-                        'Inserted point is outside the allowed distance from the path'
+                        'Inserted point is outside the allowed connection area'
                     )
                 check_privacy(*target)
                 additions.append(

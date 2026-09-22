@@ -1,9 +1,6 @@
 export type Coordinate = readonly [number, number]
 export const EARTH_RADIUS_METERS = 6_371_000
-export const MAX_MOVE_DISTANCE_METERS = 400
-export const INSERT_DISTANCE_RATIO = 0.25
-export const MIN_INSERT_DISTANCE_METERS = 20
-export const MAX_INSERT_DISTANCE_METERS = 200
+export const MIN_EDIT_RADIUS_METERS = 500
 const rad = (degrees: number) => (degrees * Math.PI) / 180
 export function distance(a: Coordinate, b: Coordinate) {
   const h =
@@ -43,39 +40,31 @@ export function destination(
     )
   return [(lat * 180) / Math.PI, (((lon * 180) / Math.PI + 540) % 360) - 180]
 }
-export function segmentDistance(
-  point: Coordinate,
-  a: Coordinate,
-  b: Coordinate,
-) {
+export function insertionArea(a: Coordinate, b: Coordinate) {
   const length = distance(a, b)
-  if (length < 0.001) return distance(point, a)
-  const delta = distance(a, point) / EARTH_RADIUS_METERS,
-    angle = bearing(a, point) - bearing(a, b)
-  const along =
-    Math.atan2(Math.sin(delta) * Math.cos(angle), Math.cos(delta)) *
-    EARTH_RADIUS_METERS
-  if (along <= 0) return distance(point, a)
-  if (along >= length) return distance(point, b)
-  return (
-    Math.abs(
-      Math.asin(Math.max(-1, Math.min(1, Math.sin(delta) * Math.sin(angle)))),
-    ) * EARTH_RADIUS_METERS
+  return {
+    center: destination(a, bearing(a, b), length / 2),
+    // The radius is the full connection length: from the midpoint it always
+    // includes both endpoints and leaves another half-connection of room past
+    // each one for reconstructing a missed detour.
+    radius: Math.max(MIN_EDIT_RADIUS_METERS, length),
+  }
+}
+export function moveAreaRadius(
+  origin: Coordinate,
+  connections: readonly Coordinate[],
+) {
+  return Math.max(
+    MIN_EDIT_RADIUS_METERS,
+    ...connections.map((connection) => distance(origin, connection) * 1.5),
   )
 }
-export const insertDistanceLimit = (a: Coordinate, b: Coordinate) =>
-  Math.min(
-    MAX_INSERT_DISTANCE_METERS,
-    Math.max(
-      MIN_INSERT_DISTANCE_METERS,
-      distance(a, b) * INSERT_DISTANCE_RATIO,
-    ),
-  )
 export function clampMove(
   origin: Coordinate,
   target: Coordinate,
+  maxDistance = MIN_EDIT_RADIUS_METERS,
 ): [number, number] {
-  return distance(origin, target) <= MAX_MOVE_DISTANCE_METERS
+  return distance(origin, target) <= maxDistance
     ? [...target]
-    : destination(origin, bearing(origin, target), MAX_MOVE_DISTANCE_METERS)
+    : destination(origin, bearing(origin, target), maxDistance)
 }

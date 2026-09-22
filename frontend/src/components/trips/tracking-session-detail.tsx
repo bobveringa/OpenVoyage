@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { TRAVEL_MODE_OPTIONS } from '@/tracking/travel-mode-options'
-import { insertDistanceLimit } from '@/tracking/edit-geometry'
+import { insertionArea, moveAreaRadius } from '@/tracking/edit-geometry'
 import { TrackingSessionMap } from './tracking-session-map'
 import {
   coordinates,
@@ -81,10 +81,20 @@ export function TrackingSessionDetail({
   const index = draft.findIndex((p) => p.id === selectedId)
   const visibleIndex = visible.findIndex((p) => p.id === selectedId)
   const selected = visible[visibleIndex]
+  const previous = visible[visibleIndex - 1]
   const next = visible[visibleIndex + 1]
   // A newly inserted point has no saved counterpart yet. Its insertion
-  // position is still a valid anchor for the same 400 m movement limit.
+  // position is still a valid anchor for the same connection-aware movement area.
   const origin = initial.find((p) => p.id === selectedId) ?? selected
+  const moveRadius =
+    origin && selected
+      ? moveAreaRadius(
+          coordinates(origin),
+          [previous, next].filter(
+            (point): point is TrackSample => point !== undefined,
+          ).map(coordinates),
+        )
+      : undefined
   const insertion: [TrackSample, TrackSample] | null =
     inserting && selected && next ? [selected, next] : null
   const displayPaths = useMemo(
@@ -248,6 +258,7 @@ export function TrackingSessionDetail({
           selectedSessionId={session.id}
           selectedPoint={tool === 'point' ? selected : undefined}
           origin={origin}
+          moveRadius={moveRadius}
           insertion={insertion}
           disabled={busy}
           fitKey={session.id}
@@ -347,8 +358,8 @@ export function TrackingSessionDetail({
         </section>
         <p role="status" className="mt-2 text-xs text-muted-foreground">
           {insertion
-            ? `Tap inside the highlighted area to insert a point (within ${Math.round(insertDistanceLimit(coordinates(insertion[0]), coordinates(insertion[1])))} m of this segment).`
-            : notice || (tool === 'point' ? 'Tap a point, then drag its handle to move it (up to 400 m).' : 'Apply a transport type to the points in this timeline window.')}
+            ? `Tap inside the highlighted circle to insert a point (within ${Math.round(insertionArea(coordinates(insertion[0]), coordinates(insertion[1])).radius)} m of its centre).`
+            : notice || (tool === 'point' ? 'Tap a point, then drag its handle inside the highlighted area to move it.' : 'Apply a transport type to the points in this timeline window.')}
         </p>
           </div>
           <aside className="space-y-4 border-t border-border p-3 md:overflow-y-auto md:border-l md:border-t-0 md:p-4">

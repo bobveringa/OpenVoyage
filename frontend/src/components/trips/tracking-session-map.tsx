@@ -9,13 +9,10 @@ import {
   resolveMapTileProvider,
 } from '@/lib/map-tile-providers'
 import {
-  bearing,
   clampMove,
-  destination,
   distance,
-  insertDistanceLimit,
-  MAX_MOVE_DISTANCE_METERS,
-  segmentDistance,
+  insertionArea,
+  MIN_EDIT_RADIUS_METERS,
 } from '@/tracking/edit-geometry'
 import { coordinates } from '@/tracking/session-points'
 
@@ -25,6 +22,7 @@ type Props = {
   selectedSessionId?: string
   selectedPoint?: TrackSample
   origin?: TrackSample
+  moveRadius?: number
   insertion?: [TrackSample, TrackSample] | null
   disabled?: boolean
   fitKey?: string
@@ -200,19 +198,9 @@ export function TrackingSessionMap(props: Props) {
     }
     if (props.insertion) {
       const [a, b] = props.insertion.map(coordinates)
-      const radius = insertDistanceLimit(a, b),
-        angle = bearing(a, b)
-      const edge: L.LatLngTuple[] = []
-      // Geodesic capsule: the allowed corridor around this segment.
-      for (let i = 0; i <= 24; i++)
-        edge.push(
-          destination(b, angle - Math.PI / 2 + (i * Math.PI) / 24, radius),
-        )
-      for (let i = 0; i <= 24; i++)
-        edge.push(
-          destination(a, angle + Math.PI / 2 + (i * Math.PI) / 24, radius),
-        )
-      L.polygon(edge, {
+      const { center, radius } = insertionArea(a, b)
+      L.circle(center, {
+        radius,
         color: accent,
         fillColor: accent,
         className: 'tracking-insert-area',
@@ -222,9 +210,10 @@ export function TrackingSessionMap(props: Props) {
     } else if (props.selectedPoint) {
       const point = props.selectedPoint,
         origin = coordinates(props.origin ?? point)
+      const moveRadius = props.moveRadius ?? MIN_EDIT_RADIUS_METERS
       if (props.origin)
         L.circle(origin, {
-          radius: MAX_MOVE_DISTANCE_METERS,
+          radius: moveRadius,
           color: primary,
           fillColor: primary,
           className: 'tracking-move-limit',
@@ -242,13 +231,13 @@ export function TrackingSessionMap(props: Props) {
         }),
       }).addTo(group)
       marker.on('drag', () => {
-        const target = marker.getLatLng(),
-          clamped = clampMove(origin, [target.lat, target.lng])
+          const target = marker.getLatLng(),
+          clamped = clampMove(origin, [target.lat, target.lng], moveRadius)
         marker.setLatLng(clamped)
         if (
-          distance(origin, [target.lat, target.lng]) >= MAX_MOVE_DISTANCE_METERS
-        )
-          callbacks.current.onNotice?.('400 m move limit reached.')
+          distance(origin, [target.lat, target.lng]) >= moveRadius
+          )
+          callbacks.current.onNotice?.(`${Math.round(moveRadius)} m move limit reached.`)
       })
       marker.on('dragend', () => {
         const p = marker.getLatLng()
@@ -258,7 +247,8 @@ export function TrackingSessionMap(props: Props) {
     const insertAt = (point: [number, number]) => {
       const [a, b] = props.insertion ?? []
       if (!a || !b) return
-      if (segmentDistance(point, coordinates(a), coordinates(b)) <= insertDistanceLimit(coordinates(a), coordinates(b)))
+      const { center, radius } = insertionArea(coordinates(a), coordinates(b))
+      if (distance(point, center) <= radius)
         callbacks.current.onInsert?.(...point)
       else
         callbacks.current.onNotice?.(
@@ -297,6 +287,7 @@ export function TrackingSessionMap(props: Props) {
     props.selectedSessionId,
     props.selectedPoint,
     props.origin,
+    props.moveRadius,
     props.insertion,
     props.disabled,
     themeRevision,

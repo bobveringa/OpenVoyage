@@ -12,7 +12,7 @@ from models.api.tracking import (
 from models.database.gps_tracking import GpsTrackSample
 from models.database.travel import TravelMode
 from models.database.user import UserRole
-from services.gps.edit_geometry import distance, insert_distance_limit, segment_distance
+from services.gps.edit_geometry import distance, insertion_area, move_area_radius
 from services.gps.tracking_service import (
     GpsTrackingService,
     TrackingPermissionError,
@@ -70,7 +70,7 @@ def replacement(p, **changes):
 
 
 @pytest.mark.parametrize(
-    'meters,accepted', [(399.9, True), (400, True), (400.1, False)]
+    'meters,accepted', [(499.9, True), (500, True), (500.1, False)]
 )
 def test_move_limit_enforced_server_side(editor, meters, accepted):
     p = point()
@@ -79,7 +79,7 @@ def test_move_limit_enforced_server_side(editor, meters, accepted):
         apply(editor, [p], [change])
         editor.db.commit.assert_called_once()
     else:
-        with pytest.raises(TrackingValidationError, match='400'):
+        with pytest.raises(TrackingValidationError, match='movement area'):
             apply(editor, [p], [change])
         editor.db.commit.assert_not_called()
         assert p.latitude == 0
@@ -93,16 +93,19 @@ def test_foreign_point_and_reordering_rejected(editor):
         apply(editor, [first, second], [replacement(second), replacement(first)])
 
 
-def test_insert_formula_caps_and_antimeridian():
-    assert insert_distance_limit((0, 0), (0, 0)) == 20
-    assert insert_distance_limit((0, 0), (0, 1)) == 200
-    assert insert_distance_limit((0, 0), (0, 0.004)) == pytest.approx(111.195, abs=0.01)
-    assert segment_distance((0, 180), (0, 179.9), (0, -179.9)) < 0.001
-    assert segment_distance((0, -0.001), (0, 0), (0, 0.001)) > 100
+def test_connection_areas_scale_without_caps_and_handle_antimeridian():
+    center, radius = insertion_area((0, 0), (0, 0.004))
+    assert radius == 500
+    assert distance(center, (0, 0.002)) < 0.01
+    assert insertion_area((0, 0), (0, 1))[1] == pytest.approx(111_194.93, abs=0.01)
+    assert move_area_radius((0, 0), [(0, 0.01)]) == pytest.approx(
+        1_667.92, abs=0.01
+    )
+    assert distance(insertion_area((0, 179.9), (0, -179.9))[0], (0, 180)) < 0.01
 
 
-@pytest.mark.parametrize('latitude,accepted', [(0.0005, True), (0.003, False)])
-def test_insert_corridor_and_interpolated_time(editor, latitude, accepted):
+@pytest.mark.parametrize('latitude,accepted', [(0.003, True), (0.01, False)])
+def test_insert_circle_and_interpolated_time(editor, latitude, accepted):
     a, b = point(), point(longitude=0.004, seconds=60)
     insert = dict(
         latitude=latitude,

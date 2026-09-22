@@ -1,17 +1,12 @@
-"""Distance rules shared conceptually with the Leaflet session editor (metres)."""
+"""Distance rules shared with the Leaflet session editor (metres)."""
 
-from math import asin, atan2, cos, sin, sqrt
+from math import asin, atan2, cos, degrees, radians, sin, sqrt
 
 EARTH_RADIUS_METERS = 6_371_000
-MAX_MOVE_DISTANCE_METERS = 400
-INSERT_DISTANCE_RATIO = 0.25
-MIN_INSERT_DISTANCE_METERS = 20
-MAX_INSERT_DISTANCE_METERS = 200
+MIN_EDIT_RADIUS_METERS = 500
 
 
 def distance(a, b):
-    from math import radians
-
     lat1, lat2 = radians(a[0]), radians(b[0])
     dlat, dlon = lat2 - lat1, radians(b[1] - a[1])
     h = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
@@ -19,28 +14,35 @@ def distance(a, b):
 
 
 def bearing(a, b):
-    from math import radians
-
     p, q, d = radians(a[0]), radians(b[0]), radians(b[1] - a[1])
     return atan2(sin(d) * cos(q), cos(p) * sin(q) - sin(p) * cos(q) * cos(d))
 
 
-def segment_distance(point, a, b):
+def destination(a, angle, meters):
+    distance_radians = meters / EARTH_RADIUS_METERS
+    latitude, longitude = radians(a[0]), radians(a[1])
+    target_latitude = asin(
+        sin(latitude) * cos(distance_radians)
+        + cos(latitude) * sin(distance_radians) * cos(angle)
+    )
+    target_longitude = longitude + atan2(
+        sin(angle) * sin(distance_radians) * cos(latitude),
+        cos(distance_radians) - sin(latitude) * sin(target_latitude),
+    )
+    return (degrees(target_latitude), (degrees(target_longitude) + 540) % 360 - 180)
+
+
+def insertion_area(a, b):
     length = distance(a, b)
-    if length < 0.001:
-        return distance(point, a)
-    delta = distance(a, point) / EARTH_RADIUS_METERS
-    angle = bearing(a, point) - bearing(a, b)
-    along = atan2(sin(delta) * cos(angle), cos(delta)) * EARTH_RADIUS_METERS
-    if along <= 0:
-        return distance(point, a)
-    if along >= length:
-        return distance(point, b)
-    return abs(asin(max(-1, min(1, sin(delta) * sin(angle))))) * EARTH_RADIUS_METERS
+    return destination(a, bearing(a, b), length / 2), max(
+        MIN_EDIT_RADIUS_METERS, length
+    )
 
 
-def insert_distance_limit(a, b):
-    return min(
-        MAX_INSERT_DISTANCE_METERS,
-        max(MIN_INSERT_DISTANCE_METERS, distance(a, b) * INSERT_DISTANCE_RATIO),
+def move_area_radius(origin, connections):
+    return max(
+        [
+            MIN_EDIT_RADIUS_METERS,
+            *(distance(origin, connection) * 1.5 for connection in connections),
+        ]
     )
