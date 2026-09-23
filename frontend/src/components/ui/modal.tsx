@@ -13,10 +13,12 @@ type ModalProps = {
   contentClassName?: string
   description?: string
   dismissible?: boolean
+  footer?: ReactNode
   fullscreenOnMobile?: boolean
   onClose: () => void
   open: boolean
   title: string
+  toolbar?: ReactNode
 }
 
 export function Modal({
@@ -26,10 +28,12 @@ export function Modal({
   contentClassName,
   description,
   dismissible = true,
+  footer,
   fullscreenOnMobile = false,
   onClose,
   open,
   title,
+  toolbar,
 }: ModalProps) {
   useEffect(() => {
     if (!open || !dismissible) {
@@ -65,7 +69,14 @@ export function Modal({
     >
       <div
         className={cn(
-          'grid w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden border border-border bg-card shadow-soft',
+          'grid w-full overflow-hidden border border-border bg-card shadow-soft',
+          toolbar && footer
+            ? 'grid-rows-[auto_auto_minmax(0,1fr)_auto]'
+            : toolbar
+              ? 'grid-rows-[auto_auto_minmax(0,1fr)]'
+              : footer
+                ? 'grid-rows-[auto_minmax(0,1fr)_auto]'
+                : 'grid-rows-[auto_minmax(0,1fr)]',
           fullscreenOnMobile
             ? 'h-dvh max-w-none sm:h-[min(44rem,calc(100dvh-2rem))] sm:max-w-2xl sm:rounded-2xl'
             : bottomSheetOnMobile
@@ -102,9 +113,19 @@ export function Modal({
             </Button>
           ) : null}
         </div>
+        {toolbar ? (
+          <div className="border-b border-border bg-card px-5 py-3 shadow-sm">
+            {toolbar}
+          </div>
+        ) : null}
         <ScrollArea className={cn('m-2 min-h-0 rounded-xl px-3 py-3', contentClassName)}>
           {children}
         </ScrollArea>
+        {footer ? (
+          <div className="border-t border-border bg-card px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 sm:pb-4">
+            {footer}
+          </div>
+        ) : null}
       </div>
     </div>,
     document.body,

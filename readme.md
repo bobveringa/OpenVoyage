@@ -28,6 +28,7 @@ You are in control. Your trip, your photos, your GPS, your choice.
 | 🗓️ **Planning**              | Plan stops, dates, stays, and travel between places. View the itinerary on the map and update it along the way.                                                          |
 | 📍 **Tracking**               | Record your route in the background with the Android app, even while offline. Choose a tracking mode, add privacy zones, and decide whether to share your live location. |
 | 📸 **Posting**                | Add posts with a place, time, photos, and videos. Save drafts or publish them to the trip timeline and map.                                                              |
+| 🖼️ **Immich imports**         | Optionally connect Immich v3 albums to a trip and copy selected photos or videos into posts.                                                                             |
 | 🔗 **Sharing**                | Make a trip public, add selected viewers, or share a private link with people who do not have an account. Links can expire or be revoked.                                |
 | 🧳 **Travelling together**    | Add trip members who can update the itinerary and write their own posts in the shared timeline.                                                                          |
 | 🗺️ **Map and timeline**      | Explore planned stops, recorded tracks, travel routes, and posts on one map or in chronological order.                                                                   |
@@ -91,6 +92,15 @@ in environment variables, so you can change it without a restart.
 Environment variables cover the things that must be known before the app
 starts liek: database connection, `SECRET_KEY`, CORS origins, media directory. See
 [`.env.example`](.env.example) for the full annotated list.
+
+### Immich
+
+Administrators can enable Immich and configure its approved server origins in
+the Media section of the admin interface. Each user then connects their own
+Immich account under Account settings → Immich. OpenVoyage requires an Immich
+v3 API key with these required read permissions: `album.read`, `asset.read`,
+`asset.view`, `asset.download`, and `user.read`. The Immich server must be
+reachable from the OpenVoyage backend; browsers never contact it directly.
 
 ## 📱 Android app
 The android app is only needed to track your location in the background. Other

@@ -720,6 +720,212 @@
         "title": "ImageTechnicalInfo",
         "type": "object"
       },
+      "ImmichAlbumLinkCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "album_id": {
+            "format": "uuid",
+            "title": "Album Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "album_id"
+        ],
+        "title": "ImmichAlbumLinkCreateRequest",
+        "type": "object"
+      },
+      "ImmichAlbumLinkResponse": {
+        "properties": {
+          "can_remove": {
+            "title": "Can Remove",
+            "type": "boolean"
+          },
+          "connected_by": {
+            "$ref": "#/components/schemas/TripMemberUserResponse"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "connected_by",
+          "can_remove"
+        ],
+        "title": "ImmichAlbumLinkResponse",
+        "type": "object"
+      },
+      "ImmichAlbumResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ImmichAlbumResponse",
+        "type": "object"
+      },
+      "ImmichAssetPageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImmichAssetResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page"
+          }
+        },
+        "required": [
+          "items",
+          "next_page"
+        ],
+        "title": "ImmichAssetPageResponse",
+        "type": "object"
+      },
+      "ImmichAssetResponse": {
+        "properties": {
+          "display_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Image Url"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "enum": [
+              "IMAGE",
+              "VIDEO"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "title": "Thumbnail Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "media_type",
+          "thumbnail_url",
+          "display_image_url"
+        ],
+        "title": "ImmichAssetResponse",
+        "type": "object"
+      },
+      "ImmichConnectionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "api_key": {
+            "default": "",
+            "maxLength": 4096,
+            "title": "Api Key",
+            "type": "string"
+          },
+          "server_url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Server Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_url"
+        ],
+        "title": "ImmichConnectionRequest",
+        "type": "object"
+      },
+      "ImmichConnectionResponse": {
+        "properties": {
+          "server_url": {
+            "title": "Server Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_url"
+        ],
+        "title": "ImmichConnectionResponse",
+        "type": "object"
+      },
+      "ImmichConnectionStateResponse": {
+        "properties": {
+          "connection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImmichConnectionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "title": "ImmichConnectionStateResponse",
+        "type": "object"
+      },
+      "ImmichImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id"
+        ],
+        "title": "ImmichImportRequest",
+        "type": "object"
+      },
       "ItineraryPlacement": {
         "additionalProperties": false,
         "properties": {
@@ -2700,7 +2906,8 @@
           "secret",
           "boolean",
           "integer",
-          "object"
+          "object",
+          "array"
         ],
         "title": "SettingValueType",
         "type": "string"
@@ -6198,6 +6405,446 @@
         "summary": "Update Trip",
         "tags": [
           "trips"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/immich/albums": {
+      "get": {
+        "operationId": "list_trip_albums_api_v1_trips__trip_id__immich_albums_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ImmichAlbumLinkResponse"
+                  },
+                  "title": "Response List Trip Albums Api V1 Trips  Trip Id  Immich Albums Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Trip Albums",
+        "tags": [
+          "immich"
+        ]
+      },
+      "post": {
+        "operationId": "connect_album_api_v1_trips__trip_id__immich_albums_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImmichAlbumLinkCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImmichAlbumLinkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Connect Album",
+        "tags": [
+          "immich"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/immich/albums/{link_id}": {
+      "delete": {
+        "operationId": "remove_album_link_api_v1_trips__trip_id__immich_albums__link_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Link Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Remove Album Link",
+        "tags": [
+          "immich"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/immich/albums/{link_id}/assets": {
+      "get": {
+        "operationId": "list_assets_api_v1_trips__trip_id__immich_albums__link_id__assets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Link Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImmichAssetPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Assets",
+        "tags": [
+          "immich"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/immich/albums/{link_id}/assets/{asset_id}/display-image": {
+      "get": {
+        "operationId": "get_display_image_api_v1_trips__trip_id__immich_albums__link_id__assets__asset_id__display_image_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Link Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Display Image",
+        "tags": [
+          "immich"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/immich/albums/{link_id}/assets/{asset_id}/thumbnail": {
+      "get": {
+        "operationId": "get_thumbnail_api_v1_trips__trip_id__immich_albums__link_id__assets__asset_id__thumbnail_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Link Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Thumbnail",
+        "tags": [
+          "immich"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/immich/albums/{link_id}/imports": {
+      "post": {
+        "operationId": "import_asset_api_v1_trips__trip_id__immich_albums__link_id__imports_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Link Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImmichImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Import Asset",
+        "tags": [
+          "immich"
         ]
       }
     },
@@ -9862,6 +10509,162 @@
         "summary": "Replace Gps Privacy Zone",
         "tags": [
           "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/immich": {
+      "delete": {
+        "operationId": "disconnect_api_v1_users_me_immich_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Disconnect",
+        "tags": [
+          "immich"
+        ]
+      },
+      "get": {
+        "operationId": "get_connection_api_v1_users_me_immich_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImmichConnectionStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Connection",
+        "tags": [
+          "immich"
+        ]
+      },
+      "put": {
+        "operationId": "save_connection_api_v1_users_me_immich_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImmichConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImmichConnectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Save Connection",
+        "tags": [
+          "immich"
+        ]
+      }
+    },
+    "/api/v1/users/me/immich/albums": {
+      "get": {
+        "operationId": "list_personal_albums_api_v1_users_me_immich_albums_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ImmichAlbumResponse"
+                  },
+                  "title": "Response List Personal Albums Api V1 Users Me Immich Albums Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "List Personal Albums",
+        "tags": [
+          "immich"
+        ]
+      }
+    },
+    "/api/v1/users/me/immich/test": {
+      "post": {
+        "operationId": "test_connection_api_v1_users_me_immich_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImmichConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Test Connection",
+        "tags": [
+          "immich"
         ]
       }
     },

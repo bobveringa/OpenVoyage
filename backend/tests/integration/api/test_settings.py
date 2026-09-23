@@ -7,6 +7,9 @@ from core.app_settings import (
     DEFAULT_MAP_TILE_PROVIDER_URL,
     DEFAULT_THEME_PALETTE,
     MAP_TILE_PROVIDER_KEY,
+    IMMICH_ALLOWED_SERVERS_KEY,
+    IMMICH_ALLOW_ANY_SERVER_KEY,
+    IMMICH_ENABLED_KEY,
     MEDIA_MAX_UPLOAD_SIZE_MB_KEY,
     ROUTING_GRAPHHOPPER_API_KEY,
     ROUTING_PROVIDER_KEY,
@@ -45,6 +48,7 @@ def test_public_settings_returns_only_public_defaults(client, db_session, api_pr
         'settings': {
             THEME_PALETTE_KEY: DEFAULT_THEME_PALETTE,
             MAP_TILE_PROVIDER_KEY: DEFAULT_MAP_TILE_PROVIDER_URL,
+            IMMICH_ENABLED_KEY: False,
         },
         'updated_at': None,
     }
@@ -94,6 +98,9 @@ def test_admin_list_includes_redacted_secret_metadata(
         'media.max_upload_size_mb',
         'places.geonames_dataset',
         'media.orphan_retention_days',
+        IMMICH_ENABLED_KEY,
+        IMMICH_ALLOWED_SERVERS_KEY,
+        IMMICH_ALLOW_ANY_SERVER_KEY,
     }
     assert secret['value'] is None
     assert secret['default_value'] is None

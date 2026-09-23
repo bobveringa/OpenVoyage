@@ -1,5 +1,6 @@
 import {
   Clock3,
+  Images,
   MapPinned,
   Radio,
   ShieldCheck,
@@ -12,6 +13,7 @@ import { isNativePlatform } from '@/native/platform'
 import { cn } from '@/lib/utils'
 
 export type AccountSettingsSection =
+  | 'immich'
   | 'preferences'
   | 'privacy'
   | 'profile'
@@ -22,6 +24,7 @@ type AccountSettingsLayoutProps = {
   activeSection: AccountSettingsSection
   children: ReactNode
   onSectionChange: (section: AccountSettingsSection) => void
+  showImmich?: boolean
 }
 
 type AccountSettingsNavigationItem = {
@@ -32,6 +35,12 @@ type AccountSettingsNavigationItem = {
 }
 
 const accountSettingsNavigationItems: readonly AccountSettingsNavigationItem[] = [
+  {
+    description: 'Connect your photo library',
+    icon: Images,
+    id: 'immich',
+    label: 'Immich',
+  },
   {
     description: 'Your public details',
     icon: UserRound,
@@ -68,9 +77,12 @@ export function AccountSettingsLayout({
   activeSection,
   children,
   onSectionChange,
+  showImmich = false,
 }: AccountSettingsLayoutProps) {
   const navigationItems = accountSettingsNavigationItems.filter(
-    (item) => item.id !== 'tracking' || isNativePlatform(),
+    (item) =>
+      (item.id !== 'tracking' || isNativePlatform()) &&
+      (item.id !== 'immich' || showImmich),
   )
 
   return (

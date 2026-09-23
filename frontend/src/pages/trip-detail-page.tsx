@@ -66,6 +66,7 @@ import {
 import type { AuthStatus } from '@/auth/auth-context'
 import { isTripOngoing } from '@/lib/dates'
 import { cn } from '@/lib/utils'
+import { usePublicSetting } from '@/settings/public-settings'
 import { useMediaQuery } from '@/pages/trip-detail/use-media-query'
 import {
   TripManagementDialog,
@@ -168,6 +169,7 @@ export function TripDetailPage({
   currentUser,
   tripId,
 }: TripDetailPageProps) {
+  const immichEnabled = usePublicSetting('immich.enabled') === true
   const shouldUseMobileMapPicker = useMediaQuery('(max-width: 1023px)')
   const initialCanUseMemberUi = authStatus === 'authenticated'
   const initialUrlState = readTripDetailUrlState({
@@ -567,9 +569,9 @@ export function TripDetailPage({
   )
 
   const openManagement = useCallback((section: TripManagementSection) => {
-    // GPS recordings are available to members. The other management sections
+    // GPS and Immich albums are available to contributors. The other sections
     // are owner-only, including the live-sharing switch shown inside GPS.
-    if (section === 'gps' ? !canMutate : !canManageTrip) {
+    if (section === 'gps' || section === 'albums' ? !canMutate : !canManageTrip) {
       return
     }
 
@@ -1611,6 +1613,7 @@ export function TripDetailPage({
           accessToken={accessToken}
           canManageLiveSharing={canManageTrip}
           canManageTrip={canManageTrip}
+          immichEnabled={immichEnabled}
           error={mutationError}
           isSaving={isMutating}
           members={tripMembers}

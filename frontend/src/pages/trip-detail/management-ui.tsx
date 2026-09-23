@@ -5,6 +5,7 @@ import {
   Copy,
   Eye,
   Globe2,
+  Images,
   Link2,
   Link2Off,
   Lock,
@@ -38,6 +39,7 @@ import {
 } from '@/api/client'
 import { ImageUploadDropzone } from '@/components/media/image-upload-dropzone'
 import { TrackingManagementPanel } from '@/components/trips/tracking-management-dialog'
+import { ImmichAlbumsPanel } from '@/components/trips/immich-albums-panel'
 import { TripMemberPresence } from '@/components/trips/trip-member-presence'
 import { Button } from '@/components/ui/button'
 import { DatePicker, DateTimePicker } from '@/components/ui/date-time-picker'
@@ -926,6 +928,12 @@ function TripMembersPanel({
 
 const managementSections = [
   {
+    description: 'Connected Immich albums for contributors.',
+    icon: Images,
+    label: 'Immich albums',
+    value: 'albums',
+  },
+  {
     description: 'Details, dates, cover, and visibility.',
     icon: Settings,
     label: 'General',
@@ -968,6 +976,7 @@ export function TripManagementDialog({
   canManageTrip,
   error,
   isSaving,
+  immichEnabled,
   members,
   onClose,
   onCreateLink,
@@ -996,6 +1005,7 @@ export function TripManagementDialog({
   canManageTrip: boolean
   error: string | null
   isSaving: boolean
+  immichEnabled: boolean
   members: readonly TripMemberViewModel[]
   onClose: () => void
   onCreateLink: (draft: ShareLinkCreateDraft) => void
@@ -1021,13 +1031,23 @@ export function TripManagementDialog({
 }) {
   const isMobile = useMediaQuery('(max-width: 639px)')
   const [showMobileMenu, setShowMobileMenu] = useState(false)
-  const effectiveSection = canManageTrip ? section : 'gps'
+  const requestedSection = section === 'albums' && !immichEnabled
+    ? canManageTrip ? 'general' : 'gps'
+    : section
+  const effectiveSection = canManageTrip
+    ? requestedSection
+    : requestedSection === 'gps' || (immichEnabled && requestedSection === 'albums')
+      ? requestedSection
+      : 'gps'
   const activeSection = managementSections.find(
     (item) => item.value === effectiveSection,
   )!
-  const availableSections = canManageTrip
+  const availableSections = (canManageTrip
     ? managementSections
-    : managementSections.filter((item) => item.value === 'gps')
+    : managementSections.filter(
+        (item) => item.value === 'gps' || item.value === 'albums',
+      )
+  ).filter((item) => item.value !== 'albums' || immichEnabled)
 
   useEffect(() => {
     if (open) {
@@ -1174,6 +1194,9 @@ export function TripManagementDialog({
                 tripId={tripId}
                 tripTitle={trip.name}
               />
+            ) : null}
+            {effectiveSection === 'albums' && immichEnabled && accessToken && tripId ? (
+              <ImmichAlbumsPanel accessToken={accessToken} tripId={tripId} />
             ) : null}
             {effectiveSection === 'gps' && (!accessToken || !tripId) ? (
               <p className="rounded-2xl border border-border bg-muted/50 p-4 text-sm text-muted-foreground">

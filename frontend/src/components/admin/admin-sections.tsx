@@ -77,6 +77,9 @@ const SETTING_KEYS = {
   geonamesDataset: 'places.geonames_dataset',
   mapTileProvider: MAP_TILE_PROVIDER_SETTING_KEY,
   routingProvider: 'routing.provider',
+  immichEnabled: 'immich.enabled',
+  immichAllowedServers: 'immich.allowed_servers',
+  immichAllowAnyServer: 'immich.allow_any_server',
 } as const
 
 const settingPresentations: Record<string, SettingPresentation> = {
@@ -123,6 +126,18 @@ const settingPresentations: Record<string, SettingPresentation> = {
       cities15000: 'Cities with 15,000+ people or capitals',
       allCountries: 'All countries',
     },
+  },
+  [SETTING_KEYS.immichEnabled]: {
+    help: 'Show Immich connections, trip albums, and the post-editor media source.',
+    label: 'Enable Immich',
+  },
+  [SETTING_KEYS.immichAllowedServers]: {
+    help: 'Exact server origins allowed to connect, entered as a JSON array of URLs.',
+    label: 'Allowed Immich servers',
+  },
+  [SETTING_KEYS.immichAllowAnyServer]: {
+    help: 'Also permit arbitrary public HTTPS servers. Private destinations still require an exact allowlist entry.',
+    label: 'Allow any public HTTPS server',
   },
 }
 
@@ -374,6 +389,18 @@ function SettingsAdminSections({
           SETTING_KEYS.orphanRetentionDays,
         ])}
         title="Upload policy"
+      />
+      <SettingsGroup
+        description="Enable Immich and control which server origins OpenVoyage may contact."
+        icon={Server}
+        onReset={handleReset}
+        onSave={handleSave}
+        settings={pickSettings(settingsByKey, [
+          SETTING_KEYS.immichEnabled,
+          SETTING_KEYS.immichAllowedServers,
+          SETTING_KEYS.immichAllowAnyServer,
+        ])}
+        title="Immich integration"
       />
     </section>
   )
@@ -701,7 +728,7 @@ function SettingControl({
     )
   }
 
-  if (setting.value_type === 'object') {
+  if (setting.value_type === 'object' || setting.value_type === 'array') {
     return (
       <textarea
         className="min-h-32 w-full resize-y rounded-xl border border-border bg-card px-3 py-2.5 font-mono text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -846,7 +873,7 @@ function settingToDraft(setting: AdminSetting) {
   if (setting.value_type === 'secret') {
     return ''
   }
-  if (setting.value_type === 'object') {
+  if (setting.value_type === 'object' || setting.value_type === 'array') {
     return JSON.stringify(setting.value, null, 2)
   }
   return String(setting.value ?? '')
@@ -863,7 +890,7 @@ function parseDraftValue(setting: AdminSetting, draft: string): unknown {
   if (setting.value_type === 'boolean') {
     return draft === 'true'
   }
-  if (setting.value_type === 'object') {
+  if (setting.value_type === 'object' || setting.value_type === 'array') {
     try {
       return JSON.parse(draft) as unknown
     } catch {

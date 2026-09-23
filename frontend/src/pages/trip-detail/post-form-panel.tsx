@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Check,
   ImagePlus,
+  Images,
   MousePointer2,
   Plus,
   RefreshCw,
@@ -20,10 +21,13 @@ import {
 
 import {
   getErrorMessage,
+  listTripImmichAlbums,
   uploadMediaWithProgress,
   type GpsPostCandidate,
   type Place,
+  type MediaUploadResponse,
 } from '@/api/client'
+import { ImmichMediaPicker } from '@/components/trips/immich-media-picker'
 import { PlaceSearchDropdown } from '@/components/places/place-search-dropdown'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -87,8 +91,10 @@ export function PostFormPanel({
   draftLocation,
   gpsPostCandidate,
   isSubmitting,
+  immichEnabled,
   mapPointActive,
   mode,
+  tripId,
   onCancel,
   onDelete,
   onMapPointTargetChange,
@@ -102,8 +108,10 @@ export function PostFormPanel({
   draftLocation: DraftPostLocation | null
   gpsPostCandidate: GpsPostCandidate | null
   isSubmitting: boolean
+  immichEnabled: boolean
   mapPointActive: boolean
   mode: 'create' | 'edit'
+  tripId: string
   onCancel: () => void
   onDelete?: () => void
   onMapPointTargetChange: (target: MapPointTarget | null) => void
@@ -135,6 +143,10 @@ export function PostFormPanel({
     number | null
   >(null)
   const [mediaNotice, setMediaNotice] = useState<string | null>(null)
+  const [immichPickerOpen, setImmichPickerOpen] = useState(false)
+  const [immichAlbumAvailability, setImmichAlbumAvailability] = useState<
+    'available' | 'checking' | 'unavailable' | 'unknown'
+  >(immichEnabled && accessToken ? 'checking' : 'unknown')
   const [conflictPromptOpen, setConflictPromptOpen] = useState(false)
   const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false)
   const [pendingSubmit, setPendingSubmit] = useState<PendingPostSubmit | null>(
@@ -160,6 +172,31 @@ export function PostFormPanel({
   )
   const [title, setTitle] = useState(editingPost?.title ?? '')
   const hasPostConflict = postConflict !== null
+
+  useEffect(() => {
+    if (!immichEnabled || !accessToken) {
+      setImmichAlbumAvailability('unknown')
+      return undefined
+    }
+
+    let cancelled = false
+    setImmichAlbumAvailability('checking')
+    void listTripImmichAlbums({ accessToken, tripId })
+      .then((links) => {
+        if (!cancelled) {
+          setImmichAlbumAvailability(links.length ? 'available' : 'unavailable')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setImmichAlbumAvailability('unknown')
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken, immichEnabled, tripId])
 
   useEffect(() => {
     if (hasPostConflict) {
@@ -239,6 +276,13 @@ export function PostFormPanel({
       : isSubmitting
         ? 'Moving to draft'
         : 'Move to draft'
+  const immichUnavailable = immichAlbumAvailability === 'unavailable'
+  const immichChecking = immichAlbumAvailability === 'checking'
+  const immichButtonTitle = immichUnavailable
+    ? 'Connect an Immich album to this trip first.'
+    : immichChecking
+      ? 'Checking connected Immich albums…'
+      : 'Add media from Immich'
 
   const abortDraftMediaUploads = useCallback(() => {
     for (const controller of uploadControllersRef.current.values()) {
@@ -525,6 +569,20 @@ export function PostFormPanel({
     setMediaNotice(
       `${mediaFiles.length} ${mediaFiles.length === 1 ? 'media item' : 'media items'} added.`,
     )
+  }
+
+  function handleImmichImported(media: MediaUploadResponse) {
+    const imported = createExistingDraftPostMedia({
+      alt: `Immich ${media.media_type.toLowerCase()}`,
+      media_id: media.id,
+      poster: media.media_type === 'VIDEO' ? media.urls.thumbnail ?? undefined : undefined,
+      src: media.urls.content,
+      thumbnail: media.urls.thumbnail ?? undefined,
+      type: media.media_type === 'VIDEO' ? 'video' : 'image',
+    })
+    setDraftMedia((current) => [...current, imported])
+    setBubbleMediaClientId((current) => current ?? imported.clientId)
+    setMediaNotice('Immich media imported and added to the draft.')
   }
 
   function moveDraftMedia(index: number, direction: -1 | 1) {
@@ -903,23 +961,40 @@ export function PostFormPanel({
       </section>
 
       <section className="space-y-4 rounded-[1.5rem] border border-border bg-card p-4">
-        <div className="flex items-start justify-between gap-3">
+        <div className="space-y-3 sm:flex sm:items-start sm:justify-between sm:gap-3 sm:space-y-0">
           <div>
             <h3 className="font-semibold text-foreground">Media</h3>
             <p className="text-sm text-muted-foreground">
               {mediaDescription}
             </p>
           </div>
-          <Button
-            disabled={formDisabled}
-            onClick={() => fileInputRef.current?.click()}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <Upload className="size-4" aria-hidden="true" />
-            Add media
-          </Button>
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            {immichEnabled && accessToken ? (
+              <Button
+                className="w-full sm:w-auto"
+                disabled={formDisabled || immichUnavailable || immichChecking}
+                onClick={() => setImmichPickerOpen(true)}
+                size="sm"
+                title={immichButtonTitle}
+                type="button"
+                variant="outline"
+              >
+                <Images className="size-4" aria-hidden="true" />
+                Immich
+              </Button>
+            ) : null}
+            <Button
+              disabled={formDisabled}
+              className="w-full sm:w-auto"
+              onClick={() => fileInputRef.current?.click()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Upload className="size-4" aria-hidden="true" />
+              Device
+            </Button>
+          </div>
         </div>
 
         {mediaNotice ? <InlineNotice>{mediaNotice}</InlineNotice> : null}
@@ -1161,6 +1236,21 @@ export function PostFormPanel({
           </>
         )}
       </div>
+      {immichEnabled && accessToken ? (
+        <ImmichMediaPicker
+          accessToken={accessToken}
+          onClose={() => {
+            setImmichPickerOpen(false)
+            setImmichAlbumAvailability('checking')
+            void listTripImmichAlbums({ accessToken, tripId })
+              .then((links) => setImmichAlbumAvailability(links.length ? 'available' : 'unavailable'))
+              .catch(() => setImmichAlbumAvailability('unknown'))
+          }}
+          onImported={handleImmichImported}
+          open={immichPickerOpen}
+          tripId={tripId}
+        />
+      ) : null}
 
       <Modal
         description={`Permanently delete ${editingPost?.title ?? 'this post'}? This cannot be undone.`}

@@ -22,6 +22,7 @@ class SettingValueType(str, Enum):
     BOOLEAN = 'boolean'
     INTEGER = 'integer'
     OBJECT = 'object'
+    ARRAY = 'array'
 
 
 class SettingVisibility(str, Enum):
@@ -71,6 +72,9 @@ ROUTING_GRAPHHOPPER_API_KEY = 'routing.graphhopper_api_key'
 MEDIA_MAX_UPLOAD_SIZE_MB_KEY = 'media.max_upload_size_mb'
 PLACES_GEONAMES_DATASET_KEY = 'places.geonames_dataset'
 MEDIA_ORPHAN_RETENTION_DAYS_KEY = 'media.orphan_retention_days'
+IMMICH_ENABLED_KEY = 'immich.enabled'
+IMMICH_ALLOWED_SERVERS_KEY = 'immich.allowed_servers'
+IMMICH_ALLOW_ANY_SERVER_KEY = 'immich.allow_any_server'
 
 SETTING_DEFINITIONS = (
     SettingDefinition(
@@ -164,6 +168,34 @@ SETTING_DEFINITIONS = (
         validation={'min': 1, 'unit': 'days'},
         description='Minimum age before unattached media is eligible for cleanup.',
     ),
+    SettingDefinition(
+        key=IMMICH_ENABLED_KEY,
+        value_type=SettingValueType.BOOLEAN,
+        visibility=SettingVisibility.PUBLIC,
+        sensitive=False,
+        default_value=False,
+        runtime_safe=True,
+        description='Enable personal Immich connections and trip album imports.',
+    ),
+    SettingDefinition(
+        key=IMMICH_ALLOWED_SERVERS_KEY,
+        value_type=SettingValueType.ARRAY,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        default_value=[],
+        runtime_safe=True,
+        validation={'item_type': 'string', 'max_length': 2048},
+        description='Exact Immich server origins approved by the administrator.',
+    ),
+    SettingDefinition(
+        key=IMMICH_ALLOW_ANY_SERVER_KEY,
+        value_type=SettingValueType.BOOLEAN,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        default_value=False,
+        runtime_safe=True,
+        description='Permit arbitrary public HTTPS Immich server origins.',
+    ),
 )
 
 
@@ -215,6 +247,19 @@ class AppSettingsRegistry:
         elif value_type == SettingValueType.OBJECT:
             if not isinstance(value, dict):
                 raise AppSettingValidationError('Value must be an object')
+        elif value_type == SettingValueType.ARRAY:
+            if not isinstance(value, list):
+                raise AppSettingValidationError('Value must be an array')
+            if validation.get('item_type') == 'string':
+                if not all(isinstance(item, str) for item in value):
+                    raise AppSettingValidationError('Every array item must be a string')
+                item_max_length = validation.get('max_length')
+                if item_max_length is not None and any(
+                    len(item) > item_max_length for item in value
+                ):
+                    raise AppSettingValidationError(
+                        f'Array items must contain at most {item_max_length} character(s)'
+                    )
 
         allowed_values = validation.get('allowed_values')
         if allowed_values is not None and value not in allowed_values:
