@@ -59,7 +59,7 @@ export function ImmichMediaPicker({
   const selectedLinkIdRef = useRef(selectedLinkId)
   const onCloseRef = useRef(onClose)
   const closeTimerRef = useRef<number | null>(null)
-  const historyEntryIdRef = useRef(`immich-picker-${crypto.randomUUID()}`)
+  const historyEntryIdRef = useRef(createPickerHistoryEntryId())
   selectedLinkIdRef.current = selectedLinkId
   onCloseRef.current = onClose
 
@@ -565,6 +565,14 @@ export function ImmichMediaPicker({
       ) : null}
     </>
   )
+}
+
+function createPickerHistoryEntryId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return `immich-picker-${crypto.randomUUID()}`
+  }
+
+  return `immich-picker-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 function AuthenticatedImmichImage({
