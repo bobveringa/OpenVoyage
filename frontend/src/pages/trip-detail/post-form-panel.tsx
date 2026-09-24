@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Check,
   ImagePlus,
-  Images,
   MousePointer2,
   Plus,
   RefreshCw,
@@ -27,6 +26,7 @@ import {
   type Place,
   type MediaUploadResponse,
 } from '@/api/client'
+import { ImmichLogo } from '@/components/branding/immich-logo'
 import { ImmichMediaPicker } from '@/components/trips/immich-media-picker'
 import { PlaceSearchDropdown } from '@/components/places/place-search-dropdown'
 import { Badge } from '@/components/ui/badge'
@@ -971,7 +971,7 @@ export function PostFormPanel({
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             {immichEnabled && accessToken ? (
               <Button
-                className="w-full sm:w-auto"
+                className="w-full border-[#1e83f7]/35 bg-[#1e83f7]/5 text-foreground hover:border-[#1e83f7]/55 hover:bg-[#1e83f7]/10 dark:bg-[#1e83f7]/10 dark:hover:bg-[#1e83f7]/15 sm:w-auto"
                 disabled={formDisabled || immichUnavailable || immichChecking}
                 onClick={() => setImmichPickerOpen(true)}
                 size="sm"
@@ -979,7 +979,7 @@ export function PostFormPanel({
                 type="button"
                 variant="outline"
               >
-                <Images className="size-4" aria-hidden="true" />
+                <ImmichLogo className="size-4" aria-hidden="true" />
                 Immich
               </Button>
             ) : null}

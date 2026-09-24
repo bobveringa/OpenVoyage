@@ -17,7 +17,7 @@ type ModalProps = {
   fullscreenOnMobile?: boolean
   onClose: () => void
   open: boolean
-  title: string
+  title: ReactNode
   toolbar?: ReactNode
 }
 

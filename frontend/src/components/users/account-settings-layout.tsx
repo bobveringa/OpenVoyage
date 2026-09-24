@@ -1,14 +1,13 @@
 import {
   Clock3,
-  Images,
   MapPinned,
   Radio,
   ShieldCheck,
   UserRound,
-  type LucideIcon,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { ComponentType, ReactNode, SVGProps } from 'react'
 
+import { ImmichLogo } from '@/components/branding/immich-logo'
 import { isNativePlatform } from '@/native/platform'
 import { cn } from '@/lib/utils'
 
@@ -29,7 +28,7 @@ type AccountSettingsLayoutProps = {
 
 type AccountSettingsNavigationItem = {
   description: string
-  icon: LucideIcon
+  icon: ComponentType<SVGProps<SVGSVGElement>>
   id: AccountSettingsSection
   label: string
 }
@@ -37,7 +36,7 @@ type AccountSettingsNavigationItem = {
 const accountSettingsNavigationItems: readonly AccountSettingsNavigationItem[] = [
   {
     description: 'Connect your photo library',
-    icon: Images,
+    icon: ImmichLogo,
     id: 'immich',
     label: 'Immich',
   },
@@ -127,7 +126,9 @@ export function AccountSettingsLayout({
                       className={cn(
                         'grid size-9 shrink-0 place-items-center rounded-lg transition-colors',
                         isActive
-                          ? 'bg-card/15 text-primary-foreground'
+                          ? item.id === 'immich'
+                            ? 'bg-white/90'
+                            : 'bg-card/15 text-primary-foreground'
                           : 'bg-muted text-primary group-hover:bg-card',
                       )}
                     >

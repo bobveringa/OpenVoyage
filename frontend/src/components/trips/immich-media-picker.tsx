@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Check,
   Eye,
-  Images,
   Loader2,
   Maximize,
   Minimize,
@@ -25,6 +24,7 @@ import {
   type ImmichAsset,
   type MediaUploadResponse,
 } from '@/api/client'
+import { ImmichLogo } from '@/components/branding/immich-logo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
@@ -391,11 +391,12 @@ export function ImmichMediaPicker({
                   </Button>
                 ) : null}
                 <Button
+                  className="border border-[#1e83f7]/35 bg-[#1e83f7]/10 text-foreground hover:bg-[#1e83f7]/15"
                   disabled={pendingIds.length === 0 || isImporting}
                   onClick={() => void importIds(pendingIds)}
                   type="button"
                 >
-                  <Images className="size-4" />
+                  <ImmichLogo className="size-4" aria-hidden="true" />
                   Add{pendingIds.length ? ` ${pendingIds.length}` : ''}
                 </Button>
               </div>
@@ -425,7 +426,12 @@ export function ImmichMediaPicker({
         fullscreenOnMobile
         onClose={closePicker}
         open={open}
-        title={importStage === 'selecting' ? 'Add from Immich' : 'Importing media'}
+        title={
+          <span className="inline-flex items-center gap-2">
+            <ImmichLogo className="size-6" aria-hidden="true" />
+            {importStage === 'selecting' ? 'Add from Immich' : 'Importing media'}
+          </span>
+        }
         toolbar={
           importStage === 'selecting' ? <div className="flex flex-col gap-2 sm:flex-row">
             <Select
@@ -761,7 +767,9 @@ function ImmichImageLightbox({
         <>
           <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 bg-gradient-to-b from-black/75 to-transparent px-4 pb-10 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6">
             <div className="min-w-0 pt-1">
-              <p className="truncate text-sm font-semibold">Immich album</p>
+              <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
+                <ImmichLogo className="size-4" aria-hidden="true" /> Immich album
+              </p>
               <p aria-live="polite" className="truncate text-xs text-white/75">
                 Image {activeIndex + 1}{loadingMore ? ' · Loading more…' : ''}
               </p>

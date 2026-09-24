@@ -5,7 +5,6 @@ import {
   Copy,
   Eye,
   Globe2,
-  Images,
   Link2,
   Link2Off,
   Lock,
@@ -19,7 +18,6 @@ import {
   Trash2,
   UserPlus,
   Users,
-  type LucideIcon,
 } from 'lucide-react'
 import {
   useEffect,
@@ -29,6 +27,8 @@ import {
   useState,
   type FocusEvent,
   type KeyboardEvent,
+  type ComponentType,
+  type SVGProps,
   type SyntheticEvent,
 } from 'react'
 
@@ -37,6 +37,7 @@ import {
   searchUsers,
   type UserSearchResult,
 } from '@/api/client'
+import { ImmichLogo } from '@/components/branding/immich-logo'
 import { ImageUploadDropzone } from '@/components/media/image-upload-dropzone'
 import { TrackingManagementPanel } from '@/components/trips/tracking-management-dialog'
 import { ImmichAlbumsPanel } from '@/components/trips/immich-albums-panel'
@@ -929,7 +930,7 @@ function TripMembersPanel({
 const managementSections = [
   {
     description: 'Connected Immich albums for contributors.',
-    icon: Images,
+    icon: ImmichLogo,
     label: 'Immich albums',
     value: 'albums',
   },
@@ -965,7 +966,7 @@ const managementSections = [
   },
 ] as const satisfies ReadonlyArray<{
   description: string
-  icon: LucideIcon
+  icon: ComponentType<SVGProps<SVGSVGElement>>
   label: string
   value: TripManagementSection
 }>

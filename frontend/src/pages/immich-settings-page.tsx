@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2, PlugZap, Unplug } from 'lucide-react'
+import { CheckCircle2, Loader2, Unplug } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 
 import {
@@ -8,6 +8,7 @@ import {
   saveImmichConnection,
   testImmichConnection,
 } from '@/api/client'
+import { ImmichLogo } from '@/components/branding/immich-logo'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -93,8 +94,8 @@ export function ImmichSettingsPage({ accessToken }: { accessToken: string | null
     <Card>
       <CardHeader>
         <div className="flex items-start gap-3">
-          <span className="grid size-10 place-items-center rounded-xl bg-muted text-primary">
-            <PlugZap className="size-5" aria-hidden="true" />
+          <span className="grid size-10 place-items-center rounded-xl border border-[#1e83f7]/20 bg-[#1e83f7]/10">
+            <ImmichLogo className="size-6" aria-hidden="true" />
           </span>
           <div>
             <h3 className="font-semibold text-foreground">Personal Immich connection</h3>

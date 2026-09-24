@@ -1,4 +1,4 @@
-import { Images, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
@@ -10,6 +10,7 @@ import {
   type ImmichAlbum,
   type ImmichAlbumLink,
 } from '@/api/client'
+import { ImmichLogo } from '@/components/branding/immich-logo'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { InlineNotice } from '@/pages/trip-detail/inline-notice'
@@ -98,7 +99,7 @@ export function ImmichAlbumsPanel({
     <div className="space-y-6">
       <div className="space-y-1">
         <h3 className="flex items-center gap-2 font-semibold text-foreground">
-          <Images className="size-4 text-primary" /> Immich albums
+          <ImmichLogo className="size-5" aria-hidden="true" /> Immich albums
         </h3>
         <p className="text-sm leading-6 text-muted-foreground">
           Connecting an album grants every trip contributor access to browse and import it using your Immich credentials.
@@ -114,8 +115,13 @@ export function ImmichAlbumsPanel({
           placeholder={options.length ? 'Choose an album' : 'Connect Immich in account settings first'}
           value={selectedAlbumId}
         />
-        <Button disabled={!selectedAlbumId || busyId !== null} onClick={() => void connectAlbum()} type="button">
-          <Plus className="size-4" /> Connect album
+        <Button
+          className="border border-[#1e83f7]/35 bg-[#1e83f7]/10 text-foreground hover:bg-[#1e83f7]/15"
+          disabled={!selectedAlbumId || busyId !== null}
+          onClick={() => void connectAlbum()}
+          type="button"
+        >
+          <ImmichLogo className="size-4" aria-hidden="true" /> Connect album
         </Button>
       </div>
       {isLoading ? (
