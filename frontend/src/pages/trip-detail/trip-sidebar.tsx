@@ -336,6 +336,7 @@ export function TripSidebar({
         canManageTrip={canManageTrip}
         canMutate={canMutate}
         currentUserId={currentUserId}
+        immichEnabled={immichEnabled}
         members={tripMembers}
         onOpenManagement={onOpenManagement}
         trip={trip}

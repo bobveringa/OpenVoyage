@@ -297,7 +297,12 @@ export function Select<TValue extends string = string>({
         ref={triggerRef}
         type="button"
       >
-        <span className={cn(selectedOption ? '' : 'text-muted-foreground')}>
+        <span
+          className={cn(
+            'min-w-0 flex-1 truncate',
+            selectedOption ? '' : 'text-muted-foreground',
+          )}
+        >
           {selectedOption?.label ?? placeholder}
         </span>
         <ChevronDown

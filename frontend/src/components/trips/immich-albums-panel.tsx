@@ -13,6 +13,7 @@ import {
 import { ImmichLogo } from '@/components/branding/immich-logo'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import { InlineNotice } from '@/pages/trip-detail/inline-notice'
 
 export function ImmichAlbumsPanel({
@@ -106,13 +107,21 @@ export function ImmichAlbumsPanel({
         </p>
       </div>
       {notice ? <InlineNotice tone={notice.error ? 'error' : 'default'}>{notice.message}</InlineNotice> : null}
-      <div className="flex flex-col gap-2 rounded-2xl border border-border bg-muted/40 p-4 sm:flex-row">
+      {!isLoading && options.length === 0 ? (
+        <InlineNotice>Connect Immich in account settings first.</InlineNotice>
+      ) : null}
+      <div
+        className={cn(
+          'flex flex-col gap-2 rounded-2xl border border-border bg-muted/40 p-4 sm:flex-row',
+          !isLoading && options.length === 0 ? 'opacity-60' : '',
+        )}
+      >
         <Select
           className="flex-1"
           disabled={isLoading || busyId !== null || options.length === 0}
           onValueChange={setSelectedAlbumId}
           options={options}
-          placeholder={options.length ? 'Choose an album' : 'Connect Immich in account settings first'}
+          placeholder="Choose an album"
           value={selectedAlbumId}
         />
         <Button
