@@ -810,6 +810,7 @@ function ProgressiveImmichPhoto({
 }) {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null)
   const [displayUrl, setDisplayUrl] = useState<string | null>(null)
+  const [loadingDisplayImage, setLoadingDisplayImage] = useState(false)
 
   useEffect(() => {
     let activeRequest = true
@@ -817,12 +818,14 @@ function ProgressiveImmichPhoto({
     let displayObjectUrl: string | null = null
     setThumbnailUrl(null)
     setDisplayUrl(null)
+    setLoadingDisplayImage(false)
 
     void fetchImmichAssetBlob({ accessToken, url: asset.thumbnail_url })
       .then((blob) => {
         if (!activeRequest) return null
         thumbnailObjectUrl = URL.createObjectURL(blob)
         setThumbnailUrl(thumbnailObjectUrl)
+        setLoadingDisplayImage(Boolean(asset.display_image_url))
         return asset.display_image_url
           ? fetchImmichAssetBlob({ accessToken, url: asset.display_image_url })
           : null
@@ -833,6 +836,9 @@ function ProgressiveImmichPhoto({
         setDisplayUrl(displayObjectUrl)
       })
       .catch(() => undefined)
+      .finally(() => {
+        if (activeRequest) setLoadingDisplayImage(false)
+      })
 
     return () => {
       activeRequest = false
@@ -856,6 +862,7 @@ function ProgressiveImmichPhoto({
     <LightboxPhoto
       active={active}
       controlsVisible={controlsVisible}
+      loading={loadingDisplayImage}
       media={media}
       onNavigate={onNavigate}
       onToggleControls={onToggleControls}
