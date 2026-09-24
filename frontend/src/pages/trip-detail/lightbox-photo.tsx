@@ -26,6 +26,10 @@ export function LightboxPhoto({ media, active, controlsVisible, onNavigate, onTo
   const lastTap = useRef<{ time: number; point: Point } | null>(null)
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  useEffect(() => {
+    setStatus('loading')
+  }, [media.src])
+
   function update(next: PhotoTransform) {
     const viewport = viewportRef.current
     const image = imageRef.current

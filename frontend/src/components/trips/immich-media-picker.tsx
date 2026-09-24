@@ -1,5 +1,19 @@
-import { Check, Images, Loader2, RefreshCw, RotateCcw, Video } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Eye,
+  Images,
+  Loader2,
+  Maximize,
+  Minimize,
+  RefreshCw,
+  RotateCcw,
+  Video,
+  X,
+} from 'lucide-react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import {
   fetchImmichAssetBlob,
@@ -17,11 +31,15 @@ import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { InlineNotice } from '@/pages/trip-detail/inline-notice'
+import { LightboxPhoto } from '@/pages/trip-detail/lightbox-photo'
+import type { PostMedia } from '@/pages/trip-detail/models'
+import { photoWindow } from '@/pages/trip-detail/photo-gestures'
 
 const ASSET_PAGE_SIZE = 20
 const PAGE_PREFETCH_MARGIN = '600px 0px'
 const IMAGE_PREFETCH_MARGIN = '400px 0px'
 const immichPickerHistoryStateKey = 'openVoyageImmichPicker'
+const immichLightboxHistoryStateKey = 'openVoyageImmichLightbox'
 
 type ImportState = { error: string | null; status: 'failed' | 'importing' | 'success' }
 type ImportStage = 'complete' | 'importing' | 'selecting'
@@ -43,7 +61,7 @@ export function ImmichMediaPicker({
   const [selectedLinkId, setSelectedLinkId] = useState('')
   const [pendingLinkId, setPendingLinkId] = useState<string | null>(null)
   const [assets, setAssets] = useState<ImmichAsset[]>([])
-  const [nextPage, setNextPage] = useState<number | null>(null)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [selection, setSelection] = useState<string[]>([])
   const [imports, setImports] = useState<Record<string, ImportState>>({})
   const [importStage, setImportStage] = useState<ImportStage>('selecting')
@@ -52,7 +70,7 @@ export function ImmichMediaPicker({
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [displayAsset, setDisplayAsset] = useState<ImmichAsset | null>(null)
+  const [displayAssetId, setDisplayAssetId] = useState<string | null>(null)
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null)
   const loadingMoreKeyRef = useRef<string | null>(null)
   const requestVersionRef = useRef(0)
@@ -101,7 +119,7 @@ export function ImmichMediaPicker({
     setSelection([])
     setImports({})
     setImportStage('selecting')
-    setDisplayAsset(null)
+    setDisplayAssetId(null)
     setPendingLinkId(null)
   }, [open])
 
@@ -120,8 +138,10 @@ export function ImmichMediaPicker({
       )
     }
 
-    function handlePopState() {
-      onCloseRef.current()
+    function handlePopState(event: PopStateEvent) {
+      if (event.state?.[immichPickerHistoryStateKey] !== historyEntryId) {
+        onCloseRef.current()
+      }
     }
 
     window.addEventListener('popstate', handlePopState)
@@ -142,7 +162,7 @@ export function ImmichMediaPicker({
   useEffect(() => {
     if (!open || !selectedLinkId) {
       setAssets([])
-      setNextPage(null)
+      setNextCursor(null)
       return undefined
     }
 
@@ -150,7 +170,7 @@ export function ImmichMediaPicker({
     let cancelled = false
     loadingMoreKeyRef.current = null
     setAssets([])
-    setNextPage(null)
+    setNextCursor(null)
     setIsInitialLoading(true)
     setIsLoadingMore(false)
     setError(null)
@@ -158,14 +178,13 @@ export function ImmichMediaPicker({
     void listTripImmichAssets({
       accessToken,
       linkId: selectedLinkId,
-      page: 1,
       pageSize: ASSET_PAGE_SIZE,
       tripId,
     })
       .then((result) => {
         if (cancelled || requestVersion !== requestVersionRef.current) return
         setAssets(result.items)
-        setNextPage(result.next_page)
+        setNextCursor(result.next_cursor)
       })
       .catch((loadError) => {
         if (!cancelled && requestVersion === requestVersionRef.current) {
@@ -184,8 +203,8 @@ export function ImmichMediaPicker({
   }, [accessToken, open, refreshVersion, selectedLinkId, tripId])
 
   const loadMore = useCallback(async () => {
-    if (!open || !selectedLinkId || nextPage === null || isInitialLoading) return
-    const requestKey = `${selectedLinkId}:${nextPage}`
+    if (!open || !selectedLinkId || nextCursor === null || isInitialLoading) return
+    const requestKey = `${selectedLinkId}:${nextCursor}`
     if (loadingMoreKeyRef.current !== null) return
 
     const requestVersion = requestVersionRef.current
@@ -196,7 +215,7 @@ export function ImmichMediaPicker({
       const result = await listTripImmichAssets({
         accessToken,
         linkId: selectedLinkId,
-        page: nextPage,
+        cursor: nextCursor,
         pageSize: ASSET_PAGE_SIZE,
         tripId,
       })
@@ -210,7 +229,7 @@ export function ImmichMediaPicker({
         const existingIds = new Set(current.map((asset) => asset.id))
         return [...current, ...result.items.filter((asset) => !existingIds.has(asset.id))]
       })
-      setNextPage(result.next_page)
+      setNextCursor(result.next_cursor)
     } catch (loadError) {
       if (
         requestVersion === requestVersionRef.current &&
@@ -224,14 +243,14 @@ export function ImmichMediaPicker({
         setIsLoadingMore(false)
       }
     }
-  }, [accessToken, isInitialLoading, nextPage, open, selectedLinkId, tripId])
+  }, [accessToken, isInitialLoading, nextCursor, open, selectedLinkId, tripId])
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current
     if (
       importStage !== 'selecting' ||
       !sentinel ||
-      nextPage === null ||
+      nextCursor === null ||
       isInitialLoading ||
       isLoadingMore
     ) return undefined
@@ -251,17 +270,35 @@ export function ImmichMediaPicker({
     )
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [importStage, isInitialLoading, isLoadingMore, loadMore, nextPage])
+  }, [importStage, isInitialLoading, isLoadingMore, loadMore, nextCursor])
 
   const albumOptions = useMemo(
     () => links.map((link) => ({ label: link.name ?? 'Unavailable album', value: link.id })),
     [links],
   )
+  const displayAssets = useMemo(
+    () => assets.filter((asset) => asset.media_type === 'IMAGE' && asset.display_image_url),
+    [assets],
+  )
+  const displayAssetIndex = displayAssetId === null
+    ? -1
+    : displayAssets.findIndex((asset) => asset.id === displayAssetId)
+
+  useEffect(() => {
+    if (
+      displayAssetIndex < 0 ||
+      displayAssetIndex < displayAssets.length - 3 ||
+      nextCursor === null ||
+      isLoadingMore
+    ) return
+    void loadMore()
+  }, [displayAssetIndex, displayAssets.length, isLoadingMore, loadMore, nextCursor])
+
   function applyAlbum(linkId: string) {
     setSelectedLinkId(linkId)
     setSelection([])
     setImports({})
-    setDisplayAsset(null)
+    setDisplayAssetId(null)
     setPendingLinkId(null)
   }
 
@@ -481,7 +518,7 @@ export function ImmichMediaPicker({
                       {asset.media_type === 'IMAGE' && asset.display_image_url ? (
                         <Button
                           className="absolute bottom-2 right-2"
-                          onClick={() => setDisplayAsset(asset)}
+                          onClick={() => setDisplayAssetId(asset.id)}
                           size="sm"
                           type="button"
                           variant="secondary"
@@ -521,7 +558,7 @@ export function ImmichMediaPicker({
                   <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="size-4 animate-spin" /> Loading more…
                   </span>
-                ) : nextPage === null && assets.length > 0 ? (
+                ) : nextCursor === null && assets.length > 0 ? (
                   <span className="text-xs text-muted-foreground">End of album</span>
                 ) : null}
               </div>
@@ -552,18 +589,277 @@ export function ImmichMediaPicker({
         </div>
       </Modal>
 
-      {displayAsset?.display_image_url ? (
-        <Modal onClose={() => setDisplayAsset(null)} open title="Immich image">
-          <AuthenticatedImmichImage
-            accessToken={accessToken}
-            alt="Immich display image"
-            className="max-h-[70dvh] w-full object-contain"
-            eager
-            url={displayAsset.display_image_url}
-          />
-        </Modal>
+      {displayAssetIndex >= 0 ? (
+        <ImmichImageLightbox
+          accessToken={accessToken}
+          activeIndex={displayAssetIndex}
+          assets={displayAssets}
+          loadingMore={isLoadingMore}
+          onClose={() => setDisplayAssetId(null)}
+          onIndexChange={(index) => setDisplayAssetId(displayAssets[index]?.id ?? null)}
+        />
       ) : null}
     </>
+  )
+}
+
+function ImmichImageLightbox({
+  accessToken,
+  activeIndex,
+  assets,
+  loadingMore,
+  onClose,
+  onIndexChange,
+}: {
+  accessToken: string
+  activeIndex: number
+  assets: readonly ImmichAsset[]
+  loadingMore: boolean
+  onClose: () => void
+  onIndexChange: (index: number) => void
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  const onIndexChangeRef = useRef(onIndexChange)
+  const historyEntryId = useId()
+  const historyCleanupTimerRef = useRef<number | null>(null)
+  const [controlsVisible, setControlsVisible] = useState(true)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [fullscreenError, setFullscreenError] = useState('')
+  const [visited, setVisited] = useState<number[]>([])
+  const mountedIndices = photoWindow(visited, activeIndex, assets.length)
+  const hasMultipleImages = assets.length > 1
+  onCloseRef.current = onClose
+  onIndexChangeRef.current = onIndexChange
+
+  useEffect(() => {
+    setVisited((current) => photoWindow(current, activeIndex, assets.length))
+  }, [activeIndex, assets.length])
+
+  const closeLightbox = useCallback(() => {
+    if (window.history.state?.[immichLightboxHistoryStateKey] === historyEntryId) {
+      window.history.back()
+      return
+    }
+    onCloseRef.current()
+  }, [historyEntryId])
+
+  useEffect(() => {
+    if (historyCleanupTimerRef.current !== null) {
+      window.clearTimeout(historyCleanupTimerRef.current)
+      historyCleanupTimerRef.current = null
+    }
+    if (window.history.state?.[immichLightboxHistoryStateKey] !== historyEntryId) {
+      window.history.pushState(
+        { ...window.history.state, [immichLightboxHistoryStateKey]: historyEntryId },
+        '',
+      )
+    }
+
+    function handlePopState() {
+      onCloseRef.current()
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+      historyCleanupTimerRef.current = window.setTimeout(() => {
+        historyCleanupTimerRef.current = null
+        if (window.history.state?.[immichLightboxHistoryStateKey] === historyEntryId) {
+          window.history.back()
+        }
+      }, 0)
+    }
+  }, [historyEntryId])
+
+  const showRelativeImage = useCallback((offset: number) => {
+    if (!assets.length) return
+    onIndexChangeRef.current((activeIndex + offset + assets.length) % assets.length)
+  }, [activeIndex, assets.length])
+
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialogRef.current?.focus()
+
+    function syncFullscreen() {
+      setFullscreen(document.fullscreenElement === dialogRef.current)
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeLightbox()
+      } else if (event.key === 'ArrowLeft' && hasMultipleImages) {
+        event.preventDefault()
+        showRelativeImage(-1)
+      } else if (event.key === 'ArrowRight' && hasMultipleImages) {
+        event.preventDefault()
+        showRelativeImage(1)
+      }
+    }
+
+    document.addEventListener('fullscreenchange', syncFullscreen)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('fullscreenchange', syncFullscreen)
+      document.removeEventListener('keydown', handleKeyDown)
+      previousFocus?.focus()
+    }
+  }, [closeLightbox, hasMultipleImages, showRelativeImage])
+
+  async function toggleFullscreen() {
+    try {
+      setFullscreenError('')
+      if (document.fullscreenElement === dialogRef.current) await document.exitFullscreen()
+      else await dialogRef.current?.requestFullscreen()
+    } catch {
+      setFullscreenError('Fullscreen is unavailable in this browser. Tap the photo to hide controls.')
+    }
+  }
+
+  if (typeof document === 'undefined' || !assets[activeIndex]) return null
+
+  const chromeButton = 'grid size-11 shrink-0 place-items-center rounded-full border border-white/15 bg-black/55 text-white hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-35'
+
+  return createPortal(
+    <div
+      aria-label="Immich image viewer"
+      aria-modal="true"
+      className="fixed inset-0 z-[1000] overflow-hidden bg-black text-white outline-none"
+      ref={dialogRef}
+      role="dialog"
+      style={{ height: '100dvh', overscrollBehavior: 'none' }}
+      tabIndex={-1}
+    >
+      {mountedIndices.map((index) => {
+        const asset = assets[index]
+        const active = index === activeIndex
+        return (
+          <div
+            aria-hidden={!active}
+            className="absolute inset-0 transition-opacity duration-200 motion-reduce:transition-none"
+            inert={!active}
+            key={asset.id}
+            style={{ opacity: active ? 1 : 0, pointerEvents: active ? 'auto' : 'none' }}
+          >
+            <ProgressiveImmichPhoto
+              accessToken={accessToken}
+              active={active}
+              asset={asset}
+              controlsVisible={controlsVisible}
+              onNavigate={showRelativeImage}
+              onToggleControls={() => setControlsVisible((visible) => !visible)}
+            />
+          </div>
+        )
+      })}
+
+      {controlsVisible ? (
+        <>
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 bg-gradient-to-b from-black/75 to-transparent px-4 pb-10 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6">
+            <div className="min-w-0 pt-1">
+              <p className="truncate text-sm font-semibold">Immich album</p>
+              <p aria-live="polite" className="truncate text-xs text-white/75">
+                Image {activeIndex + 1}{loadingMore ? ' · Loading more…' : ''}
+              </p>
+              <p className="mt-1 text-xs text-white/60">Pinch or double-tap to zoom · Tap to hide controls</p>
+            </div>
+            <div className="pointer-events-auto flex gap-2">
+              {document.fullscreenEnabled ? (
+                <button aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} className={chromeButton} onClick={() => void toggleFullscreen()} type="button">
+                  {fullscreen ? <Minimize className="size-5" /> : <Maximize className="size-5" />}
+                </button>
+              ) : null}
+              <button aria-label="Close image viewer" className={chromeButton} onClick={closeLightbox} type="button">
+                <X className="size-5" />
+              </button>
+            </div>
+          </div>
+          {fullscreenError ? <p className="absolute inset-x-4 top-20 z-30 rounded-xl bg-black/80 p-3 text-center text-sm" role="status">{fullscreenError}</p> : null}
+          <div className="absolute inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 flex items-center justify-between gap-3 sm:justify-center sm:gap-6">
+            <button aria-label="Previous image" className={chromeButton} disabled={!hasMultipleImages} onClick={() => showRelativeImage(-1)} type="button"><ArrowLeft className="size-5" /></button>
+            <span className="rounded-full bg-black/55 px-3 py-2 text-xs tabular-nums">Image {activeIndex + 1}</span>
+            <button aria-label="Next image" className={chromeButton} disabled={!hasMultipleImages} onClick={() => showRelativeImage(1)} type="button"><ArrowRight className="size-5" /></button>
+          </div>
+        </>
+      ) : (
+        <button aria-label="Show gallery controls" className={`${chromeButton} absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-20 opacity-50`} onClick={() => setControlsVisible(true)} type="button"><Eye className="size-5" /></button>
+      )}
+    </div>,
+    document.body,
+  )
+}
+
+function ProgressiveImmichPhoto({
+  accessToken,
+  active,
+  asset,
+  controlsVisible,
+  onNavigate,
+  onToggleControls,
+}: {
+  accessToken: string
+  active: boolean
+  asset: ImmichAsset
+  controlsVisible: boolean
+  onNavigate: (offset: number) => void
+  onToggleControls: () => void
+}) {
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null)
+  const [displayUrl, setDisplayUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    let activeRequest = true
+    let thumbnailObjectUrl: string | null = null
+    let displayObjectUrl: string | null = null
+    setThumbnailUrl(null)
+    setDisplayUrl(null)
+
+    void fetchImmichAssetBlob({ accessToken, url: asset.thumbnail_url })
+      .then((blob) => {
+        if (!activeRequest) return null
+        thumbnailObjectUrl = URL.createObjectURL(blob)
+        setThumbnailUrl(thumbnailObjectUrl)
+        return asset.display_image_url
+          ? fetchImmichAssetBlob({ accessToken, url: asset.display_image_url })
+          : null
+      })
+      .then((blob) => {
+        if (!activeRequest || !blob) return
+        displayObjectUrl = URL.createObjectURL(blob)
+        setDisplayUrl(displayObjectUrl)
+      })
+      .catch(() => undefined)
+
+    return () => {
+      activeRequest = false
+      if (thumbnailObjectUrl) URL.revokeObjectURL(thumbnailObjectUrl)
+      if (displayObjectUrl) URL.revokeObjectURL(displayObjectUrl)
+    }
+  }, [accessToken, asset.display_image_url, asset.thumbnail_url])
+
+  const source = displayUrl ?? thumbnailUrl
+  if (!source) {
+    return <div className="absolute inset-0 grid place-items-center"><Loader2 className="size-6 animate-spin" /></div>
+  }
+
+  const media: PostMedia = {
+    alt: 'Immich image',
+    src: source,
+    thumbnail: thumbnailUrl ?? undefined,
+    type: 'image',
+  }
+  return (
+    <LightboxPhoto
+      active={active}
+      controlsVisible={controlsVisible}
+      media={media}
+      onNavigate={onNavigate}
+      onToggleControls={onToggleControls}
+    />
   )
 }
 

@@ -49,7 +49,7 @@ class ImmichAssetResponse(BaseModel):
 
 class ImmichAssetPageResponse(BaseModel):
     items: list[ImmichAssetResponse]
-    next_page: int | None
+    next_cursor: str | None
 
 
 class ImmichImportRequest(BaseModel):

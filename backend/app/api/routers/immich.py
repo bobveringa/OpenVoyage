@@ -1,3 +1,5 @@
+import base64
+import binascii
 import uuid
 from typing import NoReturn
 
@@ -207,9 +209,10 @@ def list_assets(
     link_id: uuid.UUID,
     service: ImmichServiceDep,
     user: CurrentUser,
-    page: int = Query(default=1, ge=1),
+    cursor: str | None = None,
     page_size: int = Query(default=20, ge=1, le=50),
 ) -> ImmichAssetPageResponse:
+    page = _decode_asset_cursor(cursor)
     try:
         asset_page = service.list_assets(trip_id, link_id, user.id, page, page_size)
     except Exception as exc:
@@ -229,8 +232,33 @@ def list_assets(
             )
             for asset in asset_page.items
         ],
-        next_page=asset_page.next_page,
+        next_cursor=_encode_asset_cursor(asset_page.next_page),
     )
+
+
+def _encode_asset_cursor(page: int | None) -> str | None:
+    if page is None:
+        return None
+    return base64.urlsafe_b64encode(str(page).encode()).decode().rstrip('=')
+
+
+def _decode_asset_cursor(cursor: str | None) -> int:
+    if cursor is None:
+        return 1
+    try:
+        raw = base64.urlsafe_b64decode(cursor + '=' * (-len(cursor) % 4))
+        page = int(raw.decode())
+    except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail='Invalid Immich asset cursor',
+        ) from exc
+    if page < 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail='Invalid Immich asset cursor',
+        )
+    return page
 
 
 @trip_router.get('/{link_id}/assets/{asset_id}/thumbnail')

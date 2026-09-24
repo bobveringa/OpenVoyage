@@ -1593,8 +1593,8 @@ export interface components {
         ImmichAssetPageResponse: {
             /** Items */
             items: components["schemas"]["ImmichAssetResponse"][];
-            /** Next Page */
-            next_page: number | null;
+            /** Next Cursor */
+            next_cursor: string | null;
         };
         /** ImmichAssetResponse */
         ImmichAssetResponse: {
@@ -4067,7 +4067,7 @@ export interface operations {
     list_assets_api_v1_trips__trip_id__immich_albums__link_id__assets_get: {
         parameters: {
             query?: {
-                page?: number;
+                cursor?: string | null;
                 page_size?: number;
             };
             header?: never;

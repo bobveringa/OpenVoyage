@@ -574,8 +574,8 @@ export async function removeTripImmichAlbum(options: {
 
 export async function listTripImmichAssets(options: {
   accessToken: string
+  cursor?: string | null
   linkId: string
-  page: number
   pageSize?: number
   tripId: string
 }): Promise<ImmichAssetPage> {
@@ -583,7 +583,7 @@ export async function listTripImmichAssets(options: {
     `${API_V1_PREFIX}/trips/${options.tripId}/immich/albums/${options.linkId}/assets`,
     {
       accessToken: options.accessToken,
-      query: { page: options.page, page_size: options.pageSize ?? 20 },
+      query: { cursor: options.cursor ?? undefined, page_size: options.pageSize ?? 20 },
       timeoutMs: 35_000,
     },
   )

@@ -798,21 +798,21 @@
             "title": "Items",
             "type": "array"
           },
-          "next_page": {
+          "next_cursor": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Next Page"
+            "title": "Next Cursor"
           }
         },
         "required": [
           "items",
-          "next_page"
+          "next_cursor"
         ],
         "title": "ImmichAssetPageResponse",
         "type": "object"
@@ -6593,13 +6593,18 @@
           },
           {
             "in": "query",
-            "name": "page",
+            "name": "cursor",
             "required": false,
             "schema": {
-              "default": 1,
-              "minimum": 1,
-              "title": "Page",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
             }
           },
           {

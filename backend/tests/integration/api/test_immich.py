@@ -25,7 +25,7 @@ def _auth_headers(user) -> dict[str, str]:
         ('get', f'/trips/{uuid.uuid4()}/immich/albums', None),
         ('post', f'/trips/{uuid.uuid4()}/immich/albums', {'album_id': str(uuid.uuid4())}),
         ('delete', f'/trips/{uuid.uuid4()}/immich/albums/{uuid.uuid4()}', None),
-        ('get', f'/trips/{uuid.uuid4()}/immich/albums/{uuid.uuid4()}/assets?page=1', None),
+        ('get', f'/trips/{uuid.uuid4()}/immich/albums/{uuid.uuid4()}/assets', None),
         ('get', f'/trips/{uuid.uuid4()}/immich/albums/{uuid.uuid4()}/assets/{uuid.uuid4()}/thumbnail', None),
         ('get', f'/trips/{uuid.uuid4()}/immich/albums/{uuid.uuid4()}/assets/{uuid.uuid4()}/display-image', None),
         ('post', f'/trips/{uuid.uuid4()}/immich/albums/{uuid.uuid4()}/imports', {'asset_id': str(uuid.uuid4())}),
