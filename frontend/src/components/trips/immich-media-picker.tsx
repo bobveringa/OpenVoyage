@@ -25,6 +25,7 @@ import {
   type MediaUploadResponse,
 } from '@/api/client'
 import { ImmichLogo } from '@/components/branding/immich-logo'
+import { createImmichAlbumOptions } from '@/components/trips/immich-album-options'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
@@ -273,7 +274,7 @@ export function ImmichMediaPicker({
   }, [importStage, isInitialLoading, isLoadingMore, loadMore, nextCursor])
 
   const albumOptions = useMemo(
-    () => links.map((link) => ({ label: link.name ?? 'Unavailable album', value: link.id })),
+    () => createImmichAlbumOptions(links),
     [links],
   )
   const displayAssets = useMemo(

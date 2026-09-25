@@ -13,8 +13,10 @@ import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 
 export type SelectOption<TValue extends string = string> = {
+  description?: string
   disabled?: boolean
   label: string
+  selectedDescription?: string
   value: TValue
 }
 
@@ -94,7 +96,9 @@ export function Select<TValue extends string = string>({
     }
 
     return options.filter((option) =>
-      option.label.toLocaleLowerCase().includes(normalizedQuery),
+      [option.label, option.description, option.selectedDescription]
+        .filter((value): value is string => Boolean(value))
+        .some((value) => value.toLocaleLowerCase().includes(normalizedQuery)),
     )
   }, [options, query, searchable])
 
@@ -297,14 +301,23 @@ export function Select<TValue extends string = string>({
         ref={triggerRef}
         type="button"
       >
-        <span
-          className={cn(
-            'min-w-0 flex-1 truncate',
-            selectedOption ? '' : 'text-muted-foreground',
-          )}
-        >
-          {selectedOption?.label ?? placeholder}
-        </span>
+        {selectedOption ? (
+          <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+            <span className="min-w-0 flex-1 truncate">{selectedOption.label}</span>
+            {selectedOption.description ? (
+              <>
+                <span aria-hidden="true" className="shrink-0 text-muted-foreground">·</span>
+                <span className="max-w-[45%] shrink-0 truncate text-sm text-muted-foreground">
+                  {selectedOption.selectedDescription ?? selectedOption.description}
+                </span>
+              </>
+            ) : null}
+          </span>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+            {placeholder}
+          </span>
+        )}
         <ChevronDown
           aria-hidden="true"
           className={cn(
@@ -363,11 +376,19 @@ export function Select<TValue extends string = string>({
                   const selected = option.value === value
                   return (
                     <button
+                      aria-label={
+                        option.description
+                          ? `${option.label}, ${option.description}`
+                          : option.label
+                      }
                       aria-selected={selected}
-                      className={selectOptionVariants({
-                        active: index === activeIndex,
-                        selected,
-                      })}
+                      className={cn(
+                        selectOptionVariants({
+                          active: index === activeIndex,
+                          selected,
+                        }),
+                        option.description && 'min-h-14 py-2.5',
+                      )}
                       disabled={option.disabled}
                       id={`${listboxId}-option-${index}`}
                       key={option.value}
@@ -381,7 +402,14 @@ export function Select<TValue extends string = string>({
                       tabIndex={-1}
                       type="button"
                     >
-                      <span>{option.label}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{option.label}</span>
+                        {option.description ? (
+                          <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
+                            {option.description}
+                          </span>
+                        ) : null}
+                      </span>
                       <Check
                         aria-hidden="true"
                         className={cn(
