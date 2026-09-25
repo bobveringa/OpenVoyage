@@ -49,8 +49,8 @@ export function AppShell({
     <div className="relative isolate min-h-dvh text-foreground">
       <AppBackground />
       {showHeader ? (
-        <header className={cn('sticky top-0 z-10 border-b border-border/80 bg-card/80 pt-[env(safe-area-inset-top)] backdrop-blur-xl', hideMobileHeader && 'trip-app-header')}>
-          <div className="mx-auto flex h-16 w-full max-w-6xl min-w-0 items-center justify-between px-4 sm:px-6 lg:px-8">
+        <header className={cn('sticky top-0 z-10 border-b border-border/80 bg-card/80 pt-[var(--app-safe-area-inset-top)] backdrop-blur-xl', hideMobileHeader && 'trip-app-header')}>
+          <div className="mx-auto flex h-12 w-full max-w-6xl min-w-0 items-center justify-between px-4 sm:h-16 sm:px-6 lg:px-8">
             <button
               className="inline-flex items-center gap-3 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               onClick={() => handleNavigate(homePath)}

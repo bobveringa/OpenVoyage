@@ -120,7 +120,7 @@ export function MobileMapPointPicker({
         travelPosts={travelPosts}
       />
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] bg-gradient-to-b from-background/95 via-background/70 to-transparent px-3 pb-8 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] bg-gradient-to-b from-background/95 via-background/70 to-transparent px-3 pb-8 pt-[max(0.75rem,var(--app-safe-area-inset-top))]">
         <div className="pointer-events-auto flex items-center justify-between gap-3">
           <Button onClick={onCancel} type="button" variant="outline">
             <ArrowLeft className="size-4" aria-hidden="true" />
@@ -132,7 +132,7 @@ export function MobileMapPointPicker({
         </div>
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-background via-background/95 to-transparent p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-10">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-background via-background/95 to-transparent p-3 pb-[max(0.75rem,var(--app-safe-area-inset-bottom))] pt-10">
         <div className="pointer-events-auto space-y-3 rounded-[1.5rem] border border-border bg-card p-4 shadow-xl shadow-foreground/10">
           <div className="flex items-start gap-3">
             <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-muted text-primary">
@@ -294,8 +294,8 @@ export function TripSidebar({
   const editingPost =
     travelPosts.find((post) => post.id === editingPostId) ?? null
   const mobileTravelMapHeight = reserveMobileModeSwitchSpace
-    ? 'h-[calc(100dvh-4.5rem-env(safe-area-inset-bottom))]'
-    : 'h-[calc(100dvh-env(safe-area-inset-bottom))]'
+    ? 'h-[calc(100dvh-4.5rem-var(--app-safe-area-inset-bottom))]'
+    : 'h-[calc(100dvh-var(--app-safe-area-inset-bottom))]'
   const fallbackStopInsertionPoint = useMemo(
     () => createFirstStopInsertionPoint(trip.startDate),
     [trip.startDate],
@@ -591,7 +591,7 @@ export function MobileModeSwitch({
   }
 
   return createPortal(
-    <nav aria-label="Trip mode" className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-40 lg:hidden">
+    <nav aria-label="Trip mode" className="fixed inset-x-3 bottom-[max(0.75rem,var(--app-safe-area-inset-bottom))] z-40 lg:hidden">
       <TripModeSwitch
         className="mx-auto max-w-sm"
         mode={mode}

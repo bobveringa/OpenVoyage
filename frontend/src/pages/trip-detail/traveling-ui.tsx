@@ -195,8 +195,8 @@ export function MobileTravelMap({
 
       <div
         className={cn(
-          'pointer-events-none absolute right-[max(0.75rem,env(safe-area-inset-right))] z-[500] flex flex-col items-end gap-2',
-          fullscreen ? 'top-[max(0.75rem,env(safe-area-inset-top))]' : 'top-3',
+          'pointer-events-none absolute right-[max(0.75rem,var(--app-safe-area-inset-right))] z-[500] flex flex-col items-end gap-2',
+          fullscreen ? 'top-[max(0.75rem,var(--app-safe-area-inset-top))]' : 'top-3',
         )}
       >
         <Button
@@ -226,7 +226,7 @@ export function MobileTravelMap({
         <div
           className={cn(
             'pointer-events-none absolute left-3 z-[500] flex items-center gap-2',
-            fullscreen ? 'top-[max(0.75rem,env(safe-area-inset-top))]' : 'top-3',
+            fullscreen ? 'top-[max(0.75rem,var(--app-safe-area-inset-top))]' : 'top-3',
           )}
         >
           {onNewPost ? (
@@ -1591,7 +1591,7 @@ function MobilePostDetailCard({
 
   return (
     <article aria-label="Post reader" className="mobile-post-reader fixed inset-0 z-40 flex flex-col bg-card lg:hidden">
-      <div className="shrink-0 border-b border-border bg-card pt-[env(safe-area-inset-top)]">
+      <div className="shrink-0 border-b border-border bg-card pt-[var(--app-safe-area-inset-top)]">
         <div className="flex h-14 min-w-0 items-center gap-1 px-2">
           <Button
             aria-label="Back to map"
@@ -1682,7 +1682,7 @@ function MobilePostDetailCard({
         ) : null}
       <div
         aria-label={`Reading ${post.title}`}
-        className="scrollbar-subtle relative h-full min-h-0 bg-card [touch-action:pan-y_pinch-zoom] overflow-y-auto overscroll-y-contain px-5 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] outline-none"
+        className="scrollbar-subtle relative h-full min-h-0 bg-card [touch-action:pan-y_pinch-zoom] overflow-y-auto overscroll-y-contain px-5 py-6 pb-[max(1.5rem,var(--app-safe-area-inset-bottom))] outline-none"
         data-pull-to-refresh-scroll-root
         ref={readerRef}
         tabIndex={-1}

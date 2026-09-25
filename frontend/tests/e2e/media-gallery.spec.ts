@@ -74,6 +74,7 @@ test('keeps a thumbnail visible when full resolution fails and supports retry', 
 })
 
 test('shows the thumbnail while the original is still downloading', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
   let release!: () => void
   const download = new Promise<void>(resolve => { release = resolve })
   await page.route('**/gallery-photo-0.svg', async route => {
@@ -83,9 +84,17 @@ test('shows the thumbnail while the original is still downloading', async ({ pag
   await page.goto('/tests/e2e/fixtures/media-gallery.html')
   await page.getByRole('button', { name: 'Open gallery' }).click()
   try {
-    await expect(page.getByRole('status')).toHaveText('Loading photo…')
+    const loadingIndicator = page.getByRole('status')
+    await expect(loadingIndicator).toHaveText('Loading photo…')
     await expect(page.locator('img[src="/gallery-thumb-0.svg"]')).toBeVisible()
     await expect(page.getByRole('img', { name: 'Photo 1', exact: true })).toHaveCSS('opacity', '0')
+    const [loadingBox, zoomBox] = await Promise.all([
+      loadingIndicator.boundingBox(),
+      page.getByRole('button', { name: 'Reset zoom' }).boundingBox(),
+    ])
+    expect(loadingBox).not.toBeNull()
+    expect(zoomBox).not.toBeNull()
+    expect(loadingBox!.y + loadingBox!.height).toBeLessThan(zoomBox!.y)
   } finally {
     release()
   }

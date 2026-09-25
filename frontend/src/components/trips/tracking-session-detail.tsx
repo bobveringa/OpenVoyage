@@ -242,7 +242,7 @@ export function TrackingSessionDetail({
       aria-label="Recording details"
     >
       <div className="flex h-dvh w-full flex-col overflow-hidden bg-background shadow-2xl md:h-[min(800px,90dvh)] md:max-w-6xl md:rounded-2xl md:border md:border-border">
-        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3 pt-[max(.75rem,env(safe-area-inset-top))]">
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3 pt-[max(.75rem,var(--app-safe-area-inset-top))]">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold">Edit recording</h2>
             <p className="truncate text-xs text-muted-foreground">{new Date(session.started_at).toLocaleString()}</p>
@@ -544,7 +544,7 @@ export function TrackingSessionDetail({
         )}
           </aside>
         </div>
-        <footer className="shrink-0 border-t border-border bg-background px-4 pt-3 pb-[max(.75rem,env(safe-area-inset-bottom))]">
+        <footer className="shrink-0 border-t border-border bg-background px-4 pt-3 pb-[max(.75rem,var(--app-safe-area-inset-bottom))]">
           {error && <p role="alert" className="mb-2 text-sm text-destructive">{error}</p>}
           <div className="flex items-center justify-between gap-2">
             <Button

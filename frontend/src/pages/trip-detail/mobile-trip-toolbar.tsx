@@ -48,7 +48,7 @@ export function MobileTripToolbar({
 
   return (
     <>
-      <div className="mobile-trip-toolbar shrink-0 border-b border-border bg-gradient-to-b from-card to-primary/5 pt-[env(safe-area-inset-top)] lg:hidden">
+      <div className="mobile-trip-toolbar shrink-0 border-b border-border bg-gradient-to-b from-card to-primary/5 pt-[var(--app-safe-area-inset-top)] lg:hidden">
         <div className="flex h-12 items-center gap-1 px-2">
           <a aria-label="Back to trips" href={home} className="grid size-11 shrink-0 place-items-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <ArrowLeft className="size-5" aria-hidden="true" />
@@ -76,7 +76,7 @@ export function MobileTripToolbar({
           <TripMemberPresence currentUserId={currentUser?.id} members={members} />
         </div>
       </div>
-      <Modal bottomSheetOnMobile open={menuOpen} onClose={() => setMenuOpen(false)} title="Your account" contentClassName="pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <Modal bottomSheetOnMobile open={menuOpen} onClose={() => setMenuOpen(false)} title="Your account" contentClassName="pb-[max(1rem,var(--app-safe-area-inset-bottom))]">
           <div className="grid gap-2">
             <a className="rounded-xl px-4 py-3 text-sm font-semibold hover:bg-muted" href={home}>{currentUser ? 'My trips' : 'Sign in'}</a>
             {currentUser ? <a className="rounded-xl px-4 py-3 text-sm font-semibold hover:bg-muted" href="/settings">Account settings</a> : null}
