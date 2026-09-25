@@ -24,7 +24,7 @@ export function setPostScrollElement(
   postElementsRef.current.set(postId, element)
 }
 
-export function scrollPostElementToCenter({
+export function scrollPostElementIntoView({
   axis,
   behavior,
   element,
@@ -37,16 +37,10 @@ export function scrollPostElementToCenter({
 }) {
   const elementRect = element.getBoundingClientRect()
   const rootRect = rootElement.getBoundingClientRect()
-  const elementCenter =
-    axis === 'x'
-      ? elementRect.left + elementRect.width / 2
-      : elementRect.top + elementRect.height / 2
-  const rootCenter =
-    axis === 'x'
-      ? rootRect.left + rootRect.width / 2
-      : rootRect.top + rootRect.height / 2
 
   if (axis === 'x') {
+    const elementCenter = elementRect.left + elementRect.width / 2
+    const rootCenter = rootRect.left + rootRect.width / 2
     rootElement.scrollTo({
       behavior,
       left: rootElement.scrollLeft + elementCenter - rootCenter,
@@ -56,7 +50,7 @@ export function scrollPostElementToCenter({
 
   rootElement.scrollTo({
     behavior,
-    top: rootElement.scrollTop + elementCenter - rootCenter,
+    top: rootElement.scrollTop + elementRect.top - rootRect.top,
   })
 }
 

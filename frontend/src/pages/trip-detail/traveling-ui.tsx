@@ -83,7 +83,7 @@ import {
 } from '@/pages/trip-detail/shared-utils'
 import { TripLeafletMap } from '@/pages/trip-detail/trip-map'
 import {
-  scrollPostElementToCenter,
+  scrollPostElementIntoView,
   setPostScrollElement,
   usePostScrollFocus,
   type PostScrollRootRef,
@@ -431,7 +431,7 @@ export function TravelingPanel({
     }
 
     suppressScrollFocusRef.current = true
-    scrollPostElementToCenter({
+    scrollPostElementIntoView({
       axis: showMobileMap ? 'x' : 'y',
       behavior: 'smooth',
       element: postElement,
@@ -516,7 +516,7 @@ export function TravelingPanel({
       const postElement = mobilePostElementsRef.current.get(postId)
       const scrollRoot = mobileCarouselRef.current
       if (postElement && scrollRoot) {
-        scrollPostElementToCenter({
+        scrollPostElementIntoView({
           axis: 'x',
           behavior: 'auto',
           element: postElement,
