@@ -22,7 +22,7 @@ test.describe('mobile reading', () => {
     await mockTileServers(page)
     await page.goto(`/trips/${tripId}`)
     await page.getByRole('button', { name: 'Travel', exact: true }).click()
-    await page.getByRole('button', { name: 'Trip settings', exact: true }).click()
+    await page.getByRole('button', { name: 'Trip tools', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Manage trip', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Close', exact: true }).click()
     await page.getByRole('button', { name: 'Account menu', exact: true }).click()
@@ -124,7 +124,7 @@ test.describe('mobile reading', () => {
     await page.goto(`/trips/${tripId}`)
     await page.getByRole('button', { name: 'Travel', exact: true }).click()
     await expect(page.getByRole('banner')).toBeHidden()
-    await expect(page.getByRole('button', { name: 'Trip settings', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Trip tools', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Manage GPS tracking', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Provider test trip', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Account menu', exact: true }).click()
@@ -266,7 +266,7 @@ test('mobile visitors can explore an empty trip without editing controls', async
   await page.route('**/api/v1/trips/*/members', (route) => fulfillJson(route, []))
   await page.goto(`/trips/${tripId}`)
   await expect(page.getByText('Your journey starts here')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Trip settings', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Trip tools', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Manage GPS tracking', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'New post' })).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: 'Trip mode' })).toHaveCount(0)
@@ -438,6 +438,14 @@ async function mockTripApi(page: Page, role: 'MEMBER' | 'OWNER' = 'MEMBER') {
           user_id: userId,
         },
       ])
+      return
+    }
+
+    if (
+      url.pathname.endsWith(`/trips/${tripId}/viewers`) ||
+      url.pathname.endsWith(`/trips/${tripId}/share-links`)
+    ) {
+      await fulfillJson(route, [])
       return
     }
 
