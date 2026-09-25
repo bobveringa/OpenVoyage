@@ -2,7 +2,7 @@ export type TripMode = 'planning' | 'traveling'
 export type PlanningView = 'create-stop' | 'stops'
 export type TravelingView = 'create-post' | 'edit-post' | 'posts'
 export type TripDialog = 'management'
-export type TripManagementSection = 'general' | 'people' | 'sharing' | 'gps' | 'danger'
+export type TripManagementSection = 'general' | 'people' | 'sharing' | 'albums' | 'gps' | 'danger'
 
 export type TripDetailUrlState = {
   activeDialog: TripDialog | null
@@ -122,6 +122,7 @@ function isTripManagementSection(
     value === 'general' ||
     value === 'people' ||
     value === 'sharing' ||
+    value === 'albums' ||
     value === 'gps' ||
     value === 'danger'
   )

@@ -4,14 +4,15 @@ import {
   Radio,
   ShieldCheck,
   UserRound,
-  type LucideIcon,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { ComponentType, ReactNode, SVGProps } from 'react'
 
+import { ImmichLogo } from '@/components/branding/immich-logo'
 import { isNativePlatform } from '@/native/platform'
 import { cn } from '@/lib/utils'
 
 export type AccountSettingsSection =
+  | 'immich'
   | 'preferences'
   | 'privacy'
   | 'profile'
@@ -22,16 +23,23 @@ type AccountSettingsLayoutProps = {
   activeSection: AccountSettingsSection
   children: ReactNode
   onSectionChange: (section: AccountSettingsSection) => void
+  showImmich?: boolean
 }
 
 type AccountSettingsNavigationItem = {
   description: string
-  icon: LucideIcon
+  icon: ComponentType<SVGProps<SVGSVGElement>>
   id: AccountSettingsSection
   label: string
 }
 
 const accountSettingsNavigationItems: readonly AccountSettingsNavigationItem[] = [
+  {
+    description: 'Connect your photo library',
+    icon: ImmichLogo,
+    id: 'immich',
+    label: 'Immich',
+  },
   {
     description: 'Your public details',
     icon: UserRound,
@@ -68,9 +76,12 @@ export function AccountSettingsLayout({
   activeSection,
   children,
   onSectionChange,
+  showImmich = false,
 }: AccountSettingsLayoutProps) {
   const navigationItems = accountSettingsNavigationItems.filter(
-    (item) => item.id !== 'tracking' || isNativePlatform(),
+    (item) =>
+      (item.id !== 'tracking' || isNativePlatform()) &&
+      (item.id !== 'immich' || showImmich),
   )
 
   return (
@@ -115,7 +126,9 @@ export function AccountSettingsLayout({
                       className={cn(
                         'grid size-9 shrink-0 place-items-center rounded-lg transition-colors',
                         isActive
-                          ? 'bg-card/15 text-primary-foreground'
+                          ? item.id === 'immich'
+                            ? 'bg-white/90'
+                            : 'bg-card/15 text-primary-foreground'
                           : 'bg-muted text-primary group-hover:bg-card',
                       )}
                     >

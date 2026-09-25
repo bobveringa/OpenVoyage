@@ -9,7 +9,7 @@ type MockSetting = {
   updated_at: string | null
   validation: Record<string, unknown> | null
   value: unknown | null
-  value_type: 'enum' | 'integer' | 'object' | 'secret' | 'string'
+  value_type: 'array' | 'boolean' | 'enum' | 'integer' | 'object' | 'secret' | 'string'
   visibility: 'admin' | 'public'
 }
 
@@ -96,6 +96,46 @@ const initialSettings: MockSetting[] = [
     validation: { max: 5120, min: 1, unit: 'MB' },
     value: 512,
     value_type: 'integer',
+    visibility: 'admin',
+  },
+  {
+    default_value: false,
+    description: 'Enable personal Immich connections and trip album imports.',
+    is_configured: false,
+    key: 'immich.enabled',
+    runtime_safe: true,
+    updated_at: null,
+    validation: null,
+    value: false,
+    value_type: 'boolean',
+    visibility: 'public',
+  },
+  {
+    default_value: [],
+    description: 'Exact Immich server origins approved by the administrator.',
+    is_configured: false,
+    key: 'immich.allowed_servers',
+    runtime_safe: true,
+    updated_at: null,
+    validation: {
+      item_max_length: 2048,
+      item_type: 'string',
+      max_items: 32,
+    },
+    value: [],
+    value_type: 'array',
+    visibility: 'admin',
+  },
+  {
+    default_value: false,
+    description: 'Permit arbitrary public HTTPS Immich server origins.',
+    is_configured: false,
+    key: 'immich.allow_any_server',
+    runtime_safe: true,
+    updated_at: null,
+    validation: null,
+    value: false,
+    value_type: 'boolean',
     visibility: 'admin',
   },
 ]
@@ -303,6 +343,66 @@ test('updates and resets the public map tile provider URL', async ({ page }) => 
   await expect(tileProviderForm.getByText('Default restored.')).toBeVisible()
   await expect(page.getByLabel('Tile URL template')).toHaveValue(defaultTileUrl)
   expect(api.resets).toContain('map.tile_provider')
+})
+
+test('edits allowed Immich servers without exposing JSON', async ({ page }) => {
+  const api = await mockAdminApi(page)
+
+  await page.goto('/admin#media')
+
+  const allowedServersForm = page
+    .locator('form')
+    .filter({ has: page.getByText('Allowed Immich servers', { exact: true }) })
+  const firstServer = page.getByRole('textbox', {
+    exact: true,
+    name: 'Allowed Immich server 1',
+  })
+
+  await expect(firstServer).toHaveValue('')
+  await expect(allowedServersForm.locator('textarea')).toHaveCount(0)
+  await expect(allowedServersForm.getByText('Up to 32 entries')).toBeVisible()
+  await firstServer.fill('not a URL')
+  await expect(firstServer).toHaveAttribute('aria-invalid', 'true')
+  await expect(
+    allowedServersForm.getByText('Enter a valid server URL.'),
+  ).toBeVisible()
+  await allowedServersForm.getByRole('button', { exact: true, name: 'Save' }).click()
+  await expect(
+    allowedServersForm.getByText('Server 1: Enter a valid server URL.'),
+  ).toBeVisible()
+  expect(api.updates).not.toContainEqual({
+    key: 'immich.allowed_servers',
+    value: ['not a URL'],
+  })
+  await firstServer.fill('https://photos.example.test')
+  await expect(firstServer).toHaveAttribute('aria-invalid', 'false')
+  await expect(
+    allowedServersForm.getByText('Enter a valid server URL.'),
+  ).toHaveCount(0)
+  await allowedServersForm.getByRole('button', { name: 'Add server' }).click()
+  await page
+    .getByRole('textbox', { exact: true, name: 'Allowed Immich server 2' })
+    .fill('https://family.example.test')
+  await allowedServersForm.getByRole('button', { exact: true, name: 'Save' }).click()
+
+  await expect(allowedServersForm.getByText('Setting saved.')).toBeVisible()
+  expect(api.updates).toContainEqual({
+    key: 'immich.allowed_servers',
+    value: [
+      'https://photos.example.test',
+      'https://family.example.test',
+    ],
+  })
+
+  await allowedServersForm
+    .getByRole('button', { name: 'Remove allowed Immich server 1' })
+    .click()
+  await expect(
+    page.getByRole('textbox', {
+      exact: true,
+      name: 'Allowed Immich server 1',
+    }),
+  ).toHaveValue('https://family.example.test')
 })
 
 test('lets an admin preview and publish a complete theme preset', async ({ page }) => {

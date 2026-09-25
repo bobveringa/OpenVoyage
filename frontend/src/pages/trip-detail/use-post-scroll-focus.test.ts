@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { scrollPostElementToCenter } from './use-post-scroll-focus'
+import { scrollPostElementIntoView } from './use-post-scroll-focus'
 
 function setRect(
   element: HTMLElement,
@@ -19,24 +19,24 @@ function setRect(
   })
 }
 
-describe('scrollPostElementToCenter', () => {
-  it('centers a post vertically inside its scroll container', () => {
+describe('scrollPostElementIntoView', () => {
+  it('leaves context above a post in its vertical scroll container', () => {
     const rootElement = document.createElement('div')
     const postElement = document.createElement('article')
     const scrollTo = vi.fn()
     rootElement.scrollTo = scrollTo
     rootElement.scrollTop = 120
     setRect(rootElement, { height: 600, left: 0, top: 100, width: 400 })
-    setRect(postElement, { height: 200, left: 0, top: 700, width: 400 })
+    setRect(postElement, { height: 1_200, left: 0, top: 700, width: 400 })
 
-    scrollPostElementToCenter({
+    scrollPostElementIntoView({
       axis: 'y',
       behavior: 'smooth',
       element: postElement,
       rootElement,
     })
 
-    expect(scrollTo).toHaveBeenCalledWith({ behavior: 'smooth', top: 520 })
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: 'smooth', top: 696 })
   })
 
   it('centers a post horizontally inside its scroll container', () => {
@@ -48,7 +48,7 @@ describe('scrollPostElementToCenter', () => {
     setRect(rootElement, { height: 300, left: 20, top: 0, width: 400 })
     setRect(postElement, { height: 200, left: 520, top: 0, width: 200 })
 
-    scrollPostElementToCenter({
+    scrollPostElementIntoView({
       axis: 'x',
       behavior: 'auto',
       element: postElement,

@@ -18,7 +18,6 @@ import {
   Trash2,
   UserPlus,
   Users,
-  type LucideIcon,
 } from 'lucide-react'
 import {
   useEffect,
@@ -28,6 +27,8 @@ import {
   useState,
   type FocusEvent,
   type KeyboardEvent,
+  type ComponentType,
+  type SVGProps,
   type SyntheticEvent,
 } from 'react'
 
@@ -36,8 +37,10 @@ import {
   searchUsers,
   type UserSearchResult,
 } from '@/api/client'
+import { ImmichLogo } from '@/components/branding/immich-logo'
 import { ImageUploadDropzone } from '@/components/media/image-upload-dropzone'
 import { TrackingManagementPanel } from '@/components/trips/tracking-management-dialog'
+import { ImmichAlbumsPanel } from '@/components/trips/immich-albums-panel'
 import { TripMemberPresence } from '@/components/trips/trip-member-presence'
 import { Button } from '@/components/ui/button'
 import { DatePicker, DateTimePicker } from '@/components/ui/date-time-picker'
@@ -94,6 +97,7 @@ export function TripSidebarHeader({
   canManageTrip,
   canMutate,
   currentUserId,
+  immichEnabled,
   members,
   onOpenManagement,
   trip,
@@ -101,13 +105,27 @@ export function TripSidebarHeader({
   canManageTrip: boolean
   canMutate: boolean
   currentUserId: string | null
+  immichEnabled: boolean
   members: readonly TripMemberViewModel[]
   onOpenManagement: (section: TripManagementSection) => void
   trip: TripViewModel
 }) {
+  const tripToolsSection = canManageTrip
+    ? 'general'
+    : immichEnabled
+      ? 'albums'
+      : 'gps'
+
   return (
     <>
-    <MobileTripToolbar trip={trip} members={members} canManageTrip={canManageTrip} onOpenManagement={onOpenManagement} />
+    <MobileTripToolbar
+      canManageTrip={canManageTrip}
+      canMutate={canMutate}
+      immichEnabled={immichEnabled}
+      members={members}
+      onOpenManagement={onOpenManagement}
+      trip={trip}
+    />
     <div className="hidden space-y-2 border-b border-border px-4 py-3 lg:block">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
@@ -137,20 +155,18 @@ export function TripSidebarHeader({
               <Radio className="size-3.5" aria-hidden="true" />
               <span className="sr-only sm:not-sr-only">GPS</span>
             </Button>
-            {canManageTrip ? (
-              <Button
-                aria-label="Manage trip"
-                className="size-11 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
-                onClick={() => onOpenManagement('general')}
-                size="sm"
-                title="Manage trip"
-                type="button"
-                variant="outline"
-              >
-                <Settings className="size-3.5" aria-hidden="true" />
-                <span className="sr-only sm:not-sr-only">Manage trip</span>
-              </Button>
-            ) : null}
+            <Button
+              aria-label="Trip tools"
+              className="size-11 gap-1.5 rounded-xl p-0 text-xs sm:h-8 sm:w-auto sm:px-2.5"
+              onClick={() => onOpenManagement(tripToolsSection)}
+              size="sm"
+              title="Trip tools"
+              type="button"
+              variant="outline"
+            >
+              <Settings className="size-3.5" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">Trip tools</span>
+            </Button>
           </div>
         ) : null}
       </div>
@@ -926,6 +942,12 @@ function TripMembersPanel({
 
 const managementSections = [
   {
+    description: 'Connected Immich albums for contributors.',
+    icon: ImmichLogo,
+    label: 'Immich albums',
+    value: 'albums',
+  },
+  {
     description: 'Details, dates, cover, and visibility.',
     icon: Settings,
     label: 'General',
@@ -957,7 +979,7 @@ const managementSections = [
   },
 ] as const satisfies ReadonlyArray<{
   description: string
-  icon: LucideIcon
+  icon: ComponentType<SVGProps<SVGSVGElement>>
   label: string
   value: TripManagementSection
 }>
@@ -968,6 +990,7 @@ export function TripManagementDialog({
   canManageTrip,
   error,
   isSaving,
+  immichEnabled,
   members,
   onClose,
   onCreateLink,
@@ -996,6 +1019,7 @@ export function TripManagementDialog({
   canManageTrip: boolean
   error: string | null
   isSaving: boolean
+  immichEnabled: boolean
   members: readonly TripMemberViewModel[]
   onClose: () => void
   onCreateLink: (draft: ShareLinkCreateDraft) => void
@@ -1021,13 +1045,23 @@ export function TripManagementDialog({
 }) {
   const isMobile = useMediaQuery('(max-width: 639px)')
   const [showMobileMenu, setShowMobileMenu] = useState(false)
-  const effectiveSection = canManageTrip ? section : 'gps'
+  const requestedSection = section === 'albums' && !immichEnabled
+    ? canManageTrip ? 'general' : 'gps'
+    : section
+  const effectiveSection = canManageTrip
+    ? requestedSection
+    : requestedSection === 'gps' || (immichEnabled && requestedSection === 'albums')
+      ? requestedSection
+      : 'gps'
   const activeSection = managementSections.find(
     (item) => item.value === effectiveSection,
   )!
-  const availableSections = canManageTrip
+  const availableSections = (canManageTrip
     ? managementSections
-    : managementSections.filter((item) => item.value === 'gps')
+    : managementSections.filter(
+        (item) => item.value === 'gps' || item.value === 'albums',
+      )
+  ).filter((item) => item.value !== 'albums' || immichEnabled)
 
   useEffect(() => {
     if (open) {
@@ -1174,6 +1208,9 @@ export function TripManagementDialog({
                 tripId={tripId}
                 tripTitle={trip.name}
               />
+            ) : null}
+            {effectiveSection === 'albums' && immichEnabled && accessToken && tripId ? (
+              <ImmichAlbumsPanel accessToken={accessToken} tripId={tripId} />
             ) : null}
             {effectiveSection === 'gps' && (!accessToken || !tripId) ? (
               <p className="rounded-2xl border border-border bg-muted/50 p-4 text-sm text-muted-foreground">

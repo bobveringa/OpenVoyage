@@ -8,6 +8,7 @@ from core.app_settings import (
     AppSettingsRegistry,
     DEFAULT_MAP_TILE_PROVIDER_URL,
     DEFAULT_THEME_PALETTE,
+    IMMICH_ALLOWED_SERVERS_KEY,
     MAP_TILE_PROVIDER_KEY,
     ROUTING_GRAPHHOPPER_BASE_URL_KEY,
     ROUTING_PROVIDER_KEY,
@@ -164,6 +165,43 @@ def test_integer_setting_validation_rejects_invalid_values(value) -> None:
 
     with pytest.raises(AppSettingValidationError):
         app_settings_registry.validate_value(definition, value)
+
+
+def test_immich_allowed_servers_has_explicit_array_limits() -> None:
+    definition = app_settings_registry.require(IMMICH_ALLOWED_SERVERS_KEY)
+
+    assert definition.validation == {
+        'item_type': 'string',
+        'item_max_length': 2048,
+        'max_items': 32,
+    }
+    assert app_settings_registry.validate_value(
+        definition,
+        ['https://photos.example.test'],
+    ) == ['https://photos.example.test']
+
+
+def test_array_validation_reports_item_and_collection_limits() -> None:
+    definition = SettingDefinition(
+        key='test.string_list',
+        value_type=SettingValueType.ARRAY,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        runtime_safe=True,
+        description='Test string list.',
+        default_value=[],
+        validation={
+            'item_type': 'string',
+            'item_max_length': 4,
+            'max_items': 2,
+        },
+    )
+    registry = AppSettingsRegistry((definition,))
+
+    with pytest.raises(AppSettingValidationError, match='items.*at most 4'):
+        registry.validate_value(definition, ['longer'])
+    with pytest.raises(AppSettingValidationError, match='at most 2 item'):
+        registry.validate_value(definition, ['one', 'two', 'four'])
 
 
 def test_registry_rejects_public_sensitive_setting() -> None:

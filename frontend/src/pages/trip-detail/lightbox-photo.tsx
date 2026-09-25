@@ -6,10 +6,11 @@ import { constrainPhoto, fitPhoto, zoomPhoto, type PhotoTransform } from './phot
 
 type Point = { x: number; y: number }
 
-export function LightboxPhoto({ media, active, controlsVisible, onNavigate, onToggleControls }: {
+export function LightboxPhoto({ media, active, controlsVisible, loading = false, onNavigate, onToggleControls }: {
   media: PostMedia
   active: boolean
   controlsVisible: boolean
+  loading?: boolean
   onNavigate: (offset: number) => void
   onToggleControls: () => void
 }) {
@@ -25,6 +26,10 @@ export function LightboxPhoto({ media, active, controlsVisible, onNavigate, onTo
   const [attempt, setAttempt] = useState(0)
   const lastTap = useRef<{ time: number; point: Point } | null>(null)
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    setStatus('loading')
+  }, [media.src])
 
   function update(next: PhotoTransform) {
     const viewport = viewportRef.current
@@ -148,7 +153,7 @@ export function LightboxPhoto({ media, active, controlsVisible, onNavigate, onTo
             style={{ opacity: status === 'ready' ? 1 : 0 }} />
         </div>
       </div>
-      {active && status === 'loading' && <div role="status" className="pointer-events-none absolute bottom-24 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/60 px-3 py-2 text-xs"><Loader2 className="size-4 animate-spin" />Loading photo…</div>}
+      {active && (status === 'loading' || loading) && <div role="status" className="pointer-events-none absolute bottom-24 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/60 px-3 py-2 text-xs"><Loader2 className="size-4 animate-spin" />Loading photo…</div>}
       {active && status === 'error' && <button type="button" className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-xl bg-slate-900/90 p-4 text-sm" onClick={() => { setStatus('loading'); setAttempt(value => value + 1) }}><RefreshCw className="size-4" />Unable to load photo. Retry</button>}
       {active && controlsVisible && <div className="absolute bottom-[max(4.5rem,calc(env(safe-area-inset-bottom)+4rem))] left-1/2 z-20 flex -translate-x-1/2 items-center rounded-full border border-white/15 bg-black/65 shadow-lg">
         <button aria-label="Zoom out" type="button" className="grid size-11 place-items-center disabled:opacity-35" disabled={transform.scale <= 1} onClick={() => zoom(transform.scale / 1.5)}><ZoomOut className="size-5" /></button>

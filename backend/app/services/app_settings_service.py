@@ -377,6 +377,8 @@ class AppSettingsService:
             structurally_valid = isinstance(value, int) and not isinstance(value, bool)
         elif value_type == SettingValueType.OBJECT:
             structurally_valid = isinstance(value, dict)
+        elif value_type == SettingValueType.ARRAY:
+            structurally_valid = isinstance(value, list)
         else:
             structurally_valid = False
         if not structurally_valid:

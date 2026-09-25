@@ -19,6 +19,7 @@ import type { GpsPostCandidate } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { usePublicSetting } from '@/settings/public-settings'
 import { getMapFocusedPostId } from '@/pages/trip-detail/trip-selectors'
 import { TripSidebarHeader } from '@/pages/trip-detail/management-ui'
 import type {
@@ -285,6 +286,7 @@ export function TripSidebar({
   travelPosts: readonly TravelPost[]
   travelingView: TravelingView
 }) {
+  const immichEnabled = usePublicSetting('immich.enabled') === true
   const isMobileTravelPosts = mode === 'traveling' && travelingView === 'posts'
   const sidebarScrollRef = useRef<HTMLDivElement | null>(null)
   const [stopInsertionPoint, setStopInsertionPoint] =
@@ -334,6 +336,7 @@ export function TripSidebar({
         canManageTrip={canManageTrip}
         canMutate={canMutate}
         currentUserId={currentUserId}
+        immichEnabled={immichEnabled}
         members={tripMembers}
         onOpenManagement={onOpenManagement}
         trip={trip}
@@ -390,6 +393,8 @@ export function TripSidebar({
             isSubmitting={isMutating}
             mapPointActive={mapPointTarget === 'post'}
             mode="create"
+            immichEnabled={immichEnabled}
+            tripId={trip.id}
             onCancel={closePostForm}
             onMapPointTargetChange={onMapPointTargetChange}
             onSubmit={(draft) => onPostSubmit(null, draft)}
@@ -402,6 +407,8 @@ export function TripSidebar({
             isSubmitting={isMutating}
             mapPointActive={mapPointTarget === 'post'}
             mode="edit"
+            immichEnabled={immichEnabled}
+            tripId={trip.id}
             onCancel={closePostForm}
             onDelete={() => onPostDelete(editingPost.id)}
             onMapPointTargetChange={onMapPointTargetChange}

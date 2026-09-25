@@ -32,6 +32,7 @@ from services.app_settings_service import AppSettingsService
 from services.route_providers import RouteProviderBase, RouteProviderFactory
 from services.location_service import LocationService
 from services.media_service import MediaService
+from services.immich_service import ImmichService
 from services.itinerary_service import ItineraryService
 from services.place_service import PlaceService
 from services.post_service import PostService
@@ -203,6 +204,18 @@ def get_media_service(
     return media_service
 
 
+def get_immich_service(
+    session: SessionDep,
+    app_settings_service: AppSettingsServiceDep,
+    media_service: Annotated[MediaService, Depends(get_media_service)],
+) -> ImmichService:
+    return ImmichService(
+        db=session,
+        app_settings_service=app_settings_service,
+        media_service=media_service,
+    )
+
+
 def get_trip_service(session: SessionDep):
     return TripService(db=session)
 
@@ -316,6 +329,7 @@ CurrentAdmin = Annotated[User, Depends(get_current_admin_user)]
 CurrentTripCreator = Annotated[User, Depends(get_current_trip_creator)]
 JobServiceDep = Annotated[JobService, Depends(get_job_service)]
 MediaServiceDep = Annotated[MediaService, Depends(get_media_service)]
+ImmichServiceDep = Annotated[ImmichService, Depends(get_immich_service)]
 LocationServiceDep = Annotated[LocationService, Depends(get_location_service)]
 ItineraryRouteServiceDep = Annotated[
     ItineraryRouteService, Depends(get_itinerary_route_service)

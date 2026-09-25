@@ -170,6 +170,13 @@ export type TripUpdatePayload = components['schemas']['TripUpdateRequest']
 export type TripViewer = components['schemas']['TripViewerResponse']
 export type TripViewerCreatePayload =
   components['schemas']['TripViewerCreateRequest']
+export type ImmichConnectionState =
+  components['schemas']['ImmichConnectionStateResponse']
+export type ImmichConnection = components['schemas']['ImmichConnectionResponse']
+export type ImmichAlbum = components['schemas']['ImmichAlbumResponse']
+export type ImmichAlbumLink = components['schemas']['ImmichAlbumLinkResponse']
+export type ImmichAssetPage = components['schemas']['ImmichAssetPageResponse']
+export type ImmichAsset = components['schemas']['ImmichAssetResponse']
 
 type QueryValue = string | number | boolean | null | undefined
 
@@ -183,6 +190,7 @@ type ApiRequestOptions = {
   json?: unknown
   formData?: FormData
   urlEncoded?: URLSearchParams
+  timeoutMs?: number
 }
 
 type AuthTokenRefreshHandler = (options: {
@@ -475,6 +483,149 @@ export async function deleteAdminUser(options: {
 
 export async function getPublicSettings(): Promise<PublicSettings> {
   return requestJson<PublicSettings>(`${API_V1_PREFIX}/settings/public`)
+}
+
+export async function getImmichConnection(
+  accessToken: string,
+): Promise<ImmichConnectionState> {
+  return requestJson<ImmichConnectionState>(`${API_V1_PREFIX}/users/me/immich`, {
+    accessToken,
+  })
+}
+
+export async function testImmichConnection(options: {
+  accessToken: string
+  apiKey: string
+  serverUrl: string
+}): Promise<void> {
+  return requestJson<void>(`${API_V1_PREFIX}/users/me/immich/test`, {
+    method: 'POST',
+    accessToken: options.accessToken,
+    json: { api_key: options.apiKey, server_url: options.serverUrl },
+    timeoutMs: 35_000,
+  })
+}
+
+export async function saveImmichConnection(options: {
+  accessToken: string
+  apiKey: string
+  serverUrl: string
+}): Promise<ImmichConnection> {
+  return requestJson<ImmichConnection>(`${API_V1_PREFIX}/users/me/immich`, {
+    method: 'PUT',
+    accessToken: options.accessToken,
+    json: { api_key: options.apiKey, server_url: options.serverUrl },
+    timeoutMs: 35_000,
+  })
+}
+
+export async function disconnectImmich(accessToken: string): Promise<void> {
+  return requestJson<void>(`${API_V1_PREFIX}/users/me/immich`, {
+    method: 'DELETE',
+    accessToken,
+  })
+}
+
+export async function listImmichAlbums(
+  accessToken: string,
+): Promise<ImmichAlbum[]> {
+  return requestJson<ImmichAlbum[]>(`${API_V1_PREFIX}/users/me/immich/albums`, {
+    accessToken,
+    timeoutMs: 35_000,
+  })
+}
+
+export async function listTripImmichAlbums(options: {
+  accessToken: string
+  tripId: string
+}): Promise<ImmichAlbumLink[]> {
+  return requestJson<ImmichAlbumLink[]>(
+    `${API_V1_PREFIX}/trips/${options.tripId}/immich/albums`,
+    { accessToken: options.accessToken, timeoutMs: 35_000 },
+  )
+}
+
+export async function connectTripImmichAlbum(options: {
+  accessToken: string
+  albumId: string
+  tripId: string
+}): Promise<ImmichAlbumLink> {
+  return requestJson<ImmichAlbumLink>(
+    `${API_V1_PREFIX}/trips/${options.tripId}/immich/albums`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      json: { album_id: options.albumId },
+      timeoutMs: 35_000,
+    },
+  )
+}
+
+export async function removeTripImmichAlbum(options: {
+  accessToken: string
+  linkId: string
+  tripId: string
+}): Promise<void> {
+  return requestJson<void>(
+    `${API_V1_PREFIX}/trips/${options.tripId}/immich/albums/${options.linkId}`,
+    { method: 'DELETE', accessToken: options.accessToken },
+  )
+}
+
+export async function listTripImmichAssets(options: {
+  accessToken: string
+  cursor?: string | null
+  linkId: string
+  pageSize?: number
+  tripId: string
+}): Promise<ImmichAssetPage> {
+  return requestJson<ImmichAssetPage>(
+    `${API_V1_PREFIX}/trips/${options.tripId}/immich/albums/${options.linkId}/assets`,
+    {
+      accessToken: options.accessToken,
+      query: { cursor: options.cursor ?? undefined, page_size: options.pageSize ?? 20 },
+      timeoutMs: 35_000,
+    },
+  )
+}
+
+export async function fetchImmichAssetBlob(options: {
+  accessToken: string
+  url: string
+}): Promise<Blob> {
+  const requestedAccessToken = options.accessToken
+  let accessToken = await resolveAccessToken(requestedAccessToken, false)
+  const requestOptions: ApiRequestOptions = { accessToken, timeoutMs: 35_000 }
+  const url = buildApiUrl(options.url)
+  let response = await sendApiRequest(url, requestOptions, accessToken)
+  if (response.status === 401) {
+    const refreshed = await resolveAccessToken(accessToken, true)
+    if (refreshed && refreshed !== accessToken) {
+      accessToken = refreshed
+      response = await sendApiRequest(url, requestOptions, accessToken)
+    }
+  }
+  if (!response.ok) {
+    throw await buildApiError(response)
+  }
+  return response.blob()
+}
+
+export async function importTripImmichAsset(options: {
+  accessToken: string
+  assetId: string
+  linkId: string
+  tripId: string
+}): Promise<MediaUploadResponse> {
+  return requestJson<MediaUploadResponse>(
+    `${API_V1_PREFIX}/trips/${options.tripId}/immich/albums/${options.linkId}/imports`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      json: { asset_id: options.assetId },
+      timeoutMs: 310_000,
+    },
+  )
 }
 
 export async function updateAdminSetting(options: {
@@ -1675,7 +1826,7 @@ async function sendApiRequest(
   const controller = new AbortController()
   const timeout = window.setTimeout(
     () => controller.abort(),
-    API_REQUEST_TIMEOUT_MS,
+    options.timeoutMs ?? API_REQUEST_TIMEOUT_MS,
   )
 
   try {

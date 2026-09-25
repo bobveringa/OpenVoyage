@@ -13,6 +13,8 @@ import { AccountSecurityPage } from '@/pages/account-security-page'
 import { PrivacySettingsPage } from '@/pages/privacy-settings-page'
 import { ProfileSettingsPage } from '@/pages/profile-settings-page'
 import { TrackingSettingsPage } from '@/pages/tracking-settings-page'
+import { ImmichSettingsPage } from '@/pages/immich-settings-page'
+import { usePublicSetting } from '@/settings/public-settings'
 
 type AccountSettingsPageProps = {
   accessToken: string | null
@@ -22,12 +24,16 @@ type AccountSettingsPageProps = {
   onProfileUpdated: (user: CurrentUser) => void
 }
 
-const accountSettingsSectionIds: readonly AccountSettingsSection[] = [
+const baseAccountSettingsSectionIds: readonly AccountSettingsSection[] = [
   'profile',
   'preferences',
   'privacy',
   'security',
   ...(isNativePlatform() ? (['tracking'] as const) : []),
+]
+const immichAccountSettingsSectionIds: readonly AccountSettingsSection[] = [
+  ...baseAccountSettingsSectionIds,
+  'immich',
 ]
 
 const accountSettingsSectionHeadings: Record<
@@ -54,6 +60,10 @@ const accountSettingsSectionHeadings: Record<
     description: 'Configure how this device records and uploads GPS locations.',
     title: 'GPS tracking',
   },
+  immich: {
+    description: 'Connect a personal Immich library for trip album imports.',
+    title: 'Immich',
+  },
 }
 
 export function AccountSettingsPage({
@@ -63,12 +73,14 @@ export function AccountSettingsPage({
   onNavigate,
   onProfileUpdated,
 }: AccountSettingsPageProps) {
-  const { activeSection, selectSection } = useAccountSettingsSectionHash()
+  const immichEnabled = usePublicSetting('immich.enabled') === true
+  const { activeSection, selectSection } = useAccountSettingsSectionHash(immichEnabled)
 
   return (
     <AccountSettingsLayout
       activeSection={activeSection}
       onSectionChange={selectSection}
+      showImmich={immichEnabled}
     >
       <AccountSettingsSections
         accessToken={accessToken}
@@ -77,6 +89,7 @@ export function AccountSettingsPage({
         currentUser={currentUser}
         onNavigate={onNavigate}
         onProfileUpdated={onProfileUpdated}
+        immichEnabled={immichEnabled}
       />
     </AccountSettingsLayout>
   )
@@ -87,6 +100,7 @@ function AccountSettingsSections({
   ...props
 }: AccountSettingsPageProps & {
   activeSection: AccountSettingsSection
+  immichEnabled: boolean
 }) {
   const heading = accountSettingsSectionHeadings[activeSection]
 
@@ -103,12 +117,16 @@ function AccountSettingsPanel({
   activeSection,
   authStatus,
   currentUser,
+  immichEnabled,
   onNavigate,
   onProfileUpdated,
 }: AccountSettingsPageProps & {
   activeSection: AccountSettingsSection
+  immichEnabled: boolean
 }) {
   switch (activeSection) {
+    case 'immich':
+      return immichEnabled ? <ImmichSettingsPage accessToken={accessToken} /> : null
     case 'preferences':
       return (
         <AccountPreferencesPage
@@ -155,36 +173,44 @@ function AccountSettingsPanel({
   }
 }
 
-function useAccountSettingsSectionHash() {
+function useAccountSettingsSectionHash(immichEnabled: boolean) {
+  const sectionIds = immichEnabled
+    ? immichAccountSettingsSectionIds
+    : baseAccountSettingsSectionIds
   const [activeSection, setActiveSection] = useState<AccountSettingsSection>(() =>
-    readAccountSettingsSectionHash(),
+    readAccountSettingsSectionHash(sectionIds),
   )
 
   useEffect(() => {
-    normalizeAccountSettingsSectionHash()
+    setActiveSection(readAccountSettingsSectionHash(sectionIds))
+    normalizeAccountSettingsSectionHash(sectionIds)
 
     function handleHashChange() {
-      setActiveSection(readAccountSettingsSectionHash())
-      normalizeAccountSettingsSectionHash()
+      setActiveSection(readAccountSettingsSectionHash(sectionIds))
+      normalizeAccountSettingsSectionHash(sectionIds)
     }
 
     window.addEventListener('hashchange', handleHashChange)
     return () => window.removeEventListener('hashchange', handleHashChange)
-  }, [])
+  }, [sectionIds])
 
   const selectSection = useCallback((section: AccountSettingsSection) => {
-    if (readAccountSettingsSectionHash(section) === section && isKnownAccountSettingsSectionHash()) {
+    if (readAccountSettingsSectionHash(sectionIds, section) === section && isKnownAccountSettingsSectionHash(sectionIds)) {
       return
     }
 
     setActiveSection(section)
     window.location.hash = section
-  }, [])
+  }, [sectionIds])
 
-  return { activeSection, selectSection }
+  return {
+    activeSection: sectionIds.includes(activeSection) ? activeSection : 'profile',
+    selectSection,
+  }
 }
 
 function readAccountSettingsSectionHash(
+  sectionIds: readonly AccountSettingsSection[],
   fallback: AccountSettingsSection = 'profile',
 ) {
   if (typeof window === 'undefined') {
@@ -192,19 +218,19 @@ function readAccountSettingsSectionHash(
   }
 
   const section = window.location.hash.slice(1)
-  return accountSettingsSectionIds.includes(section as AccountSettingsSection)
+  return sectionIds.includes(section as AccountSettingsSection)
     ? (section as AccountSettingsSection)
     : fallback
 }
 
-function isKnownAccountSettingsSectionHash() {
-  return accountSettingsSectionIds.includes(
+function isKnownAccountSettingsSectionHash(sectionIds: readonly AccountSettingsSection[]) {
+  return sectionIds.includes(
     window.location.hash.slice(1) as AccountSettingsSection,
   )
 }
 
-function normalizeAccountSettingsSectionHash() {
-  if (isKnownAccountSettingsSectionHash()) {
+function normalizeAccountSettingsSectionHash(sectionIds: readonly AccountSettingsSection[]) {
+  if (isKnownAccountSettingsSectionHash(sectionIds)) {
     return
   }
 

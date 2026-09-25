@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.orm import Session, aliased, joinedload
 
 from models.api.pagination import SortDirection
@@ -14,6 +14,7 @@ from models.api.trips import (
     TripUpdateRequest,
 )
 from models.database.media import Media
+from models.database.immich import TripImmichAlbum
 from models.database.trips import (
     Trip,
     TripMember,
@@ -555,6 +556,12 @@ class TripService:
         if membership.role == TripRole.OWNER:
             self._raise_if_last_owner(trip_id=trip_id)
 
+        self.db.execute(
+            delete(TripImmichAlbum).where(
+                TripImmichAlbum.trip_id == trip_id,
+                TripImmichAlbum.connection_user_id == target_user_id,
+            )
+        )
         self.db.delete(membership)
         self.db.commit()
 

@@ -14,10 +14,19 @@ import { parseDateOnly } from './date-utils'
 import type { TripMemberViewModel, TripViewModel } from './models'
 import type { TripManagementSection } from './url-state'
 
-export function MobileTripToolbar({ trip, members, canManageTrip, onOpenManagement }: {
+export function MobileTripToolbar({
+  trip,
+  members,
+  canManageTrip,
+  canMutate,
+  immichEnabled,
+  onOpenManagement,
+}: {
   trip: TripViewModel
   members: readonly TripMemberViewModel[]
   canManageTrip: boolean
+  canMutate: boolean
+  immichEnabled: boolean
   onOpenManagement: (section: TripManagementSection) => void
 }) {
   const { currentUser, signOut } = useAuth()
@@ -30,6 +39,11 @@ export function MobileTripToolbar({ trip, members, canManageTrip, onOpenManageme
   const dateLabel = startDate && endDate && endDate >= startDate && 'formatRange' in dateFormatter && typeof dateFormatter.formatRange === 'function'
     ? dateFormatter.formatRange(startDate, endDate) as string
     : formatTripDateRange(trip.startDate, trip.endDate)
+  const tripToolsSection = canManageTrip
+    ? 'general'
+    : immichEnabled
+      ? 'albums'
+      : 'gps'
   const navigate = (to: string) => { window.location.assign(to) }
 
   return (
@@ -42,8 +56,8 @@ export function MobileTripToolbar({ trip, members, canManageTrip, onOpenManageme
           <h1 className="min-w-0 flex-1 truncate px-1 text-lg font-semibold" title={trip.name}>
             {trip.name}
           </h1>
-          {canManageTrip ? (
-            <Button aria-label="Trip settings" title="Trip settings" className="size-11 shrink-0" onClick={() => onOpenManagement('general')} size="icon" variant="ghost">
+          {canMutate ? (
+            <Button aria-label="Trip tools" title="Trip tools" className="size-11 shrink-0" onClick={() => onOpenManagement(tripToolsSection)} size="icon" variant="ghost">
               <Settings className="size-5" aria-hidden="true" />
             </Button>
           ) : null}

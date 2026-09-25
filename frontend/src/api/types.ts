@@ -393,6 +393,109 @@ export interface paths {
         patch: operations["update_trip_api_v1_trips__trip_id__patch"];
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/immich/albums": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Trip Albums */
+        get: operations["list_trip_albums_api_v1_trips__trip_id__immich_albums_get"];
+        put?: never;
+        /** Connect Album */
+        post: operations["connect_album_api_v1_trips__trip_id__immich_albums_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/immich/albums/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Album Link */
+        delete: operations["remove_album_link_api_v1_trips__trip_id__immich_albums__link_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/immich/albums/{link_id}/assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Assets */
+        get: operations["list_assets_api_v1_trips__trip_id__immich_albums__link_id__assets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/immich/albums/{link_id}/assets/{asset_id}/display-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Display Image */
+        get: operations["get_display_image_api_v1_trips__trip_id__immich_albums__link_id__assets__asset_id__display_image_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/immich/albums/{link_id}/assets/{asset_id}/thumbnail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Thumbnail */
+        get: operations["get_thumbnail_api_v1_trips__trip_id__immich_albums__link_id__assets__asset_id__thumbnail_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/immich/albums/{link_id}/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Asset */
+        post: operations["import_asset_api_v1_trips__trip_id__immich_albums__link_id__imports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/itinerary": {
         parameters: {
             query?: never;
@@ -1035,6 +1138,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/immich": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Connection */
+        get: operations["get_connection_api_v1_users_me_immich_get"];
+        /** Save Connection */
+        put: operations["save_connection_api_v1_users_me_immich_put"];
+        post?: never;
+        /** Disconnect */
+        delete: operations["disconnect_api_v1_users_me_immich_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/immich/albums": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Personal Albums */
+        get: operations["list_personal_albums_api_v1_users_me_immich_albums_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/immich/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Connection */
+        post: operations["test_connection_api_v1_users_me_immich_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/password": {
         parameters: {
             query?: never;
@@ -1401,6 +1557,88 @@ export interface components {
             height: number;
             /** Width */
             width: number;
+        };
+        /** ImmichAlbumLinkCreateRequest */
+        ImmichAlbumLinkCreateRequest: {
+            /**
+             * Album Id
+             * Format: uuid
+             */
+            album_id: string;
+        };
+        /** ImmichAlbumLinkResponse */
+        ImmichAlbumLinkResponse: {
+            /** Can Remove */
+            can_remove: boolean;
+            connected_by: components["schemas"]["TripMemberUserResponse"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string | null;
+        };
+        /** ImmichAlbumResponse */
+        ImmichAlbumResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** ImmichAssetPageResponse */
+        ImmichAssetPageResponse: {
+            /** Items */
+            items: components["schemas"]["ImmichAssetResponse"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** ImmichAssetResponse */
+        ImmichAssetResponse: {
+            /** Display Image Url */
+            display_image_url: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Media Type
+             * @enum {string}
+             */
+            media_type: "IMAGE" | "VIDEO";
+            /** Thumbnail Url */
+            thumbnail_url: string;
+        };
+        /** ImmichConnectionRequest */
+        ImmichConnectionRequest: {
+            /**
+             * Api Key
+             * @default
+             */
+            api_key: string;
+            /** Server Url */
+            server_url: string;
+        };
+        /** ImmichConnectionResponse */
+        ImmichConnectionResponse: {
+            /** Server Url */
+            server_url: string;
+        };
+        /** ImmichConnectionStateResponse */
+        ImmichConnectionStateResponse: {
+            connection: components["schemas"]["ImmichConnectionResponse"] | null;
+        };
+        /** ImmichImportRequest */
+        ImmichImportRequest: {
+            /**
+             * Asset Id
+             * Format: uuid
+             */
+            asset_id: string;
         };
         /** ItineraryPlacement */
         ItineraryPlacement: {
@@ -2096,7 +2334,7 @@ export interface components {
          * SettingValueType
          * @enum {string}
          */
-        SettingValueType: "enum" | "string" | "secret" | "boolean" | "integer" | "object";
+        SettingValueType: "enum" | "string" | "secret" | "boolean" | "integer" | "object" | "array";
         /**
          * SettingVisibility
          * @enum {string}
@@ -3717,6 +3955,239 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TripResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_trip_albums_api_v1_trips__trip_id__immich_albums_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImmichAlbumLinkResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    connect_album_api_v1_trips__trip_id__immich_albums_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImmichAlbumLinkCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImmichAlbumLinkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_album_link_api_v1_trips__trip_id__immich_albums__link_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_assets_api_v1_trips__trip_id__immich_albums__link_id__assets_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                trip_id: string;
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImmichAssetPageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_display_image_api_v1_trips__trip_id__immich_albums__link_id__assets__asset_id__display_image_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                link_id: string;
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_thumbnail_api_v1_trips__trip_id__immich_albums__link_id__assets__asset_id__thumbnail_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                link_id: string;
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_asset_api_v1_trips__trip_id__immich_albums__link_id__imports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImmichImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaUploadResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5624,6 +6095,128 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_connection_api_v1_users_me_immich_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImmichConnectionStateResponse"];
+                };
+            };
+        };
+    };
+    save_connection_api_v1_users_me_immich_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImmichConnectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImmichConnectionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disconnect_api_v1_users_me_immich_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_personal_albums_api_v1_users_me_immich_albums_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImmichAlbumResponse"][];
+                };
+            };
+        };
+    };
+    test_connection_api_v1_users_me_immich_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImmichConnectionRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             204: {

@@ -29,6 +29,17 @@ describe('trip detail dialog URL state', () => {
     })
   })
 
+  it('accepts the Immich albums management section', () => {
+    vi.stubGlobal('window', {
+      location: new URL('https://example.test/trips/1?dialog=management&section=albums'),
+    })
+
+    expect(readTripDetailUrlState(permissions)).toMatchObject({
+      activeDialog: 'management',
+      managementSection: 'albums',
+    })
+  })
+
   it('writes a distinct history entry for the management dialog', () => {
     const location = new URL('https://example.test/trips/1?tab=travel')
     const pushState = vi.fn()
