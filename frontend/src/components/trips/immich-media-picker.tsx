@@ -37,6 +37,7 @@ import type { PostMedia } from '@/pages/trip-detail/models'
 import { photoWindow } from '@/pages/trip-detail/photo-gestures'
 
 const ASSET_PAGE_SIZE = 20
+const AUTO_CLOSE_SECONDS = 3
 const PAGE_PREFETCH_MARGIN = '600px 0px'
 const IMAGE_PREFETCH_MARGIN = '400px 0px'
 const immichPickerHistoryStateKey = 'openVoyageImmichPicker'
@@ -66,6 +67,7 @@ export function ImmichMediaPicker({
   const [selection, setSelection] = useState<string[]>([])
   const [imports, setImports] = useState<Record<string, ImportState>>({})
   const [importStage, setImportStage] = useState<ImportStage>('selecting')
+  const [autoCloseSecondsRemaining, setAutoCloseSecondsRemaining] = useState<number | null>(null)
   const [isLoadingAlbums, setIsLoadingAlbums] = useState(false)
   const [isInitialLoading, setIsInitialLoading] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -120,9 +122,30 @@ export function ImmichMediaPicker({
     setSelection([])
     setImports({})
     setImportStage('selecting')
+    setAutoCloseSecondsRemaining(null)
     setDisplayAssetId(null)
     setPendingLinkId(null)
   }, [open])
+
+  useEffect(() => {
+    if (!open || autoCloseSecondsRemaining === null) return undefined
+    if (autoCloseSecondsRemaining === 0) {
+      closePicker()
+      return undefined
+    }
+
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null
+      setAutoCloseSecondsRemaining((current) => current === null ? null : current - 1)
+    }, 1000)
+
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current)
+        closeTimerRef.current = null
+      }
+    }
+  }, [autoCloseSecondsRemaining, closePicker, open])
 
   useEffect(() => {
     if (!open) return undefined
@@ -322,6 +345,7 @@ export function ImmichMediaPicker({
   }
 
   async function importIds(ids: string[]) {
+    setAutoCloseSecondsRemaining(null)
     setImportStage('importing')
     let hasFailures = false
     for (const assetId of ids) {
@@ -352,10 +376,7 @@ export function ImmichMediaPicker({
 
     setImportStage('complete')
     if (!hasFailures) {
-      closeTimerRef.current = window.setTimeout(() => {
-        closeTimerRef.current = null
-        closePicker()
-      }, 900)
+      setAutoCloseSecondsRemaining(AUTO_CLOSE_SECONDS)
     }
   }
 
@@ -409,7 +430,7 @@ export function ImmichMediaPicker({
                   ? `Importing ${importedCount + failedIds.length + 1} of ${selection.length}`
                   : failedIds.length
                     ? `${importedCount} added, ${failedIds.length} failed`
-                    : `${importedCount} added — returning to your post…`}
+                    : `${importedCount} added — returning to your post in ${autoCloseSecondsRemaining ?? AUTO_CLOSE_SECONDS}…`}
               </p>
               {!isImporting ? (
                 <div className="flex shrink-0 gap-2">
