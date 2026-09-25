@@ -20,7 +20,7 @@ function setRect(
 }
 
 describe('scrollPostElementIntoView', () => {
-  it('aligns the top of a post with its vertical scroll container', () => {
+  it('leaves context above a post in its vertical scroll container', () => {
     const rootElement = document.createElement('div')
     const postElement = document.createElement('article')
     const scrollTo = vi.fn()
@@ -36,7 +36,7 @@ describe('scrollPostElementIntoView', () => {
       rootElement,
     })
 
-    expect(scrollTo).toHaveBeenCalledWith({ behavior: 'smooth', top: 720 })
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: 'smooth', top: 696 })
   })
 
   it('centers a post horizontally inside its scroll container', () => {

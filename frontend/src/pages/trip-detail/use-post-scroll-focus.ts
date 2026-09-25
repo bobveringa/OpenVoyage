@@ -10,6 +10,8 @@ export type PostScrollRootRef = {
 
 type PostScrollAxis = 'x' | 'y'
 
+const VERTICAL_POST_LEAD_IN_PX = 24
+
 export function setPostScrollElement(
   postElementsRef: PostScrollElementsRef,
   postId: string,
@@ -50,7 +52,11 @@ export function scrollPostElementIntoView({
 
   rootElement.scrollTo({
     behavior,
-    top: rootElement.scrollTop + elementRect.top - rootRect.top,
+    top:
+      rootElement.scrollTop +
+      elementRect.top -
+      rootRect.top -
+      VERTICAL_POST_LEAD_IN_PX,
   })
 }
 
