@@ -170,7 +170,8 @@ export function TripDetailPage({
   tripId,
 }: TripDetailPageProps) {
   const immichEnabled = usePublicSetting('immich.enabled') === true
-  const shouldUseMobileMapPicker = useMediaQuery('(max-width: 1023px)')
+  const isDesktopLayout = useMediaQuery('(min-width: 64rem)')
+  const shouldUseMobileMapPicker = !isDesktopLayout
   const initialCanUseMemberUi = authStatus === 'authenticated'
   const initialUrlState = readTripDetailUrlState({
     canEditTravelPosts: initialCanUseMemberUi,

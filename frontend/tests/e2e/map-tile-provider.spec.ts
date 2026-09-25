@@ -227,6 +227,33 @@ test('mobile map layout and fullscreen exploration', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Planning', exact: true })).toBeVisible()
 })
 
+test('map remains visible on both sides of the desktop breakpoint', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 800 })
+  await seedBrowserAuth(page)
+  const release = await mockTripApi(page)
+  release()
+  await mockTileServers(page)
+  await page.goto(`/trips/${tripId}`)
+
+  const map = page.getByLabel('Interactive trip route map')
+  await expect(map).toBeVisible()
+  await expect(map.locator('.leaflet-tile-loaded').first()).toBeVisible()
+  expect((await map.boundingBox())!.width).toBeLessThan(600)
+  await expect(
+    page.getByRole('button', { name: 'Open fullscreen map' }),
+  ).toHaveCount(0)
+
+  await page.setViewportSize({ width: 1023, height: 800 })
+  await page.getByRole('button', { name: 'Travel', exact: true }).click()
+  await expect(map).toBeVisible()
+  await expect(map.locator('.leaflet-tile-loaded').first()).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Open fullscreen map' }),
+  ).toBeVisible()
+})
+
 test('mobile visitors can explore an empty trip without editing controls', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await seedBrowserAuth(page)

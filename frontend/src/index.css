@@ -339,7 +339,7 @@
   }
 }
 
-@media (max-width: 1023px) {
+@media (width < 64rem) {
   body:has(.mobile-trip-toolbar) .trip-app-header {
     display: none;
   }

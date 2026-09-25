@@ -141,7 +141,7 @@ export function MobileTravelMap({
       if (event.key === 'Escape') setFullscreen(false)
     }
     function onResize() {
-      if (window.matchMedia('(min-width: 1024px)').matches) setFullscreen(false)
+      if (window.matchMedia('(min-width: 64rem)').matches) setFullscreen(false)
     }
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('resize', onResize)
