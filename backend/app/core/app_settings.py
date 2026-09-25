@@ -184,7 +184,11 @@ SETTING_DEFINITIONS = (
         sensitive=False,
         default_value=[],
         runtime_safe=True,
-        validation={'item_type': 'string', 'max_length': 2048},
+        validation={
+            'item_type': 'string',
+            'item_max_length': 2048,
+            'max_items': 32,
+        },
         description='Exact Immich server origins approved by the administrator.',
     ),
     SettingDefinition(
@@ -253,13 +257,18 @@ class AppSettingsRegistry:
             if validation.get('item_type') == 'string':
                 if not all(isinstance(item, str) for item in value):
                     raise AppSettingValidationError('Every array item must be a string')
-                item_max_length = validation.get('max_length')
+                item_max_length = validation.get('item_max_length')
                 if item_max_length is not None and any(
                     len(item) > item_max_length for item in value
                 ):
                     raise AppSettingValidationError(
                         f'Array items must contain at most {item_max_length} character(s)'
                     )
+            max_items = validation.get('max_items')
+            if max_items is not None and len(value) > max_items:
+                raise AppSettingValidationError(
+                    f'Array must contain at most {max_items} item(s)'
+                )
 
         allowed_values = validation.get('allowed_values')
         if allowed_values is not None and value not in allowed_values:

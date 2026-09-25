@@ -6,12 +6,14 @@ import {
   KeyRound,
   Map as MapIcon,
   Palette,
+  Plus,
   RefreshCw,
   RotateCcw,
   Route,
   Save,
   Server,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react'
 import {
   useCallback,
@@ -132,7 +134,7 @@ const settingPresentations: Record<string, SettingPresentation> = {
     label: 'Enable Immich',
   },
   [SETTING_KEYS.immichAllowedServers]: {
-    help: 'Exact server origins allowed to connect, entered as a JSON array of URLs.',
+    help: 'Add up to 32 exact server origins. For broader access, enable any public HTTPS server below.',
     label: 'Allowed Immich servers',
   },
   [SETTING_KEYS.immichAllowAnyServer]: {
@@ -697,6 +699,18 @@ function SettingControl({
   presentation,
   setting,
 }: SettingControlProps) {
+  if (setting.key === SETTING_KEYS.immichAllowedServers) {
+    return (
+      <ImmichAllowedServersControl
+        disabled={disabled}
+        draft={draft}
+        id={id}
+        onChange={onChange}
+        setting={setting}
+      />
+    )
+  }
+
   if (setting.value_type === 'enum') {
     const allowedValues = readAllowedValues(setting.validation)
     return (
@@ -772,6 +786,104 @@ function SettingControl({
           {unit}
         </span>
       ) : null}
+    </div>
+  )
+}
+
+function ImmichAllowedServersControl({
+  disabled,
+  draft,
+  id,
+  onChange,
+  setting,
+}: {
+  disabled: boolean
+  draft: string
+  id: string
+  onChange: (draft: string) => void
+  setting: AdminSetting
+}) {
+  const configuredServers = readStringArrayDraft(draft)
+  const servers = configuredServers.length > 0 ? configuredServers : ['']
+  const maxItems = readNumber(setting.validation?.max_items)
+  const itemMaxLength = readNumber(setting.validation?.item_max_length)
+
+  function updateServer(index: number, value: string) {
+    const nextServers = [...servers]
+    nextServers[index] = value
+    onChange(JSON.stringify(nextServers, null, 2))
+  }
+
+  function removeServer(index: number) {
+    const nextServers = servers.filter((_, serverIndex) => serverIndex !== index)
+    onChange(JSON.stringify(nextServers, null, 2))
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        {servers.map((server, index) => (
+          <div className="space-y-1.5" key={index}>
+            <div className="flex items-center gap-2">
+              <Input
+                aria-describedby={
+                  getImmichServerError(server)
+                    ? `${id}-${index + 1}-error`
+                    : undefined
+                }
+                aria-invalid={Boolean(getImmichServerError(server))}
+                aria-label={`Allowed Immich server ${index + 1}`}
+                autoCapitalize="none"
+                autoComplete="url"
+                className={
+                  getImmichServerError(server)
+                    ? 'border-destructive focus-visible:ring-destructive'
+                    : undefined
+                }
+                disabled={disabled}
+                id={index === 0 ? id : `${id}-${index + 1}`}
+                inputMode="url"
+                maxLength={itemMaxLength}
+                onChange={(event) => updateServer(index, event.target.value)}
+                placeholder="https://photos.example.com"
+                spellCheck={false}
+                type="text"
+                value={server}
+              />
+              <Button
+                aria-label={`Remove allowed Immich server ${index + 1}`}
+                disabled={disabled}
+                onClick={() => removeServer(index)}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <Trash2 aria-hidden="true" className="size-4" />
+              </Button>
+            </div>
+            {getImmichServerError(server) ? (
+              <p
+                className="flex items-center gap-1.5 text-xs font-medium text-destructive"
+                id={`${id}-${index + 1}-error`}
+                role="alert"
+              >
+                <AlertCircle aria-hidden="true" className="size-3.5" />
+                {getImmichServerError(server)}
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      <Button
+        disabled={disabled || (maxItems !== undefined && configuredServers.length >= maxItems)}
+        onClick={() => onChange(JSON.stringify([...servers, ''], null, 2))}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        <Plus aria-hidden="true" className="size-3.5" />
+        Add server
+      </Button>
     </div>
   )
 }
@@ -891,11 +1003,31 @@ function parseDraftValue(setting: AdminSetting, draft: string): unknown {
     return draft === 'true'
   }
   if (setting.value_type === 'object' || setting.value_type === 'array') {
+    let value: unknown
     try {
-      return JSON.parse(draft) as unknown
+      value = JSON.parse(draft) as unknown
     } catch {
       throw new Error('Enter valid JSON.')
     }
+    if (
+      setting.key === SETTING_KEYS.immichAllowedServers &&
+      Array.isArray(value)
+    ) {
+      const servers = value
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
+      const invalidServerIndex = servers.findIndex((server) =>
+        Boolean(getImmichServerError(server)),
+      )
+      if (invalidServerIndex >= 0) {
+        throw new Error(
+          `Server ${invalidServerIndex + 1}: ${getImmichServerError(servers[invalidServerIndex] ?? '')}`,
+        )
+      }
+      return servers
+    }
+    return value
   }
   if (setting.value_type === 'secret' && draft.length === 0) {
     throw new Error('Enter a replacement secret.')
@@ -914,6 +1046,8 @@ function getValidationHints(validation: SettingValidation | null) {
   const unit = readString(validation.unit)
   const minLength = readNumber(validation.min_length)
   const maxLength = readNumber(validation.max_length)
+  const itemMaxLength = readNumber(validation.item_max_length)
+  const maxItems = readNumber(validation.max_items)
 
   if (min !== undefined || max !== undefined) {
     const range = [min ?? 'any', max ?? 'any'].join('–')
@@ -923,8 +1057,54 @@ function getValidationHints(validation: SettingValidation | null) {
     const range = [minLength ?? 'any', maxLength ?? 'any'].join('–')
     hints.push(`Length: ${range} characters`)
   }
+  if (maxItems !== undefined) {
+    hints.push(`Up to ${maxItems.toLocaleString()} entries`)
+  }
+  if (itemMaxLength !== undefined) {
+    hints.push(`Each entry: up to ${itemMaxLength.toLocaleString()} characters`)
+  }
 
   return hints
+}
+
+function readStringArrayDraft(draft: string) {
+  try {
+    const value = JSON.parse(draft) as unknown
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+function getImmichServerError(value: string) {
+  const candidate = value.trim()
+  if (!candidate) {
+    return null
+  }
+
+  let url: URL
+  try {
+    url = new URL(candidate)
+  } catch {
+    return 'Enter a valid server URL.'
+  }
+
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    return 'Use an HTTP or HTTPS URL.'
+  }
+  if (url.username || url.password) {
+    return 'The server URL must not contain credentials.'
+  }
+  if (url.search || url.hash) {
+    return 'The server URL must not contain a query or fragment.'
+  }
+  if (!['', '/api'].includes(url.pathname.replace(/\/+$/, ''))) {
+    return 'Enter the server origin, optionally followed by /api.'
+  }
+
+  return null
 }
 
 function readAllowedValues(validation: SettingValidation | null) {
