@@ -435,6 +435,7 @@ export function TravelingPanel({
       axis: showMobileMap ? 'x' : 'y',
       behavior: 'smooth',
       element: postElement,
+      isFirstPost: scrollRequest.postId === firstPostId,
       rootElement: scrollRoot,
     })
 
@@ -446,7 +447,7 @@ export function TravelingPanel({
       window.clearTimeout(releaseTimeout)
       suppressScrollFocusRef.current = false
     }
-  }, [scrollRequest, scrollRootRef, showMobileMap])
+  }, [firstPostId, scrollRequest, scrollRootRef, showMobileMap])
 
   const closeMobilePostDetail = useCallback(() => {
     if (!activePostId) {

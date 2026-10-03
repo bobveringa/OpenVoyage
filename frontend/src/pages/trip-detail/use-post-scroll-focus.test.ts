@@ -20,6 +20,24 @@ function setRect(
 }
 
 describe('scrollPostElementIntoView', () => {
+  it('keeps the controls above the first post visible in the vertical list', () => {
+    const rootElement = document.createElement('div')
+    const postElement = document.createElement('article')
+    const scrollTo = vi.fn()
+    rootElement.scrollTo = scrollTo
+    rootElement.scrollTop = 120
+
+    scrollPostElementIntoView({
+      axis: 'y',
+      behavior: 'smooth',
+      element: postElement,
+      isFirstPost: true,
+      rootElement,
+    })
+
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: 'smooth', top: 0 })
+  })
+
   it('leaves context above a post in its vertical scroll container', () => {
     const rootElement = document.createElement('div')
     const postElement = document.createElement('article')
@@ -52,6 +70,7 @@ describe('scrollPostElementIntoView', () => {
       axis: 'x',
       behavior: 'auto',
       element: postElement,
+      isFirstPost: true,
       rootElement,
     })
 
