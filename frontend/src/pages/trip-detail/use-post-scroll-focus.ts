@@ -30,13 +30,20 @@ export function scrollPostElementIntoView({
   axis,
   behavior,
   element,
+  isFirstPost = false,
   rootElement,
 }: {
   axis: PostScrollAxis
   behavior: ScrollBehavior
   element: HTMLElement
+  isFirstPost?: boolean
   rootElement: HTMLElement
 }) {
+  if (axis === 'y' && isFirstPost) {
+    rootElement.scrollTo({ behavior, top: 0 })
+    return
+  }
+
   const elementRect = element.getBoundingClientRect()
   const rootRect = rootElement.getBoundingClientRect()
 
