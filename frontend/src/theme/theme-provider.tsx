@@ -10,6 +10,7 @@ import {
   type ThemePalette,
 } from '@/theme/theme-contract'
 import { applyThemeToDocument } from '@/theme/theme-dom'
+import { syncSystemBarsStyle } from '@/native/system-bars'
 import {
   readCachedTheme,
   readThemeModePreference,
@@ -39,6 +40,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // previous mode's colors after a theme switch.
   useLayoutEffect(() => {
     applyThemeToDocument(palette, mode)
+    syncSystemBarsStyle(mode)
   }, [mode, palette])
 
   const value = useMemo(

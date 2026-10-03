@@ -787,7 +787,7 @@ function ImmichImageLightbox({
 
       {controlsVisible ? (
         <>
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 bg-gradient-to-b from-black/75 to-transparent px-4 pb-10 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6">
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 bg-gradient-to-b from-black/75 to-transparent px-4 pb-10 pt-[max(1rem,var(--app-safe-area-inset-top))] sm:px-6">
             <div className="min-w-0 pt-1">
               <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
                 <ImmichLogo className="size-4" aria-hidden="true" /> Immich album
@@ -809,14 +809,14 @@ function ImmichImageLightbox({
             </div>
           </div>
           {fullscreenError ? <p className="absolute inset-x-4 top-20 z-30 rounded-xl bg-black/80 p-3 text-center text-sm" role="status">{fullscreenError}</p> : null}
-          <div className="absolute inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-20 flex items-center justify-between gap-3 sm:justify-center sm:gap-6">
+          <div className="absolute inset-x-4 bottom-[max(1rem,var(--app-safe-area-inset-bottom))] z-20 flex items-center justify-between gap-3 sm:justify-center sm:gap-6">
             <button aria-label="Previous image" className={chromeButton} disabled={!hasMultipleImages} onClick={() => showRelativeImage(-1)} type="button"><ArrowLeft className="size-5" /></button>
             <span className="rounded-full bg-black/55 px-3 py-2 text-xs tabular-nums">Image {activeIndex + 1}</span>
             <button aria-label="Next image" className={chromeButton} disabled={!hasMultipleImages} onClick={() => showRelativeImage(1)} type="button"><ArrowRight className="size-5" /></button>
           </div>
         </>
       ) : (
-        <button aria-label="Show gallery controls" className={`${chromeButton} absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-20 opacity-50`} onClick={() => setControlsVisible(true)} type="button"><Eye className="size-5" /></button>
+        <button aria-label="Show gallery controls" className={`${chromeButton} absolute right-4 top-[max(1rem,var(--app-safe-area-inset-top))] z-20 opacity-50`} onClick={() => setControlsVisible(true)} type="button"><Eye className="size-5" /></button>
       )}
     </div>,
     document.body,

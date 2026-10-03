@@ -27,6 +27,11 @@ const config: CapacitorConfig = {
     // config, or a stray absolute https:// asset URL).
     allowMixedContent: true,
   },
+  plugins: {
+    SystemBars: {
+      insetsHandling: 'css',
+    },
+  },
 }
 
 export default config

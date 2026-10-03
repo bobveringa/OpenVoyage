@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title='OpenVoyage API',
-    version='0.2.0',
+    version='0.4.0',
     lifespan=lifespan,
 )
 
