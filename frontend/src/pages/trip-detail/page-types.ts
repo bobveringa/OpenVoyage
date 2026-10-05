@@ -71,7 +71,7 @@ export type TravelLegEditDraft = {
 }
 
 export type PostSubmitDraft = {
-  bubbleMediaId: string
+  bubbleMediaId: string | null
   coordinates: L.LatLngTuple
   locationLabel: string
   media: readonly PostMedia[]

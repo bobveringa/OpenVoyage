@@ -32,7 +32,7 @@ class PostCreateRequest(BaseModel):
     body: str = Field(min_length=1)
     location: LocationInput
     occurred_at: datetime
-    media_ids: list[uuid.UUID] = Field(min_length=1)
+    media_ids: list[uuid.UUID] = Field(default_factory=list)
     bubble_media_id: uuid.UUID | None = None
     publish: bool = False
 
@@ -67,7 +67,7 @@ class PostResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     media: list[MediaResponse]
-    bubble_media_id: uuid.UUID
+    bubble_media_id: uuid.UUID | None
     social: PostSocialSummaryResponse
 
     @classmethod
@@ -79,9 +79,6 @@ class PostResponse(BaseModel):
         media_token_factory: Callable[[uuid.UUID], str | None] | None = None,
         social: PostSocialSummaryResponse,
     ) -> Self:
-        if post.bubble_media_id is None:
-            raise ValueError(f'Post {post.id} has no selected bubble media')
-
         return cls(
             id=post.id,
             trip_id=post.trip_id,

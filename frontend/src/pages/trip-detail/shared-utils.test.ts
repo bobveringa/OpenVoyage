@@ -28,13 +28,26 @@ const post = {
 
 describe('map bubble media helpers', () => {
   it('uses the persisted bubble selection without changing lead media', () => {
-    expect(getPrimaryPostMedia(post).media_id).toBe('photo-id')
-    expect(getMapBubbleMedia(post).media_id).toBe('video-id')
+    expect(getPrimaryPostMedia(post)?.media_id).toBe('photo-id')
+    expect(getMapBubbleMedia(post)?.media_id).toBe('video-id')
   })
 
   it('does not use a video content URL as a map image fallback', () => {
     expect(getMapBubbleThumbnailSrc(getMapBubbleMedia(post))).not.toBe(
       'https://example.test/video.mp4',
+    )
+  })
+
+  it('supports posts without media', () => {
+    const textPost = { ...post, media: [], bubbleMediaId: null }
+    expect(getPrimaryPostMedia(textPost)).toBeNull()
+    expect(getMapBubbleMedia(textPost)).toBeNull()
+    expect(getMapBubbleThumbnailSrc(getMapBubbleMedia(textPost))).toBeNull()
+  })
+
+  it('still rejects a missing selection for posts with media', () => {
+    expect(() => getMapBubbleMedia({ ...post, bubbleMediaId: null })).toThrow(
+      'missing its selected bubble media',
     )
   })
 })

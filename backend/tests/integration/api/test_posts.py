@@ -204,6 +204,136 @@ def test_post_bubble_media_selection_and_removal_fallback(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize('publish', [False, True])
+@pytest.mark.parametrize('include_media_ids', [False, True])
+def test_create_post_without_media(
+    client,
+    db_session,
+    api_prefix,
+    publish,
+    include_media_ids,
+) -> None:
+    user = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(db_session, owner_id=user.id, visibility=TripVisibility.PUBLIC)
+    place = create_place(db_session)
+    body = {
+        'title': 'A quiet day',
+        'body': 'A story without photos.',
+        'location': _place_location(place),
+        'occurred_at': OCCURRED_AT,
+        'publish': publish,
+    }
+    if include_media_ids:
+        body['media_ids'] = []
+
+    response = client.post(
+        f'{api_prefix}/trips/{trip.id}/posts',
+        headers=_auth_headers(user),
+        json=body,
+    )
+    assert response.status_code == 201
+    created = response.json()
+    assert created['media'] == []
+    assert created['bubble_media_id'] is None
+    assert (created['published_at'] is not None) == publish
+    post = db_session.get(Post, uuid.UUID(created['id']))
+    assert post.bubble_media_id is None
+    assert post.media_links == []
+
+    for suffix in ('', '/timeline'):
+        listed = client.get(
+            f'{api_prefix}/trips/{trip.id}/posts{suffix}',
+            headers=_auth_headers(user),
+            params={'status': 'all'},
+        )
+        assert listed.status_code == 200
+        payload = listed.json()
+        listed_post = payload['entries'][0]['post'] if suffix else payload['items'][0]
+        assert listed_post['media'] == []
+        assert listed_post['bubble_media_id'] is None
+
+
+@pytest.mark.integration
+def test_post_can_remove_all_media_publish_and_add_media_later(
+    client,
+    db_session,
+    api_prefix,
+) -> None:
+    owner = create_user(db_session, password='PostsPass123!')
+    editor = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(db_session, owner_id=owner.id, visibility=TripVisibility.PUBLIC)
+    add_trip_member(
+        db_session, trip_id=trip.id, user_id=editor.id, role=TripRole.MEMBER
+    )
+    place = create_place(db_session)
+    created = _create_post(
+        client,
+        db_session,
+        api_prefix,
+        trip_id=trip.id,
+        user=owner,
+        place=place,
+        title='Text journal',
+        occurred_at=OCCURRED_AT,
+        publish=False,
+    )
+    post_url = f'{api_prefix}/trips/{trip.id}/posts/{created["id"]}'
+    headers = _auth_headers(editor)
+    removed = client.patch(
+        post_url,
+        headers={**headers, 'If-Match': '"0"'},
+        json={'media_ids': []},
+    )
+    assert removed.status_code == 200
+    assert removed.json()['media'] == []
+    assert removed.json()['bubble_media_id'] is None
+    assert db_session.get(Post, uuid.UUID(created['id'])).media_links == []
+
+    edited = client.patch(
+        post_url,
+        headers={**headers, 'If-Match': '"1"'},
+        json={'body': 'Updated without attaching media.'},
+    )
+    assert edited.status_code == 200
+    assert edited.json()['bubble_media_id'] is None
+    published = client.post(
+        f'{post_url}/publish',
+        headers={**_auth_headers(owner), 'If-Match': '"2"'},
+    )
+    assert published.status_code == 200
+    assert published.json()['published_at'] is not None
+    assert published.json()['bubble_media_id'] is None
+    public_post = client.get(post_url)
+    assert public_post.status_code == 200
+    assert public_post.json()['media'] == []
+
+    media = create_media(
+        db_session, storage_path='media/added-later.jpg', created_by=editor.id
+    )
+    added = client.patch(
+        post_url,
+        headers={**headers, 'If-Match': '"3"'},
+        json={'media_ids': [str(media.id)], 'bubble_media_id': None},
+    )
+    assert added.status_code == 200
+    assert added.json()['bubble_media_id'] == str(media.id)
+    assert [item['id'] for item in added.json()['media']] == [str(media.id)]
+
+    invalid = client.patch(
+        post_url,
+        headers={**headers, 'If-Match': '"4"'},
+        json={'media_ids': [], 'bubble_media_id': str(media.id)},
+    )
+    assert invalid.status_code == 422
+    assert (
+        invalid.json()['detail'] == 'Bubble media must belong to the post media gallery'
+    )
+    unchanged = client.get(post_url)
+    assert unchanged.json()['revision'] == 4
+    assert unchanged.json()['bubble_media_id'] == str(media.id)
+
+
+@pytest.mark.integration
 def test_create_post_requires_title(client, db_session, api_prefix) -> None:
     user = create_user(db_session, password='PostsPass123!')
     trip = create_trip(db_session, owner_id=user.id)

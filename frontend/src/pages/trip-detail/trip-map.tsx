@@ -1277,13 +1277,18 @@ function createPlaceMarkerHtml(stopOrder: number | null) {
 function createPostBubbleHtml(post: TravelPost, active: boolean) {
   const bubbleMedia = getMapBubbleMedia(post)
   const thumbnailSrc = getMapBubbleThumbnailSrc(bubbleMedia)
-  const className = active
+  const bubbleClassName = active
     ? 'trip-map-post-bubble trip-map-post-bubble--active'
     : 'trip-map-post-bubble'
+  const className = bubbleMedia
+    ? bubbleClassName
+    : `${bubbleClassName} trip-map-post-bubble--text`
 
   return `
     <div class="${className}">
-      <img class="trip-map-post-bubble__image" src="${escapeHtml(thumbnailSrc)}" alt="${escapeHtml(bubbleMedia.alt)}" width="44" height="44" />
+      ${bubbleMedia && thumbnailSrc
+        ? `<img class="trip-map-post-bubble__image" src="${escapeHtml(thumbnailSrc)}" alt="${escapeHtml(bubbleMedia.alt)}" width="44" height="44" />`
+        : `<span class="trip-map-post-bubble__text" role="img" aria-label="${escapeHtml(post.title)}"></span>`}
     </div>
   `
 }

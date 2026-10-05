@@ -70,7 +70,7 @@ class Post(Base):
         ),
         nullable=False,
     )
-    bubble_media_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    bubble_media_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     title: Mapped[str] = mapped_column(
         String(255),
         nullable=False,

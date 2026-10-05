@@ -2160,7 +2160,7 @@ export interface components {
             /** Location */
             location: components["schemas"]["LocationPlaceInput"] | components["schemas"]["LocationCoordinatesInput"];
             /** Media Ids */
-            media_ids: string[];
+            media_ids?: string[];
             /**
              * Occurred At
              * Format: date-time
@@ -2179,11 +2179,8 @@ export interface components {
             author: components["schemas"]["UserDisplaySummaryResponse"];
             /** Body */
             body: string;
-            /**
-             * Bubble Media Id
-             * Format: uuid
-             */
-            bubble_media_id: string;
+            /** Bubble Media Id */
+            bubble_media_id: string | null;
             /**
              * Created At
              * Format: date-time

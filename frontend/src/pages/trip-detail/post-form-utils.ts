@@ -127,7 +127,7 @@ export function getDraftMediaSectionDescription(
   uploadSummary: ReturnType<typeof getDraftMediaUploadSummary>,
 ) {
   if (mediaCount === 0) {
-    return 'Add photos or videos to build the post gallery.'
+    return 'Photos and videos are optional. Add media to build a post gallery.'
   }
   if (uploadSummary.failed > 0) {
     return `${uploadSummary.failed} ${uploadSummary.failed === 1 ? 'upload needs' : 'uploads need'} attention.`
