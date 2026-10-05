@@ -10,13 +10,16 @@ import type {
 } from './models'
 import { travelModeOptions } from './planning-utils'
 
-export function getPrimaryPostMedia(post: TravelPost): PostMedia {
+export function getPrimaryPostMedia(post: TravelPost): PostMedia | null {
   return (
-    post.media.find((media) => getMediaType(media) === 'image') ?? post.media[0]
+    post.media.find((media) => getMediaType(media) === 'image') ?? post.media[0] ?? null
   )
 }
 
-export function getMapBubbleMedia(post: TravelPost): PostMedia {
+export function getMapBubbleMedia(post: TravelPost): PostMedia | null {
+  if (post.media.length === 0) {
+    return null
+  }
   const bubbleMedia = post.media.find(
     (media) => media.media_id === post.bubbleMediaId,
   )
@@ -39,7 +42,10 @@ export function getMediaThumbnailSrc(media: PostMedia) {
 const mapBubblePlaceholder =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44"%3E%3Crect width="44" height="44" fill="%23e2e8f0"/%3E%3Cpath d="m10 31 8-9 6 6 4-4 6 7H10Z" fill="%2394a3b8"/%3E%3C/svg%3E'
 
-export function getMapBubbleThumbnailSrc(media: PostMedia) {
+export function getMapBubbleThumbnailSrc(media: PostMedia | null) {
+  if (!media) {
+    return null
+  }
   if (getMediaType(media) === 'video') {
     return media.thumbnail ?? media.poster ?? mapBubblePlaceholder
   }

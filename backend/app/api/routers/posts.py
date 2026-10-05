@@ -42,7 +42,6 @@ from services.post_service import (
     InvalidBubbleMediaError,
     MediaNotFoundError,
     PostMediaOwnershipError,
-    PostMediaRequiredError,
     PostNotFoundError,
     PostPermissionError,
     PostRevisionMismatchError,
@@ -141,7 +140,7 @@ def create_post(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except DuplicatePostMediaError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except (InvalidBubbleMediaError, PostMediaRequiredError) as exc:
+    except InvalidBubbleMediaError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
@@ -358,7 +357,7 @@ def update_post(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except DuplicatePostMediaError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except (InvalidBubbleMediaError, PostMediaRequiredError) as exc:
+    except InvalidBubbleMediaError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )

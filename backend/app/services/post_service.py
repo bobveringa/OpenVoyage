@@ -37,10 +37,6 @@ class InvalidBubbleMediaError(Exception):
     """Raised when a bubble media id is not part of the post gallery."""
 
 
-class PostMediaRequiredError(Exception):
-    """Raised when a post mutation would leave no gallery media."""
-
-
 class PostMediaOwnershipError(Exception):
     """Raised when a user attaches media they do not own."""
 
@@ -357,7 +353,7 @@ class PostService:
         if len(set(media_ids)) != len(media_ids):
             raise DuplicatePostMediaError('Post media ids must be unique')
         if not media_ids:
-            raise PostMediaRequiredError('Posts require at least one media item')
+            return {}
 
         media = list(
             self.db.execute(select(Media).where(Media.id.in_(media_ids)))
@@ -384,7 +380,7 @@ class PostService:
         if len(set(media_ids)) != len(media_ids):
             raise DuplicatePostMediaError('Post media ids must be unique')
         if not media_ids:
-            raise PostMediaRequiredError('Posts require at least one media item')
+            return
 
         existing_ids = {link.media_id for link in post.media_links}
         media = list(
@@ -409,9 +405,13 @@ class PostService:
         current_bubble_media_id: uuid.UUID | None,
         requested_bubble_media_id: uuid.UUID | None,
         bubble_media_id_provided: bool,
-    ) -> uuid.UUID:
+    ) -> uuid.UUID | None:
         if not media_ids:
-            raise PostMediaRequiredError('Posts require at least one media item')
+            if requested_bubble_media_id is not None:
+                raise InvalidBubbleMediaError(
+                    'Bubble media must belong to the post media gallery'
+                )
+            return None
 
         if bubble_media_id_provided:
             if requested_bubble_media_id is None:

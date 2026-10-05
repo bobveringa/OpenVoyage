@@ -119,12 +119,12 @@ export type TravelPost = {
     profilePicture: Media | null
   }
   coordinates: L.LatLngTuple
-  bubbleMediaId: string
+  bubbleMediaId: string | null
   excerpt: string
   id: string
   isDraft: boolean
   location: string
-  media: readonly [PostMedia, ...PostMedia[]]
+  media: readonly PostMedia[]
   occurredAt: string
   publishedAt: string | null
   revision: number

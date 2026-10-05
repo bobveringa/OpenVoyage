@@ -1690,16 +1690,6 @@ export function TripDetailPage({
   )
 }
 
-function toPostMediaTuple(
-  media: readonly PostMedia[],
-): readonly [PostMedia, ...PostMedia[]] {
-  if (media.length === 0) {
-    throw new Error('Posts require at least one media item.')
-  }
-
-  return media as readonly [PostMedia, ...PostMedia[]]
-}
-
 async function createReverseGeocodedDraftMapPointLocation(
   coordinates: L.LatLngTuple,
   target: MapPointTarget,
@@ -1871,7 +1861,7 @@ function toTravelPostViewModel(
     id: post.id,
     isDraft: post.published_at === null,
     location: post.location.full_name || post.location.name,
-    media: toPostMediaTuple(media),
+    media,
     occurredAt: post.occurred_at,
     publishedAt: post.published_at,
     revision: post.revision,

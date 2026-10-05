@@ -2423,7 +2423,6 @@
               "format": "uuid",
               "type": "string"
             },
-            "minItems": 1,
             "title": "Media Ids",
             "type": "array"
           },
@@ -2448,8 +2447,7 @@
           "title",
           "body",
           "location",
-          "occurred_at",
-          "media_ids"
+          "occurred_at"
         ],
         "title": "PostCreateRequest",
         "type": "object"
@@ -2464,9 +2462,16 @@
             "type": "string"
           },
           "bubble_media_id": {
-            "format": "uuid",
-            "title": "Bubble Media Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bubble Media Id"
           },
           "created_at": {
             "format": "date-time",

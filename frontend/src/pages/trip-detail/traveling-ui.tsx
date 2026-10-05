@@ -7,6 +7,7 @@ import {
   Compass,
   Radio,
   EllipsisVertical,
+  FileText,
   Images,
   MapPin,
   Maximize2,
@@ -849,15 +850,17 @@ export function TravelPostCard({
         </div>
       </div>
 
-      <div className="trip-post-media-strip scrollbar-subtle flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain px-4 pb-3">
-        {post.media.map((media, index) => (
-          <MediaStripCard
-            key={media.src}
-            media={media}
-            onOpen={() => setActiveMediaIndex(index)}
-          />
-        ))}
-      </div>
+      {post.media.length > 0 ? (
+        <div className="trip-post-media-strip scrollbar-subtle flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain px-4 pb-3">
+          {post.media.map((media, index) => (
+            <MediaStripCard
+              key={media.src}
+              media={media}
+              onOpen={() => setActiveMediaIndex(index)}
+            />
+          ))}
+        </div>
+      ) : null}
 
       <div className="px-4 pb-4">
         <PostSocialControls
@@ -1441,7 +1444,7 @@ function TravelPostPreviewCard({
   postRef?: (element: HTMLElement | null) => void
 }) {
   const primaryMedia = getPrimaryPostMedia(post)
-  const isVideo = getMediaType(primaryMedia) === 'video'
+  const isVideo = primaryMedia !== null && getMediaType(primaryMedia) === 'video'
 
   return (
     <article
@@ -1464,12 +1467,20 @@ function TravelPostPreviewCard({
         type="button"
       >
         <div className="relative m-2 size-20 shrink-0 overflow-hidden rounded-xl bg-secondary">
-          <MediaPreview
-            className="size-full object-cover"
-            media={primaryMedia}
-            source="thumbnail"
-          />
-          <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
+          {primaryMedia ? (
+            <MediaPreview
+              className="size-full object-cover"
+              media={primaryMedia}
+              source="thumbnail"
+            />
+          ) : (
+            <span className="grid size-full place-items-center text-primary">
+              <FileText className="size-8" aria-hidden="true" />
+            </span>
+          )}
+          {primaryMedia ? (
+            <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
+          ) : null}
           {isNew || post.isDraft ? (
             <span className="absolute left-2 top-2 flex gap-1.5">
               {isNew ? (
@@ -1779,6 +1790,9 @@ function MobilePostMediaGallery({
 }) {
   const previewMedia = media.slice(0, 4)
   const mediaCount = media.length
+  if (mediaCount === 0) {
+    return null
+  }
 
   return (
     <section aria-label={`Post media: ${mediaCount} items`} data-post-gallery>

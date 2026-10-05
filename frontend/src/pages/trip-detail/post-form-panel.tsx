@@ -245,8 +245,7 @@ export function PostFormPanel({
     hasLocation &&
     title.trim().length > 0 &&
     story.trim().length > 0 &&
-    occurredAt.trim().length > 0 &&
-    draftMedia.length > 0
+    occurredAt.trim().length > 0
   const uploadSummary = getDraftMediaUploadSummary(draftMedia)
   const mediaDescription = getDraftMediaSectionDescription(
     draftMedia.length,
@@ -368,11 +367,6 @@ export function PostFormPanel({
   const finishPostSubmit = useCallback(
     (submit: PendingPostSubmit) => {
       const media = draftMedia.map(toPostMediaFromDraft)
-      if (media.length === 0) {
-        setMediaNotice('Add at least one media item before publishing.')
-        return
-      }
-
       if (media.some((item) => !item.media_id)) {
         setMediaNotice('Wait for media uploads to finish before publishing.')
         return
@@ -380,7 +374,7 @@ export function PostFormPanel({
       const bubbleMedia = draftMedia.find(
         (item) => item.clientId === bubbleMediaClientId,
       )
-      if (!bubbleMedia?.media_id) {
+      if (media.length > 0 && !bubbleMedia?.media_id) {
         setMediaNotice('Choose media for the map bubble before publishing.')
         return
       }
@@ -388,7 +382,7 @@ export function PostFormPanel({
       keepUploadedMediaUrlsRef.current = false
       onSubmit({
         ...submit.draft,
-        bubbleMediaId: bubbleMedia.media_id,
+        bubbleMediaId: bubbleMedia?.media_id ?? null,
         media,
       })
     },
@@ -474,12 +468,6 @@ export function PostFormPanel({
 
     const currentSummary = getDraftMediaUploadSummary(draftMedia)
     if (currentSummary.failed > 0 || currentSummary.pending > 0) {
-      return
-    }
-
-    if (draftMedia.length === 0) {
-      setMediaNotice('Add at least one media item before publishing.')
-      setPendingSubmit(null)
       return
     }
 
@@ -624,7 +612,7 @@ export function PostFormPanel({
         setMediaNotice(
           replacement
             ? `${media.alt} removed. ${replacement.alt} is now the map bubble.`
-            : `${media.alt} removed. Add media before saving this post.`,
+            : `${media.alt} removed. This post now has no media.`,
         )
       } else {
         setMediaNotice(`${media.alt} removed.`)
@@ -729,7 +717,7 @@ export function PostFormPanel({
     }
 
     if (!accessToken) {
-      setMediaNotice('Sign in to upload media before publishing.')
+      setMediaNotice('Sign in before saving or publishing a post.')
       return
     }
 
@@ -963,7 +951,7 @@ export function PostFormPanel({
       <section className="space-y-4 rounded-[1.5rem] border border-border bg-card p-4">
         <div className="space-y-3 sm:flex sm:items-start sm:justify-between sm:gap-3 sm:space-y-0">
           <div>
-            <h3 className="font-semibold text-foreground">Media</h3>
+            <h3 className="font-semibold text-foreground">Media (optional)</h3>
             <p className="text-sm text-muted-foreground">
               {mediaDescription}
             </p>
@@ -1375,7 +1363,7 @@ export function PostFormPanel({
 }
 
 function getBubbleMediaClientId(post: TravelPost | null | undefined) {
-  if (!post) {
+  if (!post || post.media.length === 0) {
     return null
   }
 

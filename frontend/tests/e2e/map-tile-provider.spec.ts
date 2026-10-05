@@ -347,6 +347,135 @@ test('swaps only the base tiles and preserves routes and point selection', async
   await expect(routePath).toBeAttached()
 })
 
+test('text posts render on mobile with a compact map marker and no empty gallery', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await seedBrowserAuth(page)
+  const release = await mockTripApi(page)
+  release()
+  await mockTileServers(page)
+  const timeline = createPostTimeline()
+  const textTimeline = {
+    ...timeline,
+    entries: timeline.entries.map(entry => ({
+      ...entry,
+      post: { ...entry.post, media: [], bubble_media_id: null },
+    })),
+  }
+  await page.route('**/api/v1/trips/*/posts/timeline**', route => fulfillJson(route, textTimeline))
+  await page.goto(`/trips/${tripId}`)
+  await page.getByRole('button', { name: 'Travel', exact: true }).click()
+  await expect(page.locator('.trip-map-post-bubble__text')).toHaveCount(2)
+  await expect(page.locator('.trip-map-post-bubble__image')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Open First timeline post', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('text-post-map.png') })
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click()
+  await page.getByRole('button', { name: 'Use dark appearance', exact: true }).click()
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.screenshot({ path: testInfo.outputPath('text-post-map-dark.png') })
+  await page.locator('.trip-map-post-bubble__text[aria-label="First timeline post"]').click()
+  await page.getByRole('button', { name: 'Open First timeline post', exact: true }).click()
+  const reader = page.getByLabel('Reading First timeline post', { exact: true })
+  await expect(reader).toBeVisible()
+  await expect(reader.getByRole('heading', { name: 'First timeline post', exact: true })).toBeVisible()
+  await expect(reader.locator('[data-post-gallery]')).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('text-post-reader.png') })
+})
+
+for (const intent of ['Save draft', 'Publish post']) {
+  test(`creates a post without media using ${intent}`, async ({ page }) => {
+    await seedBrowserAuth(page)
+    const release = await mockTripApi(page, 'OWNER')
+    release()
+    await mockTileServers(page)
+    const timeline = createPostTimeline()
+    let created: Record<string, unknown> | null = null
+    await page.route('**/api/v1/trips/*/posts/timeline**', route => fulfillJson(route, {
+      ...timeline,
+      entries: created ? [...timeline.entries, { post: created, route_after: null }] : timeline.entries,
+    }))
+    await page.route(`**/api/v1/trips/${tripId}/posts`, async route => {
+      const payload = route.request().postDataJSON()
+      expect(payload.media_ids).toEqual([])
+      expect(payload.bubble_media_id).toBeNull()
+      expect(payload.publish).toBe(intent === 'Publish post')
+      created = {
+        ...timeline.entries[0].post,
+        ...payload,
+        id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        location: timeline.entries[0].post.location,
+        media: [],
+        bubble_media_id: null,
+        published_at: payload.publish ? timestamp : null,
+      }
+      await fulfillJson(route, created, 201)
+    })
+    await page.goto(`/trips/${tripId}`)
+    await page.getByRole('button', { name: 'Travel', exact: true }).click()
+    await page.getByRole('button', { name: 'New post', exact: true }).click()
+    await page.getByPlaceholder('Post title').fill('A quiet day')
+    await page.getByPlaceholder('Write the story').fill('A story without photos.')
+    await page.getByText('Exact point', { exact: true }).click()
+    await page.getByLabel('Interactive trip route map').click({ position: { x: 520, y: 320 } })
+    await expect(page.getByText(/Map point ·/)).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Media (optional)' })).toBeVisible()
+    const request = page.waitForRequest(req => req.method() === 'POST' && req.url().endsWith(`/trips/${tripId}/posts`))
+    await page.getByRole('button', { name: intent, exact: true }).click()
+    await request
+    await expect(page.getByRole('heading', { name: 'A quiet day', exact: true })).toBeVisible()
+    const card = page.locator('[data-trip-post-id="eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"]:visible')
+    await expect(card.locator('.trip-post-media-strip')).toHaveCount(0)
+    await expect(page.locator('.trip-map-post-bubble__text[aria-label="A quiet day"]')).toBeVisible()
+  })
+}
+
+test('removes the last attachment and adds media to the text post later', async ({ page }) => {
+  await seedBrowserAuth(page)
+  const release = await mockTripApi(page, 'OWNER')
+  release()
+  await mockTileServers(page)
+  const timeline = createPostTimeline()
+  const firstPost = timeline.entries[0].post
+  let currentPost = { ...firstPost, bubble_media_id: firstPost.bubble_media_id as string | null }
+  await page.route('**/api/v1/trips/*/posts/timeline**', route => fulfillJson(route, {
+    ...timeline,
+    entries: timeline.entries.map(entry => entry.post.id === firstPost.id ? { ...entry, post: currentPost } : entry),
+  }))
+  await page.route(`**/api/v1/trips/${tripId}/posts/${firstPost.id}`, async route => {
+    const payload = route.request().postDataJSON()
+    currentPost = {
+      ...currentPost,
+      ...payload,
+      location: firstPost.location,
+      media: payload.media_ids.length ? firstPost.media : [],
+      revision: currentPost.revision + 1,
+    }
+    await fulfillJson(route, currentPost)
+  })
+  await page.route('**/api/v1/media', route => fulfillJson(route, firstPost.media[0], 201))
+  await page.goto(`/trips/${tripId}`)
+  await page.getByRole('button', { name: 'Travel', exact: true }).click()
+  const editButton = page.getByRole('button', { name: `Edit ${firstPost.title}`, exact: true })
+  await editButton.click()
+  await page.getByRole('button', { name: `Remove ${firstPost.media[0].metadata.caption}`, exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Save post', exact: true })).toBeEnabled()
+  const removal = page.waitForRequest(req => req.method() === 'PATCH')
+  await page.getByRole('button', { name: 'Save post', exact: true }).click()
+  const removedPayload = (await removal).postDataJSON()
+  expect(removedPayload.media_ids).toEqual([])
+  expect(removedPayload.bubble_media_id).toBeNull()
+  await expect(page.locator(`.trip-map-post-bubble__text[aria-label="${firstPost.title}"]`)).toBeVisible()
+
+  await editButton.click()
+  await page.locator('input[type="file"]').setInputFiles({ name: 'new-photo.png', mimeType: 'image/png', buffer: transparentPng })
+  const addition = page.waitForRequest(req => req.method() === 'PATCH')
+  await page.getByRole('button', { name: 'Save post', exact: true }).click()
+  const addedPayload = (await addition).postDataJSON()
+  expect(addedPayload.media_ids).toEqual([firstPost.media[0].id])
+  expect(addedPayload.bubble_media_id).toBe(firstPost.media[0].id)
+  await expect(page.locator(`.trip-map-post-bubble__text[aria-label="${firstPost.title}"]`)).toHaveCount(0)
+  await expect(page.locator(`.trip-map-post-bubble__image[alt="${firstPost.media[0].metadata.caption}"]`)).toBeVisible()
+})
+
 async function seedBrowserAuth(page: Page) {
   const tokenPayload = Buffer.from(
     JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 60 * 60 }),
