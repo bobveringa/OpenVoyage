@@ -14,6 +14,12 @@ from api.deps import route_provider_factory
 from jobs.runner import JobRunner
 from main import app
 from services.app_settings_service import app_settings_cache
+from core.config import settings
+
+
+@pytest.fixture(autouse=True)
+def isolated_media_storage(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, 'MEDIA_DIRECTORY', str(tmp_path))
 
 
 @pytest.fixture(scope='function', autouse=True)

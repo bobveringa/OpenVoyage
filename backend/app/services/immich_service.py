@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import tempfile
 import uuid
 from dataclasses import dataclass
 
@@ -33,6 +32,8 @@ from services.immich_client import (
     validate_server_policy,
 )
 from services.media_service import MediaService, MediaTooLargeError
+from utils.media.image_util import clean_image_bytes
+from utils.media.storage import register_active, unregister_active, staging_directory, remove_staging
 from services.trip_access import get_membership
 
 
@@ -301,6 +302,10 @@ class ImmichService:
             raise ImmichUnavailableError(
                 'Immich did not provide the requested generated image'
             ) from exc
+        try:
+            content, content_type = clean_image_bytes(content)
+        except Exception:
+            raise ImmichUnavailableError('Immich preview could not be cleaned') from None
         return ImmichMediaResult(content=content, content_type=content_type)
 
     def import_asset(
@@ -319,10 +324,14 @@ class ImmichService:
         max_size = int(
             self.app_settings_service.get_value(MEDIA_MAX_UPLOAD_SIZE_MB_KEY)
         ) * 1_000_000
-        temporary_path: str | None = None
+        media_id = uuid.uuid4()
+        register_active(media_id)
+        directory = staging_directory(media_id)
+        temporary_path = str(directory / 'download')
+        scheduled = False
         try:
-            with tempfile.NamedTemporaryFile(delete=False) as temporary_file:
-                temporary_path = temporary_file.name
+            directory.mkdir(parents=True, exist_ok=True)
+            with open(temporary_path, 'wb') as temporary_file:
                 bytes_written = 0
                 try:
                     stream_context = client.open_media(
@@ -356,10 +365,17 @@ class ImmichService:
                     filename='immich-import',
                     size=bytes_written,
                 )
-                return self.media_service.upload_media(upload, current_user)
+                media = self.media_service.upload_media(upload, current_user, media_id=media_id)
+                scheduled = True
+                return media
         finally:
-            if temporary_path is not None and os.path.exists(temporary_path):
+            if os.path.exists(temporary_path):
                 os.remove(temporary_path)
+            if not scheduled:
+                try:
+                    remove_staging(media_id)
+                finally:
+                    unregister_active(media_id)
 
     def _resolve_candidate_key(
         self,

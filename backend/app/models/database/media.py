@@ -21,6 +21,7 @@ class MediaType(str, Enum):
 
 class MediaStatus(str, Enum):
     UPLOADED = 'UPLOADED'
+    PROCESSING = 'PROCESSING'
     READY = 'READY'
     FAILED = 'FAILED'
 

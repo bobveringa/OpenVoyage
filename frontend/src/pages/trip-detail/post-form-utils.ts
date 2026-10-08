@@ -27,7 +27,7 @@ export function createExistingDraftPostMedia(media: PostMedia): DraftPostMedia {
       loadedBytes: null,
       mediaId: media.media_id ?? null,
       progress: null,
-      status: media.media_id ? 'existing' : 'uploaded',
+      status: media.media_id ? 'existing' : 'ready',
       totalBytes: null,
     },
   }
@@ -101,7 +101,7 @@ export function getDraftMediaUploadSummary(media: readonly DraftPostMedia[]) {
       if (isDraftMediaUploadReady(item)) {
         summary.ready += 1
       }
-      if (item.upload.status === 'queued' || item.upload.status === 'uploading') {
+      if (['queued', 'uploading', 'uploaded', 'processing'].includes(item.upload.status)) {
         summary.pending += 1
       }
       if (item.upload.status === 'uploading') {
@@ -133,7 +133,7 @@ export function getDraftMediaSectionDescription(
     return `${uploadSummary.failed} ${uploadSummary.failed === 1 ? 'upload needs' : 'uploads need'} attention.`
   }
   if (uploadSummary.pending > 0) {
-    return `Uploading ${uploadSummary.ready} of ${uploadSummary.total}.`
+    return `${uploadSummary.ready} of ${uploadSummary.total} media items ready.`
   }
   return `${mediaCount} ${mediaCount === 1 ? 'media item' : 'media items'} · choose any photo or video for the map bubble.`
 }
@@ -145,19 +145,19 @@ export function getDraftMediaUploadSummaryLabel(
     return `${uploadSummary.failed} ${uploadSummary.failed === 1 ? 'upload failed' : 'uploads failed'}`
   }
   if (uploadSummary.pending > 0) {
-    return `Uploading ${uploadSummary.ready} of ${uploadSummary.total}`
+    return `${uploadSummary.ready} of ${uploadSummary.total} media items ready`
   }
-  return 'Uploads complete'
+  return 'Media ready'
 }
 
 export function getFinishingUploadsModalDescription(intent?: PostSubmitIntent) {
   if (intent === 'draft') {
-    return 'The draft will be saved once the remaining media is uploaded.'
+    return 'The draft will be saved once all media is ready.'
   }
   if (intent === 'save') {
-    return 'The post will be saved once the remaining media is uploaded.'
+    return 'The post will be saved once all media is ready.'
   }
-  return 'The post will publish once the remaining media is uploaded.'
+  return 'The post will publish once all media is ready.'
 }
 
 export function getDraftMediaUploadStatusText(media: DraftPostMedia) {
@@ -173,19 +173,23 @@ export function getDraftMediaUploadStatusText(media: DraftPostMedia) {
       : `Uploading ${Math.round(media.upload.progress * 100)}%`
   }
   if (media.upload.status === 'uploaded') {
-    return 'Uploaded'
+    return 'Waiting to process…'
   }
+  if (media.upload.status === 'processing') return 'Processing…'
+  if (media.upload.status === 'ready') return 'Ready'
   return 'Failed'
 }
 
 export function isDraftMediaUploadReady(media: DraftPostMedia) {
-  return media.upload.status === 'existing' || media.upload.status === 'uploaded'
+  return media.upload.status === 'existing' || media.upload.status === 'ready'
 }
 
 export function isDraftMediaUploadBlocking(media: DraftPostMedia) {
   return (
     media.upload.status === 'queued' ||
     media.upload.status === 'uploading' ||
+    media.upload.status === 'uploaded' ||
+    media.upload.status === 'processing' ||
     media.upload.status === 'failed'
   )
 }

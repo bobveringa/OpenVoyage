@@ -181,6 +181,7 @@ export type ImmichAsset = components['schemas']['ImmichAssetResponse']
 type QueryValue = string | number | boolean | null | undefined
 
 type ApiRequestOptions = {
+  signal?: AbortSignal
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   accessToken?: string | null
   headers?: Record<string, string>
@@ -783,9 +784,59 @@ export async function listTrips(options: {
 export async function uploadMedia(
   file: File,
   accessToken: string,
+  options: { signal?: AbortSignal; onStatus?: (media: Media) => void } = {},
 ): Promise<string> {
-  const response = await uploadMediaWithProgress({ accessToken, file })
-  return response.id
+  const response = await uploadMediaWithProgress({ accessToken, file, signal: options.signal })
+  return (await waitForMediaReady({ ...options, accessToken, media: response })).id
+}
+
+export const MEDIA_PROCESSING_FAILED_MESSAGE = 'Processing failed. Remove this file and upload it again.'
+
+export class MediaProcessingFailedError extends Error {
+  constructor() {
+    super(MEDIA_PROCESSING_FAILED_MESSAGE)
+    this.name = 'MediaProcessingFailedError'
+  }
+}
+
+export async function getMedia(mediaId: string, accessToken: string, signal?: AbortSignal): Promise<Media> {
+  return requestJson<Media>(`${API_V1_PREFIX}/media/${encodeURIComponent(mediaId)}`, {
+    accessToken, signal,
+  })
+}
+
+export async function waitForMediaReady(options: {
+  media: Media
+  accessToken: string
+  signal?: AbortSignal
+  onStatus?: (media: Media) => void
+}): Promise<Media> {
+  let media = options.media
+  while (true) {
+    if (options.signal?.aborted) throw createAbortError()
+    options.onStatus?.(media)
+    if (media.status === 'READY') return media
+    if (media.status === 'FAILED') throw new MediaProcessingFailedError()
+    await new Promise<void>((resolve, reject) => {
+      const cancel = () => {
+        window.clearTimeout(timer)
+        reject(createAbortError())
+      }
+      const timer = window.setTimeout(() => {
+        options.signal?.removeEventListener('abort', cancel)
+        resolve()
+      }, 2000)
+      options.signal?.addEventListener('abort', cancel, { once: true })
+    })
+    try {
+      media = await getMedia(media.id, options.accessToken, options.signal)
+    } catch (error) {
+      if (options.signal?.aborted) throw createAbortError()
+      // Interrupted network requests leave processing pending and resume polling.
+      if (error instanceof ApiError && error.status < 500 && ![408, 429].includes(error.status)) throw error
+      if (!(error instanceof ApiError || error instanceof TypeError || error instanceof ApiRequestTimeoutError)) throw error
+    }
+  }
 }
 
 export async function uploadMediaWithProgress(options: {
@@ -1824,6 +1875,9 @@ async function sendApiRequest(
   }
 
   const controller = new AbortController()
+  const abortRequest = () => controller.abort()
+  if (options.signal?.aborted) throw createAbortError()
+  options.signal?.addEventListener('abort', abortRequest, { once: true })
   const timeout = window.setTimeout(
     () => controller.abort(),
     options.timeoutMs ?? API_REQUEST_TIMEOUT_MS,
@@ -1837,11 +1891,13 @@ async function sendApiRequest(
       signal: controller.signal,
     })
   } catch (error) {
+    if (options.signal?.aborted) throw createAbortError()
     if (controller.signal.aborted) {
       throw new ApiRequestTimeoutError()
     }
     throw error
   } finally {
+    options.signal?.removeEventListener('abort', abortRequest)
     window.clearTimeout(timeout)
   }
 }

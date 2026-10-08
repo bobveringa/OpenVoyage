@@ -11,6 +11,7 @@ from models.api.users import (
     canonicalize_username,
 )
 from models.database.media import Media, MediaType
+from services.media_readiness import require_ready_media
 from models.database.user import User, UserProfile, canonical_username_expression
 
 
@@ -207,6 +208,11 @@ class UserService:
             ProfilePictureMediaTypeError: The requested media is not an image.
             UsernameAlreadyExistsError: The requested username is already used.
         """
+        picture_id = None
+        if 'profile_picture_media_id' in payload.model_fields_set:
+            picture_id = self._validate_profile_picture(
+                media_id=payload.profile_picture_media_id, current_user_id=user.id,
+            )
         profile = user.profile
         if profile is None:
             profile = UserProfile(
@@ -228,10 +234,7 @@ class UserService:
         if payload.biography is not None:
             profile.biography = payload.biography
         if 'profile_picture_media_id' in payload.model_fields_set:
-            profile.profile_picture_media_id = self._validate_profile_picture(
-                media_id=payload.profile_picture_media_id,
-                current_user_id=user.id,
-            )
+            profile.profile_picture_media_id = picture_id
 
         attempted_username = profile.username
         with self.db.no_autoflush:
@@ -329,6 +332,7 @@ class UserService:
         if media_type != MediaType.IMAGE.value:
             raise ProfilePictureMediaTypeError('Profile picture media must be an image')
 
+        require_ready_media([media])
         return media.id
 
     def _get_user_for_response(self, user_id: uuid.UUID) -> User | None:

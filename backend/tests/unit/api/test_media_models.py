@@ -101,14 +101,13 @@ def test_media_response_from_model_uploaded_media_allows_missing_thumbnail() -> 
 
     assert response.id == media_id
     assert response.status == 'UPLOADED'
-    assert response.urls.content == f'/api/v1/media/{media_id}/content'
+    assert response.urls.content is None
     assert response.urls.thumbnail is None
-    assert response.technical_info is not None
-    assert response.technical_info.width == 1920
+    assert response.technical_info is None
 
 
 @pytest.mark.unit
-def test_media_upload_response_from_model_includes_signed_content_url() -> None:
+def test_media_upload_response_hides_content_until_ready() -> None:
     media_id = uuid.uuid4()
     media = Media(
         id=media_id,
@@ -137,11 +136,6 @@ def test_media_upload_response_from_model_includes_signed_content_url() -> None:
     assert response.id == media_id
     assert response.media_type == 'IMAGE'
     assert response.status == 'UPLOADED'
-    assert (
-        response.urls.content
-        == f'https://example.test/api/v1/media/{media_id}/content?media_token=signed-token'
-    )
+    assert response.urls.content is None
     assert response.urls.thumbnail is None
-    assert response.technical_info is not None
-    assert response.technical_info.width == 640
-    assert response.technical_info.height == 480
+    assert response.technical_info is None

@@ -1,9 +1,9 @@
+import logging
 import os
 import uuid
 
 import puremagic
 from core.app_settings import MEDIA_MAX_UPLOAD_SIZE_MB_KEY
-from core.config import settings
 from core.db import get_engine
 from fastapi import BackgroundTasks, UploadFile
 from models.database.media import Media, MediaStatus, MediaStorageBackend, MediaType
@@ -15,7 +15,15 @@ from services.app_settings_service import AppSettingsService
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from utils.media.image_util import generate_image_thumbnail, get_image_info
-from utils.media.video_util import generate_video_thumbnail, get_video_info
+from utils.media.image_util import clean_image
+from utils.media.video_util import VideoCleaningError, clean_video, generate_video_thumbnail, get_video_info
+from utils.media.storage import (
+    register_active, unregister_active, staging_directory, remove_staging,
+    remove_promoted, storage_prefix,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 class MediaTooLargeError(Exception):
@@ -54,8 +62,7 @@ def get_media_storage_path(media_id: uuid.UUID) -> str:
     Returns:
         Path prefix used for the media file and related derived files.
     """
-    hex_id = str(media_id).replace('-', '')
-    return os.path.join(settings.media_root, hex_id[:2], hex_id[2:4], str(media_id))
+    return str(storage_prefix(media_id))
 
 
 def detect_content_type(file: UploadFile) -> str:
@@ -145,7 +152,7 @@ def _extract_media_info(
 
 
 class MediaService:
-    """Coordinates media uploads, metadata persistence, and thumbnail jobs.
+    """Coordinates private uploads and deferred cleaning and thumbnail jobs.
 
     Args:
         db: SQLAlchemy session used for media persistence.
@@ -168,8 +175,8 @@ class MediaService:
         self.background_tasks = background_tasks
         self.app_settings_service = app_settings_service
 
-    def upload_media(self, file: UploadFile, user: User) -> Media:
-        """Store an uploaded media file and queue thumbnail generation.
+    def upload_media(self, file: UploadFile, user: User, *, media_id: uuid.UUID | None = None) -> Media:
+        """Stage an uploaded file and defer cleaning, inspection and thumbnails.
 
         Args:
             file: Uploaded media file to validate and persist.
@@ -195,13 +202,13 @@ class MediaService:
         if media_type is None:
             raise UnsupportedMediaTypeError(f'Unsupported media type: {content_type!r}')
 
-        media_id = uuid.uuid4()
-        path = get_media_storage_path(media_id) + extension_for(content_type)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        media_id = media_id or uuid.uuid4()
+        register_active(media_id)
+        path = str(staging_directory(media_id) / ('original' + extension_for(content_type)))
 
         try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             copy_upload_file(file, path, max_size)
-            width, height, duration = _extract_media_info(path, media_type)
 
             media = Media(
                 id=media_id,
@@ -212,18 +219,18 @@ class MediaService:
                 status=MediaStatus.UPLOADED,
                 storage_backend=MediaStorageBackend.LOCAL,
                 created_by=user.id,
-                duration=duration,
-                width=width,
-                height=height,
             )
             self.db.add(media)
             self.db.commit()
         except Exception:
-            if os.path.exists(path):
-                os.remove(path)
+            self.db.rollback()
+            try:
+                remove_staging(media_id)
+            finally:
+                unregister_active(media_id)
             raise
 
-        self.background_tasks.add_task(create_thumbnail, media.id, path)
+        self.background_tasks.add_task(process_media, media.id)
         return media
 
     def find_by_id(self, media_id: uuid.UUID) -> Media | None:
@@ -333,53 +340,75 @@ class MediaService:
         return False
 
 
-def create_thumbnail(media_id: uuid.UUID, media_path: str) -> None:
-    """Create and persist a thumbnail for a previously uploaded media file.
-
-    Args:
-        media_id: Id of the media row to update after thumbnail generation.
-        media_path: Local filesystem path to the original media file.
-
-    Raises:
-        UnsupportedMediaTypeError: The media type cannot be thumbnailed.
-    """
-    with Session(get_engine()) as db:
-        media = db.get(Media, media_id)
-        if media is None:
-            return
-
-        thumb_extension = extension_for(THUMBNAIL_CONTENT_TYPE)
-        thumb_path = get_media_storage_path(media.id) + '.thumb' + thumb_extension
-        os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
-
-        try:
-            if media.media_type == MediaType.IMAGE:
-                generate_image_thumbnail(
-                    file_path=media_path,
-                    destination=thumb_path,
-                    content_type=THUMBNAIL_CONTENT_TYPE,
-                )
-            elif media.media_type == MediaType.VIDEO:
-                timestamp = min(1.0, media.duration) if media.duration else 0.0
-                generate_video_thumbnail(
-                    file_path=media_path,
-                    dest=thumb_path,
-                    timestamp=timestamp,
-                )
-            else:
-                raise UnsupportedMediaTypeError(
-                    f'Cannot thumbnail media type: {media.media_type!r}'
-                )
-        except Exception:
-            if os.path.exists(thumb_path):
-                os.remove(thumb_path)
-            media.status = MediaStatus.FAILED
-            db.add(media)
-            db.commit()
-            raise
-
-        media.status = MediaStatus.READY
-        media.thumbnail_storage_path = thumb_path
-        media.thumbnail_content_type = THUMBNAIL_CONTENT_TYPE
-        db.add(media)
-        db.commit()
+def process_media(media_id: uuid.UUID) -> None:
+    """Clean and promote privately staged media before enabling any access."""
+    register_active(media_id)
+    try:
+        with Session(get_engine()) as db:
+            media = db.get(Media, media_id)
+            if media is None or media.status != MediaStatus.UPLOADED:
+                return
+            original = media.storage_path
+            extension = extension_for(media.content_type)
+            directory = staging_directory(media.id)
+            clean_path = str(directory / ('clean' + extension))
+            thumb_path = str(directory / 'thumbnail.webp')
+            final_path = get_media_storage_path(media.id) + extension
+            final_thumb = get_media_storage_path(media.id) + '.thumb.webp'
+            stage = 'start'
+            try:
+                media.status = MediaStatus.PROCESSING
+                db.commit()
+                stage = 'clean'
+                if media.media_type == MediaType.IMAGE:
+                    clean_image(original, clean_path, media.content_type)
+                elif media.media_type == MediaType.VIDEO:
+                    clean_video(original, clean_path)
+                else:
+                    raise UnsupportedMediaTypeError('Unsupported media type')
+                stage = 'inspect'
+                width, height, duration = _extract_media_info(clean_path, media.media_type)
+                stage = 'thumbnail'
+                if media.media_type == MediaType.IMAGE:
+                    generate_image_thumbnail(clean_path, thumb_path)
+                else:
+                    generate_video_thumbnail(clean_path, thumb_path, timestamp=0.0)
+                    # Rebuild pixels using the same image policy as upload thumbnails.
+                    clean_image(thumb_path, str(directory / 'clean-thumbnail.webp'), THUMBNAIL_CONTENT_TYPE)
+                    os.replace(str(directory / 'clean-thumbnail.webp'), thumb_path)
+                stage = 'promote'
+                os.makedirs(os.path.dirname(final_path), exist_ok=True)
+                os.replace(clean_path, final_path)
+                os.replace(thumb_path, final_thumb)
+                remove_staging(media.id)
+                media.storage_path = final_path
+                media.thumbnail_storage_path = final_thumb
+                media.thumbnail_content_type = THUMBNAIL_CONTENT_TYPE
+                media.width, media.height, media.duration = width, height, duration
+                media.status = MediaStatus.READY
+                stage = 'ready_commit'
+                db.commit()
+            except Exception as error:
+                # Report only controlled codes and stages, never source paths,
+                # metadata-bearing exception text, tracebacks or subprocess output.
+                reason = error.code if isinstance(error, VideoCleaningError) else type(error).__name__
+                logger.warning('media_processing_failed media_id=%s stage=%s reason=%s', media_id, stage, reason)
+                try:
+                    db.rollback()
+                    # No subprocess output or metadata-bearing exception is logged.
+                    media = db.get(Media, media_id)
+                    if media is not None:
+                        media.status = MediaStatus.FAILED
+                        media.thumbnail_storage_path = None
+                        media.thumbnail_content_type = None
+                        media.width = media.height = media.duration = None
+                        db.commit()
+                finally:
+                    # Database failures must not prevent filesystem cleanup.
+                    # Any filesystem failure remains recoverable at startup.
+                    try:
+                        remove_staging(media_id)
+                    finally:
+                        remove_promoted(media_id)
+    finally:
+        unregister_active(media_id)

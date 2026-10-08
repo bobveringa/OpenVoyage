@@ -7,9 +7,9 @@ from starlette.responses import StreamingResponse
 
 from core import security
 from api.deps import CurrentUser, MediaServiceDep, OptionalCurrentUser
-from fastapi import APIRouter, HTTPException, UploadFile, Request
+from fastapi import APIRouter, HTTPException, UploadFile, Request, Response
 from fastapi.responses import FileResponse
-from models.api.media import MediaUploadResponse
+from models.api.media import MediaResponse, MediaUploadResponse
 from models.database.media import MediaStatus, MediaType
 from services.media_service import MediaTooLargeError, UnsupportedMediaTypeError
 
@@ -39,6 +39,25 @@ def upload_media(
     return MediaUploadResponse.from_model(
         media,
         media_base_url=media_base_url,
+        media_token=security.create_media_url_token(media.id),
+    )
+
+
+@router.get('/{media_id}', response_model=MediaResponse)
+def get_media_status(
+    request: Request,
+    response: Response,
+    media_id: uuid.UUID,
+    media_service: MediaServiceDep,
+    user: CurrentUser,
+) -> MediaResponse:
+    response.headers['Cache-Control'] = 'private, no-store'
+    media = media_service.find_by_id(media_id)
+    if media is None or media.created_by != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            headers={'Cache-Control': 'private, no-store'})
+    return MediaResponse.from_model(
+        media, media_base_url=str(request.base_url).rstrip('/'),
         media_token=security.create_media_url_token(media.id),
     )
 
@@ -123,10 +142,10 @@ def get_media_content(
         media_type = media.media_type
         content_type = media.content_type
 
-    if media.status != MediaStatus.READY and thumbnail:
+    if media.status != MediaStatus.READY:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail='Media thumbnail is not ready',
+            detail='Media is not ready',
         )
 
     if storage_path is None or not os.path.exists(storage_path):

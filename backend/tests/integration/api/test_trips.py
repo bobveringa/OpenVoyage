@@ -210,7 +210,7 @@ def test_create_trip_rejects_media_not_owned_by_user(
 
 
 @pytest.mark.integration
-def test_create_trip_allows_uploaded_cover_media(
+def test_create_trip_rejects_uploaded_cover_media(
     client, db_session, api_prefix
 ) -> None:
     user = create_user(db_session, password='TripsPass123!')
@@ -235,11 +235,10 @@ def test_create_trip_allows_uploaded_cover_media(
         },
     )
 
-    assert response.status_code == 201
-    payload = response.json()
-    assert payload['cover_media']['id'] == str(media.id)
-    assert payload['cover_media']['status'] == 'UPLOADED'
-    assert payload['cover_media']['urls']['thumbnail'] is None
+    assert response.status_code == 409
+    assert response.json() == {'detail': {
+        'code': 'MEDIA_NOT_READY', 'media_ids': [str(media.id)],
+    }}
 
 
 @pytest.mark.integration

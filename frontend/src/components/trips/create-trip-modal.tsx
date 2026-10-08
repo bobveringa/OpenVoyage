@@ -1,10 +1,10 @@
+import { useMediaUpload } from '@/hooks/use-media-upload'
 import { CalendarPlus } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 
 import {
   createTrip,
   getErrorMessage,
-  uploadMedia,
   type Trip,
   type TripVisibility,
 } from '@/api/client'
@@ -56,6 +56,7 @@ export function CreateTripModal({
   const [coverFile, setCoverFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const { uploadMedia, mediaStatus } = useMediaUpload(open)
 
   const canSubmit =
     formState.name.trim().length > 0 &&
@@ -253,7 +254,7 @@ export function CreateTripModal({
           </Button>
           <Button disabled={!canSubmit} type="submit">
             <CalendarPlus className="size-4" aria-hidden="true" />
-            {isSubmitting ? 'Creating' : 'Create trip'}
+            {mediaStatus ?? (isSubmitting ? 'Creating' : 'Create trip')}
           </Button>
         </div>
       </form>

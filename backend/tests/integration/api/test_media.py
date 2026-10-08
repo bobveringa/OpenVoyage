@@ -45,7 +45,7 @@ def test_upload_media_success(
     monkeypatch.setattr(
         media_service, '_extract_media_info', lambda _path, _kind: (640, 480, None)
     )
-    monkeypatch.setattr(media_service, 'create_thumbnail', lambda *_args: None)
+    monkeypatch.setattr(media_service, 'process_media', lambda *_args: None)
 
     response = client.post(
         f'{api_prefix}/media',
@@ -64,17 +64,15 @@ def test_upload_media_success(
     assert payload['media_type'] == 'IMAGE'
     assert payload['status'] == 'UPLOADED'
     assert payload['metadata']['caption'] == ''
-    assert payload['technical_info'] == {'width': 640, 'height': 480}
+    assert payload['technical_info'] is None
     assert payload['urls']['thumbnail'] is None
 
-    content_url = payload['urls']['content']
-    query = parse_qs(urlsplit(content_url).query)
+    assert payload['urls']['content'] is None
     assert 'id' in payload
-    assert 'media_token' in query
 
-    content_response = client.get(_path_and_query(content_url))
-    assert content_response.status_code == 200
-    assert content_response.content == b'not-a-real-jpeg-but-good-enough-for-test'
+    content_response = client.get(f"{api_prefix}/media/{payload['id']}/content",
+                                  headers=_auth_headers(user))
+    assert content_response.status_code == 409
 
 
 @pytest.mark.integration

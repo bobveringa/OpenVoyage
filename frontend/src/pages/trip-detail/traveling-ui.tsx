@@ -1,3 +1,4 @@
+import { useMediaUpload } from '@/hooks/use-media-upload'
 import {
   ArrowLeft,
   Camera,
@@ -40,7 +41,6 @@ import {
   listPostComments,
   unlikePostComment,
   unlikePost,
-  uploadMedia,
   updateShareLinkDisplayName,
   type GpsPostCandidate,
   type PostComment,
@@ -918,6 +918,7 @@ function PostSocialControls({
   const [deleteCommentError, setDeleteCommentError] = useState<string | null>(null)
   const [isDeletingComment, setDeletingComment] = useState(false)
   const [isUploadingMedia, setUploadingMedia] = useState(false)
+  const { uploadMedia, mediaStatus, cancelUpload } = useMediaUpload(post.id)
   const [isLoading, setLoading] = useState(false)
   const [isSubmitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1022,6 +1023,7 @@ function PostSocialControls({
   }
 
   function clearCommentImage() {
+    cancelUpload()
     setCommentMediaFile(null)
     setCommentMediaId(null)
     setCommentMediaName(null)
@@ -1200,7 +1202,7 @@ function PostSocialControls({
               <input accept="image/*" className="hidden" disabled={isUploadingMedia} onChange={(event) => selectCommentImage(event.target.files?.[0])} ref={commentMediaInputRef} tabIndex={-1} type="file" />
             </>
           ) : null}
-          {isUploadingMedia ? <span className="text-xs text-muted-foreground">Uploading image…</span> : null}
+          {isUploadingMedia ? <span className="text-xs text-muted-foreground">{mediaStatus ?? 'Uploading image…'}</span> : null}
           {commentMediaName ? <span className="max-w-full truncate text-xs text-muted-foreground">{commentMediaName}</span> : null}
           <Button disabled={!canSubmit || (!post.social.canInteract && !shareToken)} onClick={() => void submitComment()} size="sm" type="button">{replyTo ? 'Reply' : 'Comment'}</Button>
           {replyTo ? <Button onClick={() => { setReplyTo(null); setBody(''); clearCommentImage() }} size="sm" type="button" variant="ghost">Cancel</Button> : null}
@@ -1224,7 +1226,7 @@ function PostSocialControls({
           <div className="flex items-start justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
               {comment.author.type === 'user' && comment.author.user.profile_picture ? (
-                <img alt="" className="size-8 shrink-0 rounded-full object-cover" src={comment.author.user.profile_picture.urls.thumbnail ?? comment.author.user.profile_picture.urls.content} />
+                <img alt="" className="size-8 shrink-0 rounded-full object-cover" src={comment.author.user.profile_picture.urls.thumbnail ?? comment.author.user.profile_picture.urls.content ?? undefined} />
               ) : <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-primary">{comment.author.type === 'user' ? getCommentInitials(comment.author.user.first_name, comment.author.user.last_name, comment.author.user.username) : comment.author.display_name.slice(0, 1).toUpperCase()}</span>}
               <div className="min-w-0"><div className="flex min-w-0 items-center gap-1"><p className="truncate font-semibold text-foreground">{comment.author.type === 'user' ? [comment.author.user.first_name, comment.author.user.last_name].filter(Boolean).join(' ') || comment.author.user.username || 'User' : comment.author.display_name}</p>{comment.authored_by_viewer ? <Badge>You</Badge> : null}</div><p className="text-xs text-muted-foreground">{formatCommentAge(comment.created_at)}</p></div>
             </div>
@@ -1296,7 +1298,7 @@ function PostSocialControls({
           media={[{
             alt: 'Attached comment image',
             media_id: activeCommentMedia.id,
-            src: activeCommentMedia.urls.content,
+            src: activeCommentMedia.urls.content ?? '',
             thumbnail: activeCommentMedia.urls.thumbnail ?? undefined,
             type: 'image',
           }]}

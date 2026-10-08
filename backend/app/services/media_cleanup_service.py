@@ -9,7 +9,10 @@ from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from core.config import settings
-from models.database.media import Media, MediaStorageBackend
+from models.database.media import Media, MediaStatus, MediaStorageBackend
+from utils.media.storage import (
+    cleanup_staging, is_active, remove_promoted, remove_staging, staging_directory,
+)
 from models.database.posts import PostComment, PostMedia
 from models.database.trips import Trip
 from models.database.user import UserProfile
@@ -35,11 +38,12 @@ class MediaCleanupService:
     def cleanup_orphans(
         self, *, cutoff: datetime, batch_size: int = 100
     ) -> MediaCleanupResult:
-        totals = MediaCleanupResult()
+        totals = MediaCleanupResult(deleted_files=cleanup_staging(cutoff=cutoff))
         failed_ids = set()
         while True:
             statement = select(Media.id).where(
                 Media.created_at < cutoff,
+                Media.status.not_in([MediaStatus.UPLOADED, MediaStatus.PROCESSING]),
                 ~exists(
                     select(UserProfile.user_id).where(
                         UserProfile.profile_picture_media_id == Media.id
@@ -63,6 +67,7 @@ class MediaCleanupService:
                         select(Media).where(Media.id == media_id).with_for_update()
                     )
                     if media is None or not self._is_orphan(media, cutoff):
+                        failed_ids.add(media_id)
                         self.db.rollback()
                         totals = MediaCleanupResult(
                             **{**totals.__dict__, 'scanned': scanned}
@@ -93,7 +98,8 @@ class MediaCleanupService:
                     )
 
     def _is_orphan(self, media: Media, cutoff: datetime) -> bool:
-        if media.created_at >= cutoff:
+        if (media.created_at >= cutoff or is_active(media.id)
+                or media.status in {MediaStatus.UPLOADED, MediaStatus.PROCESSING}):
             return False
         return not any(
             (
@@ -124,4 +130,23 @@ class MediaCleanupService:
                 deleted += 1
             except FileNotFoundError:
                 missing += 1
+        directory = staging_directory(media.id)
+        if directory.exists():
+            deleted += sum(1 for path in directory.rglob('*') if path.is_file())
+            remove_staging(media.id)
+        deleted += remove_promoted(media.id)
         return deleted, missing
+
+    def recover_interrupted(self) -> None:
+        """Run before request handling or workers in the single-process server."""
+        media_items = self.db.scalars(select(Media).where(
+            Media.status.in_([MediaStatus.UPLOADED, MediaStatus.PROCESSING, MediaStatus.FAILED])
+        )).all()
+        for media in media_items:
+            self._remove_files(media)
+            media.status = MediaStatus.FAILED
+            media.thumbnail_storage_path = None
+            media.thumbnail_content_type = None
+            media.width = media.height = media.duration = None
+        self.db.commit()
+        cleanup_staging()

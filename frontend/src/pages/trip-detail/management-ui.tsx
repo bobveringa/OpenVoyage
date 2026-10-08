@@ -990,6 +990,7 @@ export function TripManagementDialog({
   canManageTrip,
   error,
   isSaving,
+  mediaStatus,
   immichEnabled,
   members,
   onClose,
@@ -1019,6 +1020,7 @@ export function TripManagementDialog({
   canManageTrip: boolean
   error: string | null
   isSaving: boolean
+  mediaStatus?: string | null
   immichEnabled: boolean
   members: readonly TripMemberViewModel[]
   onClose: () => void
@@ -1088,6 +1090,7 @@ export function TripManagementDialog({
       open={open}
       title={isMobile && !showMobileMenu ? activeSection.label : 'Manage trip'}
     >
+      {mediaStatus ? <p className="text-sm text-muted-foreground" role="status">{mediaStatus}</p> : null}
       {isMobile && showMobileMenu ? (
         <div className="grid gap-2 p-1">
           {availableSections.map(({ description, icon: Icon, label, value }) => (

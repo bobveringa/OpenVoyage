@@ -14,6 +14,7 @@ from models.api.trips import (
     TripUpdateRequest,
 )
 from models.database.media import Media
+from services.media_readiness import require_ready_media
 from models.database.immich import TripImmichAlbum
 from models.database.trips import (
     Trip,
@@ -201,6 +202,15 @@ class TripService:
         )
         trip = self._get_trip_or_raise(trip_id=trip_id)
 
+        if payload.media_id is not None:
+            if payload.media_id != trip.cover_media_id:
+                self._validate_cover_media(
+                    media_id=payload.media_id, current_user_id=current_user_id,
+                    current_trip_id=trip_id,
+                )
+            else:
+                require_ready_media([trip.cover_media])
+
         if payload.name is not None:
             trip.name = payload.name
         if payload.description is not None:
@@ -220,11 +230,6 @@ class TripService:
         ):
             raise TripDateRangeError('end_date must be on or after start_date')
         if payload.media_id is not None and payload.media_id != trip.cover_media_id:
-            self._validate_cover_media(
-                media_id=payload.media_id,
-                current_user_id=current_user_id,
-                current_trip_id=trip_id,
-            )
             trip.cover_media_id = payload.media_id
 
         self.db.commit()
@@ -869,6 +874,7 @@ class TripService:
             raise CoverMediaAlreadyUsedError(
                 f'Media is already used as a trip cover: {media_id}'
             )
+        require_ready_media([media])
 
     def _get_readable_trip_or_raise(
         self,

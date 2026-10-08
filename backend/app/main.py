@@ -2,18 +2,24 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 
 from api.main import api_router
 from api.routers import health
 from core.config import settings
+from core.db import get_engine
 from jobs.runtime import JobRuntime
+from services.media_cleanup_service import MediaCleanupService
+from services.media_readiness import MediaNotReadyError
+from sqlalchemy.orm import Session
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    with Session(get_engine()) as db:
+        MediaCleanupService(db).recover_interrupted()
     runtime = JobRuntime()
     app.state.job_runtime = runtime
     runtime.start()
@@ -28,6 +34,13 @@ app = FastAPI(
     version='0.4.0',
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(MediaNotReadyError)
+async def media_not_ready_handler(request, exc: MediaNotReadyError):
+    return JSONResponse(status_code=409, content={'detail': {
+        'code': 'MEDIA_NOT_READY', 'media_ids': [str(item) for item in exc.media_ids],
+    }})
 
 
 @app.middleware('http')
@@ -72,6 +85,8 @@ def configure_frontend(app: FastAPI) -> None:
         return
 
     frontend_directory = Path(settings.FRONTEND_DIST_DIRECTORY).resolve()
+    if Path(settings.media_root).resolve().is_relative_to(frontend_directory):
+        raise RuntimeError('Private media storage must be outside frontend static files')
     index_file = frontend_directory / 'index.html'
     if not index_file.is_file():
         raise RuntimeError(

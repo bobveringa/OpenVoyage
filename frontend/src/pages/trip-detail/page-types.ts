@@ -1,6 +1,6 @@
 import type * as L from 'leaflet'
 
-import type { UserSearchResult } from '@/api/client'
+import type { Media, UserSearchResult } from '@/api/client'
 import type {
   PostMedia,
   TravelMode,
@@ -15,9 +15,13 @@ export type DraftMediaUploadStatus =
   | 'queued'
   | 'uploading'
   | 'uploaded'
+  | 'processing'
+  | 'ready'
   | 'failed'
 
 export type DraftMediaUploadState = {
+  serverMedia?: Media
+  processingFailed?: boolean
   error: string | null
   loadedBytes: number | null
   mediaId: string | null
