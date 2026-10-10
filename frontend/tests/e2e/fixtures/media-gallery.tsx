@@ -5,10 +5,14 @@ import '../../../src/index.css'
 
 export function GalleryFixture() {
   const [index, setIndex] = useState<number | null>(null)
+  const [videoGallery, setVideoGallery] = useState(false)
   return <>
-    <button onClick={() => setIndex(0)}>Open gallery</button>
+    <button onClick={() => { setVideoGallery(false); setIndex(0) }}>Open gallery</button>
+    <button onClick={() => { setVideoGallery(true); setIndex(0) }}>Open video gallery</button>
     {index !== null && <MediaLightbox activeIndex={index} onIndexChange={setIndex} onClose={() => setIndex(null)} title="Mountain memories"
-      media={Array.from({ length: 8 }, (_, item) => ({ alt: `Photo ${item + 1}`, src: `/gallery-photo-${item}.svg`, thumbnail: `/gallery-thumb-${item}.svg` }))} />}
+      media={videoGallery
+        ? [{ alt: 'Mountain video', type: 'video', src: '/gallery-video.webm', thumbnail: '/gallery-video-thumb.svg' }]
+        : Array.from({ length: 8 }, (_, item) => ({ alt: `Photo ${item + 1}`, src: `/gallery-photo-${item}.svg`, thumbnail: `/gallery-thumb-${item}.svg` }))} />}
   </>
 }
 

@@ -381,7 +381,7 @@ function LightboxVideo({ media, onNavigate }: { media: PostMedia; onNavigate: (o
       const dy = touch.clientY - start.y
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) onNavigate(dx > 0 ? -1 : 1)
     }}>
-    <video key={attempt} aria-label={media.alt} className="max-h-full max-w-full" controls playsInline poster={media.poster ?? media.thumbnail} preload="metadata" src={media.src} onError={() => setFailed(true)} />
+    <video key={attempt} aria-label={media.alt} className="h-full w-full object-contain" controls playsInline poster={media.poster ?? media.thumbnail} preload="metadata" src={media.src} onError={() => setFailed(true)} />
     {failed && <button type="button" className="absolute rounded-xl bg-slate-900 p-4" onClick={() => { setFailed(false); setAttempt(value => value + 1) }}>Unable to load video. Retry</button>}
   </div>
 }
