@@ -1,3 +1,4 @@
+import { useMediaUpload } from '@/hooks/use-media-upload'
 import { Save } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 
@@ -5,7 +6,6 @@ import {
   checkUsernameAvailability,
   getErrorMessage,
   updateUserProfile,
-  uploadMedia,
   type CurrentUser,
   type UserProfileUpdatePayload,
 } from '@/api/client'
@@ -54,6 +54,7 @@ export function ProfileDetailsForm({
   const [error, setError] = useState<string | null>(null)
   const [savedMessage, setSavedMessage] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const { uploadMedia, mediaStatus } = useMediaUpload(currentUser.id)
   const [usernameAvailability, setUsernameAvailability] =
     useState<UsernameAvailabilityResult>({
       message: 'Enter a username',
@@ -307,7 +308,7 @@ export function ProfileDetailsForm({
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button disabled={!canSubmit} type="submit">
               <Save className="size-4" aria-hidden="true" />
-              {isSubmitting ? 'Saving' : 'Save profile'}
+              {mediaStatus ?? (isSubmitting ? 'Saving' : 'Save profile')}
             </Button>
           </div>
         </form>

@@ -1876,6 +1876,7 @@
           "status": {
             "enum": [
               "UPLOADED",
+              "PROCESSING",
               "READY",
               "FAILED"
             ],
@@ -1932,6 +1933,7 @@
           "status": {
             "enum": [
               "UPLOADED",
+              "PROCESSING",
               "READY",
               "FAILED"
             ],
@@ -1970,8 +1972,15 @@
       "MediaUrls": {
         "properties": {
           "content": {
-            "title": "Content",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
           },
           "thumbnail": {
             "anyOf": [
@@ -5844,6 +5853,54 @@
           }
         ],
         "summary": "Upload Media",
+        "tags": [
+          "media"
+        ]
+      }
+    },
+    "/api/v1/media/{media_id}": {
+      "get": {
+        "operationId": "get_media_status_api_v1_media__media_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "media_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Media Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Media Status",
         "tags": [
           "media"
         ]

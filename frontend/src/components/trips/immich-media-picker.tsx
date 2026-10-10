@@ -55,7 +55,7 @@ export function ImmichMediaPicker({
 }: {
   accessToken: string
   onClose: () => void
-  onImported: (media: MediaUploadResponse) => void
+  onImported: (media: MediaUploadResponse, preview?: Blob) => void
   open: boolean
   tripId: string
 }) {
@@ -360,7 +360,14 @@ export function ImmichMediaPicker({
           linkId: selectedLinkId,
           tripId,
         })
-        onImported(media)
+        const asset = assets.find((item) => item.id === assetId)
+        let preview: Blob | undefined
+        if (asset) {
+          try {
+            preview = await fetchImmichAssetBlob({ accessToken, url: asset.thumbnail_url })
+          } catch { /* The imported media remains selectable if its picker preview fails. */ }
+        }
+        onImported(media, preview)
         setImports((current) => ({
           ...current,
           [assetId]: { error: null, status: 'success' },

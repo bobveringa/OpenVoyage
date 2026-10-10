@@ -1,3 +1,4 @@
+import { useMediaUpload } from '@/hooks/use-media-upload'
 import type * as L from 'leaflet'
 import {
   useCallback,
@@ -42,7 +43,6 @@ import {
   updateTrip,
   updateTripMember,
   unpublishPost,
-  uploadMedia,
   type CurrentUser,
   type GpsPostCandidate,
   type Itinerary,
@@ -258,6 +258,7 @@ export function TripDetailPage({
   const canManageTrip = currentTripMembership?.role === 'OWNER'
   const canSwitchModes = canMutate
   const isMutating = pendingAction !== null
+  const { uploadMedia, mediaStatus } = useMediaUpload(`${tripId}:${activeDialog}:${managementSection}`)
 
   const applyItinerary = useCallback((itinerary: Itinerary) => {
     setItineraryRevision(itinerary.itinerary_revision)
@@ -1573,7 +1574,7 @@ export function TripDetailPage({
               onStopDelete={handleStopDelete}
               onTravelLegSave={handleTravelLegSave}
               onTravelingViewChange={handleTravelingViewChange}
-              pendingAction={pendingAction}
+              pendingAction={mediaStatus ?? pendingAction}
               postScrollRequest={postScrollRequest}
               newPostIds={newPostIds}
               editingPostId={editingPostId}
@@ -1617,6 +1618,7 @@ export function TripDetailPage({
           immichEnabled={immichEnabled}
           error={mutationError}
           isSaving={isMutating}
+          mediaStatus={mediaStatus}
           members={tripMembers}
           onClose={closeDialog}
           onCreateLink={handleShareLinkCreate}
@@ -1913,7 +1915,7 @@ function toPostMediaViewModel(media: Post['media'][number]): PostMedia {
     alt: media.metadata.caption || `${media.media_type.toLowerCase()} media`,
     media_id: media.id,
     poster: media.media_type === 'VIDEO' ? media.urls.thumbnail ?? undefined : undefined,
-    src: media.urls.content,
+    src: media.urls.content ?? '',
     thumbnail: media.urls.thumbnail ?? undefined,
     type: media.media_type === 'VIDEO' ? 'video' : 'image',
   }

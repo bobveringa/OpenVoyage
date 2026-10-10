@@ -16,6 +16,7 @@ from models.database.posts import Post, PostMedia
 from models.database.trips import TripMember, TripRole
 from models.database.user import User, UserProfile
 from services.location_service import LocationService
+from services.media_readiness import require_ready_media
 from services.trip_access import TripReadAccess, get_trip_read_access, get_membership
 from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
@@ -71,11 +72,6 @@ class PostService:
             user_id=current_user_id,
             permission=TripPermission.CREATE_POST,
         )
-        location = self.location_service.create_location_for_trip(
-            trip_id=trip_id,
-            created_by=current_user_id,
-            location_input=payload.location,
-        )
         media_by_id = self._validate_media_ids(
             media_ids=payload.media_ids,
             current_user_id=current_user_id,
@@ -85,6 +81,12 @@ class PostService:
             current_bubble_media_id=None,
             requested_bubble_media_id=payload.bubble_media_id,
             bubble_media_id_provided='bubble_media_id' in payload.model_fields_set,
+        )
+
+        location = self.location_service.create_location_for_trip(
+            trip_id=trip_id,
+            created_by=current_user_id,
+            location_input=payload.location,
         )
 
         post = Post(
@@ -218,6 +220,9 @@ class PostService:
             bubble_media_id_provided='bubble_media_id' in payload.model_fields_set,
         )
 
+        if payload.media_ids is None and 'bubble_media_id' in payload.model_fields_set:
+            require_ready_media(self.db.scalars(select(Media).where(Media.id.in_(final_media_ids))).all())
+
         if payload.body is not None:
             post.body = payload.body
         if payload.title is not None:
@@ -276,6 +281,9 @@ class PostService:
             permission=TripPermission.PUBLISH_POST,
             expected_revision=expected_revision,
         )
+        require_ready_media(self.db.scalars(select(Media).where(
+            Media.id.in_([link.media_id for link in post.media_links])
+        )).all())
         if post.published_at is None:
             post.published_at = utcnow()
             post.revision += 1
@@ -369,6 +377,7 @@ class PostService:
                 raise PostMediaOwnershipError(
                     'New post media must be uploaded by the editor'
                 )
+        require_ready_media(media_by_id.values())
         return media_by_id
 
     def _validate_collaborative_media_ids(
@@ -397,6 +406,8 @@ class PostService:
                 raise PostMediaOwnershipError(
                     'New post media must be uploaded by the editor'
                 )
+
+        require_ready_media(media_by_id.values())
 
     def _resolve_bubble_media_id(
         self,

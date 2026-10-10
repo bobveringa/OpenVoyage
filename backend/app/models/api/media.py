@@ -12,7 +12,7 @@ if typing.TYPE_CHECKING:
 
 
 class MediaUrls(BaseModel):
-    content: str
+    content: str | None
     thumbnail: str | None
 
 
@@ -36,7 +36,7 @@ class VideoTechnicalInfo(BaseModel):
 class MediaResponse(BaseModel):
     id: uuid.UUID
     media_type: Literal['IMAGE', 'VIDEO']
-    status: Literal['UPLOADED', 'READY', 'FAILED']
+    status: Literal['UPLOADED', 'PROCESSING', 'READY', 'FAILED']
     urls: MediaUrls
     metadata: MediaMetadata
     technical_info: ImageTechnicalInfo | VideoTechnicalInfo | None
@@ -111,13 +111,19 @@ class MediaResponse(BaseModel):
             raise ValueError(f'Unsupported media_type: {media.media_type!r}')
 
         if status_value == 'UPLOADED':
-            status_literal: Literal['UPLOADED', 'READY', 'FAILED'] = 'UPLOADED'
+            status_literal: Literal['UPLOADED', 'PROCESSING', 'READY', 'FAILED'] = 'UPLOADED'
+        elif status_value == 'PROCESSING':
+            status_literal = 'PROCESSING'
         elif status_value == 'READY':
             status_literal = 'READY'
         elif status_value == 'FAILED':
             status_literal = 'FAILED'
         else:
             raise ValueError(f'Unsupported media status: {media.status!r}')
+
+        if status_value != 'READY':
+            urls = MediaUrls(content=None, thumbnail=None)
+            technical_info = None
 
         return cls(
             id=media.id,

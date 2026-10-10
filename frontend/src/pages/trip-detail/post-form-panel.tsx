@@ -22,6 +22,9 @@ import {
   getErrorMessage,
   listTripImmichAlbums,
   uploadMediaWithProgress,
+  waitForMediaReady,
+  MediaProcessingFailedError,
+  MEDIA_PROCESSING_FAILED_MESSAGE,
   type GpsPostCandidate,
   type Place,
   type MediaUploadResponse,
@@ -131,6 +134,7 @@ export function PostFormPanel({
   )
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const uploadControllersRef = useRef<Map<string, AbortController>>(new Map())
+  const processingControllersRef = useRef<Map<string, AbortController>>(new Map())
   const uploadedMediaUrlsRef = useRef<string[]>([])
   const keepUploadedMediaUrlsRef = useRef(false)
   const [draftMedia, setDraftMedia] = useState<DraftPostMedia[]>(() =>
@@ -253,25 +257,25 @@ export function PostFormPanel({
   )
   const editSubmitLabel =
     pendingSubmit?.intent === 'save'
-      ? 'Finishing uploads...'
+      ? 'Waiting for media...'
       : isSubmitting
         ? 'Saving'
         : 'Save post'
   const draftSubmitLabel =
     pendingSubmit?.intent === 'draft'
-      ? 'Finishing uploads...'
+      ? 'Waiting for media...'
       : isSubmitting
         ? 'Saving'
         : 'Save draft'
   const publishSubmitLabel =
     pendingSubmit?.intent === 'publish'
-      ? 'Finishing uploads...'
+      ? 'Waiting for media...'
       : isSubmitting
         ? 'Publishing'
         : 'Publish post'
   const moveToDraftSubmitLabel =
     pendingSubmit?.intent === 'draft'
-      ? 'Finishing uploads...'
+      ? 'Waiting for media...'
       : isSubmitting
         ? 'Moving to draft'
         : 'Move to draft'
@@ -288,6 +292,8 @@ export function PostFormPanel({
       controller.abort()
     }
     uploadControllersRef.current.clear()
+    for (const controller of processingControllersRef.current.values()) controller.abort()
+    processingControllersRef.current.clear()
   }, [])
 
   const startDraftMediaUpload = useCallback(
@@ -336,8 +342,9 @@ export function PostFormPanel({
                       error: null,
                       loadedBytes: media.file?.size ?? null,
                       mediaId: uploadedMedia.id,
+                      serverMedia: uploadedMedia,
                       progress: 1,
-                      status: 'uploaded',
+                      status: uploadedMedia.status === 'READY' ? 'ready' : 'uploaded',
                       totalBytes: media.file?.size ?? null,
                     },
                   }
@@ -388,6 +395,39 @@ export function PostFormPanel({
     },
     [bubbleMediaClientId, draftMedia, onSubmit],
   )
+
+  useEffect(() => {
+    if (!accessToken) return
+    for (const item of draftMedia) {
+      if (!['uploaded', 'processing'].includes(item.upload.status) || !item.upload.serverMedia
+          || processingControllersRef.current.has(item.clientId)) continue
+      const controller = new AbortController()
+      processingControllersRef.current.set(item.clientId, controller)
+      void waitForMediaReady({
+        accessToken, media: item.upload.serverMedia, signal: controller.signal,
+        onStatus: (media) => {
+          if (media.status === 'READY' || media.status === 'FAILED') return
+          setDraftMedia((current) => updateDraftMediaUpload(current, item.clientId, {
+            serverMedia: media,
+            status: media.status === 'PROCESSING' ? 'processing' : 'uploaded',
+          }))
+        },
+      }).then((media) => {
+        setDraftMedia((current) => current.map((entry) => entry.clientId === item.clientId ? {
+          ...entry, src: media.urls.content ?? entry.src,
+          thumbnail: media.urls.thumbnail ?? undefined,
+          poster: media.media_type === 'VIDEO' ? media.urls.thumbnail ?? undefined : undefined,
+          upload: { ...entry.upload, status: 'ready', serverMedia: media },
+        } : entry))
+      }).catch((error: unknown) => {
+        if (isAbortError(error)) return
+        setDraftMedia((current) => updateDraftMediaUpload(current, item.clientId, {
+          error: getErrorMessage(error), status: 'failed',
+          processingFailed: error instanceof MediaProcessingFailedError,
+        }))
+      }).finally(() => processingControllersRef.current.delete(item.clientId))
+    }
+  }, [accessToken, draftMedia])
 
   useEffect(() => {
     keepUploadedMediaUrlsRef.current = false
@@ -467,7 +507,13 @@ export function PostFormPanel({
     }
 
     const currentSummary = getDraftMediaUploadSummary(draftMedia)
-    if (currentSummary.failed > 0 || currentSummary.pending > 0) {
+    if (currentSummary.failed > 0) {
+      setPendingSubmit(null)
+      setMediaNotice(draftMedia.some((media) => media.upload.processingFailed)
+        ? MEDIA_PROCESSING_FAILED_MESSAGE : 'Remove or retry failed uploads before saving.')
+      return
+    }
+    if (currentSummary.pending > 0) {
       return
     }
 
@@ -559,15 +605,19 @@ export function PostFormPanel({
     )
   }
 
-  function handleImmichImported(media: MediaUploadResponse) {
+  function handleImmichImported(media: MediaUploadResponse, preview?: Blob) {
+    const previewUrl = preview ? URL.createObjectURL(preview) : ''
+    if (previewUrl) uploadedMediaUrlsRef.current.push(previewUrl)
     const imported = createExistingDraftPostMedia({
       alt: `Immich ${media.media_type.toLowerCase()}`,
       media_id: media.id,
       poster: media.media_type === 'VIDEO' ? media.urls.thumbnail ?? undefined : undefined,
-      src: media.urls.content,
-      thumbnail: media.urls.thumbnail ?? undefined,
+      src: media.urls.content ?? previewUrl,
+      thumbnail: media.urls.thumbnail ?? (previewUrl || undefined),
       type: media.media_type === 'VIDEO' ? 'video' : 'image',
     })
+    imported.upload = { ...imported.upload, serverMedia: media,
+      status: media.status === 'READY' ? 'ready' : 'uploaded' }
     setDraftMedia((current) => [...current, imported])
     setBubbleMediaClientId((current) => current ?? imported.clientId)
     setMediaNotice('Immich media imported and added to the draft.')
@@ -598,6 +648,8 @@ export function PostFormPanel({
   }
 
   function removeDraftMedia(media: DraftPostMedia) {
+    processingControllersRef.current.get(media.clientId)?.abort()
+    processingControllersRef.current.delete(media.clientId)
     uploadControllersRef.current.get(media.clientId)?.abort()
     uploadControllersRef.current.delete(media.clientId)
     revokeDraftMediaUrls(media)
@@ -622,7 +674,7 @@ export function PostFormPanel({
   }
 
   function retryDraftMedia(media: DraftPostMedia) {
-    if (!media.file || isSubmitting) {
+    if (!media.file || isSubmitting || media.upload.processingFailed) {
       return
     }
 
@@ -723,7 +775,8 @@ export function PostFormPanel({
 
     const currentSummary = getDraftMediaUploadSummary(draftMedia)
     if (currentSummary.failed > 0) {
-      setMediaNotice('Retry or remove failed uploads before publishing.')
+      setMediaNotice(draftMedia.some((media) => media.upload.processingFailed)
+        ? MEDIA_PROCESSING_FAILED_MESSAGE : 'Retry or remove failed uploads before saving.')
       return
     }
 
@@ -1274,7 +1327,7 @@ export function PostFormPanel({
         description={getFinishingUploadsModalDescription(pendingSubmit?.intent)}
         onClose={() => setPendingSubmit(null)}
         open={pendingSubmit !== null}
-        title="Finishing uploads"
+        title="Waiting for media"
       >
         <div className="space-y-4">
           <div className="rounded-[1.1rem] border border-border bg-muted/70 px-3 py-3">
@@ -1283,8 +1336,8 @@ export function PostFormPanel({
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
               {uploadSummary.failed > 0
-                ? 'Retry the failed uploads before the post can be saved.'
-                : 'The post will continue automatically when every media item is uploaded.'}
+                ? 'Remove failed media before saving.'
+                : 'The post will continue automatically when every media item is ready.'}
             </p>
           </div>
 
@@ -1304,7 +1357,7 @@ export function PostFormPanel({
                       {getDraftMediaUploadStatusText(media)}
                     </p>
                   </div>
-                  {media.upload.status === 'failed' ? (
+                  {media.upload.status === 'failed' && !media.upload.processingFailed ? (
                     <div className="flex shrink-0 gap-1">
                       <Button
                         onClick={() => retryDraftMedia(media)}
@@ -1332,7 +1385,7 @@ export function PostFormPanel({
           </div>
 
           <div className="flex justify-end gap-2">
-            {uploadSummary.failed > 0 ? (
+            {draftMedia.some((media) => media.upload.status === 'failed' && !media.upload.processingFailed) ? (
               <Button
                 onClick={retryFailedDraftMedia}
                 type="button"

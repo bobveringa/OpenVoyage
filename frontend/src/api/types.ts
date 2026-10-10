@@ -288,6 +288,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/media/{media_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Media Status */
+        get: operations["get_media_status_api_v1_media__media_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/media/{media_id}/content": {
         parameters: {
             query?: never;
@@ -1977,7 +1994,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "UPLOADED" | "READY" | "FAILED";
+            status: "UPLOADED" | "PROCESSING" | "READY" | "FAILED";
             /** Technical Info */
             technical_info: components["schemas"]["ImageTechnicalInfo"] | components["schemas"]["VideoTechnicalInfo"] | null;
             urls: components["schemas"]["MediaUrls"];
@@ -1999,7 +2016,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "UPLOADED" | "READY" | "FAILED";
+            status: "UPLOADED" | "PROCESSING" | "READY" | "FAILED";
             /** Technical Info */
             technical_info: components["schemas"]["ImageTechnicalInfo"] | components["schemas"]["VideoTechnicalInfo"] | null;
             urls: components["schemas"]["MediaUrls"];
@@ -2007,7 +2024,7 @@ export interface components {
         /** MediaUrls */
         MediaUrls: {
             /** Content */
-            content: string;
+            content: string | null;
             /** Thumbnail */
             thumbnail: string | null;
         };
@@ -3665,6 +3682,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MediaUploadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_media_status_api_v1_media__media_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                media_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaResponse"];
                 };
             };
             /** @description Validation Error */

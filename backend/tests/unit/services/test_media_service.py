@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 from fastapi import UploadFile
+from core.config import settings
 
 from models.database.media import MediaType
 from models.database.user import User
@@ -85,9 +86,9 @@ def test_upload_media_success_schedules_thumbnail(
     monkeypatch.setattr(
         media_service_module, 'detect_content_type', lambda _f: 'image/jpeg'
     )
-    monkeypatch.setattr(
-        media_service_module, '_extract_media_info', lambda _p, _t: (640, 480, None)
-    )
+    inspect = Mock(side_effect=AssertionError('Inspection must be deferred'))
+    monkeypatch.setattr(media_service_module, '_extract_media_info', inspect)
+    monkeypatch.setattr(settings, 'MEDIA_DIRECTORY', str(tmp_path))
 
     media_id = uuid.uuid4()
     monkeypatch.setattr(media_service_module.uuid, 'uuid4', lambda: media_id)
@@ -108,11 +109,12 @@ def test_upload_media_success_schedules_thumbnail(
 
     assert media.id == media_id
     assert media.media_type == MediaType.IMAGE
-    assert media.width == 640
-    assert media.height == 480
+    assert media.width is None
+    assert media.height is None
+    inspect.assert_not_called()
     fake_db.add.assert_called()
     fake_db.commit.assert_called_once()
-    task, media_arg, path_arg = fake_background_tasks.add_task.call_args.args
-    assert task is media_service_module.create_thumbnail
+    task, media_arg = fake_background_tasks.add_task.call_args.args
+    assert task is media_service_module.process_media
     assert media_arg == media_id
-    assert path_arg.endswith('.jpg')
+    assert '.staging' in media.storage_path

@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { env } from 'node:process'
+import { waitForMediaReady } from './helpers/media'
 
 type AuthTokens = {
   access_token: string
@@ -87,6 +88,7 @@ async function createTripWithApi(
   })
   expect(mediaResponse.ok()).toBe(true)
   const media = (await mediaResponse.json()) as { id: string }
+  await waitForMediaReady(request, apiBaseUrl, media.id, authHeaders(tokens))
 
   const response = await request.post(`${apiBaseUrl}/api/v1/trips`, {
     data: {

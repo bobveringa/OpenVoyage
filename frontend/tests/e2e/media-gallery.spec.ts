@@ -1,8 +1,48 @@
 import { expect, test } from '@playwright/test'
+import { fileURLToPath } from 'node:url'
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/gallery-*.svg', route => route.fulfill({ contentType: 'image/svg+xml', headers: { 'cache-control': 'no-store' }, body: '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"><rect width="1600" height="1000" fill="#427a86"/><path d="M0 1000L700 100 1100 700 1300 400 1600 1000" fill="#183e49"/></svg>' }))
 })
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
+  test(`video poster and playback keep the same size at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    await page.route('**/gallery-video-thumb.svg', route => route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="#427a86"/></svg>',
+    }))
+    let release!: () => void
+    const download = new Promise<void>(resolve => { release = resolve })
+    await page.route('**/gallery-video.webm', async route => {
+      await download
+      await route.fulfill({ contentType: 'video/webm', path: fileURLToPath(new URL('./fixtures/gallery-video.webm', import.meta.url)) })
+    })
+    await page.goto('/tests/e2e/fixtures/media-gallery.html')
+    await page.getByRole('button', { name: 'Open video gallery' }).click()
+    const video = page.locator('video[aria-label="Mountain video"]')
+    try {
+      await expect.poll(() => page.evaluate(async () => {
+        const poster = new Image()
+        poster.src = document.querySelector('video')!.poster
+        await poster.decode()
+        return poster.naturalWidth
+      })).toBe(160)
+      const posterBox = await video.boundingBox()
+      const viewerWidth = await page.getByRole('dialog').evaluate(element => element.clientWidth)
+      expect(posterBox!.width).toBe(viewerWidth - 16)
+      expect(posterBox!.height).toBe(viewport.height - 160)
+      release()
+      await expect.poll(() => video.evaluate(element => element.videoWidth)).toBe(1280)
+      await video.evaluate(element => element.play())
+      await expect.poll(() => video.evaluate(element => element.currentTime)).toBeGreaterThan(0)
+      expect(await video.boundingBox()).toEqual(posterBox)
+      await expect(video).toHaveCSS('object-fit', 'contain')
+    } finally {
+      release()
+    }
+  })
+}
 
 test('preloads neighbors and reuses mounted photos without another request', async ({ page }) => {
   const requests: string[] = []

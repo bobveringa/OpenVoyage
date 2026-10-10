@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { PostMedia } from '@/pages/trip-detail/models'
 import type { DraftPostMedia } from '@/pages/trip-detail/page-types'
+import { getDraftMediaUploadStatusText } from '@/pages/trip-detail/post-form-utils'
 import {
   getMediaThumbnailSrc,
   getMediaType,
@@ -110,7 +111,7 @@ export function DraftMediaUploadStatusBadge({
             {media.upload.error ?? 'Upload failed'}
           </p>
         </div>
-        <Button
+        {!media.upload.processingFailed ? <Button
           className="h-8 w-full rounded-xl"
           disabled={retryDisabled}
           onClick={onRetry}
@@ -120,7 +121,7 @@ export function DraftMediaUploadStatusBadge({
         >
           <RefreshCw className="size-3.5" aria-hidden="true" />
           Retry
-        </Button>
+        </Button> : null}
       </div>
     )
   }
@@ -130,12 +131,12 @@ export function DraftMediaUploadStatusBadge({
       <span
         className={cn(
           'absolute right-2 top-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full px-2 py-1 text-[0.68rem] font-semibold shadow-sm',
-          status === 'uploaded' || status === 'existing'
+          status === 'ready' || status === 'existing'
             ? 'bg-card/90 text-primary'
             : 'bg-slate-950/70 text-white',
         )}
       >
-        {status === 'uploaded' || status === 'existing' ? (
+        {status === 'ready' || status === 'existing' ? (
           <Check className="size-3" aria-hidden="true" />
         ) : (
           <Loader2 className="size-3 animate-spin" aria-hidden="true" />
@@ -380,7 +381,7 @@ function LightboxVideo({ media, onNavigate }: { media: PostMedia; onNavigate: (o
       const dy = touch.clientY - start.y
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) onNavigate(dx > 0 ? -1 : 1)
     }}>
-    <video key={attempt} aria-label={media.alt} className="max-h-full max-w-full" controls playsInline poster={media.poster ?? media.thumbnail} preload="metadata" src={media.src} onError={() => setFailed(true)} />
+    <video key={attempt} aria-label={media.alt} className="h-full w-full object-contain" controls playsInline poster={media.poster ?? media.thumbnail} preload="metadata" src={media.src} onError={() => setFailed(true)} />
     {failed && <button type="button" className="absolute rounded-xl bg-slate-900 p-4" onClick={() => { setFailed(false); setAttempt(value => value + 1) }}>Unable to load video. Retry</button>}
   </div>
 }
@@ -398,6 +399,12 @@ export function MediaPreview({
 }) {
   const previewSrc =
     source === 'thumbnail' ? getMediaThumbnailSrc(media) : media.src
+
+  if (!previewSrc) {
+    return <span className={cn('grid min-w-40 place-items-center bg-muted', className)}>
+      <Loader2 className="size-6 animate-spin" aria-label="Waiting for media preview" />
+    </span>
+  }
 
   if (getMediaType(media) === 'video') {
     if (source === 'thumbnail' && previewSrc !== media.src) {
@@ -452,16 +459,3 @@ export function MediaThumbnailPreview({
 }
 
 export const mediaStripHeightClassName = 'h-56 sm:h-64 lg:h-72 xl:h-80'
-
-function getDraftMediaUploadStatusText(media: DraftPostMedia) {
-  if (media.upload.status === 'existing' || media.upload.status === 'uploaded') {
-    return 'Uploaded'
-  }
-  if (media.upload.status === 'queued') return 'Queued'
-  if (media.upload.status === 'uploading') {
-    return media.upload.progress === null
-      ? 'Uploading'
-      : `Uploading ${Math.round(media.upload.progress * 100)}%`
-  }
-  return 'Failed'
-}

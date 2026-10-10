@@ -26,6 +26,7 @@ from models.api.users import UserDisplaySummaryResponse
 from models.api.trips import ShareLinkDisplayNameUpdateRequest
 from models.api.media import MediaResponse
 from models.database.media import Media, MediaType
+from services.media_readiness import require_ready_media
 from models.database.posts import Post, PostComment, PostCommentLike, PostLike
 from models.database.trips import TripMember, TripRole, TripShareLink, TripViewer
 from models.database.trips import TripVisibility
@@ -444,6 +445,7 @@ class PostSocialService:
                 )
             if media.media_type != MediaType.IMAGE:
                 raise InvalidCommentMediaError('Comment media must be an image')
+            require_ready_media([media])
         comment = PostComment(
             post_id=post.id,
             body=payload.body or '',
