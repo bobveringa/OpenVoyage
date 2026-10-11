@@ -26,20 +26,19 @@ export type PrecisionLevel = (typeof PRECISION_LEVELS)[number]
 export type PrecisionPreset = {
   level: PrecisionLevel
   label: string
-  // Interval at walking pace; smart mode shortens it as speed rises and
-  // stretches it while stationary.
+  // Polarsteps-style background request interval. Android may batch fixes.
   baselineSeconds: number
   powerLevel: PowerLevel
 }
 
-// The same five intervals the old dropdown offered, presented as precision
-// rather than as raw seconds.
+// Four sparse request profiles observed in Polarsteps 8.0.0, plus an
+// OpenVoyage high-detail option. Android can deliver fixes in batches.
 export const PRECISION_PRESETS: readonly PrecisionPreset[] = [
-  { baselineSeconds: 300, label: 'Max battery', level: 1, powerLevel: 'low' },
-  { baselineSeconds: 120, label: 'Battery saver', level: 2, powerLevel: 'balanced' },
-  { baselineSeconds: 60, label: 'Balanced', level: 3, powerLevel: 'high' },
-  { baselineSeconds: 30, label: 'Precise', level: 4, powerLevel: 'high' },
-  { baselineSeconds: 10, label: 'Max precision', level: 5, powerLevel: 'high' },
+  { baselineSeconds: 3600, label: 'Ultra light', level: 1, powerLevel: 'low' },
+  { baselineSeconds: 900, label: 'Light', level: 2, powerLevel: 'low' },
+  { baselineSeconds: 600, label: 'Balanced', level: 3, powerLevel: 'balanced' },
+  { baselineSeconds: 360, label: 'High', level: 4, powerLevel: 'high' },
+  { baselineSeconds: 10, label: 'Max detail', level: 5, powerLevel: 'high' },
 ]
 
 export const MANUAL_INTERVAL_OPTIONS_SECONDS = [10, 30, 60, 120, 300] as const

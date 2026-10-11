@@ -61,7 +61,7 @@ function describePrecision(level: PrecisionLevel): string {
     preset.baselineSeconds < 60
       ? `${preset.baselineSeconds} seconds`
       : `${preset.baselineSeconds / 60} minute${preset.baselineSeconds === 60 ? '' : 's'}`
-  return `About a point every ${spacing} while walking — closer together as you speed up, further apart while you're parked.`
+  return `Requests a point about every ${spacing}. Android may deliver fixes in batches; lower settings use less power and leave larger gaps.`
 }
 
 export function TrackingSettingsPage({
@@ -150,8 +150,8 @@ export function TrackingSettingsPage({
             How your route is recorded
           </CardTitle>
           <CardDescription>
-            Smart tracking adjusts itself as you move. Manual keeps one fixed
-            interval, whatever you're doing.
+            Smart uses battery saving background profiles. Move the slider toward
+            more detail for a denser route. Manual keeps a fixed interval.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

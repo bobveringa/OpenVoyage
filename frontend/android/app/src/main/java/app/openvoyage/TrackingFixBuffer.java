@@ -32,26 +32,31 @@ import java.util.List;
  * already been drained but not yet written to the JS-side SQLite queue.
  *
  * <p>Appends are a single line write; the whole file is only rewritten when the
- * buffer overflows or is drained, which keeps a 1 Hz fix stream cheap.
+ * buffer overflows or is drained, which keeps writes cheap at every profile.
  */
 final class TrackingFixBuffer {
 
     private static final String TAG = "OVTrackingBuffer";
     private static final String FILE_NAME = "tracking-fix-buffer.jsonl";
 
-    /**
-     * Roughly 1.5 days of 30 s fixes, or 80 minutes at the 1 Hz worst case.
-     * Past this the oldest fixes are dropped: an unbounded buffer would be a
-     * slow memory/disk leak for a user who records for days without ever
-     * reopening the app.
-     */
-    private static final int MAX_FIXES = 5000;
+    /** About 5.8 days at the optional 10 s detail setting. */
+    private static final int MAX_FIXES = 50_000;
+    // Trimming a batch avoids rewriting the whole file after every later fix.
+    private static final int TRIM_TO_FIXES = 45_000;
+    private static TrackingFixBuffer instance;
 
     private final File file;
     private final ArrayDeque<String> lines = new ArrayDeque<>();
     private int droppedCount = 0;
 
-    TrackingFixBuffer(Context context) {
+    static synchronized TrackingFixBuffer get(Context context) {
+        if (instance == null) {
+            instance = new TrackingFixBuffer(context.getApplicationContext());
+        }
+        return instance;
+    }
+
+    private TrackingFixBuffer(Context context) {
         this.file = new File(context.getFilesDir(), FILE_NAME);
         load();
     }
@@ -70,14 +75,17 @@ final class TrackingFixBuffer {
         } catch (IOException exception) {
             Log.e(TAG, "Could not read buffered fixes", exception);
         }
-        trim();
+        if (lines.size() > MAX_FIXES) {
+            trimTo(TRIM_TO_FIXES);
+            rewrite();
+        }
     }
 
     synchronized void append(JSONObject fix) {
         String line = fix.toString();
         lines.addLast(line);
         if (lines.size() > MAX_FIXES) {
-            trim();
+            trimTo(TRIM_TO_FIXES);
             rewrite();
             return;
         }
@@ -98,17 +106,27 @@ final class TrackingFixBuffer {
      * queue before doing anything else with them.
      */
     synchronized JSONArray drain() {
+        return drain(Integer.MAX_VALUE);
+    }
+
+    /** Keep each cross-process reply below Android's Binder transaction limit. */
+    synchronized JSONArray drain(int maxFixes) {
         JSONArray result = new JSONArray();
-        for (String line : lines) {
+        int count = Math.min(Math.max(maxFixes, 0), lines.size());
+        for (int index = 0; index < count; index++) {
+            String line = lines.removeFirst();
             try {
                 result.put(new JSONObject(line));
             } catch (JSONException exception) {
                 Log.e(TAG, "Discarding unparseable buffered fix", exception);
             }
         }
-        lines.clear();
         droppedCount = 0;
-        if (file.exists() && !file.delete()) {
+        if (lines.isEmpty()) {
+            if (file.exists() && !file.delete()) {
+                rewrite();
+            }
+        } else {
             rewrite();
         }
         return result;
@@ -123,8 +141,8 @@ final class TrackingFixBuffer {
         return droppedCount;
     }
 
-    private void trim() {
-        while (lines.size() > MAX_FIXES) {
+    private void trimTo(int size) {
+        while (lines.size() > size) {
             lines.removeFirst();
             droppedCount += 1;
         }

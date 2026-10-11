@@ -42,11 +42,9 @@ final class PlatformLocationEngine implements LocationEngine {
     }
 
     /**
-     * Whether this device has a location backend that keeps producing fixes
-     * below the HIGH power tier (B7). On bare AOSP with no network provider,
-     * anything below HIGH resolves to nothing at all — see pickProvider — so
-     * the battery-aware degradation in adaptive.ts must not drop the tier
-     * unless this is true.
+     * Whether this device has a cheaper location backend. On bare AOSP with
+     * no network provider, smart mode keeps its sparse interval but requests
+     * HIGH quality to avoid going silent.
      */
     static boolean hasCoarseLocationBackend(Context context) {
         LocationManager manager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
@@ -116,7 +114,13 @@ final class PlatformLocationEngine implements LocationEngine {
             return;
         }
 
-        String provider = pickProvider(locationManager, config.power);
+        // Bare AOSP builds may expose only GPS behind the framework fused
+        // provider. Requesting LOW quality there can produce no fixes at all.
+        // Keep the sparse interval, but ask for a GPS-quality fix when no
+        // cheaper location backend exists.
+        Power effectivePower = config.smartPrecision > 0
+                && !hasCoarseLocationBackend(context) ? Power.HIGH : config.power;
+        String provider = pickProvider(locationManager, effectivePower);
         if (provider == null) {
             callback.onFailure("No location provider is available on this device.");
             return;
@@ -152,7 +156,10 @@ final class PlatformLocationEngine implements LocationEngine {
                                 Math.min(config.minIntervalMs, config.intervalMs)
                         )
                         .setMinUpdateDistanceMeters(config.minDistanceMeters)
-                        .setQuality(quality(config.power))
+                        .setQuality(quality(effectivePower))
+                        .setMaxUpdateDelayMillis(config.smartPrecision > 0
+                                ? SparseTrackingProfile.forLevel(config.smartPrecision).maxDelayMs
+                                : config.intervalMs)
                         .build();
                 locationManager.requestLocationUpdates(
                         provider,
@@ -172,7 +179,7 @@ final class PlatformLocationEngine implements LocationEngine {
             Log.i(
                     TAG,
                     "Requested platform location updates from " + provider
-                            + " (power=" + config.power + ")"
+                            + " (power=" + effectivePower + ")"
             );
         } catch (SecurityException exception) {
             callback.onFailure("Location permission was denied or revoked.");

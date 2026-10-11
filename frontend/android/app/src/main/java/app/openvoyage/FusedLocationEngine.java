@@ -1,18 +1,20 @@
 package app.openvoyage;
 
 import android.content.Context;
-import android.location.Location;
-import android.os.Looper;
+import android.app.PendingIntent;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
 import android.util.Log;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.CurrentLocationRequest;
 import com.google.android.gms.location.LocationRequest;
-import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
+import com.google.android.gms.tasks.CancellationTokenSource;
 
 /**
  * Google Play Services fused provider: blends GPS, wifi, cell and sensors, and
@@ -24,7 +26,7 @@ final class FusedLocationEngine implements LocationEngine {
 
     private final Context context;
     private final FusedLocationProviderClient client;
-    private LocationCallback locationCallback;
+    private PendingIntent locationIntent;
 
     FusedLocationEngine(Context context) {
         this.context = context;
@@ -55,43 +57,37 @@ final class FusedLocationEngine implements LocationEngine {
     public void start(Config config, Callback callback) {
         stop();
 
-        int priority;
-        switch (config.power) {
-            case LOW:
-                priority = Priority.PRIORITY_LOW_POWER;
-                break;
-            case BALANCED:
-                priority = Priority.PRIORITY_BALANCED_POWER_ACCURACY;
-                break;
-            case HIGH:
-            default:
-                priority = Priority.PRIORITY_HIGH_ACCURACY;
-                break;
-        }
+        int priority = config.smartPrecision == 1 || config.smartPrecision == 2
+                ? Priority.PRIORITY_PASSIVE
+                : config.smartPrecision == 3
+                        ? Priority.PRIORITY_BALANCED_POWER_ACCURACY
+                        : config.power == Power.LOW
+                                ? Priority.PRIORITY_LOW_POWER
+                                : config.power == Power.BALANCED
+                                        ? Priority.PRIORITY_BALANCED_POWER_ACCURACY
+                                        : Priority.PRIORITY_HIGH_ACCURACY;
+        SparseTrackingProfile sparse = config.smartPrecision > 0
+                ? SparseTrackingProfile.forLevel(config.smartPrecision) : null;
 
         LocationRequest request = new LocationRequest.Builder(priority, config.intervalMs)
                 // The OS may hand us a fix sooner than intervalMs when another
                 // app has already woken the GPS; taking it is free accuracy.
-                .setMinUpdateIntervalMillis(Math.min(config.minIntervalMs, config.intervalMs))
-                .setMinUpdateDistanceMeters(config.minDistanceMeters)
-                // Batching lets the modem sleep between fixes, but delivery
-                // delayed past one interval is no longer timely for upload.
-                .setMaxUpdateDelayMillis(config.intervalMs)
-                .setWaitForAccurateLocation(config.power == Power.HIGH)
+                .setMinUpdateIntervalMillis(sparse == null
+                        ? Math.min(config.minIntervalMs, config.intervalMs)
+                        : sparse.minIntervalMs)
+                .setMinUpdateDistanceMeters(sparse == null
+                        ? config.minDistanceMeters : sparse.distanceMeters)
+                // Deliver fixes in batches to a receiver. The request and its
+                // pending intent survive WebView and ordinary process eviction.
+                .setMaxUpdateDelayMillis(sparse == null ? config.intervalMs : sparse.maxDelayMs)
+                .setWaitForAccurateLocation(sparse == null && config.power == Power.HIGH)
                 .build();
 
-        locationCallback = new LocationCallback() {
-            @Override
-            public void onLocationResult(LocationResult result) {
-                for (Location location : result.getLocations()) {
-                    callback.onLocation(location);
-                }
-            }
-        };
+        locationIntent = locationIntent(context, config.recordingToken);
 
         try {
             client
-                    .requestLocationUpdates(request, locationCallback, Looper.getMainLooper())
+                    .requestLocationUpdates(request, locationIntent)
                     // Previously unobserved, which is precisely how a device
                     // without Play Services ended up "recording" nothing while
                     // looking healthy.
@@ -108,9 +104,47 @@ final class FusedLocationEngine implements LocationEngine {
 
     @Override
     public void stop() {
-        if (locationCallback != null) {
-            client.removeLocationUpdates(locationCallback);
-            locationCallback = null;
+        if (locationIntent != null) {
+            client.removeLocationUpdates(locationIntent);
+            locationIntent.cancel();
+            locationIntent = null;
         }
+    }
+
+    void lookupCurrentLocation(Callback callback) {
+        CurrentLocationRequest request = new CurrentLocationRequest.Builder()
+                .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                .setMaxUpdateAgeMillis(0L)
+                .setDurationMillis(15_000L)
+                .build();
+        try {
+            client.getCurrentLocation(request, new CancellationTokenSource().getToken())
+                    .addOnSuccessListener(location -> {
+                        if (location != null) {
+                            callback.onLocation(location);
+                        }
+                    })
+                    .addOnFailureListener(error -> {
+                        Log.w(TAG, "Periodic location lookup failed", error);
+                        callback.onFailure(error.getMessage() == null
+                                ? "Location lookup failed" : error.getMessage());
+                    });
+        } catch (SecurityException exception) {
+            Log.w(TAG, "Periodic location lookup denied", exception);
+            callback.onFailure("Location permission was denied or revoked.");
+        }
+    }
+
+    private static PendingIntent locationIntent(Context context, String recordingToken) {
+        Intent intent = new Intent(context, TrackingLocationReceiver.class)
+                .setAction(TrackingLocationReceiver.ACTION_LOCATION)
+                .setData(Uri.parse("openvoyage://tracking/fix/" + recordingToken));
+        // Play services fills the result extras, so Android 12+ needs a mutable
+        // pending intent. Its explicit, non-exported receiver limits delivery.
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            flags |= PendingIntent.FLAG_MUTABLE;
+        }
+        return PendingIntent.getBroadcast(context, 0, intent, flags);
     }
 }

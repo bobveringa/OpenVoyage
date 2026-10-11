@@ -357,6 +357,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   )
 
   const stopTrackingRef = useRef<() => Promise<void>>(async () => {})
+  const stopInFlightRef = useRef(false)
   useEffect(() => {
     if (!activeSession || activeSession.endedAt || !accessToken || status !== 'recording') return
     let cancelled = false
@@ -426,6 +427,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         intervalSeconds: decision.intervalSeconds,
         locationSource: decision.locationSource,
         mode: settingsRef.current.mode,
+        smartPrecision: settingsRef.current.smartPrecision,
         notificationMessage: notification.message,
         notificationTitle: notification.title,
         onEngineFailed: (message) => void engineFailedRef.current(message),
@@ -510,8 +512,32 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         return
       }
 
-      const mine = pending.filter((session) => session.recordedByUserId === userId)
-      const stillOpen = mine.find((session) => session.endedAt === null) ?? null
+      let mine = pending.filter((session) => session.recordedByUserId === userId)
+      let stillOpen = mine.find((session) => session.endedAt === null) ?? null
+
+      // The notification Stop action or a hard engine failure may have ended
+      // native capture while the UI process was gone. Transfer its final
+      // buffered fixes before closing the session, and never restart it.
+      const externalStop = stillOpen
+        ? await getSource().getExternalStop().catch(() => null)
+        : null
+      if (stillOpen && externalStop) {
+        const stoppedSession = stillOpen
+        const options = buildSourceOptions(stoppedSession.sessionId,
+          stoppedSession.startedAt, {
+            message: 'Finishing recording…',
+            title: notificationTitleFor({ tripTitle: stoppedSession.tripTitle ?? null }),
+          })
+        await getSource().drainStopped(options)
+        const endedAt = new Date(externalStop.atMs || Date.now()).toISOString()
+        const ended = { ...stoppedSession, endAcked: false, endedAt }
+        await putPendingSession(ended)
+        mine = mine.map((session) => session === stoppedSession ? ended : session)
+        stillOpen = null
+        if (externalStop.reason === 'engine') {
+          setError(externalStop.message ?? 'Location tracking stopped unexpectedly.')
+        }
+      }
 
       if (!stillOpen) {
         // Invariant 2. Cheap no-op when nothing is running natively, and the
@@ -704,6 +730,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
               distanceFilterMeters: next.distanceFilterMeters,
               locationSource: next.locationSource,
               mode: next.mode,
+              smartPrecision: next.smartPrecision,
             })
             .catch((configureError) => setError(getErrorMessage(configureError)))
         }
@@ -984,28 +1011,34 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
 
   const stopTracking = useCallback(async () => {
     const session = activeSession
-    if (!session || (status !== 'recording' && status !== 'starting')) {
+    if (stopInFlightRef.current || !session
+        || (status !== 'recording' && status !== 'starting')) {
       return
     }
+    stopInFlightRef.current = true
     setStatus('stopping')
 
     // Stop capturing immediately (§3.2); syncing what was already captured
     // happens asynchronously via the still-running uploader.
-    await stopCapture()
+    try {
+      await stopCapture()
 
-    const endedAt = new Date().toISOString()
-    const pending = await getPendingSession(session.sessionId)
-    if (pending) {
-      await putPendingSession({ ...pending, endAcked: false, endedAt })
+      const endedAt = new Date().toISOString()
+      const pending = await getPendingSession(session.sessionId)
+      if (pending) {
+        await putPendingSession({ ...pending, endAcked: false, endedAt })
+      }
+      uploaderRef.current?.requestSync()
+
+      // Stays visible (as 'syncing') until the uploader's onFullySynced fires
+      // — see the TrackingStatus comment. Clearing it here made an offline
+      // Stop look like the recording had just been deleted, when the samples
+      // were actually still safely queued and waiting to sync.
+      setActiveSession({ ...session, endedAt })
+      setStatus('syncing')
+    } finally {
+      stopInFlightRef.current = false
     }
-    uploaderRef.current?.requestSync()
-
-    // Stays visible (as 'syncing') until the uploader's onFullySynced fires
-    // — see the TrackingStatus comment. Clearing it here made an offline
-    // Stop look like the recording had just been deleted, when the samples
-    // were actually still safely queued and waiting to sync.
-    setActiveSession({ ...session, endedAt })
-    setStatus('syncing')
   }, [activeSession, status, stopCapture])
 
   // Lets the notification's Stop action reach the current stopTracking
@@ -1014,6 +1047,31 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   useEffect(() => {
     stopTrackingRef.current = stopTracking
   }, [stopTracking])
+
+  useEffect(() => {
+    if (!NATIVE_ADAPTIVE_POLICY || status !== 'recording') {
+      return undefined
+    }
+    const reconcile = () => {
+      if (document.visibilityState !== 'visible') {
+        return
+      }
+      void getSource().getExternalStop().then((externalStop) => {
+        if (externalStop?.reason === 'notification') {
+          void stopTrackingRef.current()
+        } else if (externalStop?.reason === 'engine') {
+          void engineFailedRef.current(externalStop.message
+            ?? 'Location tracking stopped unexpectedly.')
+        }
+      }).catch((stateError) => setError(getErrorMessage(stateError)))
+    }
+    document.addEventListener('visibilitychange', reconcile)
+    window.addEventListener('focus', reconcile)
+    return () => {
+      document.removeEventListener('visibilitychange', reconcile)
+      window.removeEventListener('focus', reconcile)
+    }
+  }, [getSource, status])
 
   const value = useMemo(
     () => ({

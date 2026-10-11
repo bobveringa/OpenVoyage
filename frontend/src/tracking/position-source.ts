@@ -2,7 +2,7 @@ import { registerPlugin } from '@capacitor/core'
 
 import { isNativePlatform } from '@/native/platform'
 import { haversineMeters } from '@/tracking/geo'
-import type { LocationSource, PowerLevel, TrackingMode } from '@/tracking/tracking-settings'
+import type { LocationSource, PowerLevel, PrecisionLevel, TrackingMode } from '@/tracking/tracking-settings'
 
 export type PositionFix = {
   recordedAt: string
@@ -29,6 +29,7 @@ export type PositionSourceConfig = {
 
 export type NativePolicyConfig = {
   mode: TrackingMode
+  smartPrecision: PrecisionLevel
   baselineIntervalSeconds: number
   baselinePowerLevel: PowerLevel
   distanceFilterMeters: number
@@ -97,6 +98,9 @@ export type NativeTrackingState = {
   // this from `tracking` is what lets a relaunch resume instead of
   // reporting the recording as finished.
   trackingIntent: boolean
+  stopReason: 'notification' | 'engine' | null
+  stopMessage: string | null
+  stopAtMs: number
   startedAtMs: number
   intervalSeconds: number
   powerLevel: PowerLevel
@@ -117,6 +121,8 @@ export interface PositionSource {
   // webview reload) instead of starting a second one. Resolves false when
   // there is nothing to adopt.
   resume(options: PositionSourceOptions): Promise<boolean>
+  getExternalStop(): Promise<{ reason: 'notification' | 'engine'; message: string | null; atMs: number } | null>
+  drainStopped(options: PositionSourceOptions): Promise<void>
   // Phase 3: change cadence mid-recording without restarting the service.
   configure(config: PositionSourceConfig): Promise<void>
   updatePolicy(config: NativePolicyConfig): Promise<void>
@@ -140,6 +146,7 @@ type NativeFix = {
 
 interface TrackingPlugin {
   getState(): Promise<NativeTrackingState>
+  resume(): Promise<void>
   probe(options: { locationSource: LocationSource }): Promise<ProbeResult>
   start(options: {
     intervalSeconds: number
@@ -148,6 +155,7 @@ interface TrackingPlugin {
     powerLevel: PowerLevel
     locationSource: LocationSource
     mode?: TrackingMode
+    smartPrecision?: PrecisionLevel
     baselineIntervalSeconds?: number
     baselinePowerLevel?: PowerLevel
     title: string
@@ -160,13 +168,14 @@ interface TrackingPlugin {
     powerLevel: PowerLevel
     locationSource: LocationSource
     mode?: TrackingMode
+    smartPrecision?: PrecisionLevel
     baselineIntervalSeconds?: number
     baselinePowerLevel?: PowerLevel
   }): Promise<NativeTrackingState>
   updateStatus(options: { title: string; text: string }): Promise<void>
   stop(): Promise<void>
   noteSampleAccepted(): Promise<void>
-  drain(): Promise<{ fixes: NativeFix[]; droppedCount: number }>
+  drain(): Promise<{ fixes: NativeFix[]; droppedCount: number; hasMore?: boolean }>
   getPowerState(): Promise<PowerState>
   addListener(
     event: 'fixAvailable' | 'stopRequested',
@@ -227,6 +236,7 @@ function nativePolicyCadence(config: NativePolicyConfig): {
   powerLevel: PowerLevel
   locationSource: LocationSource
   mode: TrackingMode
+  smartPrecision: PrecisionLevel
   baselineIntervalSeconds: number
   baselinePowerLevel: PowerLevel
 } {
@@ -245,6 +255,7 @@ function nativePolicyCadence(config: NativePolicyConfig): {
       config.baselineIntervalSeconds / speedup,
     ),
     mode: config.mode,
+    smartPrecision: config.smartPrecision,
     powerLevel: config.baselinePowerLevel,
   }
 }
@@ -274,6 +285,14 @@ export function createFixGate(intervalSeconds: number, distanceFilterMeters: num
   }
 }
 
+function nativeFixGate(mode: TrackingMode | null, intervalSeconds: number,
+  distanceFilterMeters: number) {
+  // Smart profiles already impose time and displacement in the OS request.
+  // A second interval gate would discard valid early fixes from a batch.
+  return createFixGate(mode === 'smart' ? 0 : intervalSeconds,
+    mode === 'smart' ? 0 : distanceFilterMeters)
+}
+
 function toPositionFix(fix: NativeFix): PositionFix {
   return {
     accuracyMeters: fix.accuracy,
@@ -298,19 +317,32 @@ class NativePositionSource implements PositionSource {
     return Tracking.probe({ locationSource })
   }
 
+  async getExternalStop(): Promise<{ reason: 'notification' | 'engine'; message: string | null; atMs: number } | null> {
+    const state = await Tracking.getState()
+    if (state.trackingIntent || !state.stopReason) {
+      return null
+    }
+    return { reason: state.stopReason, message: state.stopMessage, atMs: state.stopAtMs }
+  }
+
+  async drainStopped(options: PositionSourceOptions): Promise<void> {
+    this.shouldAccept = nativeFixGate(options.mode, options.intervalSeconds,
+      options.distanceFilterMeters)
+    await this.drain(options)
+  }
+
   async start(options: PositionSourceOptions): Promise<void> {
     await this.detach()
-    this.shouldAccept = createFixGate(options.intervalSeconds, options.distanceFilterMeters)
+    this.shouldAccept = nativeFixGate(options.mode, options.intervalSeconds,
+      options.distanceFilterMeters)
     const state = await Tracking.start({
       ...nativePolicyCadence(options),
       text: options.notificationMessage,
       title: options.notificationTitle,
     })
     if (state.tracking) {
-      this.shouldAccept = createFixGate(
-        state.intervalSeconds,
-        state.mode === 'smart' ? 0 : options.distanceFilterMeters,
-      )
+      this.shouldAccept = nativeFixGate(state.mode, state.intervalSeconds,
+        options.distanceFilterMeters)
     }
     await this.attach(options)
   }
@@ -334,9 +366,24 @@ class NativePositionSource implements PositionSource {
       return true
     }
 
-    // The flag outlived the service, so the process was killed mid-recording
-    // and the service hasn't come back. Start it again.
-    await this.start(options)
+    // Restore the persisted native request. A fresh start would clear fixes
+    // collected by the PendingIntent receiver while the service was absent.
+    await Tracking.resume()
+    let restored = await Tracking.getState()
+    for (let attempt = 0; attempt < 30 && !restored.tracking; attempt += 1) {
+      if (!restored.trackingIntent) {
+        throw new Error('The native recording could not be restored.')
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      restored = await Tracking.getState()
+    }
+    if (!restored.tracking) {
+      throw new Error('The native recording did not resume.')
+    }
+    await this.attach(options)
+    await this.updatePolicy(options)
+    await this.updateStatus({ text: options.notificationMessage,
+      title: options.notificationTitle })
     return true
   }
 
@@ -366,10 +413,8 @@ class NativePositionSource implements PositionSource {
     )
     this.listeners.push(
       await Tracking.addListener('adaptiveStateChanged', (state) => {
-        this.shouldAccept = createFixGate(
-          state.intervalSeconds,
-          state.mode === 'smart' ? 0 : options.distanceFilterMeters,
-        )
+        this.shouldAccept = nativeFixGate(state.mode, state.intervalSeconds,
+          options.distanceFilterMeters)
         options.onAdaptiveStateChanged?.(state)
       }),
     )
@@ -382,10 +427,8 @@ class NativePositionSource implements PositionSource {
         mode: state.mode,
         powerLevel: state.powerLevel,
       }
-      this.shouldAccept = createFixGate(
-        adaptiveState.intervalSeconds,
-        adaptiveState.mode === 'smart' ? 0 : options.distanceFilterMeters,
-      )
+      this.shouldAccept = nativeFixGate(adaptiveState.mode,
+        adaptiveState.intervalSeconds, options.distanceFilterMeters)
       options.onAdaptiveStateChanged?.(adaptiveState)
     }
 
@@ -411,7 +454,7 @@ class NativePositionSource implements PositionSource {
     try {
       do {
         this.drainAgain = false
-        const { fixes, droppedCount } = await Tracking.drain()
+        const { fixes, droppedCount, hasMore } = await Tracking.drain()
         if (droppedCount > 0) {
           options.onFixesDropped?.(droppedCount)
         }
@@ -431,6 +474,9 @@ class NativePositionSource implements PositionSource {
             options.onError(error instanceof Error ? error : new Error(String(error)))
           }
         }
+        if (hasMore) {
+          this.drainAgain = true
+        }
       } while (this.drainAgain)
     } catch (error) {
       options.onError(error instanceof Error ? error : new Error(String(error)))
@@ -443,7 +489,8 @@ class NativePositionSource implements PositionSource {
     // The gate has to be rebuilt alongside the OS request, otherwise a
     // stretched interval would keep being enforced at the old, denser
     // spacing (or vice versa) until the next start.
-    this.shouldAccept = createFixGate(config.intervalSeconds, config.distanceFilterMeters)
+    this.shouldAccept = nativeFixGate(this.options?.mode ?? null,
+      config.intervalSeconds, config.distanceFilterMeters)
     await Tracking.configure({
       ...nativeCadence(config),
       ...(this.options ? nativePolicyCadence(this.options) : {}),
@@ -456,10 +503,8 @@ class NativePositionSource implements PositionSource {
     }
     const state = await Tracking.configure(nativePolicyCadence(config))
     if (state.tracking) {
-      this.shouldAccept = createFixGate(
-        state.intervalSeconds,
-        state.mode === 'smart' ? 0 : config.distanceFilterMeters,
-      )
+      this.shouldAccept = nativeFixGate(state.mode, state.intervalSeconds,
+        config.distanceFilterMeters)
     }
   }
 
@@ -490,6 +535,10 @@ class NativePositionSource implements PositionSource {
 }
 
 class WebPositionSource implements PositionSource {
+  async getExternalStop(): Promise<null> {
+    return null
+  }
+  async drainStopped(): Promise<void> {}
   private watchId: number | null = null
 
   // The browser has one geolocation API and no engine choice to make.

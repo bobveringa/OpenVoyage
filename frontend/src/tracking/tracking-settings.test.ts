@@ -29,7 +29,7 @@ describe('precision presets', () => {
 describe('baselineFor', () => {
   it('uses the precision preset in smart mode', () => {
     const baseline = baselineFor({ ...DEFAULT_TRACKING_SETTINGS, smartPrecision: 1 })
-    expect(baseline).toEqual({ intervalSeconds: 300, powerLevel: 'low' })
+    expect(baseline).toEqual({ intervalSeconds: 3600, powerLevel: 'low' })
   })
 
   it('uses the interval and power the user picked in manual mode', () => {
