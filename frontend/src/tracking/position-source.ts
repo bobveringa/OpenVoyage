@@ -5,6 +5,7 @@ import { haversineMeters } from '@/tracking/geo'
 import type { LocationSource, PowerLevel, PrecisionLevel, TrackingMode } from '@/tracking/tracking-settings'
 
 export type PositionFix = {
+  nativeId?: string
   recordedAt: string
   latitude: number
   longitude: number
@@ -64,8 +65,6 @@ export type ProbeResult = {
 
 export type PositionSourceOptions = PositionSourceConfig &
   NativePolicyConfig & {
-  notificationTitle: string
-  notificationMessage: string
   onFix: (fix: PositionFix) => void | Promise<void>
   onError: (error: Error) => void
   // The user tapped Stop in the ongoing notification. The session still has
@@ -81,7 +80,7 @@ export type PositionSourceOptions = PositionSourceConfig &
   // The native fix buffer overflowed and dropped fixes before JS ever saw
   // them (B4) — the same failure mode as the local SQLite queue's own
   // overflow eviction, just further upstream.
-  onFixesDropped?: (count: number) => void
+  onFixesDropped?: (count: number) => void | Promise<void>
   onAdaptiveStateChanged?: (state: NativeAdaptiveState) => void
 }
 
@@ -126,14 +125,15 @@ export interface PositionSource {
   // Phase 3: change cadence mid-recording without restarting the service.
   configure(config: PositionSourceConfig): Promise<void>
   updatePolicy(config: NativePolicyConfig): Promise<void>
-  updateStatus(status: { title: string; text: string }): Promise<void>
   getPowerState(): Promise<PowerState>
+  getBufferedFixCount(): Promise<number>
   // Tells the native watchdog a fix actually made it into the queue, so
   // "no signal" can be told apart from "signal too poor to record".
   noteSampleAccepted(): Promise<void>
 }
 
 type NativeFix = {
+  nativeId: string
   latitude: number
   longitude: number
   accuracy: number | null
@@ -158,8 +158,6 @@ interface TrackingPlugin {
     smartPrecision?: PrecisionLevel
     baselineIntervalSeconds?: number
     baselinePowerLevel?: PowerLevel
-    title: string
-    text: string
   }): Promise<NativeTrackingState>
   configure(options: {
     intervalSeconds: number
@@ -172,10 +170,10 @@ interface TrackingPlugin {
     baselineIntervalSeconds?: number
     baselinePowerLevel?: PowerLevel
   }): Promise<NativeTrackingState>
-  updateStatus(options: { title: string; text: string }): Promise<void>
   stop(): Promise<void>
   noteSampleAccepted(): Promise<void>
   drain(): Promise<{ fixes: NativeFix[]; droppedCount: number; hasMore?: boolean }>
+  acknowledge(options: { nativeId?: string; handledDroppedCount?: number }): Promise<void>
   getPowerState(): Promise<PowerState>
   addListener(
     event: 'fixAvailable' | 'stopRequested',
@@ -295,6 +293,7 @@ function nativeFixGate(mode: TrackingMode | null, intervalSeconds: number,
 
 function toPositionFix(fix: NativeFix): PositionFix {
   return {
+    nativeId: fix.nativeId,
     accuracyMeters: fix.accuracy,
     altitudeMeters: fix.altitude,
     headingDegrees: fix.bearing,
@@ -337,8 +336,6 @@ class NativePositionSource implements PositionSource {
       options.distanceFilterMeters)
     const state = await Tracking.start({
       ...nativePolicyCadence(options),
-      text: options.notificationMessage,
-      title: options.notificationTitle,
     })
     if (state.tracking) {
       this.shouldAccept = nativeFixGate(state.mode, state.intervalSeconds,
@@ -359,10 +356,6 @@ class NativePositionSource implements PositionSource {
       // the receiver has already locked).
       await this.attach(options)
       await this.updatePolicy(options)
-      await this.updateStatus({
-        text: options.notificationMessage,
-        title: options.notificationTitle,
-      })
       return true
     }
 
@@ -382,8 +375,6 @@ class NativePositionSource implements PositionSource {
     }
     await this.attach(options)
     await this.updatePolicy(options)
-    await this.updateStatus({ text: options.notificationMessage,
-      title: options.notificationTitle })
     return true
   }
 
@@ -442,9 +433,8 @@ class NativePositionSource implements PositionSource {
     await Promise.all(listeners.map((listener) => listener.remove()))
   }
 
-  // Fixes are pulled, not pushed, so one drain must not overlap another —
-  // otherwise the same batch could be handed to onFix twice, or a fix that
-  // arrived mid-drain could sit unnoticed until the next one.
+  // Peek, process, then acknowledge the successful prefix. A failed SQLite
+  // write leaves that fix in the native buffer for the next attempt.
   private async drain(options: PositionSourceOptions): Promise<void> {
     if (this.draining) {
       this.drainAgain = true
@@ -455,26 +445,38 @@ class NativePositionSource implements PositionSource {
       do {
         this.drainAgain = false
         const { fixes, droppedCount, hasMore } = await Tracking.drain()
+        let handledDroppedCount = 0
         if (droppedCount > 0) {
-          options.onFixesDropped?.(droppedCount)
+          await options.onFixesDropped?.(droppedCount)
+          handledDroppedCount = droppedCount
         }
+        let lastProcessedId: string | undefined
         for (const fix of fixes) {
-          if (
-            !this.shouldAccept({
+          try {
+            if (this.shouldAccept({
               atMs: fix.time,
               latitude: fix.latitude,
               longitude: fix.longitude,
-            })
-          ) {
-            continue
-          }
-          try {
-            await options.onFix(toPositionFix(fix))
+            })) {
+              await options.onFix(toPositionFix(fix))
+            }
+            lastProcessedId = fix.nativeId
           } catch (error) {
             options.onError(error instanceof Error ? error : new Error(String(error)))
+            // The gate has already observed this fix. Rebuild it so a retry
+            // cannot discard the failed fix as an interval duplicate.
+            this.shouldAccept = nativeFixGate(options.mode, options.intervalSeconds,
+              options.distanceFilterMeters)
+            break
           }
         }
-        if (hasMore) {
+        if (lastProcessedId || handledDroppedCount > 0) {
+          await Tracking.acknowledge({
+            nativeId: lastProcessedId,
+            handledDroppedCount,
+          })
+        }
+        if (lastProcessedId === fixes[fixes.length - 1]?.nativeId && hasMore) {
           this.drainAgain = true
         }
       } while (this.drainAgain)
@@ -508,12 +510,12 @@ class NativePositionSource implements PositionSource {
     }
   }
 
-  async updateStatus(status: { title: string; text: string }): Promise<void> {
-    await Tracking.updateStatus(status)
-  }
-
   async getPowerState(): Promise<PowerState> {
     return Tracking.getPowerState()
+  }
+
+  async getBufferedFixCount(): Promise<number> {
+    return (await Tracking.getState()).bufferedFixes
   }
 
   async noteSampleAccepted(): Promise<void> {
@@ -605,10 +607,13 @@ class WebPositionSource implements PositionSource {
 
   async updatePolicy(): Promise<void> {}
 
-  async updateStatus(): Promise<void> {}
 
   async getPowerState(): Promise<PowerState> {
     return { batteryLevel: null, charging: false, powerSaveMode: false }
+  }
+
+  async getBufferedFixCount(): Promise<number> {
+    return 0
   }
 
   // No native watchdog on web.

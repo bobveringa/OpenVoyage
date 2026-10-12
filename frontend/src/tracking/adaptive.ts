@@ -36,11 +36,12 @@ export const STATIONARY_DWELL_MS = 90_000
  * essentially everything it produces, so the recording looks like it simply
  * stopped. Conversely 100 m is loose for a high-accuracy GNSS fix. Tying the
  * cutoff to what the current tier can actually deliver removes the setting and
- * makes it correct at both ends.
+ * makes it correct at both ends. The high tier has no accuracy cutoff so an
+ * imprecise fix can still preserve the route when location is difficult.
  */
 const ACCURACY_CUTOFF_METERS: Record<PowerLevel, number> = {
   balanced: 300,
-  high: 100,
+  high: Number.POSITIVE_INFINITY,
   low: 1000,
 }
 

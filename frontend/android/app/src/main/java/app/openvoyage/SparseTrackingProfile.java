@@ -1,7 +1,7 @@
 package app.openvoyage;
 
 /**
- * Sparse location profiles recovered from Polarsteps 8.0.0's tracker request.
+ * Sparse location profiles for background tracking.
  * The OS treats these as hints, so actual delivery and power use vary by device.
  */
 final class SparseTrackingProfile {

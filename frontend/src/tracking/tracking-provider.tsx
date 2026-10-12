@@ -19,7 +19,6 @@ import {
   createMovementDetector,
   shouldRescueRejectedFix,
   decideTracking,
-  describeAdaptiveReason,
   isMeaningfulChange,
   type AdaptiveDecision,
 } from '@/tracking/adaptive'
@@ -62,9 +61,7 @@ import {
   type StartTrackingInput,
   type TrackingStatus,
 } from '@/tracking/tracking-context'
-import { describeTravelMode } from '@/tracking/travel-mode-options'
 import { SessionUploader, type UploaderSnapshot } from '@/tracking/uploader'
-import { describeUploaderStatus } from '@/tracking/uploader-status'
 
 type TrackingProviderProps = {
   children: ReactNode
@@ -133,7 +130,6 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   // a useEffect's dependency array — this gives effects (the notification
   // text, most notably) something to depend on so they actually re-run when
   // settings change mid-recording.
-  const [settingsVersion, setSettingsVersion] = useState(0)
   // Whether the current engine can still deliver fixes at a degraded power
   // tier (B7) — see adaptive.ts's battery branch. False until a probe says
   // otherwise, which is the safe default.
@@ -169,7 +165,6 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   // with a version bump so effects depending on settings can see it.
   const updateSettingsRef = useCallback((next: TrackingSettings) => {
     settingsRef.current = next
-    setSettingsVersion((version) => version + 1)
   }, [])
 
   // Pairs the ref (handleFix's synchronous read path) with the state
@@ -295,7 +290,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         altitudeMeters: fix.altitudeMeters,
         enqueuedAt: new Date().toISOString(),
         headingDegrees: fix.headingDegrees,
-        id: crypto.randomUUID(),
+        id: fix.nativeId ?? crypto.randomUUID(),
         latitude: fix.latitude,
         longitude: fix.longitude,
         recordedAt: fix.recordedAt,
@@ -403,7 +398,6 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     (
       sessionId: string,
       startedAt: string,
-      notification: { title: string; message: string },
     ): PositionSourceOptions => {
       const decision =
         decisionRef.current ??
@@ -428,17 +422,16 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         locationSource: decision.locationSource,
         mode: settingsRef.current.mode,
         smartPrecision: settingsRef.current.smartPrecision,
-        notificationMessage: notification.message,
-        notificationTitle: notification.title,
         onEngineFailed: (message) => void engineFailedRef.current(message),
         onEngineWarning: (message) => setLocationWarning(message),
         onError: (positionError) => setError(positionError.message),
         onFix: (fix) => handleFix(sessionId, startedAt, fix),
-        onFixesDropped: (count) => {
+        onFixesDropped: async (count) => {
           // The native fix buffer overflowed before JS ever saw these fixes
           // (B4) — the same failure mode the queue's own overflow eviction
           // already surfaces, so it feeds the same counter and UI copy.
-          void addDroppedLocallyCount(count).then(() => refreshQueueStats(sessionId))
+          await addDroppedLocallyCount(count)
+          void refreshQueueStats(sessionId)
         },
         onAdaptiveStateChanged: (state) => {
           const next: AdaptiveDecision = {
@@ -461,12 +454,6 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       }
     },
     [handleFix, refreshQueueStats],
-  )
-
-  const notificationTitleFor = useCallback(
-    (session: { tripTitle: string | null }) =>
-      session.tripTitle ? `Recording ${session.tripTitle}` : 'Recording trip',
-    [],
   )
 
   // Boot recovery and reconciliation. The webview (and its React state) can
@@ -524,10 +511,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       if (stillOpen && externalStop) {
         const stoppedSession = stillOpen
         const options = buildSourceOptions(stoppedSession.sessionId,
-          stoppedSession.startedAt, {
-            message: 'Finishing recording…',
-            title: notificationTitleFor({ tripTitle: stoppedSession.tripTitle ?? null }),
-          })
+          stoppedSession.startedAt)
         await getSource().drainStopped(options)
         const endedAt = new Date(externalStop.atMs || Date.now()).toISOString()
         const ended = { ...stoppedSession, endAcked: false, endedAt }
@@ -540,6 +524,17 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       }
 
       if (!stillOpen) {
+        // A queue write may have failed during an ordinary Stop while the
+        // native buffer kept its fixes. Retry them under the old session
+        // before a later recording can start.
+        const latestEnded = mine
+          .filter((session) => session.endedAt !== null)
+          .sort((a, b) => (b.endedAt ?? '').localeCompare(a.endedAt ?? ''))[0]
+        if (latestEnded) {
+          await getSource().drainStopped(buildSourceOptions(
+            latestEnded.sessionId, latestEnded.startedAt,
+          ))
+        }
         // Invariant 2. Cheap no-op when nothing is running natively, and the
         // one thing that guarantees a leaked recording can never survive a
         // relaunch.
@@ -596,6 +591,8 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       if (stillOpen) {
         movementRef.current = createMovementDetector()
         decisionRef.current = null
+        lastAcceptedAtRef.current = null
+        lastAcceptedFixRef.current = null
         try {
           const probe = await getSource().probe(settings.locationSource)
           coarseLocationAvailableRef.current = probe.ok
@@ -604,10 +601,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         } catch {
           coarseLocationAvailableRef.current = false
         }
-        const options = buildSourceOptions(toShow.sessionId, toShow.startedAt, {
-          message: 'Reattaching…',
-          title: notificationTitleFor({ tripTitle: toShow.tripTitle ?? null }),
-        })
+        const options = buildSourceOptions(toShow.sessionId, toShow.startedAt)
         try {
           // Adopts the still-running native recording when there is one and
           // only starts a fresh one when there genuinely isn't.
@@ -660,58 +654,6 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
     }, POWER_POLL_MS)
     return () => window.clearInterval(timer)
   }, [applyAdaptivePolicy, getSource, status])
-
-  // Keeps the ongoing notification honest. It used to be built once when the
-  // recording started and never touched again, so it kept claiming
-  // "Recording your route" while the queue backed up, the uploader paused
-  // for re-authentication, or the recording had already been stopped.
-  useEffect(() => {
-    if (!activeSession || (status !== 'recording' && status !== 'syncing')) {
-      return
-    }
-
-    const title =
-      status === 'syncing'
-        ? 'Finishing sync'
-        : notificationTitleFor({ tripTitle: activeSession.tripTitle })
-
-    let text: string
-    if (settingsRef.current.notificationDetail === 'minimal') {
-      text = status === 'syncing' ? 'Uploading the last points.' : 'Recording your route.'
-    } else {
-      const queued = queueStats?.sampleCount ?? uploaderSnapshot?.queueDepth ?? 0
-      const parts = [
-        `${queued} queued`,
-        describeUploaderStatus(uploaderSnapshot?.status ?? 'idle'),
-      ]
-      if (status === 'recording' && adaptiveDecision) {
-        parts.push(describeAdaptiveReason(adaptiveDecision))
-      }
-      // U2: visible without unlocking into the app, since the mode switcher
-      // is the one piece of state the user is now responsible for.
-      if (status === 'recording') {
-        parts.push(describeTravelMode(currentTravelMode))
-      }
-      text = parts.join(' · ')
-    }
-
-    void getSource()
-      .updateStatus({ text, title })
-      .catch(() => {
-        // A failed notification refresh is cosmetic; the recording itself is
-        // unaffected and the next state change will try again.
-      })
-  }, [
-    activeSession,
-    adaptiveDecision,
-    currentTravelMode,
-    getSource,
-    notificationTitleFor,
-    queueStats,
-    settingsVersion,
-    status,
-    uploaderSnapshot,
-  ])
 
   // Settings just saved from the settings page (B8). Previously the page
   // wrote to storage and nothing else happened until the *next* recording —
@@ -844,6 +786,24 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         }
         coarseLocationAvailableRef.current = probe.coarseLocationAvailable
 
+        // A failed prior handoff remains in the native buffer. Give the
+        // previous, already-ended session another chance to ingest it before
+        // asking native code to begin a different recording.
+        const latestEnded = (await listPendingSessions())
+          .filter((session) => session.recordedByUserId === currentUserId
+            && session.endedAt !== null)
+          .sort((a, b) => (b.endedAt ?? '').localeCompare(a.endedAt ?? ''))[0]
+        if (latestEnded) {
+          await getSource().drainStopped(buildSourceOptions(
+            latestEnded.sessionId, latestEnded.startedAt,
+          ))
+        }
+        if (await getSource().getBufferedFixCount() > 0) {
+          setError('Previous recording points are still waiting to be saved. Reopen the app to retry.')
+          setStatus('idle')
+          return
+        }
+
         try {
           powerRef.current = await getSource().getPowerState()
         } catch {
@@ -892,12 +852,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         replaceUploader(uploader)
         uploader.start()
 
-        await getSource().start(
-          buildSourceOptions(sessionId, startedAt, {
-            message: 'Starting…',
-            title: notificationTitleFor({ tripTitle }),
-          }),
-        )
+        await getSource().start(buildSourceOptions(sessionId, startedAt))
         capturingRef.current = true
         setAdaptiveDecision(decisionRef.current)
 
@@ -931,7 +886,6 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       handleFullySynced,
       handleTerminated,
       handleUploaderSnapshot,
-      notificationTitleFor,
       refreshQueueStats,
       replaceUploader,
       status,
@@ -946,8 +900,27 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
   // points in it is wound up normally instead — never discard real data.
   const finishSession = useCallback(
     async (session: ActiveTrackingSession) => {
+      const source = getSource()
+      let bufferedFixes = await source.getBufferedFixCount().catch(() => 1)
+      if (bufferedFixes > 0) {
+        await source.drainStopped(buildSourceOptions(
+          session.sessionId, session.startedAt,
+        ))
+        bufferedFixes = await source.getBufferedFixCount().catch(() => bufferedFixes)
+      }
       const stats = await getQueueStats(session.sessionId).catch(() => null)
       const pending = await getPendingSession(session.sessionId)
+      if (bufferedFixes > 0) {
+        const endedAt = new Date().toISOString()
+        if (pending) {
+          await putPendingSession({ ...pending, endAcked: false, endedAt })
+        }
+        replaceUploader(null)
+        setActiveSession({ ...session, endedAt })
+        setStatus('syncing')
+        setError('Some recorded points are still waiting to be saved. Reopen the app to retry.')
+        return
+      }
       if ((stats?.sampleCount ?? 0) === 0) {
         const token = accessTokenRef.current
         // Only worth a DELETE if the server has actually heard of it; an
@@ -982,7 +955,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       setActiveSession({ ...session, endedAt })
       setStatus('syncing')
     },
-    [replaceUploader, updateCurrentTravelMode],
+    [buildSourceOptions, getSource, replaceUploader, updateCurrentTravelMode],
   )
 
   // Hard failure: the engine cannot deliver fixes and will not recover. The

@@ -21,6 +21,7 @@ import android.os.RemoteException;
 public final class TrackingIpcProvider extends ContentProvider {
     static final String METHOD_STATE = "state";
     static final String METHOD_DRAIN = "drain";
+    static final String METHOD_ACK = "ack";
     static final String METHOD_ACCEPTED = "accepted";
     static final String METHOD_ATTACH = "attach";
     static final String METHOD_DETACH = "detach";
@@ -93,6 +94,8 @@ public final class TrackingIpcProvider extends ContentProvider {
                 return state();
             case METHOD_DRAIN:
                 return drain();
+            case METHOD_ACK:
+                return acknowledge(extras);
             case METHOD_ACCEPTED:
                 TrackingService service = TrackingService.getInstance();
                 if (service != null) {
@@ -141,8 +144,23 @@ public final class TrackingIpcProvider extends ContentProvider {
         TrackingFixBuffer buffer = TrackingFixBuffer.get(getContext());
         Bundle result = new Bundle();
         result.putInt("droppedCount", buffer.getDroppedCount());
-        result.putString("fixes", buffer.drain(DRAIN_BATCH_SIZE).toString());
-        result.putBoolean("hasMore", buffer.size() > 0);
+        org.json.JSONArray fixes = buffer.peek(DRAIN_BATCH_SIZE);
+        result.putString("fixes", fixes.toString());
+        result.putBoolean("hasMore", buffer.size() > fixes.length());
+        return result;
+    }
+
+    private Bundle acknowledge(Bundle extras) {
+        TrackingFixBuffer buffer = TrackingFixBuffer.get(getContext());
+        Bundle result = new Bundle();
+        String nativeId = extras == null ? null : extras.getString("nativeId");
+        int handledDroppedCount = extras == null ? 0 : extras.getInt("handledDroppedCount", 0);
+        result.putBoolean("acknowledged", nativeId == null
+                ? handledDroppedCount > 0
+                : buffer.acknowledge(nativeId));
+        if (handledDroppedCount > 0) {
+            buffer.acknowledgeDroppedCount(handledDroppedCount);
+        }
         return result;
     }
 

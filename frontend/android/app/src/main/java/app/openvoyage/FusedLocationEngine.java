@@ -112,16 +112,22 @@ final class FusedLocationEngine implements LocationEngine {
     }
 
     void lookupCurrentLocation(Callback callback) {
+        lookupCurrentLocation(callback, 15_000L);
+    }
+
+    void lookupCurrentLocation(Callback callback, long durationMs) {
         CurrentLocationRequest request = new CurrentLocationRequest.Builder()
                 .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
                 .setMaxUpdateAgeMillis(0L)
-                .setDurationMillis(15_000L)
+                .setDurationMillis(durationMs)
                 .build();
         try {
             client.getCurrentLocation(request, new CancellationTokenSource().getToken())
                     .addOnSuccessListener(location -> {
                         if (location != null) {
                             callback.onLocation(location);
+                        } else {
+                            callback.onFailure("No current location available.");
                         }
                     })
                     .addOnFailureListener(error -> {

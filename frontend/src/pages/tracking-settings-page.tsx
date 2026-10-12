@@ -21,7 +21,6 @@ import {
   readTrackingSettings,
   writeTrackingSettings,
   type LocationSource,
-  type NotificationDetail,
   type PowerLevel,
   type PrecisionLevel,
   type TrackingMode,
@@ -45,14 +44,6 @@ const LOCATION_SOURCE_OPTIONS: ReadonlyArray<{ label: string; value: LocationSou
   { label: 'Automatic (recommended)', value: 'auto' },
   { label: 'Google Play Services', value: 'gms' },
   { label: "This device's own GPS", value: 'platform' },
-]
-
-const NOTIFICATION_DETAIL_OPTIONS: ReadonlyArray<{
-  label: string
-  value: NotificationDetail
-}> = [
-  { label: 'Detailed (show queue depth)', value: 'detailed' },
-  { label: 'Minimal', value: 'minimal' },
 ]
 
 function describePrecision(level: PrecisionLevel): string {
@@ -420,18 +411,6 @@ function AdvancedSection({
               Stop the active recording to change this.
             </span>
           ) : null}
-        </label>
-
-        <label className="space-y-1.5 text-sm">
-          <span className="font-medium text-foreground">Notification</span>
-          <Select
-            ariaLabel="Notification detail"
-            onValueChange={(value) =>
-              onChange({ notificationDetail: value as NotificationDetail })
-            }
-            options={NOTIFICATION_DETAIL_OPTIONS}
-            value={settings.notificationDetail}
-          />
         </label>
 
         <label className="flex items-start gap-2.5 text-sm sm:col-span-2">

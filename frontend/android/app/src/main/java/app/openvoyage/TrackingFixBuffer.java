@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Durable, bounded FIFO of position fixes that the webview has not consumed
@@ -27,12 +28,10 @@ import java.util.List;
  * restarted when the renderer is evicted, and destroyed entirely when the
  * process is killed while the foreground service keeps recording. Handing a fix
  * straight to JS and forgetting it therefore loses points. Every fix is instead
- * appended here first and only removed once JS has actually drained it, so a
- * reload costs nothing and a process kill costs at most the fixes that had
- * already been drained but not yet written to the JS-side SQLite queue.
+ * appended here first and only removed after JS acknowledges processing it.
  *
  * <p>Appends are a single line write; the whole file is only rewritten when the
- * buffer overflows or is drained, which keeps writes cheap at every profile.
+ * buffer overflows or acknowledged fixes are removed.
  */
 final class TrackingFixBuffer {
 
@@ -65,11 +64,23 @@ final class TrackingFixBuffer {
         if (!file.exists()) {
             return;
         }
+        boolean migrated = false;
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (!line.isEmpty()) {
-                    lines.addLast(line);
+                    try {
+                        JSONObject fix = new JSONObject(line);
+                        if (!fix.has("nativeId")) {
+                            fix.put("nativeId", UUID.randomUUID().toString());
+                            line = fix.toString();
+                            migrated = true;
+                        }
+                        lines.addLast(line);
+                    } catch (JSONException exception) {
+                        Log.e(TAG, "Discarding unparseable buffered fix", exception);
+                        migrated = true;
+                    }
                 }
             }
         } catch (IOException exception) {
@@ -77,11 +88,22 @@ final class TrackingFixBuffer {
         }
         if (lines.size() > MAX_FIXES) {
             trimTo(TRIM_TO_FIXES);
+            migrated = true;
+        }
+        if (migrated) {
             rewrite();
         }
     }
 
     synchronized void append(JSONObject fix) {
+        try {
+            if (!fix.has("nativeId")) {
+                fix.put("nativeId", UUID.randomUUID().toString());
+            }
+        } catch (JSONException exception) {
+            Log.e(TAG, "Could not assign fix ID", exception);
+            return;
+        }
         String line = fix.toString();
         lines.addLast(line);
         if (lines.size() > MAX_FIXES) {
@@ -100,28 +122,49 @@ final class TrackingFixBuffer {
         }
     }
 
-    /**
-     * Hands every buffered fix to the caller and clears the buffer. Called when
-     * JS has the fixes in hand; the JS side writes them to its own durable
-     * queue before doing anything else with them.
-     */
-    synchronized JSONArray drain() {
-        return drain(Integer.MAX_VALUE);
-    }
-
     /** Keep each cross-process reply below Android's Binder transaction limit. */
-    synchronized JSONArray drain(int maxFixes) {
+    synchronized JSONArray peek(int maxFixes) {
         JSONArray result = new JSONArray();
         int count = Math.min(Math.max(maxFixes, 0), lines.size());
-        for (int index = 0; index < count; index++) {
-            String line = lines.removeFirst();
+        int index = 0;
+        for (String line : lines) {
+            if (index++ >= count) {
+                break;
+            }
             try {
                 result.put(new JSONObject(line));
             } catch (JSONException exception) {
-                Log.e(TAG, "Discarding unparseable buffered fix", exception);
+                Log.e(TAG, "Could not parse buffered fix", exception);
+                break;
             }
         }
-        droppedCount = 0;
+        return result;
+    }
+
+    /** Removes the processed prefix, identified by its final stable ID. */
+    synchronized boolean acknowledge(String lastNativeId) {
+        if (lastNativeId == null || lastNativeId.isEmpty()) {
+            return false;
+        }
+        int count = 0;
+        boolean found = false;
+        for (String line : lines) {
+            count++;
+            try {
+                if (lastNativeId.equals(new JSONObject(line).optString("nativeId"))) {
+                    found = true;
+                    break;
+                }
+            } catch (JSONException exception) {
+                return false;
+            }
+        }
+        if (!found) {
+            return false;
+        }
+        for (int index = 0; index < count; index++) {
+            lines.removeFirst();
+        }
         if (lines.isEmpty()) {
             if (file.exists() && !file.delete()) {
                 rewrite();
@@ -129,14 +172,18 @@ final class TrackingFixBuffer {
         } else {
             rewrite();
         }
-        return result;
+        return true;
+    }
+
+    synchronized void acknowledgeDroppedCount(int handledCount) {
+        droppedCount = Math.max(0, droppedCount - Math.max(0, handledCount));
     }
 
     synchronized int size() {
         return lines.size();
     }
 
-    /** Fixes lost to overflow since the last drain, for surfacing to the user. */
+    /** Fixes lost to overflow since the last acknowledgement. */
     synchronized int getDroppedCount() {
         return droppedCount;
     }

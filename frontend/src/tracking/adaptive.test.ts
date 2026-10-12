@@ -91,16 +91,13 @@ describe('decideTracking — location source', () => {
 })
 
 describe('accuracyCutoffFor', () => {
-  // A 100 m cutoff against a low-power request rejects essentially everything
-  // network location produces, which reads to the user as the recording having
-  // stopped. The cutoff has to match what the tier can actually deliver.
-  it('loosens as the power tier drops', () => {
-    expect(accuracyCutoffFor('high')).toBeLessThan(accuracyCutoffFor('balanced'))
+  // Low-power network fixes need a much looser cutoff than balanced fixes.
+  it('loosens from balanced to low power', () => {
     expect(accuracyCutoffFor('balanced')).toBeLessThan(accuracyCutoffFor('low'))
   })
 
-  it('keeps a high-accuracy recording tight', () => {
-    expect(accuracyCutoffFor('high')).toBe(100)
+  it('does not reject high-tier fixes solely for reported accuracy', () => {
+    expect(accuracyCutoffFor('high')).toBe(Number.POSITIVE_INFINITY)
   })
 })
 

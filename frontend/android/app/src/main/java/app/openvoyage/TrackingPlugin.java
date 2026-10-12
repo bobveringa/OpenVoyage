@@ -281,6 +281,13 @@ public class TrackingPlugin extends Plugin {
         Intent intent = serviceIntent(TrackingService.ACTION_START, call);
         intent.putExtra(TrackingService.EXTRA_STARTED_AT, System.currentTimeMillis());
         try {
+            Bundle state = trackerCall(TrackingIpcProvider.METHOD_STATE, null);
+            if (!state.getBoolean("trackingIntent", false)
+                    && state.getInt("bufferedFixes", 0) > 0) {
+                call.reject("Previous recording points are still being saved. Reopen the app to retry before starting another trip.",
+                        "PREVIOUS_FIXES_PENDING");
+                return;
+            }
             ContextCompat.startForegroundService(getContext(), intent);
             call.resolve(describeState());
         } catch (RuntimeException exception) {
@@ -322,27 +329,6 @@ public class TrackingPlugin extends Plugin {
             call.resolve(describeState());
         } catch (RuntimeException exception) {
             call.reject("Could not configure the tracker process.", "TRACKER_UNAVAILABLE", exception);
-        }
-    }
-
-    @PluginMethod
-    public void updateStatus(PluginCall call) {
-        try {
-            if (trackerCall(TrackingIpcProvider.METHOD_STATE, null)
-                    .getBoolean("tracking", false)) {
-                Intent intent = new Intent(getContext(), TrackingService.class)
-                    .setAction(TrackingService.ACTION_UPDATE_NOTIFICATION);
-                if (call.getString("title") != null) {
-                    intent.putExtra(TrackingService.EXTRA_TITLE, call.getString("title"));
-                }
-                if (call.getString("text") != null) {
-                    intent.putExtra(TrackingService.EXTRA_TEXT, call.getString("text"));
-                }
-                getContext().startService(intent);
-            }
-            call.resolve();
-        } catch (RuntimeException exception) {
-            call.reject("Could not update tracker status.", "TRACKER_UNAVAILABLE", exception);
         }
     }
 
@@ -441,12 +427,6 @@ public class TrackingPlugin extends Plugin {
             TrackingService.EXTRA_SMART_PRECISION,
             call.getInt("smartPrecision", 3)
         );
-        if (call.getString("title") != null) {
-            intent.putExtra(TrackingService.EXTRA_TITLE, call.getString("title"));
-        }
-        if (call.getString("text") != null) {
-            intent.putExtra(TrackingService.EXTRA_TEXT, call.getString("text"));
-        }
         return intent;
     }
 
@@ -472,6 +452,29 @@ public class TrackingPlugin extends Plugin {
             getPermissionState(LOCATION_ALIAS) == PermissionState.GRANTED
         );
         return result;
+    }
+
+    @PluginMethod
+    public void acknowledge(PluginCall call) {
+        String nativeId = call.getString("nativeId");
+        int handledDroppedCount = call.getInt("handledDroppedCount", 0);
+        if (nativeId == null && handledDroppedCount <= 0) {
+            call.reject("A fix ID or dropped-count acknowledgement is required.");
+            return;
+        }
+        try {
+            Bundle request = new Bundle();
+            request.putString("nativeId", nativeId);
+            request.putInt("handledDroppedCount", handledDroppedCount);
+            Bundle reply = trackerCall(TrackingIpcProvider.METHOD_ACK, request);
+            if (!reply.getBoolean("acknowledged", false)) {
+                call.reject("Buffered fixes changed before acknowledgement.", "TRACKER_BUFFER_CHANGED");
+                return;
+            }
+            call.resolve();
+        } catch (RuntimeException exception) {
+            call.reject("Could not acknowledge buffered fixes.", "TRACKER_UNAVAILABLE", exception);
+        }
     }
 
     private Bundle trackerCall(String method, Bundle extras) {

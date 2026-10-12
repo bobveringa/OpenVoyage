@@ -61,7 +61,6 @@ public class TrackingService extends Service {
     static final String ACTION_START = "app.openvoyage.tracking.START";
     static final String ACTION_STOP = "app.openvoyage.tracking.STOP";
     static final String ACTION_CONFIGURE = "app.openvoyage.tracking.CONFIGURE";
-    static final String ACTION_UPDATE_NOTIFICATION = "app.openvoyage.tracking.UPDATE_NOTIFICATION";
     static final String ACTION_STOP_FROM_NOTIFICATION = "app.openvoyage.tracking.STOP_FROM_NOTIFICATION";
     static final String ACTION_NOTIFICATION_DISMISSED = "app.openvoyage.tracking.NOTIFICATION_DISMISSED";
 
@@ -69,8 +68,6 @@ public class TrackingService extends Service {
     static final String EXTRA_MIN_INTERVAL_MS = "minIntervalMs";
     static final String EXTRA_DISTANCE_FILTER_M = "distanceFilterMeters";
     static final String EXTRA_POWER_LEVEL = "powerLevel";
-    static final String EXTRA_TITLE = "title";
-    static final String EXTRA_TEXT = "text";
     static final String EXTRA_STARTED_AT = "startedAtMs";
     static final String EXTRA_LOCATION_SOURCE = "locationSource";
     static final String EXTRA_ANCHOR_ELAPSED_NS = "anchorElapsedNs";
@@ -156,8 +153,8 @@ public class TrackingService extends Service {
     private volatile float distanceFilterMeters = 0f;
     private volatile LocationEngine.Power power = LocationEngine.Power.HIGH;
     private volatile long startedAtMs = 0L;
-    private volatile String notificationTitle = "Recording trip";
-    private volatile String notificationText = "Starting…";
+    private volatile String notificationTitle = "Tracking is on";
+    private volatile String notificationText = "Recording your route";
     private volatile String locationSource = SOURCE_AUTO;
     // Baseline settings are persisted separately from the effective request
     // so a sticky restart can reconstruct manual mode and the smart profile.
@@ -377,9 +374,6 @@ public class TrackingService extends Service {
             case ACTION_CONFIGURE:
                 handleConfigure(intent);
                 break;
-            case ACTION_UPDATE_NOTIFICATION:
-                handleUpdateNotification(intent);
-                break;
             case ACTION_NOTIFICATION_DISMISSED:
                 // Android 14+ lets the user swipe away an ongoing
                 // foreground-service notification. Location would then keep
@@ -405,6 +399,19 @@ public class TrackingService extends Service {
     private void handleStart(Intent intent) {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         boolean freshStart = intent != null && intent.hasExtra(EXTRA_INTERVAL_MS);
+        if (freshStart && !tracking && buffer.size() > 0) {
+            // The UI must hand the previous session's buffered fixes to its
+            // queue before a different session may start. Never silently
+            // delete or assign those fixes to the new trip.
+            Log.w(TAG, "Refusing new recording while older fixes await acknowledgement");
+            // A direct startForegroundService caller still needs the required
+            // promotion before this short-lived service can stop.
+            if (postNotificationAsForeground()) {
+                ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
+            }
+            stopSelf();
+            return;
+        }
         if (freshStart && tracking) {
             removeLocationUpdates();
         }
@@ -442,15 +449,6 @@ public class TrackingService extends Service {
             lastFixElapsedNs = 0L;
         }
 
-        if (freshStart) {
-            // A fresh start, so anything still buffered belongs to a recording
-            // that has already finished. Draining it into the new session
-            // would file those points under the wrong session and stamp them
-            // with times before its started_at — which the server discards
-            // silently, taking the real points of the batch with them.
-            buffer.drain();
-        }
-
         SharedPreferences.Editor recordingPrefs = prefs.edit()
                 .putBoolean(PREF_TRACKING, true);
         if (freshStart) {
@@ -477,22 +475,6 @@ public class TrackingService extends Service {
         }
         applyAdaptivePolicy(true);
         schedulePowerCheck();
-    }
-
-    private void handleUpdateNotification(Intent intent) {
-        if (intent == null) {
-            return;
-        }
-        if (intent.hasExtra(EXTRA_TITLE)) {
-            notificationTitle = intent.getStringExtra(EXTRA_TITLE);
-        }
-        if (intent.hasExtra(EXTRA_TEXT)) {
-            notificationText = intent.getStringExtra(EXTRA_TEXT);
-        }
-        persistConfig(getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE));
-        if (tracking) {
-            postNotification();
-        }
     }
 
     private void handleStopFromNotification() {
@@ -528,12 +510,6 @@ public class TrackingService extends Service {
         if (intent.hasExtra(EXTRA_LOCATION_SOURCE)) {
             locationSource = intent.getStringExtra(EXTRA_LOCATION_SOURCE);
         }
-        if (intent.hasExtra(EXTRA_TITLE)) {
-            notificationTitle = intent.getStringExtra(EXTRA_TITLE);
-        }
-        if (intent.hasExtra(EXTRA_TEXT)) {
-            notificationText = intent.getStringExtra(EXTRA_TEXT);
-        }
     }
 
     private void persistConfig(SharedPreferences prefs) {
@@ -548,8 +524,6 @@ public class TrackingService extends Service {
                 .putString(EXTRA_BASELINE_POWER_LEVEL, baselinePower.wireName())
                 .putString(EXTRA_LOCATION_SOURCE, locationSource)
                 .putLong(EXTRA_STARTED_AT, startedAtMs)
-                .putString(EXTRA_TITLE, notificationTitle)
-                .putString(EXTRA_TEXT, notificationText)
                 .putLong(EXTRA_ANCHOR_ELAPSED_NS, anchorElapsedNs)
                 .putLong(EXTRA_ANCHOR_WALL_MS, anchorWallMs)
                 .putString(EXTRA_RECORDING_TOKEN, recordingToken)
@@ -573,8 +547,6 @@ public class TrackingService extends Service {
         );
         locationSource = prefs.getString(EXTRA_LOCATION_SOURCE, locationSource);
         startedAtMs = prefs.getLong(EXTRA_STARTED_AT, System.currentTimeMillis());
-        notificationTitle = prefs.getString(EXTRA_TITLE, notificationTitle);
-        notificationText = prefs.getString(EXTRA_TEXT, notificationText);
         // C7: restores the *original* session-start anchor rather than
         // establishing a new one, so a process-kill restart doesn't lose
         // the point of anchoring in the first place.
@@ -888,9 +860,6 @@ public class TrackingService extends Service {
             return;
         }
         warningText = message;
-        if (tracking) {
-            postNotification();
-        }
         Listener current = listener;
         if (current != null) {
             current.onEngineWarning(message);
@@ -902,9 +871,6 @@ public class TrackingService extends Service {
             return;
         }
         warningText = null;
-        if (tracking) {
-            postNotification();
-        }
         Listener current = listener;
         if (current != null) {
             current.onEngineWarning(null);
@@ -1183,28 +1149,24 @@ public class TrackingService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        String text = warningText == null
-                ? notificationText
-                : warningText + " · " + notificationText;
+        String text = notificationText;
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle(notificationTitle)
                 .setContentText(text)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
                 .setSmallIcon(R.drawable.ic_stat_tracking)
-                .setOngoing(true)
+                .setOngoing(tracking)
                 .setSilent(true)
                 .setOnlyAlertOnce(true)
-                .setShowWhen(true)
-                .setWhen(startedAtMs > 0 ? startedAtMs : System.currentTimeMillis())
-                // The elapsed time ticks on its own, so the notification still
-                // looks alive between the status updates JS pushes.
-                .setUsesChronometer(true)
+                .setShowWhen(false)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-                .setDeleteIntent(dismissIntent)
-                .addAction(0, getString(R.string.tracking_notification_stop), stopIntent);
+                .setDeleteIntent(tracking ? dismissIntent : null);
+
+        if (tracking) {
+            builder.addAction(0, getString(R.string.tracking_notification_stop), stopIntent);
+        }
 
         if (contentIntent != null) {
             builder.setContentIntent(contentIntent);
