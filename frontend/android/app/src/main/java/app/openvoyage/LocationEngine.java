@@ -51,12 +51,17 @@ interface LocationEngine {
         final long minIntervalMs;
         final float minDistanceMeters;
         final Power power;
+        final String recordingToken;
+        final int smartPrecision;
 
-        Config(long intervalMs, long minIntervalMs, float minDistanceMeters, Power power) {
+        Config(long intervalMs, long minIntervalMs, float minDistanceMeters, Power power,
+               String recordingToken, int smartPrecision) {
             this.intervalMs = intervalMs;
             this.minIntervalMs = minIntervalMs;
             this.minDistanceMeters = minDistanceMeters;
             this.power = power;
+            this.recordingToken = recordingToken;
+            this.smartPrecision = smartPrecision;
         }
     }
 

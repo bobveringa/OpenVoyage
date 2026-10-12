@@ -1,12 +1,18 @@
 package app.openvoyage;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.location.LocationManager;
 import android.os.BatteryManager;
+import android.os.Binder;
 import android.os.Build;
+import android.os.Bundle;
+import android.os.IBinder;
 import android.os.PowerManager;
+import android.util.Log;
 
 import androidx.core.content.ContextCompat;
 
@@ -20,6 +26,9 @@ import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
 import org.json.JSONArray;
+import org.json.JSONException;
+
+import java.util.UUID;
 
 /**
  * JS bridge to {@link TrackingService}.
@@ -40,14 +49,97 @@ import org.json.JSONArray;
         )
     }
 )
-public class TrackingPlugin extends Plugin implements TrackingService.Listener {
+public class TrackingPlugin extends Plugin {
 
     static final String LOCATION_ALIAS = "location";
+    private static final String TAG = "OVTrackingPlugin";
+    private final String clientId = UUID.randomUUID().toString();
+    private final IBinder clientBinder = new Binder();
+    private boolean eventReceiverRegistered = false;
+    private boolean attached = false;
+
+    private final BroadcastReceiver eventReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null) {
+                return;
+            }
+            String kind = intent.getStringExtra(TrackingIpcProvider.EXTRA_EVENT);
+            if (kind == null) {
+                return;
+            }
+            JSObject data = new JSObject();
+            switch (kind) {
+                case TrackingIpcProvider.EVENT_FIX:
+                case TrackingIpcProvider.EVENT_STOP:
+                    break;
+                case TrackingIpcProvider.EVENT_WARNING:
+                case TrackingIpcProvider.EVENT_FAILED:
+                    data.put("message", intent.getStringExtra("message"));
+                    break;
+                case TrackingIpcProvider.EVENT_ADAPTIVE:
+                    data.put("mode", intent.getStringExtra("mode"));
+                    data.put("intervalSeconds", intent.getDoubleExtra("intervalSeconds", 0));
+                    data.put("powerLevel", intent.getStringExtra("powerLevel"));
+                    data.put("adaptiveReason", intent.getStringExtra("adaptiveReason"));
+                    break;
+                default:
+                    return;
+            }
+            notifyListeners(kind, data);
+        }
+    };
 
     @Override
     public void load() {
         super.load();
-        TrackingService.setListener(this);
+        attachUi();
+    }
+
+    @Override
+    protected void handleOnResume() {
+        super.handleOnResume();
+        attachUi();
+    }
+
+    @Override
+    protected void handleOnPause() {
+        detachUi();
+        super.handleOnPause();
+    }
+
+    private void attachUi() {
+        if (attached) {
+            return;
+        }
+        ContextCompat.registerReceiver(getContext(), eventReceiver,
+                new IntentFilter(TrackingIpcProvider.ACTION_EVENT),
+                ContextCompat.RECEIVER_NOT_EXPORTED);
+        eventReceiverRegistered = true;
+        Bundle client = new Bundle();
+        client.putString(TrackingIpcProvider.EXTRA_CLIENT_ID, clientId);
+        client.putBinder(TrackingIpcProvider.EXTRA_CLIENT_BINDER, clientBinder);
+        try {
+            trackerCall(TrackingIpcProvider.METHOD_ATTACH, client);
+            attached = true;
+            Bundle state = trackerCall(TrackingIpcProvider.METHOD_STATE, null);
+            if (!state.getBoolean("trackingIntent", false)) {
+                String stopReason = state.getString("stopReason");
+                if ("notification".equals(stopReason)) {
+                    notifyListeners(TrackingIpcProvider.EVENT_STOP, new JSObject());
+                } else if ("engine".equals(stopReason)) {
+                    JSObject data = new JSObject();
+                    data.put("message", state.getString("stopMessage"));
+                    notifyListeners(TrackingIpcProvider.EVENT_FAILED, data);
+                }
+            }
+            // The tracker may have buffered fixes while the UI was paused.
+            notifyListeners(TrackingIpcProvider.EVENT_FIX, new JSObject());
+        } catch (RuntimeException exception) {
+            Log.e(TAG, "Could not attach to tracker process", exception);
+            getContext().unregisterReceiver(eventReceiver);
+            eventReceiverRegistered = false;
+        }
     }
 
     @Override
@@ -56,45 +148,25 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
         // purpose: an activity teardown (rotation, task swipe, memory
         // pressure) is not the user asking to stop, and the fixes captured
         // meanwhile land in the durable buffer for the next attach.
-        TrackingService.setListener(null);
+        detachUi();
         super.handleOnDestroy();
     }
 
-    @Override
-    public void onFixBuffered() {
-        // Just a nudge. The payload is fetched with drain() so that a fix
-        // arriving mid-reload is still handed over, rather than being emitted
-        // into a webview that no longer exists.
-        notifyListeners("fixAvailable", new JSObject());
-    }
-
-    @Override
-    public void onStopRequestedFromNotification() {
-        notifyListeners("stopRequested", new JSObject());
-    }
-
-    @Override
-    public void onEngineWarning(String message) {
-        JSObject data = new JSObject();
-        data.put("message", message);
-        notifyListeners("engineWarning", data);
-    }
-
-    @Override
-    public void onEngineFailed(String message) {
-        JSObject data = new JSObject();
-        data.put("message", message);
-        notifyListeners("engineFailed", data);
-    }
-
-    @Override
-    public void onAdaptiveStateChanged(TrackingService.Snapshot snapshot) {
-        JSObject data = new JSObject();
-        data.put("mode", snapshot.trackingMode);
-        data.put("intervalSeconds", snapshot.intervalMs / 1000.0);
-        data.put("powerLevel", snapshot.powerLevel);
-        data.put("adaptiveReason", snapshot.adaptiveReason);
-        notifyListeners("adaptiveStateChanged", data);
+    private void detachUi() {
+        if (attached) {
+            Bundle client = new Bundle();
+            client.putString(TrackingIpcProvider.EXTRA_CLIENT_ID, clientId);
+            try {
+                trackerCall(TrackingIpcProvider.METHOD_DETACH, client);
+            } catch (RuntimeException exception) {
+                Log.w(TAG, "Tracker process was unavailable during detach", exception);
+            }
+            attached = false;
+        }
+        if (eventReceiverRegistered) {
+            getContext().unregisterReceiver(eventReceiver);
+            eventReceiverRegistered = false;
+        }
     }
 
     /**
@@ -176,7 +248,11 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
 
     @PluginMethod
     public void getState(PluginCall call) {
-        call.resolve(describeState());
+        try {
+            call.resolve(describeState());
+        } catch (RuntimeException exception) {
+            call.reject("Tracker process is unavailable.", "TRACKER_UNAVAILABLE", exception);
+        }
     }
 
     @PluginMethod
@@ -204,45 +280,67 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
     private void startService(PluginCall call) {
         Intent intent = serviceIntent(TrackingService.ACTION_START, call);
         intent.putExtra(TrackingService.EXTRA_STARTED_AT, System.currentTimeMillis());
-        ContextCompat.startForegroundService(getContext(), intent);
-        call.resolve(describeState());
+        try {
+            Bundle state = trackerCall(TrackingIpcProvider.METHOD_STATE, null);
+            if (!state.getBoolean("trackingIntent", false)
+                    && state.getInt("bufferedFixes", 0) > 0) {
+                call.reject("Previous recording points are still being saved. Reopen the app to retry before starting another trip.",
+                        "PREVIOUS_FIXES_PENDING");
+                return;
+            }
+            ContextCompat.startForegroundService(getContext(), intent);
+            call.resolve(describeState());
+        } catch (RuntimeException exception) {
+            call.reject("Could not start the tracker process.", "TRACKER_UNAVAILABLE", exception);
+        }
+    }
+
+    /** Restores the persisted native recording without clearing its fix buffer. */
+    @PluginMethod
+    public void resume(PluginCall call) {
+        try {
+            if (!trackerCall(TrackingIpcProvider.METHOD_STATE, null)
+                    .getBoolean("trackingIntent", false)) {
+                call.resolve(describeState());
+                return;
+            }
+            if (getPermissionState(LOCATION_ALIAS) != PermissionState.GRANTED) {
+                call.reject("Location permission was revoked.", "NOT_AUTHORIZED");
+                return;
+            }
+            ContextCompat.startForegroundService(getContext(),
+                    new Intent(getContext(), TrackingService.class)
+                            .setAction(TrackingService.ACTION_START));
+            call.resolve();
+        } catch (RuntimeException exception) {
+            call.reject("Could not resume the tracker process.", "TRACKER_UNAVAILABLE", exception);
+        }
     }
 
     @PluginMethod
     public void configure(PluginCall call) {
-        if (TrackingService.getInstance() == null) {
+        try {
+            if (!trackerCall(TrackingIpcProvider.METHOD_STATE, null)
+                    .getBoolean("tracking", false)) {
+                call.resolve(describeState());
+                return;
+            }
+            getContext().startService(serviceIntent(TrackingService.ACTION_CONFIGURE, call));
             call.resolve(describeState());
-            return;
+        } catch (RuntimeException exception) {
+            call.reject("Could not configure the tracker process.", "TRACKER_UNAVAILABLE", exception);
         }
-        getContext().startService(serviceIntent(TrackingService.ACTION_CONFIGURE, call));
-        call.resolve(describeState());
-    }
-
-    @PluginMethod
-    public void updateStatus(PluginCall call) {
-        if (TrackingService.getInstance() == null) {
-            call.resolve();
-            return;
-        }
-        Intent intent = new Intent(getContext(), TrackingService.class)
-            .setAction(TrackingService.ACTION_UPDATE_NOTIFICATION);
-        if (call.getString("title") != null) {
-            intent.putExtra(TrackingService.EXTRA_TITLE, call.getString("title"));
-        }
-        if (call.getString("text") != null) {
-            intent.putExtra(TrackingService.EXTRA_TEXT, call.getString("text"));
-        }
-        getContext().startService(intent);
-        call.resolve();
     }
 
     @PluginMethod
     public void stop(PluginCall call) {
-        getContext()
-            .startService(
-                new Intent(getContext(), TrackingService.class).setAction(TrackingService.ACTION_STOP)
-            );
-        call.resolve();
+        try {
+            getContext().startService(new Intent(getContext(), TrackingService.class)
+                    .setAction(TrackingService.ACTION_STOP));
+            call.resolve();
+        } catch (RuntimeException exception) {
+            call.reject("Could not stop the tracker process.", "TRACKER_UNAVAILABLE", exception);
+        }
     }
 
     /**
@@ -251,34 +349,26 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
      */
     @PluginMethod
     public void noteSampleAccepted(PluginCall call) {
-        TrackingService service = TrackingService.getInstance();
-        if (service != null) {
-            service.noteSampleAccepted();
+        try {
+            trackerCall(TrackingIpcProvider.METHOD_ACCEPTED, null);
+            call.resolve();
+        } catch (RuntimeException exception) {
+            call.reject("Tracker process is unavailable.", "TRACKER_UNAVAILABLE", exception);
         }
-        call.resolve();
     }
 
     @PluginMethod
     public void drain(PluginCall call) {
-        TrackingService service = TrackingService.getInstance();
-        JSObject result = new JSObject();
-        if (service == null) {
-            result.put("fixes", new JSONArray());
-            result.put("droppedCount", 0);
+        try {
+            Bundle reply = trackerCall(TrackingIpcProvider.METHOD_DRAIN, null);
+            JSObject result = new JSObject();
+            result.put("fixes", new JSONArray(reply.getString("fixes", "[]")));
+            result.put("droppedCount", reply.getInt("droppedCount", 0));
+            result.put("hasMore", reply.getBoolean("hasMore", false));
             call.resolve(result);
-            return;
+        } catch (RuntimeException | JSONException exception) {
+            call.reject("Could not read buffered fixes.", "TRACKER_UNAVAILABLE", exception);
         }
-        TrackingFixBuffer buffer = service.getBuffer();
-        if (buffer == null) {
-            result.put("fixes", new JSONArray());
-            result.put("droppedCount", 0);
-            call.resolve(result);
-            return;
-        }
-        int dropped = buffer.getDroppedCount();
-        result.put("fixes", buffer.drain());
-        result.put("droppedCount", dropped);
-        call.resolve(result);
     }
 
     @PluginMethod
@@ -333,48 +423,66 @@ public class TrackingPlugin extends Plugin implements TrackingService.Listener {
             TrackingService.EXTRA_BASELINE_POWER_LEVEL,
             call.getString("baselinePowerLevel", call.getString("powerLevel", "high"))
         );
-        if (call.getString("title") != null) {
-            intent.putExtra(TrackingService.EXTRA_TITLE, call.getString("title"));
-        }
-        if (call.getString("text") != null) {
-            intent.putExtra(TrackingService.EXTRA_TEXT, call.getString("text"));
-        }
+        intent.putExtra(
+            TrackingService.EXTRA_SMART_PRECISION,
+            call.getInt("smartPrecision", 3)
+        );
         return intent;
     }
 
     private JSObject describeState() {
-        TrackingService service = TrackingService.getInstance();
+        Bundle snapshot = trackerCall(TrackingIpcProvider.METHOD_STATE, null);
         JSObject result = new JSObject();
-        // A single synchronized read of every service field describeState()
-        // needs (B9), rather than six separate getter calls each racing
-        // independently against the service's main-looper thread — this is
-        // the sole input to "am I already recording?" on every launch and
-        // reattach, so a torn read here is the difference between adopting a
-        // live recording and starting a second one.
-        TrackingService.Snapshot snapshot = service == null ? null : service.snapshot();
-        boolean tracking = snapshot != null && snapshot.tracking;
-        result.put("tracking", tracking);
-        // The service is gone but the flag survived: the process was killed
-        // mid-recording and the system has not restarted the service yet. JS
-        // needs to know so it can resume rather than treat the recording as
-        // finished.
-        result.put(
-            "trackingIntent",
-            tracking || TrackingService.isTrackingKnownFromPrefs(getContext())
-        );
-        result.put("startedAtMs", snapshot == null ? 0 : snapshot.startedAtMs);
-        result.put("intervalSeconds", snapshot == null ? 0 : snapshot.intervalMs / 1000.0);
-        result.put("powerLevel", snapshot == null ? null : snapshot.powerLevel);
-        result.put("mode", snapshot == null ? null : snapshot.trackingMode);
-        result.put("adaptiveReason", snapshot == null ? null : snapshot.adaptiveReason);
-        result.put("bufferedFixes", snapshot == null ? 0 : snapshot.bufferedFixes);
-        result.put("engine", snapshot == null ? null : snapshot.engineName);
-        result.put("warning", snapshot == null ? null : snapshot.warningText);
+        result.put("tracking", snapshot.getBoolean("tracking", false));
+        result.put("trackingIntent", snapshot.getBoolean("trackingIntent", false));
+        result.put("stopReason", snapshot.getString("stopReason"));
+        result.put("stopMessage", snapshot.getString("stopMessage"));
+        result.put("stopAtMs", snapshot.getLong("stopAtMs", 0));
+        result.put("startedAtMs", snapshot.getLong("startedAtMs", 0));
+        result.put("intervalSeconds", snapshot.getDouble("intervalSeconds", 0));
+        result.put("powerLevel", snapshot.getString("powerLevel"));
+        result.put("mode", snapshot.getString("mode"));
+        result.put("adaptiveReason", snapshot.getString("adaptiveReason"));
+        result.put("bufferedFixes", snapshot.getInt("bufferedFixes", 0));
+        result.put("engine", snapshot.getString("engine"));
+        result.put("warning", snapshot.getString("warning"));
         result.put("locationEnabled", isLocationEnabled());
         result.put(
             "permissionGranted",
             getPermissionState(LOCATION_ALIAS) == PermissionState.GRANTED
         );
+        return result;
+    }
+
+    @PluginMethod
+    public void acknowledge(PluginCall call) {
+        String nativeId = call.getString("nativeId");
+        int handledDroppedCount = call.getInt("handledDroppedCount", 0);
+        if (nativeId == null && handledDroppedCount <= 0) {
+            call.reject("A fix ID or dropped-count acknowledgement is required.");
+            return;
+        }
+        try {
+            Bundle request = new Bundle();
+            request.putString("nativeId", nativeId);
+            request.putInt("handledDroppedCount", handledDroppedCount);
+            Bundle reply = trackerCall(TrackingIpcProvider.METHOD_ACK, request);
+            if (!reply.getBoolean("acknowledged", false)) {
+                call.reject("Buffered fixes changed before acknowledgement.", "TRACKER_BUFFER_CHANGED");
+                return;
+            }
+            call.resolve();
+        } catch (RuntimeException exception) {
+            call.reject("Could not acknowledge buffered fixes.", "TRACKER_UNAVAILABLE", exception);
+        }
+    }
+
+    private Bundle trackerCall(String method, Bundle extras) {
+        Bundle result = getContext().getContentResolver().call(
+                TrackingIpcProvider.uri(getContext()), method, null, extras);
+        if (result == null) {
+            throw new IllegalStateException("Tracker process did not respond to " + method);
+        }
         return result;
     }
 

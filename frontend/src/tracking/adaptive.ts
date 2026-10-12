@@ -6,13 +6,7 @@ import {
   type TrackingSettings,
 } from '@/tracking/tracking-settings'
 
-/**
- * §8 Phase 3 — smart tracking.
- *
- * Kept as a pure function of (speed, movement, power, settings) so the policy
- * can be unit-tested exhaustively; the provider only decides *when* to
- * re-evaluate it and hands the result to the native service.
- */
+/** Browser fallback policy. Android implements the sparse profiles natively. */
 
 // A fix's own speed field is Doppler-derived and unreliable at rest: a real
 // trace showed a parked phone reporting 0.57-0.88 m/s while its coordinates
@@ -33,24 +27,6 @@ const ACCURACY_MOVEMENT_FACTOR = 1.5
 // light and then miss the pull-away.
 export const STATIONARY_DWELL_MS = 90_000
 
-// The baseline is calibrated at walking pace: whatever spacing between points
-// the chosen precision gives while walking is the spacing smart mode tries to
-// hold at every speed.
-const REFERENCE_SPEED_MPS = 1.4
-
-// Hard bounds, independent of the baseline. The floor keeps a fast vehicle
-// from pinning the GPS at its maximum rate; the ceiling keeps a long
-// stationary stretch from looking like the recording died.
-const MIN_INTERVAL_SECONDS = 5
-const MAX_INTERVAL_SECONDS = 300
-
-// How far the adaptive interval may stray from the chosen baseline. The
-// densification bound is deliberately tighter than the stretching one:
-// recording four times more points than asked for is a battery and quota
-// surprise, whereas stretching a parked stretch out costs the user nothing.
-const MIN_INTERVAL_FACTOR = 1 / 4
-const MAX_INTERVAL_FACTOR = 6
-
 /**
  * How inaccurate a fix may be before it is discarded, per power tier.
  *
@@ -60,11 +36,12 @@ const MAX_INTERVAL_FACTOR = 6
  * essentially everything it produces, so the recording looks like it simply
  * stopped. Conversely 100 m is loose for a high-accuracy GNSS fix. Tying the
  * cutoff to what the current tier can actually deliver removes the setting and
- * makes it correct at both ends.
+ * makes it correct at both ends. The high tier has no accuracy cutoff so an
+ * imprecise fix can still preserve the route when location is difficult.
  */
 const ACCURACY_CUTOFF_METERS: Record<PowerLevel, number> = {
   balanced: 300,
-  high: 100,
+  high: Number.POSITIVE_INFINITY,
   low: 1000,
 }
 
@@ -100,9 +77,6 @@ export function shouldRescueRejectedFix(options: {
     options.intervalSeconds * 1000 * ACCURACY_OVERRIDE_AFTER_INTERVALS
   )
 }
-
-const LOW_BATTERY_LEVEL = 0.15
-const CRITICAL_BATTERY_LEVEL = 0.05
 
 export type MovementState = 'unknown' | 'stationary' | 'moving'
 
@@ -232,109 +206,16 @@ export function createMovementDetector() {
   }
 }
 
-function degrade(level: PowerLevel): PowerLevel {
-  return level === 'high' ? 'balanced' : 'low'
-}
-
 export function decideTracking({
   settings,
-  speedMps,
-  movement,
-  power,
-  coarseLocationAvailable,
 }: AdaptiveInput): AdaptiveDecision {
   const baseline = baselineFor(settings)
-  const baseSeconds = baseline.intervalSeconds
-
-  let seconds = baseSeconds
-  let powerLevel = baseline.powerLevel
-  let reason: AdaptiveReason = 'fixed'
-
-  // The distance filter and a speed-derived interval solve the same problem —
-  // keeping points evenly spaced along the route — so running both compounds
-  // them. Smart mode owns the spacing and leaves the filter off.
-  const distanceFilterMeters =
-    settings.mode === 'smart' ? 0 : settings.distanceFilterMeters
-
-  if (settings.mode === 'smart') {
-    if (movement === 'stationary') {
-      // Parked: a point every few minutes is enough to prove the device was
-      // still there.
-      //
-      // The power tier is deliberately NOT dropped here, though it is the
-      // obvious extra saving. Movement can only be noticed by a fix, so a tier
-      // that yields no fixes on this device is a trap: the recording goes
-      // silent and cannot recover when the user drives off. That is not
-      // hypothetical — on a device with no coarse-location backend (offline,
-      // rural, de-Googled) the lower tiers produce nothing at all, and it was
-      // reproduced on an emulator where a parked recording stopped receiving
-      // fixes entirely and never saw a 1.5 km move. The interval stretch is
-      // where nearly all of the saving is anyway; §9's passive-while-parked
-      // work revisits the tier properly, with a heartbeat that guarantees a
-      // fix regardless.
-      seconds = baseSeconds * MAX_INTERVAL_FACTOR
-      reason = 'stationary'
-    } else if (movement === 'moving' && speedMps !== null && speedMps > 0) {
-      // Hold roughly constant spacing between points as speed rises, so a
-      // road or rail track keeps its shape without oversampling a walk.
-      //
-      // Gated on the *movement state*, not on the speed value. Keying it off
-      // "speed > threshold" let a parked phone's noise floor drive the
-      // formula: 0.6 m/s of Doppler jitter stretched a 60 s baseline to
-      // 140 s, and the genuinely stationary branch below never ran.
-      seconds = (baseSeconds * REFERENCE_SPEED_MPS) / speedMps
-      reason = 'moving'
-    }
-
-    seconds = clamp(
-      seconds,
-      baseSeconds * MIN_INTERVAL_FACTOR,
-      baseSeconds * MAX_INTERVAL_FACTOR,
-    )
-  }
-
-  // Battery-aware degradation, applied last so it can override anything the
-  // movement policy asked for — including a manual interval the user pinned,
-  // since running the battery flat mid-trip loses far more of the track than
-  // a stretched interval does.
-  //
-  // The interval multiplier always applies — that is where nearly all the
-  // saving is, and it cannot make the engine go silent. The power *tier*
-  // drop is the dangerous part: on a device with no coarse-location backend,
-  // dropping below HIGH switches the platform engine to a provider that
-  // produces no fixes at all, and movement can only be noticed from a fix —
-  // so the recording goes dark and cannot recover. Same reasoning as the
-  // stationary branch above; see its comment for the reproduced case.
-  if (!power.charging) {
-    if (power.batteryLevel !== null && power.batteryLevel <= CRITICAL_BATTERY_LEVEL) {
-      seconds *= 4
-      if (coarseLocationAvailable) {
-        powerLevel = 'low'
-      }
-      reason = 'battery-critical'
-    } else if (power.batteryLevel !== null && power.batteryLevel <= LOW_BATTERY_LEVEL) {
-      seconds *= 2
-      if (coarseLocationAvailable) {
-        powerLevel = degrade(powerLevel)
-      }
-      reason = 'battery-low'
-    } else if (power.powerSaveMode) {
-      seconds *= 2
-      if (coarseLocationAvailable) {
-        powerLevel = degrade(powerLevel)
-      }
-      reason = 'power-save-mode'
-    }
-  }
-
   return {
-    distanceFilterMeters,
-    intervalSeconds: Math.round(
-      clamp(seconds, MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS),
-    ),
+    distanceFilterMeters: settings.mode === 'smart' ? 0 : settings.distanceFilterMeters,
+    intervalSeconds: baseline.intervalSeconds,
     locationSource: settings.locationSource,
-    powerLevel,
-    reason,
+    powerLevel: baseline.powerLevel,
+    reason: 'fixed',
   }
 }
 
@@ -372,8 +253,4 @@ export function isMeaningfulChange(
   }
   const ratio = next.intervalSeconds / current.intervalSeconds
   return ratio <= 0.75 || ratio >= 1.33
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
 }

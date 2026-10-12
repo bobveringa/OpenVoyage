@@ -33,7 +33,37 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location"
+            android:process=":tracker"
             android:stopWithTask="false" />
+
+        <receiver
+            android:name=".TrackingLocationReceiver"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":tracker" />
+
+        <receiver
+            android:name=".TrackingLookupReceiver"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":tracker" />
+
+        <receiver
+            android:name=".TrackingBootReceiver"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":tracker">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <provider
+            android:name=".TrackingIpcProvider"
+            android:authorities="${applicationId}.tracking.ipc"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":tracker" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -65,6 +95,7 @@
     measure: some OEM battery managers are unreliable about honoring the
     foreground-service exemption alone. -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>

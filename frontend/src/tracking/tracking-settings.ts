@@ -1,8 +1,6 @@
 import type { TravelMode } from '@/api/client'
 import { getItem, setItem } from '@/native/kv-storage'
 
-export type NotificationDetail = 'minimal' | 'detailed'
-
 // Which location API the native service records with. 'auto' picks Google
 // Play Services where it exists and the framework's own provider where it
 // doesn't, so a de-Googled device works without the user knowing what any of
@@ -26,20 +24,19 @@ export type PrecisionLevel = (typeof PRECISION_LEVELS)[number]
 export type PrecisionPreset = {
   level: PrecisionLevel
   label: string
-  // Interval at walking pace; smart mode shortens it as speed rises and
-  // stretches it while stationary.
+  // Requested background interval. Android may batch fixes.
   baselineSeconds: number
   powerLevel: PowerLevel
 }
 
-// The same five intervals the old dropdown offered, presented as precision
-// rather than as raw seconds.
+// Four sparse request profiles plus a high-detail option. Android can deliver
+// fixes in batches.
 export const PRECISION_PRESETS: readonly PrecisionPreset[] = [
-  { baselineSeconds: 300, label: 'Max battery', level: 1, powerLevel: 'low' },
-  { baselineSeconds: 120, label: 'Battery saver', level: 2, powerLevel: 'balanced' },
-  { baselineSeconds: 60, label: 'Balanced', level: 3, powerLevel: 'high' },
-  { baselineSeconds: 30, label: 'Precise', level: 4, powerLevel: 'high' },
-  { baselineSeconds: 10, label: 'Max precision', level: 5, powerLevel: 'high' },
+  { baselineSeconds: 3600, label: 'Ultra light', level: 1, powerLevel: 'low' },
+  { baselineSeconds: 900, label: 'Light', level: 2, powerLevel: 'low' },
+  { baselineSeconds: 600, label: 'Balanced', level: 3, powerLevel: 'balanced' },
+  { baselineSeconds: 360, label: 'High', level: 4, powerLevel: 'high' },
+  { baselineSeconds: 10, label: 'Max detail', level: 5, powerLevel: 'high' },
 ]
 
 export const MANUAL_INTERVAL_OPTIONS_SECONDS = [10, 30, 60, 120, 300] as const
@@ -65,7 +62,6 @@ export type TrackingSettings = {
   // on anything the user can sensibly judge.
   distanceFilterMeters: number
   locationSource: LocationSource
-  notificationDetail: NotificationDetail
   // U3: when true, the uploader pauses on anything other than Wi-Fi rather
   // than spending the user's cellular data. Recorded points are never lost —
   // they stay queued and upload automatically once Wi-Fi is back.
@@ -79,7 +75,6 @@ export const DEFAULT_TRACKING_SETTINGS: TrackingSettings = {
   manualIntervalSeconds: 30,
   manualPowerLevel: 'high',
   mode: 'smart',
-  notificationDetail: 'detailed',
   smartPrecision: 3,
   wifiOnlyUpload: false,
 }
@@ -135,12 +130,16 @@ export async function writeTrackingSettings(
 }
 
 function sanitize(settings: TrackingSettings): TrackingSettings {
+  // Drop the legacy notification-detail preference. The native status is now
+  // fixed and is no longer refreshed from JavaScript state.
+  const current = { ...settings } as TrackingSettings & { notificationDetail?: unknown }
+  delete current.notificationDetail
   const level = PRECISION_LEVELS.includes(settings.smartPrecision)
     ? settings.smartPrecision
     : DEFAULT_TRACKING_SETTINGS.smartPrecision
 
   return {
-    ...settings,
+    ...current,
     // U2: no longer a device preference. A stored value from before this
     // change (or from a stray write) is ignored rather than migrated.
     defaultTravelMode: DEFAULT_TRACKING_SETTINGS.defaultTravelMode,

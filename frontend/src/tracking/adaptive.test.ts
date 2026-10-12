@@ -18,7 +18,6 @@ const HEALTHY_POWER: PowerState = {
   powerSaveMode: false,
 }
 
-// Precision 3 ("Balanced"): 60 s baseline, high power.
 const BALANCED = { ...DEFAULT_TRACKING_SETTINGS, smartPrecision: 3 as const }
 
 function decide(overrides: Partial<AdaptiveInput> = {}) {
@@ -32,197 +31,50 @@ function decide(overrides: Partial<AdaptiveInput> = {}) {
   })
 }
 
-describe('decideTracking — smart mode', () => {
-  it('starts from the chosen precision preset', () => {
-    expect(decide({ speedMps: 1.4 }).intervalSeconds).toBe(60)
-    expect(decide({ speedMps: 1.4 }).powerLevel).toBe('high')
-
-    const frugal = decide({
-      settings: { ...BALANCED, smartPrecision: 1 },
-      speedMps: 1.4,
-    })
-    expect(frugal.intervalSeconds).toBe(300)
-    expect(frugal.powerLevel).toBe('low')
-  })
-
-  it('stretches the interval while stationary', () => {
-    const decision = decide({ movement: 'stationary', speedMps: 0.1 })
-
-    expect(decision.intervalSeconds).toBeGreaterThan(60)
-    expect(decision.reason).toBe('stationary')
-  })
-
-  // Reproduced on device: parking dropped the tier to `balanced`, the engine
-  // then produced no fixes at all, and because movement can only be noticed
-  // *from* a fix the recording could never recover — it sat parked through a
-  // 1.5 km move. Battery is the third priority, behind offline reliability and
-  // accuracy; a saving that can strand the recording is not worth taking.
-  it('keeps the power tier while stationary so movement can still be noticed', () => {
-    for (const level of [1, 3, 5] as const) {
-      const settings = { ...BALANCED, smartPrecision: level }
-      const moving = decide({ settings, speedMps: 1.4 })
-      const parked = decide({ movement: 'stationary', settings, speedMps: 0 })
-      expect(parked.powerLevel).toBe(moving.powerLevel)
-    }
-  })
-
-  it('samples more densely as speed rises, so a road keeps its shape', () => {
-    const walking = decide({ speedMps: 1.4 })
-    const brisk = decide({ speedMps: 3 })
-    const cycling = decide({ speedMps: 6 })
-    const driving = decide({ speedMps: 25 })
-
-    expect(walking.intervalSeconds).toBe(60)
-    expect(brisk.intervalSeconds).toBeLessThan(walking.intervalSeconds)
-    expect(cycling.intervalSeconds).toBeLessThan(brisk.intervalSeconds)
-    // Past roughly four times walking pace the densification cap takes over,
-    // so a car and a train sample at the same maximum rate.
-    expect(driving.intervalSeconds).toBe(cycling.intervalSeconds)
-    expect(driving.intervalSeconds).toBe(15)
-  })
-
-  it('never samples faster than the absolute floor, however fast the device moves', () => {
-    expect(decide({ speedMps: 250 }).intervalSeconds).toBeGreaterThanOrEqual(5)
-  })
-
-  it('never stretches past five minutes, however long the device sits still', () => {
-    const decision = decide({
-      movement: 'stationary',
-      settings: { ...BALANCED, smartPrecision: 1 },
-      speedMps: 0,
-    })
-    expect(decision.intervalSeconds).toBeLessThanOrEqual(300)
-  })
-
-  // The distance filter and the speed-derived interval both exist to keep
-  // points evenly spaced; running both at once multiplies them together.
-  it('leaves the distance filter off while smart mode owns the spacing', () => {
-    const settings = { ...BALANCED, distanceFilterMeters: 10 }
-    expect(decide({ settings, speedMps: 10 }).distanceFilterMeters).toBe(0)
-  })
-})
-
-describe('decideTracking — manual mode', () => {
-  const manual = {
-    ...DEFAULT_TRACKING_SETTINGS,
-    distanceFilterMeters: 10,
-    manualIntervalSeconds: 120,
-    manualPowerLevel: 'balanced' as const,
-    mode: 'manual' as const,
-  }
-
-  it('honors the interval and power exactly, at any speed', () => {
-    for (const speedMps of [0, 1.4, 25, 250]) {
-      const decision = decideTracking({
-        coarseLocationAvailable: true,
-        movement: 'moving',
-        power: HEALTHY_POWER,
-        settings: manual,
-        speedMps,
+describe('sparse tracking profiles', () => {
+  it('keeps the selected request interval and power across movement and battery changes', () => {
+    const profiles = [
+      { level: 1, seconds: 3600, power: 'low' },
+      { level: 2, seconds: 900, power: 'low' },
+      { level: 3, seconds: 600, power: 'balanced' },
+      { level: 4, seconds: 360, power: 'high' },
+      { level: 5, seconds: 10, power: 'high' },
+    ] as const
+    for (const profile of profiles) {
+      const settings = { ...BALANCED, smartPrecision: profile.level }
+      const moving = decide({ settings, speedMps: 30 })
+      const parked = decide({
+        movement: 'stationary',
+        power: { batteryLevel: 0.02, charging: false, powerSaveMode: true },
+        settings,
+        speedMps: 0,
       })
-      expect(decision.intervalSeconds).toBe(120)
-      expect(decision.powerLevel).toBe('balanced')
-      expect(decision.reason).toBe('fixed')
+      for (const decision of [moving, parked]) {
+        expect(decision.intervalSeconds).toBe(profile.seconds)
+        expect(decision.powerLevel).toBe(profile.power)
+        expect(decision.reason).toBe('fixed')
+        expect(decision.distanceFilterMeters).toBe(0)
+      }
     }
   })
 
-  it('does not stretch the interval while stationary', () => {
-    const decision = decideTracking({
-      coarseLocationAvailable: true,
-      movement: 'stationary',
-      power: HEALTHY_POWER,
-      settings: manual,
-      speedMps: 0,
+  it('honors manual cadence and distance without a battery override', () => {
+    const settings = {
+      ...BALANCED,
+      mode: 'manual' as const,
+      manualIntervalSeconds: 120,
+      manualPowerLevel: 'high' as const,
+      distanceFilterMeters: 25,
+    }
+    const decision = decide({
+      settings,
+      power: { batteryLevel: 0.02, charging: false, powerSaveMode: true },
     })
     expect(decision.intervalSeconds).toBe(120)
-  })
-
-  it('keeps the distance filter the user configured', () => {
-    const decision = decideTracking({
-      coarseLocationAvailable: true,
-      movement: 'moving',
-      power: HEALTHY_POWER,
-      settings: manual,
-      speedMps: 5,
-    })
-    expect(decision.distanceFilterMeters).toBe(10)
-  })
-})
-
-describe('decideTracking — battery safety net', () => {
-  it('degrades on low battery even in manual mode', () => {
-    const manual = { ...DEFAULT_TRACKING_SETTINGS, mode: 'manual' as const }
-    const healthy = decide({ settings: manual })
-    const low = decide({
-      power: { ...HEALTHY_POWER, batteryLevel: 0.1 },
-      settings: manual,
-    })
-
-    expect(low.intervalSeconds).toBe(healthy.intervalSeconds * 2)
-    expect(low.powerLevel).toBe('balanced')
-    expect(low.reason).toBe('battery-low')
-  })
-
-  it('degrades harder when the battery is critical', () => {
-    const decision = decide({ power: { ...HEALTHY_POWER, batteryLevel: 0.03 } })
-    expect(decision.reason).toBe('battery-critical')
-    expect(decision.powerLevel).toBe('low')
-    expect(decision.intervalSeconds).toBeGreaterThan(
-      decide({ power: { ...HEALTHY_POWER, batteryLevel: 0.1 } }).intervalSeconds,
-    )
-  })
-
-  it('does not degrade while charging, however low the battery reads', () => {
-    const decision = decide({
-      power: { batteryLevel: 0.02, charging: true, powerSaveMode: true },
-      speedMps: 1.4,
-    })
-    expect(decision.reason).not.toBe('battery-critical')
     expect(decision.powerLevel).toBe('high')
-  })
-
-  it('respects system power-save mode', () => {
-    const decision = decide({ power: { ...HEALTHY_POWER, powerSaveMode: true } })
-    expect(decision.reason).toBe('power-save-mode')
-    expect(decision.powerLevel).toBe('balanced')
-  })
-
-  // B7 regression: a device with no coarse-location backend (offline, rural,
-  // de-Googled) produces no fixes at all below the HIGH tier. Dropping the
-  // tier there strands the recording exactly when it matters most — late in
-  // a long trip, far from home. The interval stretch is safe either way and
-  // must still apply; only the tier drop is gated.
-  describe('when no coarse-location fallback exists', () => {
-    it('still stretches the interval on low battery, but keeps the power tier', () => {
-      const decision = decide({
-        coarseLocationAvailable: false,
-        power: { ...HEALTHY_POWER, batteryLevel: 0.1 },
-      })
-      expect(decision.reason).toBe('battery-low')
-      expect(decision.intervalSeconds).toBe(decide({ coarseLocationAvailable: false }).intervalSeconds * 2)
-      expect(decision.powerLevel).toBe('high')
-    })
-
-    it('still stretches the interval on critical battery, but keeps the power tier', () => {
-      const decision = decide({
-        coarseLocationAvailable: false,
-        power: { ...HEALTHY_POWER, batteryLevel: 0.03 },
-      })
-      expect(decision.reason).toBe('battery-critical')
-      expect(decision.powerLevel).toBe('high')
-    })
-
-    it('still stretches the interval in power-save mode, but keeps the power tier', () => {
-      const decision = decide({
-        coarseLocationAvailable: false,
-        power: { ...HEALTHY_POWER, powerSaveMode: true },
-      })
-      expect(decision.reason).toBe('power-save-mode')
-      expect(decision.powerLevel).toBe('high')
-    })
+    expect(decision.distanceFilterMeters).toBe(25)
   })
 })
-
 describe('decideTracking — location source', () => {
   // Which engine records is a user choice; the cadence policy has no business
   // overriding it, so it must survive every branch untouched.
@@ -239,16 +91,13 @@ describe('decideTracking — location source', () => {
 })
 
 describe('accuracyCutoffFor', () => {
-  // A 100 m cutoff against a low-power request rejects essentially everything
-  // network location produces, which reads to the user as the recording having
-  // stopped. The cutoff has to match what the tier can actually deliver.
-  it('loosens as the power tier drops', () => {
-    expect(accuracyCutoffFor('high')).toBeLessThan(accuracyCutoffFor('balanced'))
+  // Low-power network fixes need a much looser cutoff than balanced fixes.
+  it('loosens from balanced to low power', () => {
     expect(accuracyCutoffFor('balanced')).toBeLessThan(accuracyCutoffFor('low'))
   })
 
-  it('keeps a high-accuracy recording tight', () => {
-    expect(accuracyCutoffFor('high')).toBe(100)
+  it('does not reject high-tier fixes solely for reported accuracy', () => {
+    expect(accuracyCutoffFor('high')).toBe(Number.POSITIVE_INFINITY)
   })
 })
 

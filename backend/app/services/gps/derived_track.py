@@ -26,6 +26,7 @@ from services.gps.stationary_compaction import (
     long_stay_representative_indices,
 )
 from services.gps.geometry import simplify_line_indices
+from services.gps.route_filter import route_filter_indices
 
 # Speed is measured across a small trailing window rather than taken from the
 # client, so a single noisy fix cannot turn a walk into a flight.
@@ -336,6 +337,16 @@ def _display_retained_indices(
             run[offset] for offset in compact_stationary_indices(coordinates[start:end])
         ]
         compacted = sorted(set(compacted) | run_required)
+        compacted_required = {
+            offset for offset, index in enumerate(compacted) if index in run_required
+        }
+        compacted = [
+            compacted[offset]
+            for offset in route_filter_indices(
+                [coordinates[index] for index in compacted],
+                required_indices=compacted_required,
+            )
+        ]
         if len(compacted) <= 2:
             retained.update(compacted)
             continue

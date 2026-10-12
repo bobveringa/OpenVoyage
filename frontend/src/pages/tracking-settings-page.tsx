@@ -21,7 +21,6 @@ import {
   readTrackingSettings,
   writeTrackingSettings,
   type LocationSource,
-  type NotificationDetail,
   type PowerLevel,
   type PrecisionLevel,
   type TrackingMode,
@@ -47,21 +46,13 @@ const LOCATION_SOURCE_OPTIONS: ReadonlyArray<{ label: string; value: LocationSou
   { label: "This device's own GPS", value: 'platform' },
 ]
 
-const NOTIFICATION_DETAIL_OPTIONS: ReadonlyArray<{
-  label: string
-  value: NotificationDetail
-}> = [
-  { label: 'Detailed (show queue depth)', value: 'detailed' },
-  { label: 'Minimal', value: 'minimal' },
-]
-
 function describePrecision(level: PrecisionLevel): string {
   const preset = precisionPreset(level)
   const spacing =
     preset.baselineSeconds < 60
       ? `${preset.baselineSeconds} seconds`
       : `${preset.baselineSeconds / 60} minute${preset.baselineSeconds === 60 ? '' : 's'}`
-  return `About a point every ${spacing} while walking — closer together as you speed up, further apart while you're parked.`
+  return `Requests a point about every ${spacing}. Android may deliver fixes in batches; lower settings use less power and leave larger gaps.`
 }
 
 export function TrackingSettingsPage({
@@ -150,8 +141,8 @@ export function TrackingSettingsPage({
             How your route is recorded
           </CardTitle>
           <CardDescription>
-            Smart tracking adjusts itself as you move. Manual keeps one fixed
-            interval, whatever you're doing.
+            Smart uses battery saving background profiles. Move the slider toward
+            more detail for a denser route. Manual keeps a fixed interval.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -420,18 +411,6 @@ function AdvancedSection({
               Stop the active recording to change this.
             </span>
           ) : null}
-        </label>
-
-        <label className="space-y-1.5 text-sm">
-          <span className="font-medium text-foreground">Notification</span>
-          <Select
-            ariaLabel="Notification detail"
-            onValueChange={(value) =>
-              onChange({ notificationDetail: value as NotificationDetail })
-            }
-            options={NOTIFICATION_DETAIL_OPTIONS}
-            value={settings.notificationDetail}
-          />
         </label>
 
         <label className="flex items-start gap-2.5 text-sm sm:col-span-2">
