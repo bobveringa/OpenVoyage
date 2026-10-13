@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   Check,
+  Cookie,
   Eye,
   Image,
   KeyRound,
@@ -71,6 +72,7 @@ type SettingPresentation = {
 }
 
 const SETTING_KEYS = {
+  cookieBannerEnabled: 'site.cookie_banner_enabled',
   themePalette: 'theme.palette',
   graphHopperApiKey: 'routing.graphhopper_api_key',
   graphHopperBaseUrl: 'routing.graphhopper_base_url',
@@ -85,6 +87,10 @@ const SETTING_KEYS = {
 } as const
 
 const settingPresentations: Record<string, SettingPresentation> = {
+  [SETTING_KEYS.cookieBannerEnabled]: {
+    help: 'Show a cookie notice to visitors until they dismiss it in their browser.',
+    label: 'Show cookie banner',
+  },
   [SETTING_KEYS.mapTileProvider]: {
     help: 'Set the tile URL template used as the base layer for every interactive trip map.',
     label: 'Tile URL template',
@@ -324,6 +330,14 @@ function SettingsAdminSections({
             }
           }}
           setting={settingsByKey.get(SETTING_KEYS.themePalette)}
+        />
+        <SettingsGroup
+          description="Show visitors a dismissible notice about cookies."
+          icon={Cookie}
+          onReset={handleReset}
+          onSave={handleSave}
+          settings={pickSettings(settingsByKey, [SETTING_KEYS.cookieBannerEnabled])}
+          title="Cookie notice"
         />
         <SettingsGroup
           description="Configure the public tile URL template used as the base layer. Routes, markers, and map controls remain unchanged."

@@ -27,6 +27,18 @@ const defaultThemePalette = {
 
 const initialSettings: MockSetting[] = [
   {
+    default_value: false,
+    description: 'Show visitors a dismissible notice that the site uses cookies.',
+    is_configured: false,
+    key: 'site.cookie_banner_enabled',
+    runtime_safe: true,
+    updated_at: null,
+    validation: null,
+    value: false,
+    value_type: 'boolean',
+    visibility: 'public',
+  },
+  {
     default_value: defaultThemePalette,
     description: 'Shared light and dark application color palettes.',
     is_configured: false,
@@ -438,6 +450,29 @@ test('stores a visitor color mode choice from the top bar', async ({ page }) => 
   await expect
     .poll(() => page.evaluate(() => window.localStorage.getItem('openvoyage.theme-mode.v1')))
     .toBe('dark')
+})
+
+test('shows the cookie banner when enabled and remembers dismissal', async ({ page }) => {
+  const api = await mockAdminApi(page)
+  await page.goto('/admin#appearance')
+
+  const banner = page.getByRole('region', { name: 'Cookie notice' })
+  await expect(banner).toHaveCount(0)
+
+  const bannerForm = page.locator('form').filter({ has: page.getByText('Show cookie banner', { exact: true }) })
+  await page.getByLabel('Show cookie banner').click()
+  await page.getByRole('option', { name: 'Enabled' }).click()
+  await bannerForm.getByRole('button', { name: 'Save' }).click()
+
+  await expect(banner).toBeVisible()
+  expect(api.updates).toContainEqual({ key: 'site.cookie_banner_enabled', value: true })
+  await banner.getByRole('button', { name: 'Got it' }).click()
+  await expect(banner).toHaveCount(0)
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Appearance' })).toBeVisible()
+  await expect(banner).toHaveCount(0)
+  expect(await page.evaluate(() => localStorage.getItem('openvoyage.cookie-banner.dismissed.v1'))).toBe('true')
 })
 
 async function mockAdminApi(page: Page) {

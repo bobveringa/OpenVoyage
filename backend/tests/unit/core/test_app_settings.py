@@ -6,6 +6,7 @@ from core.app_settings import (
     AppSettingRegistryError,
     AppSettingValidationError,
     AppSettingsRegistry,
+    COOKIE_BANNER_ENABLED_KEY,
     DEFAULT_MAP_TILE_PROVIDER_URL,
     DEFAULT_THEME_PALETTE,
     IMMICH_ALLOWED_SERVERS_KEY,
@@ -25,6 +26,7 @@ from core.app_settings_encryption import (
 
 
 def test_registry_contains_validated_defaults() -> None:
+    cookie_banner = app_settings_registry.require(COOKIE_BANNER_ENABLED_KEY)
     tile_provider = app_settings_registry.require(MAP_TILE_PROVIDER_KEY)
     upload_size = app_settings_registry.require('media.max_upload_size_mb')
     palette = app_settings_registry.require(THEME_PALETTE_KEY)
@@ -34,6 +36,9 @@ def test_registry_contains_validated_defaults() -> None:
     assert upload_size.default_value == 512
     assert palette.default_value == DEFAULT_THEME_PALETTE
     assert routing_provider.default_value == 'none'
+    assert cookie_banner.default_value is False
+    assert cookie_banner.visibility == SettingVisibility.PUBLIC
+    assert app_settings_registry.validate_value(cookie_banner, True) is True
     assert (
         app_settings_registry.validate_value(routing_provider, 'graphhopper')
         == 'graphhopper'
