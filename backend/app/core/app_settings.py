@@ -75,8 +75,18 @@ MEDIA_ORPHAN_RETENTION_DAYS_KEY = 'media.orphan_retention_days'
 IMMICH_ENABLED_KEY = 'immich.enabled'
 IMMICH_ALLOWED_SERVERS_KEY = 'immich.allowed_servers'
 IMMICH_ALLOW_ANY_SERVER_KEY = 'immich.allow_any_server'
+COOKIE_BANNER_ENABLED_KEY = 'site.cookie_banner_enabled'
 
 SETTING_DEFINITIONS = (
+    SettingDefinition(
+        key=COOKIE_BANNER_ENABLED_KEY,
+        value_type=SettingValueType.BOOLEAN,
+        visibility=SettingVisibility.PUBLIC,
+        sensitive=False,
+        default_value=False,
+        runtime_safe=True,
+        description='Show visitors a dismissible notice that the site uses cookies.',
+    ),
     SettingDefinition(
         key=THEME_PALETTE_KEY,
         value_type=SettingValueType.OBJECT,

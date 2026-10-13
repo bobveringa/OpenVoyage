@@ -12,6 +12,7 @@ import { AuthProvider } from '@/auth/auth-provider'
 import { useAuth } from '@/auth/use-auth'
 import { AppBackground } from '@/components/layout/app-background'
 import { AppShell } from '@/components/layout/app-shell'
+import { CookieBanner } from '@/components/layout/cookie-banner'
 import { RouteErrorBoundary } from '@/components/layout/route-error-boundary'
 import { ClockFormatProvider } from '@/components/clock-format-provider'
 import { useClockFormat } from '@/lib/date-time'
@@ -92,6 +93,7 @@ function App() {
               <UserPreferencesProvider>
                 <TrackingProvider>
                   <AppRoutes />
+                  <CookieBanner />
                 </TrackingProvider>
               </UserPreferencesProvider>
             </AuthProvider>
