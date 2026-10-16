@@ -23,6 +23,9 @@ interface LocationEngine {
 
     void start(Config config, Callback callback);
 
+    /** A bounded, fresh, high-accuracy fix independent of the recording cadence. */
+    void lookupCurrentLocation(Callback callback, long durationMs);
+
     void stop();
 
     /** Lowest to highest effort per fix. */

@@ -25,6 +25,16 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: process.env.VITE_API_PROXY_TARGET ?? 'http://127.0.0.1:8000',
+        configure(proxy) {
+          proxy.on('proxyRes', (response) => {
+            // Connection lifetime belongs to each hop. Forwarding the API's
+            // "close" to Android's connection to Vite intermittently truncates
+            // larger responses in the emulator. Let the proxy choose the
+            // downstream connection header from the client's request instead.
+            delete response.headers.connection
+            delete response.headers['keep-alive']
+          })
+        },
       },
     },
   },

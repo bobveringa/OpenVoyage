@@ -1,5 +1,16 @@
-import { ChevronRight, Loader2, Play, Radio, Square, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import {
+  ChevronRight,
+  Clock3,
+  CloudUpload,
+  Loader2,
+  MapPinned,
+  Radio,
+  Route,
+  ShieldCheck,
+  Square,
+  Trash2,
+} from 'lucide-react'
+import { useCallback, useContext, useEffect, useState } from 'react'
 
 import {
   deleteTrackingSession,
@@ -16,11 +27,15 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { TrackingConfirmation } from '@/components/ui/tracking-confirmation'
 import { TrackingSessionDetail } from './tracking-session-detail'
+import { TrackingReady, TrackingRecorder } from './tracking-recorder'
+import { TrackingHealth } from './tracking-health'
+import { TrackingSettingsLink } from './tracking-settings-link'
 import { loadSessionPoints } from '@/tracking/session-points'
 import { formatDateTime } from '@/lib/date-time'
+import { cn } from '@/lib/utils'
 import { isNativePlatform } from '@/native/platform'
-import { describeUploaderStatus } from '@/tracking/uploader-status'
 import { useTracking } from '@/tracking/use-tracking'
+import { TrackingContext } from '@/tracking/tracking-context'
 
 type TrackingManagementPanelProps = {
   accessToken: string
@@ -30,11 +45,29 @@ type TrackingManagementPanelProps = {
   tripTitle: string
 }
 
-function formatMoment(value: string) {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime())
-    ? value
-    : formatDateTime(date, { dateStyle: 'medium', timeStyle: 'short' })
+function RecordingBadge({
+  saved,
+  syncing,
+}: {
+  saved: boolean
+  syncing: boolean
+}) {
+  const Icon = saved ? Clock3 : syncing ? CloudUpload : Radio
+  return (
+    <span
+      className={cn(
+        'mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium',
+        saved
+          ? 'bg-muted text-muted-foreground'
+          : syncing
+            ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300'
+            : 'bg-primary/10 text-primary',
+      )}
+    >
+      <Icon className="size-3" aria-hidden="true" />
+      {saved ? 'Saved' : syncing ? 'Syncing' : 'Recording'}
+    </span>
+  )
 }
 
 function RecordingControl({
@@ -66,7 +99,11 @@ function RecordingControl({
     onSessionsChanged()
     onTrackingChanged()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isThisTripActive, tracking.uploaderSnapshot?.lastSyncAt])
+  }, [
+    isThisTripActive,
+    activeSession?.endedAt,
+    tracking.uploaderSnapshot?.lastSyncAt,
+  ])
 
   const handleStart = async () => {
     if (!currentUserId) {
@@ -81,72 +118,57 @@ function RecordingControl({
   }
 
   return (
-    <section className="space-y-2">
-      <h3 className="text-sm font-semibold text-foreground">Recording</h3>
-
+    <div className="space-y-3">
       {isOtherTripActive ? (
-        <p className="text-sm text-muted-foreground">
-          {activeSession?.endedAt
-            ? 'Still syncing a recording from another trip on this device. Wait for it to finish before starting here.'
-            : 'A recording is already in progress for another trip on this device. Stop it before starting one here.'}
-        </p>
-      ) : isThisTripActive && activeSession ? (
-        <div className="space-y-1.5 rounded-lg border border-border px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-medium text-foreground">
-              {activeSession.endedAt ? 'Finishing sync…' : 'Recording…'}
-            </p>
-            {activeSession.endedAt ? null : (
-              <Button
-                disabled={tracking.status === 'stopping'}
-                onClick={() => void tracking.stopTracking()}
-                size="sm"
-                type="button"
-                variant="default"
-              >
-                <Square className="size-4" />
-                {tracking.status === 'stopping' ? 'Stopping…' : 'Stop'}
-              </Button>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {tracking.queueStats?.sampleCount ?? 0} point
-            {tracking.queueStats?.sampleCount === 1 ? '' : 's'}{' '}
-            {activeSession.endedAt ? 'still syncing' : 'queued'}
-            {tracking.queueStats && tracking.queueStats.droppedLocallyCount > 0
-              ? ` · ${tracking.queueStats.droppedLocallyCount} dropped locally`
-              : ''}
-            {tracking.uploaderSnapshot
-              ? ` · ${describeUploaderStatus(tracking.uploaderSnapshot.status)}`
-              : ''}
+        <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-5">
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <CloudUpload className="size-4" aria-hidden="true" />
+            {activeSession?.endedAt
+              ? 'Another trip is finishing sync'
+              : 'Another trip is recording'}
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {activeSession?.tripTitle ?? 'Another trip'} is using tracking on
+            this device.{' '}
+            {activeSession?.endedAt
+              ? 'Wait for its points to sync before starting here.'
+              : 'Open the active recording to stop it before starting here.'}
+          </p>
+          <a
+            className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary underline underline-offset-4"
+            href="/tracking/active"
+            onClick={(event) => {
+              if (
+                event.button !== 0 ||
+                event.ctrlKey ||
+                event.metaKey ||
+                event.shiftKey ||
+                event.altKey
+              )
+                return
+              event.preventDefault()
+              // Use the app's popstate listener to keep this reachable offline,
+              // without reloading auth or fetching the trip first.
+              window.history.pushState(null, '', '/tracking/active')
+              window.dispatchEvent(new PopStateEvent('popstate'))
+            }}
+          >
+            View active recording
+            <ChevronRight className="size-4" aria-hidden="true" />
+          </a>
         </div>
+      ) : isThisTripActive ? (
+        <TrackingRecorder compact />
       ) : (
-        <Button
+        <TrackingReady
           disabled={tracking.status !== 'idle' || !currentUserId}
-          onClick={() => void handleStart()}
-          size="sm"
-          type="button"
-        >
-          <Play className="size-4" />
-          {tracking.status === 'starting' ? 'Starting…' : 'Start tracking'}
-        </Button>
+          starting={tracking.status === 'starting'}
+          onStart={() => void handleStart()}
+        />
       )}
-
-      {tracking.error ? (
-        <p className="text-xs text-destructive" role="alert">
-          {tracking.error}
-        </p>
-      ) : null}
-
-      {isThisTripActive && tracking.clockSkewNoticeSeconds !== null ? (
-        <p className="text-xs text-muted-foreground" role="status">
-          Your device clock is about {tracking.clockSkewNoticeSeconds}s off from
-          the server — your recording is unaffected, but you may want to fix
-          your device’s date &amp; time.
-        </p>
-      ) : null}
-    </section>
+      {!isOtherTripActive && <TrackingHealth />}
+      <TrackingSettingsLink tripId={tripId} />
+    </div>
   )
 }
 
@@ -158,6 +180,10 @@ export function TrackingManagementPanel({
   tripTitle,
 }: TrackingManagementPanelProps) {
   const { currentUser } = useAuth()
+  const tracking = useContext(TrackingContext)
+  const localSession = tracking?.activeSession
+  const native = isNativePlatform()
+  const [view, setView] = useState<'tracking' | 'recordings'>('tracking')
   const [sessions, setSessions] = useState<readonly TrackingSession[]>([])
   const [shareLiveLocation, setShareLiveLocation] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
@@ -176,7 +202,6 @@ export function TrackingManagementPanel({
   const [isUpdatingLiveSharing, setIsUpdatingLiveSharing] = useState(false)
 
   const loadOverview = useCallback(async () => {
-    setIsLoading(true)
     try {
       const [loadedSessions, settings] = await Promise.all([
         listTrackingSessions({ accessToken, tripId }),
@@ -229,18 +254,23 @@ export function TrackingManagementPanel({
     if (!confirm) return
     setIsBusy(true)
     try {
-      if (confirm.action === 'stop')
-        await stopTrackingSession({
-          accessToken,
-          sessionId: confirm.id,
-          tripId,
-        })
-      else
+      if (confirm.action === 'stop') {
+        if (localSession?.sessionId === confirm.id && tracking) {
+          await tracking.stopTracking()
+        } else {
+          await stopTrackingSession({
+            accessToken,
+            sessionId: confirm.id,
+            tripId,
+          })
+        }
+      } else {
         await deleteTrackingSession({
           accessToken,
           sessionId: confirm.id,
           tripId,
         })
+      }
       setConfirm(null)
       await loadOverview()
       onTrackingChanged()
@@ -297,26 +327,76 @@ export function TrackingManagementPanel({
 
   return (
     <div className="space-y-5">
+      {native && (
+        <div
+          className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1"
+          role="group"
+          aria-label="GPS views"
+        >
+          {(['tracking', 'recordings'] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={view === value}
+              onClick={() => setView(value)}
+              className={`flex min-h-11 items-center justify-center gap-2 rounded-lg px-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${view === value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              {value === 'tracking' ? 'Tracking' : 'Recordings'}
+              {value === 'recordings' && (
+                <span className="rounded-full bg-muted px-1.5 text-xs">
+                  {sessions.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      {native ? (
+        <div hidden={view !== 'tracking'}>
+          <RecordingControl
+            accessToken={accessToken}
+            currentUserId={currentUser?.id ?? null}
+            onSessionsChanged={() => void loadOverview()}
+            onTrackingChanged={onTrackingChanged}
+            tripId={tripId}
+            tripTitle={tripTitle}
+          />
+        </div>
+      ) : (
+        <div className="flex items-start gap-3 rounded-2xl border border-border bg-muted/40 p-4">
+          <MapPinned
+            className="mt-0.5 size-5 shrink-0 text-primary"
+            aria-hidden="true"
+          />
+          <div>
+            <h3 className="text-sm font-semibold">Your recorded routes</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Record a route with the OpenVoyage Android app. You can review and
+              edit your recordings here.
+            </p>
+          </div>
+        </div>
+      )}
       {error ? (
         <p className="text-sm font-medium text-destructive" role="alert">
           {error}
         </p>
       ) : null}
 
-      {canManageLiveSharing ? (
+      {canManageLiveSharing && (!native || view === 'tracking') ? (
         <div
           aria-busy={isLiveLocationPending}
-          className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-lg border border-border px-4 py-3"
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-t border-border py-4"
         >
           <div className="min-w-0">
             <p className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <Radio className="size-4" />
+              <ShieldCheck className="size-4 text-primary" aria-hidden="true" />
               Share live location
             </p>
             <p className="text-xs leading-5 text-muted-foreground">
               {shareLiveLocation
-                ? 'Anyone who can read this trip sees the final route and its endpoint.'
-                : 'Only trip members see the final route after the latest post; it is shown in the map’s member-only color. Earlier finished routes remain visible to everyone.'}
+                ? 'On · Anyone who can read this trip can see the latest route and endpoint.'
+                : 'Off · The route after your latest post is visible to trip members only. Earlier finished routes remain visible to everyone.'}
             </p>
           </div>
           {isLiveLocationPending ? (
@@ -367,31 +447,37 @@ export function TrackingManagementPanel({
         </div>
       ) : null}
 
-      {isNativePlatform() ? (
-        <RecordingControl
-          accessToken={accessToken}
-          currentUserId={currentUser?.id ?? null}
-          onSessionsChanged={() => void loadOverview()}
-          onTrackingChanged={onTrackingChanged}
-          tripId={tripId}
-          tripTitle={tripTitle}
-        />
-      ) : null}
-
-      <section className="space-y-2">
-        <h3 className="text-sm font-semibold text-foreground">Recordings</h3>
+      <section
+        hidden={native && view !== 'recordings'}
+        className="space-y-3"
+        aria-label="Saved recordings"
+      >
+        {!native && (
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-base font-semibold text-foreground">
+              Recordings
+            </h3>
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+              {sessions.length}
+            </span>
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Open a recording to review its route or edit points.
+        </p>
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading recordings…</p>
         ) : sessions.length === 0 ? (
           <EmptyState
-            description="Recordings appear here once a device has uploaded a track for this trip."
+            description="Start tracking in the Android app. Your saved routes will appear here."
+            icon={Route}
             title="No recordings yet"
           />
         ) : (
-          <ul className="space-y-2">
+          <ul className="divide-y divide-border">
             {sessions.map((session) => (
               <li
-                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-4 py-3"
+                className="flex flex-wrap items-center gap-2 rounded-xl px-1 py-3 transition-colors hover:bg-muted/40"
                 key={session.id}
               >
                 <button
@@ -400,25 +486,54 @@ export function TrackingManagementPanel({
                   disabled={isBusy}
                   type="button"
                 >
-                  <div className="min-w-0"><p className="text-sm font-medium text-foreground">
-                    {formatMoment(session.started_at)}
-                    {session.ended_at
-                      ? ` – ${formatMoment(session.ended_at)}`
-                      : ' – recording'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {session.sample_count} point
-                    {session.sample_count === 1 ? '' : 's'}
-                    {session.recorded_by_user_id
-                      ? ''
-                      : ' · recorded by a removed account'}
-                  </p></div>
-                  <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-primary">Edit <ChevronRight className="size-4" /></span>
+                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/5 text-primary">
+                    <Route className="size-5" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground">
+                      {formatDateTime(new Date(session.started_at), {
+                        dateStyle: 'medium',
+                      })}
+                    </p>
+                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                      <span>
+                        {formatDateTime(new Date(session.started_at), {
+                          timeStyle: 'short',
+                        })}
+                        {session.ended_at
+                          ? ` – ${formatDateTime(new Date(session.ended_at), { timeStyle: 'short' })}`
+                          : ''}
+                      </span>
+                      <span>
+                        · {session.sample_count} point
+                        {session.sample_count === 1 ? '' : 's'}
+                      </span>
+                      {session.recorded_by_user_id ? null : (
+                        <span>· removed account</span>
+                      )}
+                    </p>
+                    <RecordingBadge
+                      saved={Boolean(session.ended_at)}
+                      syncing={
+                        localSession?.sessionId === session.id &&
+                        Boolean(localSession.endedAt)
+                      }
+                    />
+                  </div>
+                  <ChevronRight
+                    className="size-4 shrink-0 text-muted-foreground group-hover:text-primary"
+                    aria-hidden="true"
+                  />
                 </button>
                 {!session.ended_at &&
+                  !(
+                    localSession?.sessionId === session.id &&
+                    localSession.endedAt
+                  ) &&
                   (session.recorded_by_user_id === currentUser?.id ||
                     currentUser?.role === 'ADMIN') && (
                     <Button
+                      className="min-h-11"
                       disabled={isBusy}
                       variant="outline"
                       onClick={() =>
@@ -435,7 +550,8 @@ export function TrackingManagementPanel({
                   onClick={() =>
                     setConfirm({ id: session.id, action: 'delete' })
                   }
-                  size="sm"
+                  size="icon"
+                  className="size-11 text-muted-foreground hover:text-destructive"
                   type="button"
                   variant="ghost"
                 >
@@ -454,7 +570,9 @@ export function TrackingManagementPanel({
           }
           description={
             confirm.action === 'stop'
-              ? 'This ends the tracking session. Its recorded points are kept. The recording device will stop when it next connects.'
+              ? localSession?.sessionId === confirm.id
+                ? 'This stops recording on this device. Your points are kept and will sync when connected.'
+                : 'This ends the tracking session. Its recorded points are kept. The recording device will stop when it next connects.'
               : 'Every point will be permanently removed. This cannot be undone.'
           }
           confirmLabel={

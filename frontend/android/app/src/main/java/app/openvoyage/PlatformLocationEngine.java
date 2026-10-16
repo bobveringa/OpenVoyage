@@ -6,7 +6,9 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.location.LocationRequest;
 import android.os.Build;
+import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -30,6 +32,9 @@ final class PlatformLocationEngine implements LocationEngine {
     private final Context context;
     private final LocationManager locationManager;
     private LocationListener listener;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private LocationListener lookupListener;
+    private Runnable lookupTimeout;
 
     PlatformLocationEngine(Context context) {
         this.context = context;
@@ -190,9 +195,74 @@ final class PlatformLocationEngine implements LocationEngine {
 
     @Override
     public void stop() {
+        stopLookup();
         if (listener != null && locationManager != null) {
             locationManager.removeUpdates(listener);
         }
         listener = null;
+    }
+
+    @Override
+    public void lookupCurrentLocation(Callback callback, long durationMs) {
+        stopLookup();
+        String provider = locationManager == null ? null : pickProvider(locationManager, Power.HIGH);
+        if (provider == null) {
+            callback.onFailure("No location provider is available on this device.");
+            return;
+        }
+        final long requestedAtNs = SystemClock.elapsedRealtimeNanos();
+        lookupListener = new LocationListener() {
+            @Override
+            public void onLocationChanged(@NonNull Location location) {
+                // Never let an old cached point finish the startup lookup.
+                if (lookupListener != this
+                        || location.getElapsedRealtimeNanos() < requestedAtNs) return;
+                stopLookup();
+                callback.onLocation(location);
+            }
+
+            @Override
+            public void onProviderDisabled(@NonNull String disabled) {
+                if (lookupListener != this) return;
+                stopLookup();
+                callback.onFailure("Location was turned off on this device.");
+            }
+
+            @Override
+            public void onProviderEnabled(@NonNull String enabled) {}
+        };
+        lookupTimeout = () -> {
+            stopLookup();
+            callback.onFailure("No current location available.");
+        };
+        try {
+            // A separate short request bypasses sparse intervals, batching and
+            // distance filters without changing the ongoing recording policy.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                LocationRequest request = new LocationRequest.Builder(1_000L)
+                        .setQuality(LocationRequest.QUALITY_HIGH_ACCURACY)
+                        .setMaxUpdateDelayMillis(0L)
+                        .setDurationMillis(durationMs)
+                        .build();
+                locationManager.requestLocationUpdates(provider, request,
+                        context.getMainExecutor(), lookupListener);
+            } else {
+                locationManager.requestLocationUpdates(provider, 1_000L, 0f,
+                        lookupListener, Looper.getMainLooper());
+            }
+            handler.postDelayed(lookupTimeout, durationMs);
+        } catch (SecurityException | IllegalArgumentException exception) {
+            stopLookup();
+            callback.onFailure("Could not request a current location.");
+        }
+    }
+
+    private void stopLookup() {
+        if (lookupTimeout != null) handler.removeCallbacks(lookupTimeout);
+        lookupTimeout = null;
+        if (lookupListener != null && locationManager != null) {
+            locationManager.removeUpdates(lookupListener);
+        }
+        lookupListener = null;
     }
 }

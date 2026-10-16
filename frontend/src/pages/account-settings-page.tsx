@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { ArrowLeft } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { readTrackingSettingsReturnPath } from '@/tracking/settings-navigation'
 
 import type { CurrentUser } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
@@ -103,9 +106,30 @@ function AccountSettingsSections({
   immichEnabled: boolean
 }) {
   const heading = accountSettingsSectionHeadings[activeSection]
+  const returnPath = readTrackingSettingsReturnPath(window.location.search)
 
   return (
     <section className="space-y-6">
+      {returnPath && (
+        <Button
+          variant="ghost"
+          className="-ml-4 min-h-11"
+          onClick={() => {
+            const navigation = window.history.state
+            if (
+              navigation?.trackingSettingsReturnPath === returnPath &&
+              navigation.trackingSettingsPreviousPath === returnPath
+            ) {
+              window.history.back()
+            } else {
+              props.onNavigate(returnPath)
+            }
+          }}
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          Back to tracking
+        </Button>
+      )}
       <AccountSettingsSectionHeading {...heading} />
       <AccountSettingsPanel activeSection={activeSection} {...props} />
     </section>

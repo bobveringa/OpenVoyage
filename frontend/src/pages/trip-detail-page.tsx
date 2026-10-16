@@ -1405,6 +1405,9 @@ export function TripDetailPage({
   }, [])
 
   useEffect(() => {
+    // Keep a requested management menu until membership has loaded. Clearing
+    // it using the empty initial member list loses settings return links.
+    if (loadState.status !== 'success' && activeDialog === 'management') return
     const currentState = {
       activeDialog,
       managementSection,
@@ -1431,6 +1434,7 @@ export function TripDetailPage({
     canManageTrip,
     canMutate,
     canSwitchModes,
+    loadState.status,
     editingPostId,
     mode,
     managementSection,

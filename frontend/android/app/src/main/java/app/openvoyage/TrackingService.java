@@ -718,6 +718,27 @@ public class TrackingService extends Service {
 
         armMotionTrigger();
 
+        if (tracking && engine == newEngine && lastFixAtMs == 0L) {
+            // Passive/sparse recording requests can wait minutes for their
+            // first delivery. Acquire a fresh starting point immediately.
+            final String token = recordingToken;
+            newEngine.lookupCurrentLocation(new LocationEngine.Callback() {
+                @Override
+                public void onLocation(Location location) {
+                    if (tracking && engine == newEngine && recordingToken.equals(token)) {
+                        onFix(location);
+                    }
+                }
+
+                @Override
+                public void onFailure(String message) {
+                    // A cold GPS indoors is advisory; normal capture and the
+                    // watchdog continue after this bounded attempt expires.
+                    Log.w(TAG, "Initial location lookup failed: " + message);
+                }
+            }, 30_000L);
+        }
+
         if (trackingMode == NativeAdaptivePolicy.Mode.SMART && smartPrecision < 5
                 && newEngine instanceof FusedLocationEngine) {
             TrackingLookupReceiver.schedule(this, recordingToken,

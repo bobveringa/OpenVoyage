@@ -1,4 +1,15 @@
-import { ChevronDown, Loader2, MapPinned, Save, Server, SlidersHorizontal } from 'lucide-react'
+import {
+  Battery,
+  Check,
+  ChevronDown,
+  Loader2,
+  MapPinned,
+  Save,
+  Server,
+  SlidersHorizontal,
+  Sparkles,
+  Timer,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -30,7 +41,9 @@ import { useTracking } from '@/tracking/use-tracking'
 
 const INTERVAL_OPTIONS = MANUAL_INTERVAL_OPTIONS_SECONDS.map((seconds) => ({
   label:
-    seconds < 60 ? `${seconds} seconds` : `${seconds / 60} minute${seconds === 60 ? '' : 's'}`,
+    seconds < 60
+      ? `${seconds} seconds`
+      : `${seconds / 60} minute${seconds === 60 ? '' : 's'}`,
   value: String(seconds),
 }))
 
@@ -40,7 +53,10 @@ const POWER_OPTIONS: ReadonlyArray<{ label: string; value: PowerLevel }> = [
   { label: 'High precision', value: 'high' },
 ]
 
-const LOCATION_SOURCE_OPTIONS: ReadonlyArray<{ label: string; value: LocationSource }> = [
+const LOCATION_SOURCE_OPTIONS: ReadonlyArray<{
+  label: string
+  value: LocationSource
+}> = [
   { label: 'Automatic (recommended)', value: 'auto' },
   { label: 'Google Play Services', value: 'gms' },
   { label: "This device's own GPS", value: 'platform' },
@@ -57,8 +73,10 @@ function describePrecision(level: PrecisionLevel): string {
 
 export function TrackingSettingsPage({
   embedded = false,
+  showServer = true,
 }: {
   embedded?: boolean
+  showServer?: boolean
 }) {
   const { activeSession, notifySettingsChanged, queueStats } = useTracking()
   const [settings, setSettings] = useState<TrackingSettings | null>(null)
@@ -81,6 +99,7 @@ export function TrackingSettingsPage({
   const domainSwitchBlocked = Boolean(activeSession) || queueNonEmpty
 
   function updateSettings(patch: Partial<TrackingSettings>) {
+    setSuccess(null)
     setSettings((current) => (current ? { ...current, ...patch } : current))
   }
 
@@ -98,7 +117,11 @@ export function TrackingSettingsPage({
       notifySettingsChanged(settings)
       setSuccess('Tracking settings saved.')
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Failed to save settings')
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Failed to save settings',
+      )
     } finally {
       setIsSaving(false)
     }
@@ -115,14 +138,18 @@ export function TrackingSettingsPage({
       await setStoredServerUrl(serverUrl)
       setSuccess('Server updated.')
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Failed to update server')
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Failed to update server',
+      )
     } finally {
       setIsSavingServer(false)
     }
   }
 
   const content = (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {error ? (
         <p className="text-sm font-medium text-destructive" role="alert">
           {error}
@@ -134,19 +161,23 @@ export function TrackingSettingsPage({
         </p>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl">
+      <Card className="overflow-hidden shadow-none">
+        <CardHeader className="pb-4">
+          <CardTitle className="flex items-center gap-2 text-base">
             <MapPinned className="size-5" aria-hidden="true" />
-            How your route is recorded
+            Route detail & battery
           </CardTitle>
           <CardDescription>
-            Smart uses battery saving background profiles. Move the slider toward
-            more detail for a denser route. Manual keeps a fixed interval.
+            {activeSession
+              ? 'Changes apply to the recording running on this device.'
+              : 'Choose route detail and battery use for this device.'}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <ModeTabs mode={settings.mode} onChange={(mode) => updateSettings({ mode })} />
+        <CardContent className="space-y-5">
+          <ModeTabs
+            mode={settings.mode}
+            onChange={(mode) => updateSettings({ mode })}
+          />
 
           {settings.mode === 'smart' ? (
             <PrecisionSlider
@@ -156,7 +187,9 @@ export function TrackingSettingsPage({
           ) : (
             <div className="grid gap-5 sm:grid-cols-2">
               <label className="space-y-1.5 text-sm">
-                <span className="font-medium text-foreground">Record a point every</span>
+                <span className="font-medium text-foreground">
+                  Record a point every
+                </span>
                 <Select
                   ariaLabel="Recording interval"
                   onValueChange={(value) =>
@@ -166,8 +199,8 @@ export function TrackingSettingsPage({
                   value={String(settings.manualIntervalSeconds)}
                 />
                 <span className="block text-xs text-muted-foreground">
-                  Kept exactly, whether you're walking, driving, or standing
-                  still.
+                  Requests a fixed interval. Android may deliver points in
+                  batches.
                 </span>
               </label>
 
@@ -189,68 +222,89 @@ export function TrackingSettingsPage({
             </div>
           )}
 
-          <div>
-            <Button disabled={isSaving} onClick={() => void handleSave()} type="button">
-              {isSaving ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Save className="size-4" aria-hidden="true" />
-              )}
-              {isSaving ? 'Saving…' : 'Save settings'}
-            </Button>
-          </div>
-
           <AdvancedSection
             activeSession={Boolean(activeSession)}
             onChange={updateSettings}
             settings={settings}
           />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl">
-            <Server className="size-5" aria-hidden="true" />
-            Server
-          </CardTitle>
-          <CardDescription>
-            Overrides which OpenVoyage server this device talks to. Only the
-            current value is kept; it survives signing out.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <label className="grid max-w-xl gap-1.5 text-sm">
-            <span className="font-medium text-foreground">Server URL</span>
-            <Input
-              disabled={domainSwitchBlocked}
-              onChange={(event) => setServerUrl(event.target.value)}
-              placeholder="https://travel.example.com"
-              type="url"
-              value={serverUrl}
-            />
-          </label>
-
-          {domainSwitchBlocked ? (
-            <p className="text-xs text-amber-700">
-              Stop the active recording and let the queue finish syncing before
-              changing servers — queued points only make sense against the
-              server that owns them.
-            </p>
-          ) : null}
-
-          <div>
+          <div className="border-t border-border pt-4">
             <Button
-              disabled={isSavingServer || domainSwitchBlocked}
-              onClick={() => void handleSaveServer()}
+              className="h-11 w-full"
+              disabled={isSaving}
+              onClick={() => void handleSave()}
               type="button"
-              variant="outline"
             >
-              {isSavingServer ? 'Saving…' : 'Save server'}
+              {isSaving ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : success === 'Tracking settings saved.' ? (
+                <Check className="size-4" aria-hidden="true" />
+              ) : (
+                <Save className="size-4" aria-hidden="true" />
+              )}
+              {isSaving
+                ? 'Saving…'
+                : success === 'Tracking settings saved.'
+                  ? 'Settings saved'
+                  : 'Save settings'}
             </Button>
           </div>
         </CardContent>
       </Card>
+
+      {showServer && (
+        <details className="group rounded-2xl border border-border bg-card">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold">
+            Server connection
+            <ChevronDown
+              className="size-4 transition-transform group-open:rotate-180"
+              aria-hidden="true"
+            />
+          </summary>
+          <Card className="border-0 shadow-none">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Server className="size-5" aria-hidden="true" />
+                Server
+              </CardTitle>
+              <CardDescription>
+                Overrides which OpenVoyage server this device talks to. Only the
+                current value is kept; it survives signing out.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <label className="grid max-w-xl gap-1.5 text-sm">
+                <span className="font-medium text-foreground">Server URL</span>
+                <Input
+                  disabled={domainSwitchBlocked}
+                  onChange={(event) => setServerUrl(event.target.value)}
+                  placeholder="https://travel.example.com"
+                  type="url"
+                  value={serverUrl}
+                />
+              </label>
+
+              {domainSwitchBlocked ? (
+                <p className="text-xs text-amber-700">
+                  Stop the active recording and let the queue finish syncing
+                  before changing servers — queued points only make sense
+                  against the server that owns them.
+                </p>
+              ) : null}
+
+              <div>
+                <Button
+                  disabled={isSavingServer || domainSwitchBlocked}
+                  onClick={() => void handleSaveServer()}
+                  type="button"
+                  variant="outline"
+                >
+                  {isSavingServer ? 'Saving…' : 'Save server'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </details>
+      )}
     </div>
   )
 
@@ -281,22 +335,26 @@ function ModeTabs({
   return (
     <div
       aria-label="Tracking mode"
-      className="inline-grid grid-cols-2 gap-1 rounded-2xl border border-border bg-muted p-1"
-      role="tablist"
+      className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1"
+      role="group"
     >
       {options.map((option) => (
         <button
-          aria-selected={mode === option.value}
-          className={`rounded-xl px-6 py-2 text-sm font-medium transition-colors ${
+          aria-pressed={mode === option.value}
+          className={`flex min-h-12 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
             mode === option.value
               ? 'bg-card text-foreground shadow-sm'
               : 'text-muted-foreground hover:text-foreground'
           }`}
           key={option.value}
           onClick={() => onChange(option.value)}
-          role="tab"
           type="button"
         >
+          {option.value === 'smart' ? (
+            <Sparkles className="size-4" aria-hidden="true" />
+          ) : (
+            <Timer className="size-4" aria-hidden="true" />
+          )}
           {option.label}
         </button>
       ))}
@@ -314,20 +372,24 @@ function PrecisionSlider({
   const preset = precisionPreset(level)
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4 rounded-xl bg-muted/50 p-4">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-sm font-medium text-foreground">Precision</span>
-        <span className="text-sm font-semibold text-primary">{preset.label}</span>
+        <span className="text-sm font-semibold text-primary">
+          {preset.label}
+        </span>
       </div>
 
       <input
         aria-label="Precision"
         aria-valuetext={preset.label}
-        className="w-full accent-primary"
+        className="h-8 w-full cursor-pointer accent-primary"
         list="precision-marks"
         max={PRECISION_PRESETS.length}
         min={1}
-        onChange={(event) => onChange(Number(event.target.value) as PrecisionLevel)}
+        onChange={(event) =>
+          onChange(Number(event.target.value) as PrecisionLevel)
+        }
         step={1}
         type="range"
         value={level}
@@ -339,11 +401,19 @@ function PrecisionSlider({
       </datalist>
 
       <div className="flex justify-between text-[11px] leading-4 text-muted-foreground">
-        <span>Save battery</span>
-        <span>More detail</span>
+        <span className="flex items-center gap-1">
+          <Battery className="size-3" aria-hidden="true" />
+          Save battery
+        </span>
+        <span className="flex items-center gap-1">
+          More detail
+          <MapPinned className="size-3" aria-hidden="true" />
+        </span>
       </div>
 
-      <p className="text-xs leading-5 text-muted-foreground">{describePrecision(level)}</p>
+      <p className="text-xs leading-5 text-muted-foreground">
+        {describePrecision(level)}
+      </p>
     </div>
   )
 }
@@ -395,7 +465,9 @@ function AdvancedSection({
           <Select
             ariaLabel="Location source"
             disabled={activeSession}
-            onValueChange={(value) => onChange({ locationSource: value as LocationSource })}
+            onValueChange={(value) =>
+              onChange({ locationSource: value as LocationSource })
+            }
             options={LOCATION_SOURCE_OPTIONS}
             value={settings.locationSource}
           />
@@ -417,7 +489,9 @@ function AdvancedSection({
           <input
             checked={settings.wifiOnlyUpload}
             className="mt-0.5 size-4 accent-primary"
-            onChange={(event) => onChange({ wifiOnlyUpload: event.target.checked })}
+            onChange={(event) =>
+              onChange({ wifiOnlyUpload: event.target.checked })
+            }
             type="checkbox"
           />
           <span className="space-y-0.5">
@@ -425,9 +499,9 @@ function AdvancedSection({
               Only upload over Wi-Fi
             </span>
             <span className="block text-xs text-muted-foreground">
-              Recording keeps working on cellular data — only the upload
-              waits. Points already recorded stay safely queued and sync
-              automatically once Wi-Fi is back.
+              Recording keeps working on cellular data — only the upload waits.
+              Points already recorded stay safely queued and sync automatically
+              once Wi-Fi is back.
             </span>
           </span>
         </label>

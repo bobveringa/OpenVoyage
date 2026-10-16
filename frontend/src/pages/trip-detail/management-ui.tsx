@@ -1081,7 +1081,9 @@ export function TripManagementDialog({
       className="sm:h-[min(48rem,calc(100dvh-2rem))] sm:max-w-5xl"
       contentClassName="pl-3 pr-5 sm:px-4"
       description={
-        isMobile && !showMobileMenu
+        effectiveSection === 'gps' && !showMobileMenu
+          ? trip.name
+          : isMobile && !showMobileMenu
           ? activeSection.description
           : 'Settings, access, location data, and trip administration.'
       }
@@ -1089,6 +1091,11 @@ export function TripManagementDialog({
       onClose={onClose}
       open={open}
       title={isMobile && !showMobileMenu ? activeSection.label : 'Manage trip'}
+      toolbar={isMobile && !showMobileMenu && effectiveSection === 'gps' ? (
+        <Button className="-ml-2 min-h-11 gap-1.5" onClick={() => setShowMobileMenu(true)} type="button" variant="ghost">
+          <ArrowLeft className="size-4" aria-hidden="true" />All trip settings
+        </Button>
+      ) : undefined}
     >
       {mediaStatus ? <p className="text-sm text-muted-foreground" role="status">{mediaStatus}</p> : null}
       {isMobile && showMobileMenu ? (
@@ -1131,7 +1138,7 @@ export function TripManagementDialog({
             ))}
           </nav>
           <div className="min-w-0 pb-2">
-            {isMobile ? (
+            {isMobile && effectiveSection !== 'gps' ? (
               <Button
                 className="mb-4 -ml-2 gap-1.5"
                 onClick={() => setShowMobileMenu(true)}
