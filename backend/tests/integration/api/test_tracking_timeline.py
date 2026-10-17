@@ -14,8 +14,40 @@ from factories.places import create_place
 from factories.trips import add_trip_member, add_trip_viewer, create_trip
 from factories.users import create_user
 from models.database.trips import TripRole, TripVisibility
+from models.database.posts import Post
 
 START = datetime(2026, 8, 14, 8, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('has_past_post', [False, True])
+def test_legacy_future_posts_cannot_expose_live_gps(
+    client, api_prefix, db_session, trip, owner, place, has_past_post,
+):
+    if has_past_post:
+        _create_post(client, api_prefix, trip_id=trip.id, user=owner, place=place,
+            title='Past', occurred_at=START)
+    created = _create_post(client, api_prefix, trip_id=trip.id, user=owner, place=place,
+        title='Legacy future', occurred_at=START + timedelta(hours=1))
+    stored = db_session.get(Post, uuid.UUID(created['id']))
+    stored.occurred_at = datetime.now(timezone.utc) + timedelta(days=1)
+    db_session.commit()
+    session_id = _open_session(client, api_prefix, trip_id=trip.id, user=owner)
+    for points in [
+        [(600, 52.0, 5.0, 'TRAIN'), (1200, 52.5, 5.5, 'TRAIN')],
+        [(1800, 53.0, 6.0, 'TRAIN')],
+    ]:
+        _upload(client, api_prefix, trip_id=trip.id, user=owner,
+            session_id=session_id, points=points)
+        response = _timeline(client, api_prefix, trip.id)
+        assert response.status_code == 200
+        body = response.json()
+        assert body['opening_route'] is None
+        assert len(body['entries']) == int(has_past_post)
+        assert all(entry['route_after'] is None for entry in body['entries'])
+    member = _timeline(client, api_prefix, trip.id, user=owner).json()
+    assert len(member['entries']) == 1 + int(has_past_post)
+    assert member['opening_route'] is not None or member['entries'][0]['route_after'] is not None
 
 
 def _auth_headers(user) -> dict[str, str]:

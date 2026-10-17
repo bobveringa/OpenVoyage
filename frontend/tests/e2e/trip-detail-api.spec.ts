@@ -546,7 +546,7 @@ async function createPublishedPostWithApi(
           longitude: 4.9041,
         },
         media_ids: [media.id],
-        occurred_at: '2027-05-11T12:00:00Z',
+        occurred_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
         publish: true,
         title,
       },

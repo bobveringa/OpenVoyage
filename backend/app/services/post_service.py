@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -50,6 +51,10 @@ class PostRevisionMismatchError(Exception):
     """Raised when a post mutation uses a stale revision."""
 
 
+class InvalidPostDateError(Exception):
+    """Raised when a post's occurrence time is in the future."""
+
+
 class PostService:
     """Coordinates post lifecycle, media ordering, and post authorization."""
 
@@ -72,6 +77,7 @@ class PostService:
             user_id=current_user_id,
             permission=TripPermission.CREATE_POST,
         )
+        occurred_at = self._validate_occurred_at(payload.occurred_at)
         media_by_id = self._validate_media_ids(
             media_ids=payload.media_ids,
             current_user_id=current_user_id,
@@ -95,7 +101,7 @@ class PostService:
             location_id=location.id,
             title=payload.title,
             body=payload.body,
-            occurred_at=payload.occurred_at,
+            occurred_at=occurred_at,
             bubble_media_id=bubble_media_id,
             published_at=utcnow() if payload.publish else None,
         )
@@ -205,6 +211,9 @@ class PostService:
         )
 
         final_media_ids = [link.media_id for link in post.media_links]
+        occurred_at = self._validate_occurred_at(
+            payload.occurred_at if payload.occurred_at is not None else post.occurred_at
+        )
         if payload.media_ids is not None:
             self._validate_collaborative_media_ids(
                 post=post,
@@ -234,8 +243,7 @@ class PostService:
                 location_input=payload.location,
             )
             post.location_id = location.id
-        if payload.occurred_at is not None:
-            post.occurred_at = payload.occurred_at
+        post.occurred_at = occurred_at
         if payload.media_ids is not None:
             post.bubble_media_id = bubble_media_id
             self._replace_post_media(
@@ -281,6 +289,7 @@ class PostService:
             permission=TripPermission.PUBLISH_POST,
             expected_revision=expected_revision,
         )
+        self._validate_occurred_at(post.occurred_at)
         require_ready_media(self.db.scalars(select(Media).where(
             Media.id.in_([link.media_id for link in post.media_links])
         )).all())
@@ -309,6 +318,14 @@ class PostService:
             post.revision += 1
         self.db.commit()
         return self._get_post_for_response(post_id=post_id, trip_id=trip_id)
+
+    @staticmethod
+    def _validate_occurred_at(value: datetime) -> datetime:
+        # Preserve the API's existing interpretation of offsetless dates as UTC.
+        value = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+        if value > utcnow():
+            raise InvalidPostDateError('Post date and time cannot be in the future.')
+        return value
 
     def _replace_post_media(
         self,

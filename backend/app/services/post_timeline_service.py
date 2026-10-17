@@ -10,6 +10,7 @@ from models.api.posts import (
     PostTimelineRouteSegmentResponse,
 )
 from models.database.posts import Post, PostMedia
+from models.database.base import utcnow
 from models.database.user import User, UserProfile
 from services.gps.tracking_service import GpsTrackingService, TimelineGeometry
 from services.trip_errors import TripNotFoundError
@@ -66,6 +67,10 @@ class PostTimelineService:
             raise TripNotFoundError(f'Trip not found: {trip_id}')
 
         conditions = [Post.trip_id == trip_id]
+        if access.membership is None:
+            # Legacy future posts must not bound routes containing live GPS data.
+            # Members retain access so they can correct these posts.
+            conditions.append(Post.occurred_at <= utcnow())
         if status_filter == PostStatusFilter.PUBLISHED:
             conditions.append(Post.published_at.is_not(None))
         elif status_filter == PostStatusFilter.DRAFT:

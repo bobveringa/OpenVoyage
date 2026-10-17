@@ -29,7 +29,8 @@ export default defineConfig({
   webServer: {
     command: `npm run dev -- --host localhost --port ${frontendPort}`,
     env: {
-      VITE_API_BASE_URL: apiBaseUrl,
+      VITE_API_BASE_URL: frontendBaseUrl,
+      VITE_API_PROXY_TARGET: apiBaseUrl,
     },
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

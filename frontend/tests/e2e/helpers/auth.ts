@@ -1,5 +1,4 @@
 import type { Page } from '@playwright/test'
-import { env } from 'node:process'
 
 type AuthTokens = {
   access_token: string
@@ -9,16 +8,16 @@ type AuthTokens = {
 }
 
 export async function seedAuthTokens(page: Page, tokens: AuthTokens, currentPage = false) {
-  const serverUrl = new URL(
-    env.E2E_API_BASE_URL ?? env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000',
-  ).href.replace(/\/+$/, '')
-  const storedTokens = { ...tokens, serverUrl }
-  const store = (value: typeof storedTokens) => {
-    window.localStorage.setItem('openvoyage.auth', JSON.stringify(value))
+  // Browser requests use Vite's same-origin API proxy. The auth store binds
+  // sessions to that origin, rather than the proxy's upstream backend URL.
+  const store = (value: AuthTokens) => {
+    window.localStorage.setItem('openvoyage.auth', JSON.stringify({
+      ...value, serverUrl: window.location.origin,
+    }))
   }
   if (currentPage) {
-    await page.evaluate(store, storedTokens)
+    await page.evaluate(store, tokens)
   } else {
-    await page.addInitScript(store, storedTokens)
+    await page.addInitScript(store, tokens)
   }
 }
