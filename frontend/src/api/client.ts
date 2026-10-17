@@ -11,14 +11,22 @@ import type { components, paths } from '@/api/types'
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? window.location.origin
 
-let currentApiBaseUrl = API_BASE_URL.replace(/\/+$/, '')
+export function normalizeApiBaseUrl(baseUrl: string): string {
+  const url = new URL(baseUrl)
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    throw new Error('Enter an HTTP or HTTPS server address without credentials, a query, or a fragment.')
+  }
+  return url.href.replace(/\/+$/, '')
+}
+
+let currentApiBaseUrl = normalizeApiBaseUrl(API_BASE_URL)
 
 export function getApiBaseUrl(): string {
   return currentApiBaseUrl
 }
 
 export function setApiBaseUrl(nextBaseUrl: string): void {
-  currentApiBaseUrl = nextBaseUrl.replace(/\/+$/, '')
+  currentApiBaseUrl = normalizeApiBaseUrl(nextBaseUrl)
 }
 
 export const api = createClient<paths>({

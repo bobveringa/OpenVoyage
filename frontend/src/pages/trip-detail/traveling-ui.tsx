@@ -52,6 +52,7 @@ import { MediaImage } from '@/components/ui/media-image'
 import { Modal } from '@/components/ui/modal'
 import { useTracking } from '@/tracking/use-tracking'
 import { usePostSwipe } from '@/pages/trip-detail/use-post-swipe'
+import { formatDateTime } from '@/lib/date-time'
 import { cn } from '@/lib/utils'
 import {
   getMapFocusedPostId,
@@ -1372,7 +1373,7 @@ function formatCommentAge(value: string) {
   if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
   const days = Math.floor(hours / 24)
   if (days <= 3) return `${days} ${days === 1 ? 'day' : 'days'} ago`
-  return new Intl.DateTimeFormat(undefined, { day: 'numeric', hour: '2-digit', minute: '2-digit', month: 'short', year: 'numeric' }).format(date)
+  return formatDateTime(date, { day: 'numeric', hour: '2-digit', minute: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function getCommentInitials(firstName: string | null, lastName: string | null, username: string | null) {

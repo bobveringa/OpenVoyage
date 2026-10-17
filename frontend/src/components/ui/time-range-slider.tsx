@@ -1,3 +1,5 @@
+import { formatDateTime, useClockFormat } from '@/lib/date-time'
+
 import './time-range-slider.css'
 
 type Props = {
@@ -16,12 +18,16 @@ export function TimeRangeSlider({
   onChange,
   disabled,
 }: Props) {
+  const { preference } = useClockFormat()
+  const labels = value.map((timestamp) =>
+    formatDateTime(new Date(timestamp), { dateStyle: 'short', timeStyle: 'medium' }, preference),
+  )
   const span = max - min || 1
   return (
     <div role="group" aria-label="Editing time range" className="space-y-1">
       <div className="flex flex-wrap justify-between gap-2 text-xs tabular-nums text-muted-foreground">
-        <span>{new Date(value[0]).toLocaleString()}</span>
-        <span>{new Date(value[1]).toLocaleString()}</span>
+        <span>{labels[0]}</span>
+        <span>{labels[1]}</span>
       </div>
       <div className="voyage-time-range relative mx-3 h-11">
         <div className="pointer-events-none absolute inset-x-0 top-5 h-1.5 rounded-full bg-muted" />
@@ -34,7 +40,7 @@ export function TimeRangeSlider({
         />
         <input
           aria-label="Editing range start"
-          aria-valuetext={new Date(value[0]).toLocaleString()}
+          aria-valuetext={labels[0]}
           type="range"
           min={min}
           max={max}
@@ -48,7 +54,7 @@ export function TimeRangeSlider({
         />
         <input
           aria-label="Editing range end"
-          aria-valuetext={new Date(value[1]).toLocaleString()}
+          aria-valuetext={labels[1]}
           type="range"
           min={min}
           max={max}

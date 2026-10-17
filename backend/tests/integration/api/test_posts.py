@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -15,6 +16,50 @@ from models.database.trips import TripRole, TripVisibility
 
 OCCURRED_AT = '2026-06-29T10:30:00+00:00'
 OCCURRED_AT_RESPONSE = '2026-06-29T10:30:00Z'
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('publish', [False, True])
+@pytest.mark.parametrize('offset', [0, -7, 9])
+def test_future_post_dates_are_rejected(client, db_session, api_prefix, publish, offset):
+    owner = create_user(db_session, password='PostsPass123!')
+    trip = create_trip(db_session, owner_id=owner.id, visibility=TripVisibility.PUBLIC)
+    place = create_place(db_session)
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).astimezone(
+        timezone(timedelta(hours=offset))
+    ).isoformat()
+    base = f'{api_prefix}/trips/{trip.id}/posts'
+    headers = _auth_headers(owner)
+    response = client.post(base, headers=headers, json={
+        'title': 'Future', 'body': 'Future', 'location': _place_location(place),
+        'occurred_at': future, 'publish': publish,
+    })
+    assert response.status_code == 422
+    assert response.json()['detail'] == 'Post date and time cannot be in the future.'
+    assert db_session.scalars(select(Post).where(Post.trip_id == trip.id)).all() == []
+
+    created = _create_post(client, db_session, api_prefix, trip_id=trip.id,
+        user=owner, place=place, title='Past', occurred_at=OCCURRED_AT, publish=False)
+    post_url = f'{base}/{created["id"]}'
+    mutation_headers = {**headers, 'If-Match': f'"{created["revision"]}"'}
+    response = client.patch(post_url, headers=mutation_headers, json={'occurred_at': future})
+    assert response.status_code == 422
+    stored = db_session.get(Post, uuid.UUID(created['id']))
+    db_session.refresh(stored)
+    assert stored.occurred_at.isoformat() == OCCURRED_AT
+    assert stored.revision == created['revision']
+
+    # Legacy rows must be corrected before editing or publishing them.
+    stored.occurred_at = datetime.fromisoformat(future)
+    db_session.commit()
+    assert client.patch(post_url, headers=mutation_headers, json={'title': 'Edit'}).status_code == 422
+    assert client.post(f'{post_url}/publish', headers=mutation_headers).status_code == 422
+    corrected = client.patch(post_url, headers=mutation_headers, json={'occurred_at': OCCURRED_AT})
+    assert corrected.status_code == 200
+    response = client.post(f'{post_url}/publish', headers={
+        **headers, 'If-Match': f'"{corrected.json()["revision"]}"',
+    })
+    assert response.status_code == 200
 
 
 def _auth_headers(user) -> dict[str, str]:

@@ -268,7 +268,8 @@ export function TrackingSettingsPage({
               </CardTitle>
               <CardDescription>
                 Overrides which OpenVoyage server this device talks to. Only the
-                current value is kept; it survives signing out.
+                current value is kept; it survives signing out. Changing servers
+                signs you out and requires a new login.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

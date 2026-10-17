@@ -8,6 +8,7 @@ import {
   type TrackingSession,
   type TravelMode,
 } from '@/api/client'
+import { formatDateTime, useClockFormat } from '@/lib/date-time'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { TRAVEL_MODE_OPTIONS } from '@/tracking/travel-mode-options'
@@ -40,6 +41,7 @@ export function TrackingSessionDetail({
   onBack,
   onSaved,
 }: Props) {
+  const { preference } = useClockFormat()
   const root = useRef<HTMLDivElement>(null)
   const mapContainer = useRef<HTMLDivElement>(null)
   const nextDraftPointId = useRef(0)
@@ -245,7 +247,7 @@ export function TrackingSessionDetail({
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3 pt-[max(.75rem,var(--app-safe-area-inset-top))]">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold">Edit recording</h2>
-            <p className="truncate text-xs text-muted-foreground">{new Date(session.started_at).toLocaleString()}</p>
+            <p className="truncate text-xs text-muted-foreground">{formatDateTime(new Date(session.started_at), { dateStyle: 'short', timeStyle: 'medium' }, preference)}</p>
           </div>
           <Button variant="ghost" disabled={busy} onClick={back} aria-label="← Recordings"><ArrowLeft className="size-4" aria-hidden="true" />Recordings</Button>
         </header>
@@ -428,7 +430,7 @@ export function TrackingSessionDetail({
             <section className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-medium">Transport type</h3>
-                <span className="text-xs text-muted-foreground">{new Date(selected.recorded_at).toLocaleTimeString()}</span>
+                <span className="text-xs text-muted-foreground">{formatDateTime(new Date(selected.recorded_at), { timeStyle: 'medium' }, preference)}</span>
               </div>
               <Select
                 ariaLabel="Point travel mode"
@@ -508,7 +510,7 @@ export function TrackingSessionDetail({
                       aria-pressed={p.id === selectedId}
                       onClick={() => select(p.id)}
                     >
-                      {new Date(p.recorded_at).toLocaleTimeString()} ·{' '}
+                      {formatDateTime(new Date(p.recorded_at), { timeStyle: 'medium' }, preference)} ·{' '}
                       {p.latitude.toFixed(5)}, {p.longitude.toFixed(5)} ·{' '}
                       {p.travel_mode}
                     </button>
@@ -547,7 +549,7 @@ export function TrackingSessionDetail({
                         }}
                       />
                       <span>
-                        {new Date(s.started_at).toLocaleString()}
+                        {formatDateTime(new Date(s.started_at), { dateStyle: 'short', timeStyle: 'medium' }, preference)}
                         {loadingReference === s.id ? ' · Loading…' : ''}
                       </span>
                     </label>
