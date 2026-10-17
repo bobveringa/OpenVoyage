@@ -119,7 +119,7 @@ function RecordingControl({
 
   return (
     <div className="space-y-3">
-      {isOtherTripActive ? (
+      {isOtherTripActive && !tracking.canStartRecording ? (
         <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-5">
           <p className="flex items-center gap-2 text-sm font-semibold">
             <CloudUpload className="size-4" aria-hidden="true" />
@@ -158,10 +158,13 @@ function RecordingControl({
           </a>
         </div>
       ) : isThisTripActive ? (
-        <TrackingRecorder compact />
+        <>
+          <TrackingRecorder compact />
+          {tracking.canStartRecording ? <TrackingReady disabled={!currentUserId} starting={false} onStart={() => void handleStart()} /> : null}
+        </>
       ) : (
         <TrackingReady
-          disabled={tracking.status !== 'idle' || !currentUserId}
+          disabled={(!tracking.canStartRecording && tracking.status !== 'idle') || !currentUserId}
           starting={tracking.status === 'starting'}
           onStart={() => void handleStart()}
         />

@@ -1,16 +1,23 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from starlette import status
 
-from api.deps import CurrentUser, GpsTrackingServiceDep
+from api.deps import CurrentUser, GpsTrackingServiceDep, TrackingUploadUser
+from core import security
+from core.config import settings
+from models.database.base import utcnow
 from models.api.pagination import CursorPaginatedResponse
 from models.api.tracking import (
     DEFAULT_RAW_SAMPLE_LIMIT,
     GpsPostCandidateResponse,
     MAX_RAW_SAMPLE_LIMIT,
     TrackingSessionListResponse,
+    TrackingUploadTokenResponse,
+    TrackingUploadStateResponse,
+    TrackingConflictResponse,
     TrackingSessionResponse,
     TrackingSessionCreateRequest,
     TrackingSessionEndRequest,
@@ -27,6 +34,7 @@ from services.gps.tracking_service import (
     InvalidCursorError,
     TrackingPermissionError,
     TrackingSessionConflictError,
+    TrackingSessionDeletedError,
     TrackingSessionNotFoundError,
     TrackingValidationError,
     TrackSampleNotFoundError,
@@ -75,11 +83,15 @@ def replace_session_points(
 
 
 def _raise_http_error(exc: Exception) -> None:
-    """Map service errors onto the status codes the offline contract relies on.
-
-    The client treats `409` as terminal and everything else as retryable, so
-    the distinction between "gone forever" and "not yet" is load-bearing here.
-    """
+    """Preserve machine-readable deletion and the existing permission errors."""
+    if isinstance(exc, TrackingSessionDeletedError):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                'code': 'session_deleted',
+                'message': 'This recording was deleted.',
+            },
+        )
     if isinstance(exc, TripNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     if isinstance(exc, (TrackingSessionNotFoundError, TrackSampleNotFoundError)):
@@ -109,6 +121,80 @@ def _session_response(summary: SessionSummary) -> TrackingSessionResponse:
 # ---------------------------------------------------------------------------
 # Sessions
 # ---------------------------------------------------------------------------
+@router.post(
+    '/sessions/{session_id}/upload-token',
+    response_model=TrackingUploadTokenResponse,
+    responses={
+        409: {
+            'model': TrackingConflictResponse,
+            'description': 'Deleted session or conflicting trip',
+        }
+    },
+)
+def issue_tracking_upload_token(
+    trip_id: uuid.UUID,
+    session_id: uuid.UUID,
+    user: CurrentUser,
+    tracking_service: GpsTrackingServiceDep,
+    response: Response,
+):
+    try:
+        tracking_service.upload_session_state(
+            trip_id=trip_id,
+            session_id=session_id,
+            current_user_id=user.id,
+            issuing=True,
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+    token = security.create_token(
+        user.id,
+        security.TOKEN_TYPE_TRACKING_UPLOAD,
+        timedelta(minutes=settings.TRACKING_UPLOAD_TOKEN_EXPIRE_MINUTES),
+        {
+            'ver': user.auth_version,
+            'trip_id': str(trip_id),
+            'session_id': str(session_id),
+        },
+    )
+    claims = security.decode_token(token, security.TOKEN_TYPE_TRACKING_UPLOAD)
+    response.headers['Cache-Control'] = 'no-store'
+    return TrackingUploadTokenResponse(
+        upload_token=token,
+        trip_id=trip_id,
+        session_id=session_id,
+        recorded_by_user_id=user.id,
+        expires_at=datetime.fromtimestamp(claims['exp'], timezone.utc),
+    )
+
+
+@router.get(
+    '/sessions/{session_id}/upload-state', response_model=TrackingUploadStateResponse
+)
+def tracking_upload_state(
+    trip_id: uuid.UUID,
+    session_id: uuid.UUID,
+    user: TrackingUploadUser,
+    tracking_service: GpsTrackingServiceDep,
+    response: Response,
+):
+    try:
+        row = tracking_service.upload_session_state(
+            trip_id=trip_id, session_id=session_id, current_user_id=user.id
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+    response.headers['Cache-Control'] = 'no-store'
+    return TrackingUploadStateResponse(
+        exists=row is not None and row.deleted_at is None,
+        deleted=row is not None and row.deleted_at is not None,
+        recorded_by_user_id=row.recorded_by_user_id if row else None,
+        started_at=row.started_at if row else None,
+        ended_at=row.ended_at if row else None,
+        server_time=utcnow(),
+    )
+
+
 @router.get('/sessions', response_model=TrackingSessionListResponse)
 def list_tracking_sessions(
     trip_id: uuid.UUID,
@@ -134,13 +220,24 @@ def list_tracking_sessions(
     '/sessions/{session_id}',
     response_model=TrackingSessionResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={
+        200: {
+            'model': TrackingSessionResponse,
+            'description': 'Verified creation retry',
+        },
+        409: {
+            'model': TrackingConflictResponse,
+            'description': 'Deleted session or lifecycle conflict',
+        },
+    },
 )
 def create_tracking_session(
     trip_id: uuid.UUID,
     session_id: uuid.UUID,
     payload: TrackingSessionCreateRequest,
-    user: CurrentUser,
+    user: TrackingUploadUser,
     tracking_service: GpsTrackingServiceDep,
+    response: Response,
 ) -> TrackingSessionResponse:
     try:
         summary = tracking_service.create_session(
@@ -152,15 +249,26 @@ def create_tracking_session(
     except Exception as exc:
         _raise_http_error(exc)
 
+    if not summary.created:
+        response.status_code = status.HTTP_200_OK
     return _session_response(summary)
 
 
-@router.patch('/sessions/{session_id}', response_model=TrackingSessionResponse)
+@router.patch(
+    '/sessions/{session_id}',
+    response_model=TrackingSessionResponse,
+    responses={
+        409: {
+            'model': TrackingConflictResponse,
+            'description': 'Deleted session or lifecycle conflict',
+        }
+    },
+)
 def end_tracking_session(
     trip_id: uuid.UUID,
     session_id: uuid.UUID,
     payload: TrackingSessionEndRequest,
-    user: CurrentUser,
+    user: TrackingUploadUser,
     tracking_service: GpsTrackingServiceDep,
 ) -> TrackingSessionResponse:
     try:
@@ -226,12 +334,18 @@ def list_post_candidates(
 @router.post(
     '/sessions/{session_id}/samples/batch',
     response_model=TrackSampleBatchResponse,
+    responses={
+        409: {
+            'model': TrackingConflictResponse,
+            'description': 'Deleted session or conflicting sample',
+        }
+    },
 )
 def upload_track_samples(
     trip_id: uuid.UUID,
     session_id: uuid.UUID,
     payload: TrackSampleBatchRequest,
-    user: CurrentUser,
+    user: TrackingUploadUser,
     tracking_service: GpsTrackingServiceDep,
 ) -> TrackSampleBatchResponse:
     try:
@@ -249,6 +363,7 @@ def upload_track_samples(
         filtered_samples=result.filtered,
         duplicate_samples=result.duplicates,
         discarded_samples=result.discarded,
+        session_ended_at=result.session_ended_at,
     )
 
 

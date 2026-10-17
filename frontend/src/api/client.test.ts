@@ -5,6 +5,7 @@ import {
   deleteTripShareLink,
   restoreTripShareLink,
   revokeTripShareLink,
+  provisionTrackingUploadToken,
 } from './client'
 
 const shareLinkResponse = {
@@ -71,5 +72,49 @@ describe('share-link lifecycle API calls', () => {
     const [, request] = fetchMock.mock.calls[0]!
     expect(request?.method).toBe('DELETE')
     expect(request?.body).toBeUndefined()
+  })
+})
+
+describe('background upload authorization', () => {
+  const body = {
+    upload_token: 'scoped-token', token_type: 'bearer', trip_id: 'trip', session_id: 'session',
+    recorded_by_user_id: 'user', expires_at: '2026-10-16T10:20:00Z',
+  }
+  beforeEach(() => {
+    configureAuthTokenRefresh(null)
+  })
+
+  it('uses server time for the lease even when the device date is far ahead', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2030-01-01T00:00:00Z'))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body), {
+      headers: { Date: 'Fri, 16 Oct 2026 10:00:00 GMT' },
+    })))
+    const result = await provisionTrackingUploadToken({ tripId: 'trip', sessionId: 'session', accessToken: 'access' })
+    expect(result.remainingMs).toBeGreaterThan(1_198_000)
+    expect(result.remainingMs).toBeLessThanOrEqual(1_199_000)
+    vi.restoreAllMocks()
+  })
+
+  it.each([
+    { ...body, trip_id: 'other-trip' }, { ...body, session_id: 'other-session' },
+    { ...body, expires_at: 'invalid' }, { ...body, upload_token: '' },
+  ])('rejects a malformed or incorrectly scoped response', async invalid => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(invalid), {
+      headers: { Date: 'Fri, 16 Oct 2026 10:00:00 GMT' },
+    })))
+    await expect(provisionTrackingUploadToken({ tripId: 'trip', sessionId: 'session', accessToken: 'access' })).rejects.toThrow('Invalid upload authorization response')
+  })
+
+  it('uses the existing account refresh flow before requesting an upload credential', async () => {
+    const refresh = vi.fn().mockResolvedValue('fresh-access')
+    configureAuthTokenRefresh(refresh)
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), {
+      headers: { Date: 'Fri, 16 Oct 2026 10:00:00 GMT' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    await provisionTrackingUploadToken({ tripId: 'trip', sessionId: 'session', accessToken: 'old-access' })
+    expect(refresh).toHaveBeenCalled()
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get('Authorization')).toBe('Bearer fresh-access')
+    configureAuthTokenRefresh(null)
   })
 })

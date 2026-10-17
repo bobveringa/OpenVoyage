@@ -133,10 +133,6 @@ public class TrackingService extends Service {
 
     private static volatile Listener listener = null;
 
-    // buffer is assigned once in onCreate, before `instance` is published (a
-    // volatile write), so its reference is safely published to other threads
-    // without needing to be volatile itself (B9).
-    private TrackingFixBuffer buffer;
     private Handler handler;
 
     // Written from the main looper (engine callbacks, the watchdog Handler,
@@ -267,10 +263,6 @@ public class TrackingService extends Service {
         return FusedLocationEngine.isAvailable(context) ? SOURCE_GMS : SOURCE_PLATFORM;
     }
 
-    TrackingFixBuffer getBuffer() {
-        return buffer;
-    }
-
     /** Immutable bundle of everything describeState() needs (B9). */
     static final class Snapshot {
         final boolean tracking;
@@ -325,7 +317,7 @@ public class TrackingService extends Service {
                             : adaptiveDecision.reason.wireName(),
                     engine == null ? "none" : engine.getName(),
                     warningText,
-                    buffer == null ? 0 : buffer.size()
+                    TrackingStore.get(this).count(null)
             );
         }
     }
@@ -334,7 +326,6 @@ public class TrackingService extends Service {
     public void onCreate() {
         super.onCreate();
         handler = new Handler(Looper.getMainLooper());
-        buffer = TrackingFixBuffer.get(this);
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         significantMotionSensor = sensorManager == null ? null
                 : sensorManager.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION);
@@ -397,21 +388,16 @@ public class TrackingService extends Service {
     }
 
     private void handleStart(Intent intent) {
+        TrackingStore store=TrackingStore.get(this);
+        JSONObject pending=store.active();
+        if(pending==null || pending.optInt("boot")!=store.boot()) {
+            if(pending!=null)store.stop(pending.optString("sessionId"),"Clock recovery required after device reboot");
+            getSharedPreferences(PREFS_NAME,Context.MODE_PRIVATE).edit().putBoolean(PREF_TRACKING,false).apply();
+            if(postNotificationAsForeground()) ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
+            stopSelf(); return;
+        }
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         boolean freshStart = intent != null && intent.hasExtra(EXTRA_INTERVAL_MS);
-        if (freshStart && !tracking && buffer.size() > 0) {
-            // The UI must hand the previous session's buffered fixes to its
-            // queue before a different session may start. Never silently
-            // delete or assign those fixes to the new trip.
-            Log.w(TAG, "Refusing new recording while older fixes await acknowledgement");
-            // A direct startForegroundService caller still needs the required
-            // promotion before this short-lived service can stop.
-            if (postNotificationAsForeground()) {
-                ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
-            }
-            stopSelf();
-            return;
-        }
         if (freshStart && tracking) {
             removeLocationUpdates();
         }
@@ -425,8 +411,9 @@ public class TrackingService extends Service {
                 // C7: the anchor pair is captured once, at the same genuine
                 // start that sets startedAtMs — never on a reconfigure or a
                 // process-kill restart, which restore it instead (below).
-                anchorElapsedNs = SystemClock.elapsedRealtimeNanos();
-                anchorWallMs = System.currentTimeMillis();
+                anchorElapsedNs = pending.optLong("startElapsed") * 1_000_000L;
+                anchorWallMs = pending.optLong("startWall");
+                startedAtMs = anchorWallMs;
                 recordingToken = UUID.randomUUID().toString();
             } else {
                 restoreConfig(prefs);
@@ -908,6 +895,9 @@ public class TrackingService extends Service {
      */
     private void onEngineFailure(String message) {
         rememberExternalStop("engine", message);
+        TrackingStore store=TrackingStore.get(this);
+        JSONObject stopped=store.stop(store.meta("captureId",""),message);
+        if(stopped!=null) TrackingSync.schedule(this,stopped,true);
         Log.e(TAG, "Location engine failed: " + message);
         cancelNoFixCheck();
         cancelPowerCheck();
@@ -1053,7 +1043,8 @@ public class TrackingService extends Service {
         lastFixElapsedNs = location.getElapsedRealtimeNanos();
 
         lastFixAtMs = System.currentTimeMillis();
-        buffer.append(fix);
+        if(TrackingStore.get(this).accept(location, power.wireName(), intervalMs, distanceFilterMeters,
+                trackingMode == NativeAdaptivePolicy.Mode.SMART)) noteSampleAccepted();
 
         // Policy uses the service-owned raw stream so it continues while the
         // WebView is detached. Mock fixes must never influence cadence.
@@ -1079,6 +1070,11 @@ public class TrackingService extends Service {
     }
 
     private void stopTracking() {
+        TrackingStore store=TrackingStore.get(this);
+        String id=store.meta("captureId","");
+        JSONObject current=store.session(id);
+        JSONObject pending=store.stop(id,current!=null && !current.isNull("endedAt") ? current.optString("reason",null) : "Finishing sync");
+        if(pending!=null && (current==null || current.isNull("endedAt"))) TrackingSync.schedule(this,pending,true);
         synchronized (this) {
             tracking = false;
             warningText = null;
@@ -1092,6 +1088,8 @@ public class TrackingService extends Service {
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
         stopSelf();
     }
+
+    void stopNativeCapture() { stopTracking(); }
 
     private void rememberExternalStop(String reason, String message) {
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()

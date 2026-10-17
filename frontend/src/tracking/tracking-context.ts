@@ -35,6 +35,10 @@ export type StartTrackingInput = {
 }
 
 export type TrackingContextValue = {
+  canStartRecording?: boolean
+  syncMessage?: string | null
+  totalQueuedCount?: number
+  retentionWarning?: string | null
   activeSession: ActiveTrackingSession | null
   status: TrackingStatus
   error: string | null

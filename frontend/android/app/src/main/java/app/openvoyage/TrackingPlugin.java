@@ -256,6 +256,15 @@ public class TrackingPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void recording(PluginCall call) {
+        try {
+            Bundle input=new Bundle(); input.putString("payload",call.getData().toString());
+            Bundle output=trackerCall("recording",input);
+            JSObject result=new JSObject(); result.put("sessions",new JSONArray(output.getString("sessions","[]"))); call.resolve(result);
+        } catch(Exception e) { call.reject("Could not update recording state", "TRACKER_UNAVAILABLE", e); }
+    }
+
+    @PluginMethod
     public void start(PluginCall call) {
         if (!isLocationEnabled()) {
             call.reject("Location services are turned off on this device.", "LOCATION_DISABLED");
@@ -281,13 +290,6 @@ public class TrackingPlugin extends Plugin {
         Intent intent = serviceIntent(TrackingService.ACTION_START, call);
         intent.putExtra(TrackingService.EXTRA_STARTED_AT, System.currentTimeMillis());
         try {
-            Bundle state = trackerCall(TrackingIpcProvider.METHOD_STATE, null);
-            if (!state.getBoolean("trackingIntent", false)
-                    && state.getInt("bufferedFixes", 0) > 0) {
-                call.reject("Previous recording points are still being saved. Reopen the app to retry before starting another trip.",
-                        "PREVIOUS_FIXES_PENDING");
-                return;
-            }
             ContextCompat.startForegroundService(getContext(), intent);
             call.resolve(describeState());
         } catch (RuntimeException exception) {

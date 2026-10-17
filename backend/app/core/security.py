@@ -17,6 +17,7 @@ password_hash = PasswordHash(
 
 ALGORITHM = 'HS256'
 TOKEN_TYPE_ACCESS = 'access'
+TOKEN_TYPE_TRACKING_UPLOAD = 'tracking_upload'
 TOKEN_TYPE_ID = 'id'
 TOKEN_TYPE_MEDIA = 'media'
 TOKEN_TYPE_REFRESH = 'refresh'

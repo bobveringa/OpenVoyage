@@ -51,7 +51,7 @@ export function TrackingRecorder({ compact = false }: { compact?: boolean }) {
   const tracking = useTracking()
   const { activeSession } = tracking
   const [now, setNow] = useState(Date.now)
-  const isSyncing = Boolean(activeSession?.endedAt)
+  const isSyncing = Boolean(activeSession?.endedAt) || tracking.status === 'syncing'
   const startup = tracking.startupFeedback
   const locationFoundAt = startup?.locationFoundAt ?? null
   const locationFound = locationFoundAt !== null
@@ -78,7 +78,7 @@ export function TrackingRecorder({ compact = false }: { compact?: boolean }) {
     tracking.uploaderSnapshot?.queueDepth ??
     0
   const upload = tracking.uploaderSnapshot?.status
-  const syncMessage =
+  const syncMessage = tracking.syncMessage ?? (
     upload === 'paused-wifi-required'
       ? 'Waiting for Wi-Fi. Your points are saved on this device.'
       : upload === 'waiting-retry'
@@ -89,7 +89,7 @@ export function TrackingRecorder({ compact = false }: { compact?: boolean }) {
             ? `${queued} point${queued === 1 ? '' : 's'} waiting to sync`
             : upload === 'idle'
               ? 'All recorded points synced'
-              : 'Preparing sync…'
+              : 'Preparing sync…')
   return (
     <section
       className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
@@ -135,7 +135,7 @@ export function TrackingRecorder({ compact = false }: { compact?: boolean }) {
             )}
             aria-label={isSyncing ? 'Recording duration' : 'Elapsed time'}
           >
-            {formatElapsed(elapsed)}
+            {isSyncing && !activeSession.endedAt ? '—' : formatElapsed(elapsed)}
           </span>
           <span className="text-xs text-muted-foreground">
             {isSyncing ? 'duration' : 'elapsed'}
@@ -188,6 +188,11 @@ export function TrackingRecorder({ compact = false }: { compact?: boolean }) {
                 ? 'Your recording has ended. You can leave while the remaining points sync.'
                 : 'Keeps recording with the app in the background.'}
             </p>
+            {tracking.uploaderSnapshot?.lastSyncAt ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Last synced {formatDateTime(new Date(tracking.uploaderSnapshot.lastSyncAt), { dateStyle: 'short', timeStyle: 'short' })}
+              </p>
+            ) : null}
           </div>
         </div>
         {!isSyncing && <TrackingTravelMode />}
@@ -261,7 +266,7 @@ export function TrackingReady({
         {starting ? 'Starting…' : 'Start tracking'}
       </Button>
       <p className="mt-3 text-center text-xs text-muted-foreground">
-        Works offline. Syncs when you reconnect.
+        Records offline. Start online to enable background uploads; reopen online if upload authorization expires.
       </p>
     </section>
   )

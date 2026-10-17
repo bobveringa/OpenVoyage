@@ -12,7 +12,7 @@ const QUEUE_WARNING_FRACTION = 0.8
 
 export function TrackingHealth() {
   const tracking = useTracking()
-  const isSyncing = Boolean(tracking.activeSession?.endedAt)
+  const isSyncing = Boolean(tracking.activeSession?.endedAt) || tracking.status === 'syncing'
   const [totalQueuedCount, setTotalQueuedCount] = useState<number | null>(null)
   const uploaderStatus = tracking.uploaderSnapshot?.status ?? null
   useEffect(() => {
@@ -24,7 +24,7 @@ export function TrackingHealth() {
       return undefined
     }
     let cancelled = false
-    void getTotalQueuedSampleCount().then((count) => {
+    void (tracking.totalQueuedCount !== undefined ? Promise.resolve(tracking.totalQueuedCount) : getTotalQueuedSampleCount()).then((count) => {
       if (!cancelled) {
         setTotalQueuedCount(count)
       }
@@ -32,9 +32,10 @@ export function TrackingHealth() {
     return () => {
       cancelled = true
     }
-  }, [uploaderStatus, tracking.queueStats?.sampleCount])
+  }, [uploaderStatus, tracking.queueStats?.sampleCount, tracking.totalQueuedCount])
   return (
     <div className="space-y-3">
+      {tracking.retentionWarning ? <p className="text-xs leading-5 text-muted-foreground" role="status">{tracking.retentionWarning}</p> : null}
       {!isSyncing && tracking.locationWarning ? (
         <p
           className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm leading-5 text-amber-800 dark:text-amber-300"
@@ -77,8 +78,7 @@ export function TrackingHealth() {
           {tracking.uploaderSnapshot.discardedCount === 1
             ? ' was'
             : 's were'}{' '}
-          rejected by the server despite clock correction. Check your device's
-          date &amp; time.
+          discarded by the server, for example after a recording was stopped remotely.
         </p>
       ) : !isSyncing && tracking.clockSkewNoticeSeconds !== null ? (
         <p className="text-xs leading-5 text-muted-foreground" role="status">

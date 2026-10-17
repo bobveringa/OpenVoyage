@@ -62,6 +62,7 @@ import {
   type TrackingStatus,
 } from '@/tracking/tracking-context'
 import { SessionUploader, type UploaderSnapshot } from '@/tracking/uploader'
+import { NativeTrackingProvider } from '@/tracking/native-tracking-provider'
 
 type TrackingProviderProps = {
   children: ReactNode
@@ -91,6 +92,10 @@ function baselineDecision(settings: TrackingSettings): AdaptiveDecision {
 }
 
 export function TrackingProvider({ children }: TrackingProviderProps) {
+  return isNativePlatform() ? <NativeTrackingProvider>{children}</NativeTrackingProvider> : <BrowserTrackingProvider>{children}</BrowserTrackingProvider>
+}
+
+function BrowserTrackingProvider({ children }: TrackingProviderProps) {
   const { accessToken, currentUser } = useAuth()
   const [activeSession, setActiveSession] = useState<ActiveTrackingSession | null>(null)
   const [status, setStatus] = useState<TrackingStatus>('idle')

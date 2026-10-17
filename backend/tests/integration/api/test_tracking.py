@@ -178,6 +178,275 @@ def tracking(client, api_prefix, trip, trip_owner) -> TrackingClient:
     return TrackingClient(client, api_prefix, trip.id, trip_owner)
 
 
+def _upload_headers(tracking, session_id):
+    response = tracking.client.post(
+        f'{tracking.base}/sessions/{session_id}/upload-token', headers=tracking.headers
+    )
+    assert response.status_code == 200
+    assert response.headers['cache-control'] == 'no-store'
+    return {'Authorization': f'Bearer {response.json()["upload_token"]}'}
+
+
+def _uploader_requests(client, base, session_id, headers):
+    url = f'{base}/sessions/{session_id}'
+    return [
+        client.get(f'{url}/upload-state', headers=headers),
+        client.post(url, headers=headers, json={'started_at': _iso(START)}),
+        client.post(
+            f'{url}/samples/batch',
+            headers=headers,
+            json={'samples': [_sample(offset_seconds=60)]},
+        ),
+        client.patch(
+            url, headers=headers, json={'ended_at': _iso(START + timedelta(hours=1))}
+        ),
+    ]
+
+
+@pytest.mark.integration
+def test_upload_token_states_privacy_and_retry_contract(
+    tracking, trip, trip_owner, db_session
+):
+    from core.config import settings
+
+    session_id = uuid.uuid4()
+    url = f'{tracking.base}/sessions/{session_id}'
+    issued = tracking.client.post(f'{url}/upload-token', headers=tracking.headers)
+    body = issued.json()
+    assert body['session_id'] == str(session_id)
+    assert body['trip_id'] == str(trip.id)
+    assert body['recorded_by_user_id'] == str(trip_owner.id)
+    claims = security.decode_token(
+        body['upload_token'], security.TOKEN_TYPE_TRACKING_UPLOAD
+    )
+    assert (
+        claims['exp'] - claims['iat']
+        == settings.TRACKING_UPLOAD_TOKEN_EXPIRE_MINUTES * 60
+    )
+    headers = {'Authorization': f'Bearer {body["upload_token"]}'}
+    client = tracking.client
+    unknown = client.get(f'{url}/upload-state', headers=headers)
+    assert unknown.headers['cache-control'] == 'no-store'
+    assert unknown.json() == {
+        'exists': False,
+        'deleted': False,
+        'recorded_by_user_id': None,
+        'started_at': None,
+        'ended_at': None,
+        'server_time': unknown.json()['server_time'],
+    }
+    assert tracking.sessions().json()['sessions'] == []  # Issuance doesn't create.
+    created = client.post(url, headers=headers, json={'started_at': _iso(START)})
+    assert created.status_code == 201
+    running = client.get(f'{url}/upload-state', headers=headers).json()
+    assert running['exists'] and not running['deleted'] and running['ended_at'] is None
+    assert running['started_at'] == _iso(START)
+    _create_zone(client, '/api/v1', trip_owner, latitude=51.4416, longitude=5.4697)
+    sample = _sample(offset_seconds=60)
+    batch = [sample, _sample(offset_seconds=70, latitude=51.4416, longitude=5.4697)]
+    result = client.post(
+        f'{url}/samples/batch', headers=headers, json={'samples': batch}
+    )
+    assert result.json() == {
+        'accepted_samples': 1,
+        'filtered_samples': 1,
+        'duplicate_samples': 0,
+        'discarded_samples': 0,
+        'session_ended_at': None,
+    }
+    # A reply lost after commit can be retried without duplicating the point.
+    retry = client.post(
+        f'{url}/samples/batch', headers=headers, json={'samples': [sample]}
+    )
+    assert retry.json()['duplicate_samples'] == 1
+    cutoff = _iso(START + timedelta(minutes=2))
+    assert (
+        client.patch(url, headers=headers, json={'ended_at': cutoff}).json()['ended_at']
+        == cutoff
+    )
+    assert (
+        client.patch(
+            url, headers=headers, json={'ended_at': _iso(START + timedelta(hours=1))}
+        ).json()['ended_at']
+        == cutoff
+    )
+    assert (
+        client.get(f'{url}/upload-state', headers=headers).json()['ended_at'] == cutoff
+    )
+    assert (
+        client.post(url, headers=headers, json={'started_at': _iso(START)}).status_code
+        == 200
+    )
+    assert (
+        client.post(f'{url}/upload-token', headers=tracking.headers).status_code == 200
+    )
+    assert client.delete(url, headers=tracking.headers).content == b''
+    deleted = client.get(f'{url}/upload-state', headers=headers).json()
+    assert not deleted['exists'] and deleted['deleted']
+    assert deleted['recorded_by_user_id'] == str(trip_owner.id)
+    for response in _uploader_requests(client, tracking.base, session_id, headers)[1:]:
+        assert response.status_code == 409
+        assert response.json()['detail']['code'] == 'session_deleted'
+    assert (
+        client.post(f'{url}/upload-token', headers=tracking.headers).json()['detail'][
+            'code'
+        ]
+        == 'session_deleted'
+    )
+    assert client.get(f'{url}/samples', headers=tracking.headers).status_code == 404
+    assert client.post(f'{url}/stop', headers=tracking.headers).status_code == 404
+    assert client.put(
+        f'{url}/points', headers=tracking.headers, json={'samples': []}
+    ).status_code in (404, 422)
+
+
+@pytest.mark.integration
+def test_upload_token_is_limited_to_one_session_and_four_routes(
+    tracking, db_session, trip_owner
+):
+    session_a, session_b = uuid.uuid4(), uuid.uuid4()
+    headers = _upload_headers(tracking, session_a)
+    for exists in (False, True):
+        if exists:
+            assert tracking.put_session(session_b, started_at=START).status_code == 201
+        assert [
+            r.status_code
+            for r in _uploader_requests(
+                tracking.client, tracking.base, session_b, headers
+            )
+        ] == [403] * 4
+    other_trip = create_trip(db_session, owner_id=trip_owner.id)
+    other_base = f'/api/v1/trips/{other_trip.id}/tracking'
+    assert [
+        r.status_code
+        for r in _uploader_requests(tracking.client, other_base, session_a, headers)
+    ] == [403] * 4
+    for path, method in [
+        ('', 'get'),
+        ('/tracking/sessions', 'get'),
+        (f'/tracking/sessions/{session_a}/upload-token', 'post'),
+        (f'/tracking/sessions/{session_a}/stop', 'post'),
+        (f'/tracking/sessions/{session_a}', 'delete'),
+        (f'/tracking/sessions/{session_a}/samples', 'get'),
+        ('/tracking/post-candidates', 'get'),
+    ]:
+        response = getattr(tracking.client, method)(
+            tracking.trip_base + path, headers=headers
+        )
+        assert response.status_code == 401
+    assert tracking.sessions().json()['sessions'][0]['id'] == str(session_b)
+
+
+@pytest.mark.integration
+def test_upload_token_expiry_override_matches_returned_expiry(tracking, monkeypatch):
+    from core.config import settings
+
+    monkeypatch.setattr(settings, 'TRACKING_UPLOAD_TOKEN_EXPIRE_MINUTES', 20)
+    session_id = uuid.uuid4()
+    response = tracking.client.post(
+        f'{tracking.base}/sessions/{session_id}/upload-token', headers=tracking.headers
+    )
+    claims = security.decode_token(
+        response.json()['upload_token'], security.TOKEN_TYPE_TRACKING_UPLOAD
+    )
+    assert claims['exp'] - claims['iat'] == 20 * 60
+    assert datetime.fromisoformat(
+        response.json()['expires_at']
+    ) == datetime.fromtimestamp(claims['exp'], timezone.utc)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    'invalid', ['trip', 'session', 'malformed', 'expired', 'version', 'refresh', 'id']
+)
+def test_invalid_upload_credentials_are_rejected(tracking, trip, trip_owner, invalid):
+    session_id = uuid.uuid4()
+    claims = {
+        'trip_id': str(trip.id),
+        'session_id': str(session_id),
+        'ver': trip_owner.auth_version,
+    }
+    typ = security.TOKEN_TYPE_TRACKING_UPLOAD
+    lifetime = timedelta(hours=1)
+    if invalid in ('trip', 'session'):
+        del claims[f'{invalid}_id']
+    elif invalid == 'malformed':
+        claims['session_id'] = 'not-a-uuid'
+    elif invalid == 'expired':
+        lifetime = timedelta(seconds=-1)
+    elif invalid == 'version':
+        claims['ver'] += 1
+    else:
+        typ = invalid
+    token = security.create_token(trip_owner.id, typ, lifetime, claims)
+    responses = _uploader_requests(
+        tracking.client, tracking.base, session_id, {'Authorization': f'Bearer {token}'}
+    )
+    assert [r.status_code for r in responses] == [401] * 4
+    assert all(r.headers['www-authenticate'] == 'Bearer' for r in responses)
+    assert tracking.sessions().json()['sessions'] == []
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('change', ['membership', 'password-required', 'revoked'])
+def test_upload_credential_revalidates_account_and_membership(
+    tracking, db_session, trip_owner, trip, change
+):
+    session_id = uuid.uuid4()
+    headers = _upload_headers(tracking, session_id)
+    if change == 'membership':
+        # Even an administrator uploading their own recording needs membership.
+        trip_owner.role = UserRole.ADMIN
+        db_session.delete(db_session.get(TripMember, (trip.id, trip_owner.id)))
+    elif change == 'password-required':
+        trip_owner.password_change_required = True
+    else:
+        trip_owner.auth_version += 1
+    db_session.commit()
+    assert [
+        r.status_code
+        for r in _uploader_requests(tracking.client, tracking.base, session_id, headers)
+    ] == [401 if change == 'revoked' else 403] * 4
+
+
+@pytest.mark.integration
+def test_upload_token_cannot_control_another_recorder(
+    tracking, db_session, trip, trip_owner
+):
+    other = create_user(db_session)
+    add_trip_member(db_session, trip_id=trip.id, user_id=other.id, role=TripRole.MEMBER)
+    session_id = uuid.uuid4()
+    other_tracking = TrackingClient(tracking.client, '/api/v1', trip.id, other)
+    assert other_tracking.put_session(session_id, started_at=START).status_code == 201
+    assert (
+        tracking.client.post(
+            f'{tracking.base}/sessions/{session_id}/upload-token',
+            headers=tracking.headers,
+        ).status_code
+        == 403
+    )
+    # A credential issued before the UUID was claimed still cannot take it over.
+    forged_scope = security.create_token(
+        trip_owner.id,
+        security.TOKEN_TYPE_TRACKING_UPLOAD,
+        timedelta(hours=1),
+        {
+            'trip_id': str(trip.id),
+            'session_id': str(session_id),
+            'ver': trip_owner.auth_version,
+        },
+    )
+    assert [
+        r.status_code
+        for r in _uploader_requests(
+            tracking.client,
+            tracking.base,
+            session_id,
+            {'Authorization': f'Bearer {forged_scope}'},
+        )
+    ] == [403] * 4
+
+
 # ---------------------------------------------------------------------------
 # Privacy zones
 # ---------------------------------------------------------------------------
@@ -311,7 +580,7 @@ def test_zone_radius_is_bounded_by_the_api(client, db_session, api_prefix) -> No
 # Sessions
 # ---------------------------------------------------------------------------
 @pytest.mark.integration
-def test_creating_an_existing_session_conflicts(tracking) -> None:
+def test_creating_an_existing_session_is_a_verified_retry(tracking) -> None:
     session_id = uuid.uuid4()
 
     created = tracking.put_session(session_id, started_at=START)
@@ -319,7 +588,14 @@ def test_creating_an_existing_session_conflicts(tracking) -> None:
     assert created.json()['ended_at'] is None
 
     replayed = tracking.put_session(session_id, started_at=START)
-    assert replayed.status_code == 409
+    assert replayed.status_code == 200
+    assert replayed.json() == created.json()
+    assert (
+        tracking.put_session(
+            session_id, started_at=START + timedelta(seconds=1)
+        ).status_code
+        == 409
+    )
 
 
 @pytest.mark.integration
@@ -507,25 +783,24 @@ def test_a_historical_session_may_be_backfilled_under_an_open_one(
 
 
 @pytest.mark.integration
-def test_deleted_session_can_be_recreated(tracking) -> None:
+def test_deleted_session_cannot_be_recreated(tracking) -> None:
     session_id = uuid.uuid4()
     tracking.put_session(session_id, started_at=START)
     sample = _sample(offset_seconds=60)
     tracking.upload(session_id, [sample])
-
-    assert tracking.delete_session(session_id).status_code == 204
-
+    deleted = tracking.delete_session(session_id)
+    assert deleted.status_code == 204
+    assert deleted.content == b''
     assert tracking.sessions().json()['sessions'] == []
-    assert tracking.put_session(session_id, started_at=START).status_code == 201
-    assert (
-        tracking.end_session(
-            session_id,
-            ended_at=START + timedelta(hours=1),
-        ).status_code
-        == 200
-    )
-    assert tracking.upload(session_id, [sample]).status_code == 200
-    assert tracking.raw_samples(session_id).json()['items'][0]['id'] == sample['id']
+    for result in (
+        tracking.put_session(session_id, started_at=START),
+        tracking.end_session(session_id, ended_at=START + timedelta(hours=1)),
+        tracking.upload(session_id, [sample]),
+    ):
+        assert result.status_code == 409
+        assert result.json()['detail']['code'] == 'session_deleted'
+    assert tracking.raw_samples(session_id).status_code == 404
+    assert tracking.put_session(uuid.uuid4(), started_at=START).status_code == 201
 
 
 @pytest.mark.integration
@@ -591,6 +866,7 @@ def test_batch_counts_add_up_across_every_bucket(
         'filtered_samples': 0,
         'duplicate_samples': 0,
         'discarded_samples': 0,
+        'session_ended_at': _iso(START + timedelta(hours=1)),
     }
 
     batch = [
@@ -605,8 +881,17 @@ def test_batch_counts_add_up_across_every_bucket(
         'filtered_samples': 1,
         'duplicate_samples': 1,
         'discarded_samples': 1,
+        'session_ended_at': _iso(START + timedelta(hours=1)),
     }
-    assert sum(result.values()) == len(batch)
+    assert sum(
+        result[k]
+        for k in (
+            'accepted_samples',
+            'filtered_samples',
+            'duplicate_samples',
+            'discarded_samples',
+        )
+    ) == len(batch)
 
 
 @pytest.mark.integration
@@ -698,6 +983,7 @@ def test_filtered_points_are_never_written(
         'filtered_samples',
         'duplicate_samples',
         'discarded_samples',
+        'session_ended_at',
     }
     assert tracking.raw_samples(session_id).json()['items'] == []
 

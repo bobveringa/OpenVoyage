@@ -177,8 +177,7 @@ function AppRoutes() {
   }
 
   function handleLogout() {
-    signOut()
-    navigate('/', { replace: true })
+    void signOut().then(() => navigate('/', { replace: true })).catch(() => {})
   }
 
   if (status === 'unavailable') {

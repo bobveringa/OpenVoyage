@@ -42,7 +42,7 @@ class GpsTrackingSession(Base):
             'uq_gps_tracking_sessions_trip_open',
             'trip_id',
             unique=True,
-            postgresql_where=text('ended_at IS NULL'),
+            postgresql_where=text('ended_at IS NULL AND deleted_at IS NULL'),
         ),
         Index(
             'ix_gps_tracking_sessions_trip_started_at_id',
@@ -73,6 +73,7 @@ class GpsTrackingSession(Base):
         DateTime(timezone=True),
         nullable=False,
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

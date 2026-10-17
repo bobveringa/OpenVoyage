@@ -9,8 +9,6 @@ import android.net.Uri;
 
 import com.google.android.gms.location.LocationResult;
 
-import org.json.JSONObject;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -45,20 +43,21 @@ public final class TrackingLocationReceiver extends BroadcastReceiver {
         locations.sort(Comparator.comparingLong(Location::getElapsedRealtimeNanos));
 
         TrackingService service = TrackingService.getInstance();
-        TrackingFixBuffer detachedBuffer = service == null || !service.isTracking()
-                ? TrackingFixBuffer.get(context) : null;
+        boolean detached = service == null || !service.isTracking();
         long anchorElapsedNs = prefs.getLong(TrackingService.EXTRA_ANCHOR_ELAPSED_NS, 0L);
         long anchorWallMs = prefs.getLong(TrackingService.EXTRA_ANCHOR_WALL_MS, 0L);
         for (Location location : locations) {
             if (anchorElapsedNs > 0 && location.getElapsedRealtimeNanos() < anchorElapsedNs) {
                 continue;
             }
-            if (detachedBuffer != null) {
-                JSONObject fix = TrackingService.serializeFix(location,
-                        anchorElapsedNs, anchorWallMs);
-                if (fix != null) {
-                    detachedBuffer.append(fix);
-                }
+            if (detached) {
+                // PendingIntent delivery may precede a sticky service restart.
+                // Complete samples still enter the same authoritative queue.
+                TrackingStore.get(context).accept(location,
+                        prefs.getString(TrackingService.EXTRA_POWER_LEVEL,"high"),
+                        prefs.getLong(TrackingService.EXTRA_INTERVAL_MS,30000),
+                        prefs.getFloat(TrackingService.EXTRA_DISTANCE_FILTER_M,0),
+                        "smart".equals(prefs.getString(TrackingService.EXTRA_TRACKING_MODE,"manual")));
             } else {
                 service.onReceiverLocation(location, token);
             }

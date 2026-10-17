@@ -3155,6 +3155,18 @@
           "filtered_samples": {
             "title": "Filtered Samples",
             "type": "integer"
+          },
+          "session_ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Ended At"
           }
         },
         "required": [
@@ -3457,6 +3469,43 @@
         "title": "TrackSessionPointsReplaceRequest",
         "type": "object"
       },
+      "TrackingConflictResponse": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackingDeletedDetail"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "TrackingConflictResponse",
+        "type": "object"
+      },
+      "TrackingDeletedDetail": {
+        "properties": {
+          "code": {
+            "const": "session_deleted",
+            "default": "session_deleted",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "default": "This recording was deleted.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "title": "TrackingDeletedDetail",
+        "type": "object"
+      },
       "TrackingSessionCreateRequest": {
         "properties": {
           "ended_at": {
@@ -3562,6 +3611,111 @@
           "sample_count"
         ],
         "title": "TrackingSessionResponse",
+        "type": "object"
+      },
+      "TrackingUploadStateResponse": {
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "exists": {
+            "title": "Exists",
+            "type": "boolean"
+          },
+          "recorded_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By User Id"
+          },
+          "server_time": {
+            "format": "date-time",
+            "title": "Server Time",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "exists",
+          "deleted",
+          "recorded_by_user_id",
+          "started_at",
+          "ended_at",
+          "server_time"
+        ],
+        "title": "TrackingUploadStateResponse",
+        "type": "object"
+      },
+      "TrackingUploadTokenResponse": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "recorded_by_user_id": {
+            "format": "uuid",
+            "title": "Recorded By User Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          },
+          "trip_id": {
+            "format": "uuid",
+            "title": "Trip Id",
+            "type": "string"
+          },
+          "upload_token": {
+            "title": "Upload Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_token",
+          "trip_id",
+          "session_id",
+          "recorded_by_user_id",
+          "expires_at"
+        ],
+        "title": "TrackingUploadTokenResponse",
         "type": "object"
       },
       "TravelMode": {
@@ -9691,6 +9845,16 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingConflictResponse"
+                }
+              }
+            },
+            "description": "Deleted session or lifecycle conflict"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -9747,6 +9911,16 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingSessionResponse"
+                }
+              }
+            },
+            "description": "Verified creation retry"
+          },
           "201": {
             "content": {
               "application/json": {
@@ -9756,6 +9930,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingConflictResponse"
+                }
+              }
+            },
+            "description": "Deleted session or lifecycle conflict"
           },
           "422": {
             "content": {
@@ -9972,6 +10156,16 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingConflictResponse"
+                }
+              }
+            },
+            "description": "Deleted session or conflicting sample"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -10047,6 +10241,132 @@
           }
         ],
         "summary": "Stop Tracking Session",
+        "tags": [
+          "tracking"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/upload-state": {
+      "get": {
+        "operationId": "tracking_upload_state_api_v1_trips__trip_id__tracking_sessions__session_id__upload_state_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingUploadStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Tracking Upload State",
+        "tags": [
+          "tracking"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/upload-token": {
+      "post": {
+        "operationId": "issue_tracking_upload_token_api_v1_trips__trip_id__tracking_sessions__session_id__upload_token_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingUploadTokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackingConflictResponse"
+                }
+              }
+            },
+            "description": "Deleted session or conflicting trip"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Issue Tracking Upload Token",
         "tags": [
           "tracking"
         ]

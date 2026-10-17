@@ -186,7 +186,7 @@ def test_stop_permissions(role, owns, allowed):
 def test_offline_end_retry_cannot_extend_remote_stop(editor):
     user_id, trip_id = uuid.uuid4(), uuid.uuid4()
     end = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    session = SimpleNamespace(trip_id=trip_id, ended_at=end)
+    session = SimpleNamespace(trip_id=trip_id, ended_at=end, deleted_at=None)
     editor.db.get.side_effect = [SimpleNamespace(role=UserRole.USER), session]
     editor._require_session_controller = Mock()
     editor._count_samples = Mock(return_value=4)

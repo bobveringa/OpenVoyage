@@ -1624,6 +1624,21 @@ export async function listTrackingSessionsWithServerDate(options: {
   }
 }
 
+export async function provisionTrackingUploadToken(options: { tripId: string; sessionId: string; accessToken: string }) {
+  type UploadToken = components['schemas']['TrackingUploadTokenResponse']
+  const t0 = performance.now()
+  const { data, response } = await requestJsonResponse<UploadToken>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/sessions/${encodeURIComponent(options.sessionId)}/upload-token`,
+    { method: 'POST', accessToken: options.accessToken },
+  )
+  const date = Date.parse(response.headers.get('Date') ?? '')
+  const expires = Date.parse(data.expires_at)
+  if (!Number.isFinite(date) || !Number.isFinite(expires) || data.token_type !== 'bearer' || !data.upload_token || data.trip_id !== options.tripId || data.session_id !== options.sessionId) throw new Error('Invalid upload authorization response')
+  // Subtract rounding uncertainty and the entire round trip: expire conservatively.
+  const remainingMs = Math.max(0, expires - date - 1000 - (performance.now() - t0))
+  return { token: data, remainingMs }
+}
+
 export async function createTrackingSession(options: {
   tripId: string
   sessionId: string
@@ -2006,6 +2021,7 @@ async function readErrorDetail(response: Response): Promise<unknown> {
 }
 
 function detailToMessage(detail: unknown): string {
+  if (detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string') return detail.message
   if (typeof detail === 'string') {
     return detail
   }

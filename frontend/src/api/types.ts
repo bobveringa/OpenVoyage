@@ -1026,6 +1026,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/upload-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tracking Upload State */
+        get: operations["tracking_upload_state_api_v1_trips__trip_id__tracking_sessions__session_id__upload_state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/tracking/sessions/{session_id}/upload-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue Tracking Upload Token */
+        post: operations["issue_tracking_upload_token_api_v1_trips__trip_id__tracking_sessions__session_id__upload_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/viewers": {
         parameters: {
             query?: never;
@@ -2457,6 +2491,8 @@ export interface components {
             duplicate_samples: number;
             /** Filtered Samples */
             filtered_samples: number;
+            /** Session Ended At */
+            session_ended_at?: string | null;
         };
         /** TrackSampleDeleteRequest */
         TrackSampleDeleteRequest: {
@@ -2547,6 +2583,25 @@ export interface components {
             /** Points */
             points: components["schemas"]["TrackSessionPointReplacement"][];
         };
+        /** TrackingConflictResponse */
+        TrackingConflictResponse: {
+            /** Detail */
+            detail: components["schemas"]["TrackingDeletedDetail"] | string;
+        };
+        /** TrackingDeletedDetail */
+        TrackingDeletedDetail: {
+            /**
+             * Code
+             * @default session_deleted
+             * @constant
+             */
+            code: "session_deleted";
+            /**
+             * Message
+             * @default This recording was deleted.
+             */
+            message: string;
+        };
         /** TrackingSessionCreateRequest */
         TrackingSessionCreateRequest: {
             /** Ended At */
@@ -2588,6 +2643,54 @@ export interface components {
              * Format: date-time
              */
             started_at: string;
+        };
+        /** TrackingUploadStateResponse */
+        TrackingUploadStateResponse: {
+            /** Deleted */
+            deleted: boolean;
+            /** Ended At */
+            ended_at: string | null;
+            /** Exists */
+            exists: boolean;
+            /** Recorded By User Id */
+            recorded_by_user_id: string | null;
+            /**
+             * Server Time
+             * Format: date-time
+             */
+            server_time: string;
+            /** Started At */
+            started_at: string | null;
+        };
+        /** TrackingUploadTokenResponse */
+        TrackingUploadTokenResponse: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Recorded By User Id
+             * Format: uuid
+             */
+            recorded_by_user_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
+            /**
+             * Trip Id
+             * Format: uuid
+             */
+            trip_id: string;
+            /** Upload Token */
+            upload_token: string;
         };
         /**
          * TravelMode
@@ -5605,6 +5708,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Verified creation retry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackingSessionResponse"];
+                };
+            };
             /** @description Successful Response */
             201: {
                 headers: {
@@ -5612,6 +5724,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackingSessionResponse"];
+                };
+            };
+            /** @description Deleted session or lifecycle conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackingConflictResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5678,6 +5799,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackingSessionResponse"];
+                };
+            };
+            /** @description Deleted session or lifecycle conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackingConflictResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5785,6 +5915,15 @@ export interface operations {
                     "application/json": components["schemas"]["TrackSampleBatchResponse"];
                 };
             };
+            /** @description Deleted session or conflicting sample */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackingConflictResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5815,6 +5954,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackingSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tracking_upload_state_api_v1_trips__trip_id__tracking_sessions__session_id__upload_state_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackingUploadStateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    issue_tracking_upload_token_api_v1_trips__trip_id__tracking_sessions__session_id__upload_token_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackingUploadTokenResponse"];
+                };
+            };
+            /** @description Deleted session or conflicting trip */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackingConflictResponse"];
                 };
             };
             /** @description Validation Error */

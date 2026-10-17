@@ -35,6 +35,8 @@ export type UploaderStatus =
   | 'idle'
   | 'syncing'
   | 'waiting-retry'
+  | 'waiting-batch'
+  | 'paused-error'
   | 'paused-sign-in-required'
   | 'paused-account-mismatch'
   // U3: wifiOnlyUpload is on and the device isn't currently on Wi-Fi.

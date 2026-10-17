@@ -230,6 +230,7 @@ export function TripLeafletMap({
   const trackingGeometryRef = useRef(trackingGeometry)
   const gpsPostCandidatesRef = useRef(gpsPostCandidates)
   const routeEndpointLayerRef = useRef<L.LayerGroup | null>(null)
+  const fittedViewRef = useRef<string | null>(null)
   const routeKey = createRouteKey(
     routeMode,
     stops,
@@ -298,6 +299,7 @@ export function TripLeafletMap({
 
     map.on('click', handleMapClick)
     mapRef.current = map
+    fittedViewRef.current = null
 
     routeLayerRef.current = L.layerGroup().addTo(map)
     postMarkerLayerRef.current = L.layerGroup().addTo(map)
@@ -407,7 +409,8 @@ export function TripLeafletMap({
     }
     const animationFrameId = window.requestAnimationFrame(() => {
       map.invalidateSize()
-      if (!focusedPostIdRef.current) {
+      const viewKey = `${routeMode}:${fitMode}`
+      if (!focusedPostIdRef.current && fittedViewRef.current !== viewKey) {
         fitRouteBounds(
           map,
           routeMode,
@@ -417,6 +420,10 @@ export function TripLeafletMap({
           trackingGeometryRef.current.openingRoute,
           fitMode,
         )
+        if (getMapRouteSegments(routeMode, stopsRef.current, travelLegsRef.current,
+          travelPostsRef.current, trackingGeometryRef.current.openingRoute).length > 0) {
+          fittedViewRef.current = viewKey
+        }
       }
     })
 
@@ -467,7 +474,7 @@ export function TripLeafletMap({
       focusedPostView.zoom,
       focusedPostAnimationOptions,
     )
-  }, [fitMode, focusedPostId, routeKey, routeMode])
+  }, [fitMode, focusedPostId, routeMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1019,7 +1026,7 @@ function createRouteKey(
           .join('|')
       : ''
 
-  const openingRouteKey = trackingGeometry.openingRoute
+  const openingRouteKey = routeMode === 'travel-timeline' && trackingGeometry.openingRoute
     ? trackingGeometry.openingRoute.segments
         .map((segment) =>
           [
