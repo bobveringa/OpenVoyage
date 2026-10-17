@@ -168,7 +168,8 @@ test('revokes, restores, and permanently deletes a share link', async ({
     await expect(page.getByText('Revoked', { exact: true })).toBeVisible()
 
     await page.reload()
-    await openShareLinkManagement(page)
+    // The management dialog and selected section are restored from the URL.
+    await expect(page.getByRole('heading', { name: 'Share links', exact: true })).toBeVisible()
     await expect(page.getByText('Revoked', { exact: true })).toBeVisible()
 
     await page
