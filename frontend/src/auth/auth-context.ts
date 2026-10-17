@@ -24,7 +24,7 @@ export type AuthContextValue = {
   changePassword: (input: ChangePasswordInput) => Promise<void>
   error: string | null
   signIn: (input: SignInInput) => Promise<CurrentUser>
-  signOut: () => void
+  signOut: () => Promise<void>
   signOutAll: () => Promise<void>
   status: AuthStatus
   tokens: AuthTokens | null

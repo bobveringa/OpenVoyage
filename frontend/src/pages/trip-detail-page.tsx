@@ -323,6 +323,26 @@ export function TripDetailPage({
     }
   }, [accessToken, tripId])
 
+  useEffect(() => {
+    if (!tripId || authStatus === 'loading' || !isTripCurrentlyOngoing || loadState.status !== 'success') return
+    let current = true
+    let pending = false
+    const refresh = async () => {
+      if (!current || pending || document.visibilityState !== 'visible') return
+      pending = true
+      try {
+        const timeline = await fetchTravelTimeline()
+        if (current) { setTravelPosts(timeline.posts); setTrackingGeometry(timeline.trackingGeometry) }
+      } catch { /* Keep the displayed route through temporary outages. */ }
+      finally { pending = false }
+    }
+    const timer = window.setInterval(() => { void refresh() }, 60_000)
+    const wake = () => { void refresh() }
+    document.addEventListener('visibilitychange', wake)
+    window.addEventListener('focus', wake)
+    return () => { current = false; clearInterval(timer); document.removeEventListener('visibilitychange', wake); window.removeEventListener('focus', wake) }
+  }, [tripId, authStatus, fetchTravelTimeline, isTripCurrentlyOngoing, loadState.status])
+
   const loadTripDetail = useCallback(
     async (options: { isCurrent: () => boolean }) => {
       if (!tripId) {
@@ -1405,6 +1425,9 @@ export function TripDetailPage({
   }, [])
 
   useEffect(() => {
+    // Keep a requested management menu until membership has loaded. Clearing
+    // it using the empty initial member list loses settings return links.
+    if (loadState.status !== 'success' && activeDialog === 'management') return
     const currentState = {
       activeDialog,
       managementSection,
@@ -1431,6 +1454,7 @@ export function TripDetailPage({
     canManageTrip,
     canMutate,
     canSwitchModes,
+    loadState.status,
     editingPostId,
     mode,
     managementSection,

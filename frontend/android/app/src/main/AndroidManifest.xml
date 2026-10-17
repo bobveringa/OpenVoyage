@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
+        android:name=".OpenVoyageApplication"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:allowBackup="true"
         android:icon="@mipmap/openvoyage_adaptive_launcher"
         android:label="@string/app_name"
@@ -9,6 +13,12 @@
         android:roundIcon="@mipmap/openvoyage_adaptive_launcher"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+
+        <provider android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup" tools:node="merge">
+            <meta-data android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup" tools:node="remove" />
+        </provider>
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
@@ -28,6 +38,11 @@
         <!-- Not exported: nothing outside the app has any business starting or
         stopping a recording. (The community plugin this replaced declared its
         service exported, which let any app on the device drive it.) -->
+        <service
+            android:name="androidx.work.multiprocess.RemoteWorkerService"
+            android:exported="false"
+            android:process=":tracker" />
+
         <service
             android:name=".TrackingService"
             android:enabled="true"
@@ -78,6 +93,7 @@
 
     <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />

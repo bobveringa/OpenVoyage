@@ -91,6 +91,7 @@ export type PowerState = {
 }
 
 export type NativeTrackingState = {
+  warning?: string | null
   tracking: boolean
   // True when the service is gone but the "should be recording" flag
   // survived — i.e. the process was killed mid-recording. Distinguishing

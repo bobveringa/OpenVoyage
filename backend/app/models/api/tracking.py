@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Self
+from typing import Literal, Self
 from pydantic import BaseModel, Field, field_validator
 
 from models.database.gps_tracking import GpsTrackSample
@@ -41,6 +41,33 @@ class TrackingSessionResponse(BaseModel):
 
 class TrackingSessionListResponse(BaseModel):
     sessions: list[TrackingSessionResponse]
+
+
+class TrackingUploadTokenResponse(BaseModel):
+    upload_token: str
+    token_type: str = 'bearer'
+    trip_id: uuid.UUID
+    session_id: uuid.UUID
+    recorded_by_user_id: uuid.UUID
+    expires_at: datetime
+
+
+class TrackingUploadStateResponse(BaseModel):
+    exists: bool
+    deleted: bool
+    recorded_by_user_id: uuid.UUID | None
+    started_at: datetime | None
+    ended_at: datetime | None
+    server_time: datetime
+
+
+class TrackingDeletedDetail(BaseModel):
+    code: Literal['session_deleted'] = 'session_deleted'
+    message: str = 'This recording was deleted.'
+
+
+class TrackingConflictResponse(BaseModel):
+    detail: TrackingDeletedDetail | str
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +121,7 @@ class TrackSampleBatchResponse(BaseModel):
     filtered_samples: int
     duplicate_samples: int
     discarded_samples: int
+    session_ended_at: datetime | None = None
 
 
 class TrackSampleResponse(BaseModel):

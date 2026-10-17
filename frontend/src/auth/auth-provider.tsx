@@ -21,6 +21,8 @@ import {
   type CurrentUser,
 } from '@/api/client'
 import { AuthContext, type AuthContextValue, type AuthStatus } from '@/auth/auth-context'
+import { isNativePlatform } from '@/native/platform'
+import { nativeRecording } from '@/tracking/native-recording'
 import {
   clearCachedCurrentUser,
   clearStoredAuthTokens,
@@ -306,6 +308,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       try {
         const user = await readCurrentUser(nextTokens.access_token)
+        if (isNativePlatform()) await nativeRecording('identity', { userId: user.id, signedIn: true })
         setCurrentUser(user)
         setStatus('authenticated')
         setError(null)
@@ -340,24 +343,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
         currentTokens.access_token,
       )
       storeSession(nextTokens)
+      if (isNativePlatform() && currentUser) await nativeRecording('identity', { userId: currentUser.id, signedIn: true })
       setCurrentUser((user) =>
         user ? { ...user, password_change_required: false } : user,
       )
       setError(null)
     },
-    [storeSession],
+    [storeSession, currentUser],
   )
+
+  const signOut = useCallback(async () => {
+    try {
+      if (isNativePlatform()) await nativeRecording('identity', { userId: '' })
+      clearSession()
+    } catch (signOutError) {
+      setError(getErrorMessage(signOutError))
+      throw signOutError
+    }
+  }, [clearSession])
 
   const signOutAll = useCallback(async () => {
     const currentTokens = tokensRef.current
     if (!currentTokens) {
-      clearSession()
+      await signOut()
       return
     }
 
     await signOutAllDevices(currentTokens.access_token)
-    clearSession()
-  }, [clearSession])
+    await signOut()
+  }, [signOut])
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -366,7 +380,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       currentUser,
       error,
       signIn,
-      signOut: clearSession,
+      signOut,
       signOutAll,
       status,
       tokens,
@@ -374,12 +388,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }),
     [
       changePassword,
-      clearSession,
       currentUser,
       error,
       signIn,
       sessionAccessToken,
       signOutAll,
+      signOut,
       status,
       tokens,
       updateCurrentUser,

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Maximize2, Minimize2 } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, MapPin, Maximize2, Minimize2, Plus, Route, Save, Trash2, Undo2 } from 'lucide-react'
 import {
   getErrorMessage,
   saveSessionPoints,
@@ -247,11 +247,11 @@ export function TrackingSessionDetail({
             <h2 className="text-lg font-semibold">Edit recording</h2>
             <p className="truncate text-xs text-muted-foreground">{new Date(session.started_at).toLocaleString()}</p>
           </div>
-          <Button variant="ghost" disabled={busy} onClick={back}>{'\u2190 Recordings'}</Button>
+          <Button variant="ghost" disabled={busy} onClick={back} aria-label="← Recordings"><ArrowLeft className="size-4" aria-hidden="true" />Recordings</Button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto md:grid md:grid-cols-[minmax(0,1fr)_360px] md:overflow-hidden">
           <div className="flex min-h-0 flex-col p-3 md:p-4">
-        <div ref={mapContainer} className={`relative ${mapExpanded ? 'h-[65dvh]' : 'h-[24dvh]'} min-h-40 md:h-auto md:min-h-0 md:flex-1`}>
+        <div ref={mapContainer} className={`relative ${mapExpanded ? 'h-[65dvh]' : 'h-[22dvh]'} min-h-40 md:h-auto md:min-h-0 md:flex-1`}>
         <TrackingSessionMap
           paths={displayPaths}
           editablePoints={visible}
@@ -364,8 +364,8 @@ export function TrackingSessionDetail({
           </div>
           <aside className="space-y-4 border-t border-border p-3 md:overflow-y-auto md:border-l md:border-t-0 md:p-4">
             <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1" role="group" aria-label="Editing tools">
-              <Button variant={tool === 'point' ? 'default' : 'ghost'} aria-pressed={tool === 'point'} disabled={busy} onClick={() => { setTool('point'); setInserting(false) }}>Edit point</Button>
-              <Button variant={tool === 'transport' ? 'default' : 'ghost'} aria-pressed={tool === 'transport'} disabled={busy} onClick={() => { setTool('transport'); setInserting(false); setNotice('') }}>Bulk transport</Button>
+              <Button className="min-h-11" variant={tool === 'point' ? 'default' : 'ghost'} aria-pressed={tool === 'point'} disabled={busy} onClick={() => { setTool('point'); setInserting(false) }}><MapPin className="size-4" aria-hidden="true" />Edit point</Button>
+              <Button className="min-h-11" variant={tool === 'transport' ? 'default' : 'ghost'} aria-pressed={tool === 'transport'} disabled={busy} onClick={() => { setTool('transport'); setInserting(false); setNotice('') }}><Route className="size-4" aria-hidden="true" />Bulk transport</Button>
             </div>
 
             {tool === 'transport' && (
@@ -382,19 +382,22 @@ export function TrackingSessionDetail({
             )}
             <div hidden={tool !== 'point'} className="space-y-4">
           <section className="space-y-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-card p-2">
               <Button
-                variant="outline"
+                aria-label="Previous"
+                className="size-11"
+                size="icon"
+                variant="ghost"
                 disabled={busy || visibleIndex <= 0}
                 onClick={() => select(visible[visibleIndex - 1].id)}
               >
-                Previous
+                <ChevronLeft className="size-5" aria-hidden="true" />
               </Button>
-              <label className="text-sm">
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
                 Point{' '}
                 <input
                   aria-label="Point number"
-                  className="w-16 rounded border border-input bg-background p-2"
+                  className="h-11 w-16 rounded-lg border border-input bg-background p-2 text-center font-semibold text-foreground"
                   type="number"
                   min={1}
                   max={visible.length}
@@ -405,13 +408,17 @@ export function TrackingSessionDetail({
                     if (p) select(p.id)
                   }}
                 />
+                <span>of {visible.length}</span>
               </label>
               <Button
-                variant="outline"
+                aria-label="Next"
+                className="size-11"
+                size="icon"
+                variant="ghost"
                 disabled={busy || !next}
                 onClick={() => select(next.id)}
               >
-                Next
+                <ChevronRight className="size-5" aria-hidden="true" />
               </Button>
             </div>
 
@@ -419,7 +426,10 @@ export function TrackingSessionDetail({
           </section>
           {selected && (
             <section className="space-y-3">
-              <h3 className="text-sm font-medium">Transport type</h3>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-medium">Transport type</h3>
+                <span className="text-xs text-muted-foreground">{new Date(selected.recorded_at).toLocaleTimeString()}</span>
+              </div>
               <Select
                 ariaLabel="Point travel mode"
                 value={selected.travel_mode}
@@ -439,9 +449,10 @@ export function TrackingSessionDetail({
               <p className="text-xs text-muted-foreground">
                 The mode describes travel arriving at this point.
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <Button
                   variant="outline"
+                  className="min-h-11 px-2 text-xs"
                   disabled={
                     busy ||
                     !next ||
@@ -451,10 +462,12 @@ export function TrackingSessionDetail({
                   }
                   onClick={() => setInserting((v) => !v)}
                 >
+                  <Plus className="size-4" aria-hidden="true" />
                   {inserting ? 'Cancel insertion' : 'Insert after point'}
                 </Button>
                 <Button
-                  variant="destructive"
+                  variant="outline"
+                  className="min-h-11 px-2 text-xs text-destructive"
                   disabled={
                     busy ||
                     draft.some(
@@ -468,6 +481,7 @@ export function TrackingSessionDetail({
                     select(next?.id ?? visible[visibleIndex - 1]?.id ?? '')
                   }}
                 >
+                  <Trash2 className="size-4" aria-hidden="true" />
                   Delete point
                 </Button>
               </div>
@@ -548,6 +562,7 @@ export function TrackingSessionDetail({
           {error && <p role="alert" className="mb-2 text-sm text-destructive">{error}</p>}
           <div className="flex items-center justify-between gap-2">
             <Button
+              className="min-h-11"
               variant="outline"
               disabled={!dirty || busy}
               onClick={() => {
@@ -561,11 +576,11 @@ export function TrackingSessionDetail({
                 setInserting(false)
               }}
             >
-              Undo
+              <Undo2 className="size-4" aria-hidden="true" />Undo
             </Button>
 
             <span className="hidden text-xs text-muted-foreground sm:block">{dirty ? 'Unsaved changes' : 'All changes saved'}</span>
-            <Button disabled={!dirty || busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save changes'}</Button>
+            <Button className="min-h-11" disabled={!dirty || busy} onClick={() => void save()}><Save className="size-4" aria-hidden="true" />{busy ? 'Saving…' : 'Save changes'}</Button>
           </div>
         </footer>
         {confirmLeave && (

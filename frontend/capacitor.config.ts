@@ -7,6 +7,8 @@ const config: CapacitorConfig = {
   appId: 'app.openvoyage',
   appName: 'OpenVoyage',
   webDir: 'dist',
+  // Bridge debug logs include plugin payloads, including upload credentials.
+  loggingBehavior: 'none',
   server: {
     // A self-hosted server address (home LAN, no TLS terminator, see
     // src/native/server-config.ts) is plain HTTP. Serving the webview

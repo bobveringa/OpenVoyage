@@ -65,6 +65,10 @@ class TrackingSessionConflictError(Exception):
     """Raised when a session lifecycle action or upload conflicts with stored state."""
 
 
+class TrackingSessionDeletedError(TrackingSessionConflictError):
+    """A retained session identity must never be recreated."""
+
+
 class TrackingValidationError(Exception):
     """Raised when a tracking request is semantically invalid."""
 
@@ -83,12 +87,14 @@ class SampleBatchResult:
     filtered: int
     duplicates: int
     discarded: int
+    session_ended_at: datetime | None = None
 
 
 @dataclass(frozen=True)
 class SessionSummary:
     session: GpsTrackingSession
     sample_count: int
+    created: bool = True
 
 
 @dataclass(frozen=True)
@@ -142,6 +148,30 @@ class GpsTrackingService:
     # ------------------------------------------------------------------
     # Sessions
     # ------------------------------------------------------------------
+    def upload_session_state(
+        self,
+        *,
+        trip_id: uuid.UUID,
+        session_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+        issuing: bool = False,
+    ) -> GpsTrackingSession | None:
+        if issuing:
+            self._require_trip_permission(trip_id=trip_id, user_id=current_user_id,
+                                          permission=TripPermission.MANAGE_TRACKING)
+        else:
+            self._require_membership(trip_id=trip_id, user_id=current_user_id)
+        self._lock_trip(trip_id)
+        row = self.db.get(GpsTrackingSession, session_id)
+        if row is not None:
+            if row.trip_id != trip_id:
+                raise TrackingSessionConflictError('Session belongs to another trip')
+            if row.recorded_by_user_id != current_user_id:
+                raise TrackingPermissionError('Only the recorder may reconcile this session')
+            if issuing and row.deleted_at is not None:
+                raise TrackingSessionDeletedError('This recording was deleted.')
+        return row
+
     def list_sessions(
         self,
         *,
@@ -156,7 +186,7 @@ class GpsTrackingService:
         sessions = list(
             self.db.execute(
                 select(GpsTrackingSession)
-                .where(GpsTrackingSession.trip_id == trip_id)
+                .where(GpsTrackingSession.trip_id == trip_id, GpsTrackingSession.deleted_at.is_(None))
                 .order_by(
                     GpsTrackingSession.started_at.asc(),
                     GpsTrackingSession.id.asc(),
@@ -207,7 +237,13 @@ class GpsTrackingService:
                 raise TrackingSessionConflictError(
                     f'Session belongs to another trip: {session_id}'
                 )
-            raise TrackingSessionConflictError(f'Session already exists: {session_id}')
+            if existing.recorded_by_user_id != current_user_id:
+                raise TrackingPermissionError('Only the recorder may retry creation')
+            if existing.deleted_at is not None:
+                raise TrackingSessionDeletedError('This recording was deleted.')
+            if existing.started_at != payload.started_at:
+                raise TrackingSessionConflictError('Session start time differs')
+            return SessionSummary(existing, self._count_samples(session_id), created=False)
 
         self._require_no_overlap(
             trip_id=trip_id,
@@ -253,6 +289,8 @@ class GpsTrackingService:
                 f'Session belongs to another trip: {session_id}'
             )
         self._require_session_controller(existing, current_user_id)
+        if existing.deleted_at is not None:
+            raise TrackingSessionDeletedError('This recording was deleted.')
         # Offline end retries must never extend a remotely stopped recording.
         if existing.ended_at is not None:
             return SessionSummary(
@@ -302,6 +340,7 @@ class GpsTrackingService:
             )
 
     def stop_session(self, *, trip_id, session_id, current_user_id):
+        self._get_session(trip_id=trip_id, session_id=session_id)
         return self.end_session(
             trip_id=trip_id,
             session_id=session_id,
@@ -462,7 +501,8 @@ class GpsTrackingService:
         )
         self._lock_trip(trip_id)
         session = self._get_session(trip_id=trip_id, session_id=session_id)
-        self.db.delete(session)
+        self.db.execute(delete(GpsTrackSample).where(GpsTrackSample.session_id == session_id))
+        session.deleted_at = utcnow()
         self.db.commit()
 
     # ------------------------------------------------------------------
@@ -497,6 +537,8 @@ class GpsTrackingService:
             raise TrackingPermissionError(
                 'Only the recording user may upload samples to this session'
             )
+        if session.deleted_at is not None:
+            raise TrackingSessionDeletedError('This recording was deleted.')
 
         # SAMPLE_TIME_TOLERANCE is applied symmetrically at both ends — see
         # its own docstring for why a small, named margin belongs here
@@ -596,6 +638,7 @@ class GpsTrackingService:
             filtered=filtered,
             duplicates=duplicates,
             discarded=discarded,
+            session_ended_at=session.ended_at,
         )
 
     @staticmethod
@@ -1406,6 +1449,7 @@ class GpsTrackingService:
             select(GpsTrackingSession).where(
                 GpsTrackingSession.trip_id == trip_id,
                 GpsTrackingSession.ended_at.is_(None),
+                GpsTrackingSession.deleted_at.is_(None),
             )
         ).scalar_one_or_none()
 
@@ -1419,6 +1463,7 @@ class GpsTrackingService:
             select(GpsTrackingSession).where(
                 GpsTrackingSession.id == session_id,
                 GpsTrackingSession.trip_id == trip_id,
+                GpsTrackingSession.deleted_at.is_(None),
             )
         ).scalar_one_or_none()
         if session is None:
@@ -1443,6 +1488,7 @@ class GpsTrackingService:
             select(GpsTrackingSession).where(
                 GpsTrackingSession.trip_id == trip_id,
                 GpsTrackingSession.id != session_id,
+                GpsTrackingSession.deleted_at.is_(None),
             )
         ).scalars()
 

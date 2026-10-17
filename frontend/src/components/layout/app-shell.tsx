@@ -114,13 +114,13 @@ export function AppShell({
 // to lose track of which trip (if any) was being recorded, and impossible
 // to reach the stop control while offline if that trip page couldn't load.
 export function TrackingIndicator({ onNavigate }: { onNavigate: (to: string) => void }) {
-  const { activeSession } = useTracking()
+  const { activeSession, status } = useTracking()
 
   if (!activeSession) {
     return null
   }
 
-  const isSyncing = Boolean(activeSession.endedAt)
+  const isSyncing = Boolean(activeSession.endedAt) || status === 'syncing'
 
   return (
     <button

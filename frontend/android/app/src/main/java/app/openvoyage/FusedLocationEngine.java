@@ -27,6 +27,7 @@ final class FusedLocationEngine implements LocationEngine {
     private final Context context;
     private final FusedLocationProviderClient client;
     private PendingIntent locationIntent;
+    private CancellationTokenSource lookupCancellation;
 
     FusedLocationEngine(Context context) {
         this.context = context;
@@ -104,6 +105,10 @@ final class FusedLocationEngine implements LocationEngine {
 
     @Override
     public void stop() {
+        if (lookupCancellation != null) {
+            lookupCancellation.cancel();
+            lookupCancellation = null;
+        }
         if (locationIntent != null) {
             client.removeLocationUpdates(locationIntent);
             locationIntent.cancel();
@@ -115,15 +120,22 @@ final class FusedLocationEngine implements LocationEngine {
         lookupCurrentLocation(callback, 15_000L);
     }
 
-    void lookupCurrentLocation(Callback callback, long durationMs) {
+    @Override
+    public void lookupCurrentLocation(Callback callback, long durationMs) {
+        if (lookupCancellation != null) {
+            lookupCancellation.cancel();
+        }
+        CancellationTokenSource cancellation = new CancellationTokenSource();
+        lookupCancellation = cancellation;
         CurrentLocationRequest request = new CurrentLocationRequest.Builder()
                 .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
                 .setMaxUpdateAgeMillis(0L)
                 .setDurationMillis(durationMs)
                 .build();
         try {
-            client.getCurrentLocation(request, new CancellationTokenSource().getToken())
+            client.getCurrentLocation(request, cancellation.getToken())
                     .addOnSuccessListener(location -> {
+                        if (cancellation.getToken().isCancellationRequested()) return;
                         if (location != null) {
                             callback.onLocation(location);
                         } else {
@@ -131,6 +143,7 @@ final class FusedLocationEngine implements LocationEngine {
                         }
                     })
                     .addOnFailureListener(error -> {
+                        if (cancellation.getToken().isCancellationRequested()) return;
                         Log.w(TAG, "Periodic location lookup failed", error);
                         callback.onFailure(error.getMessage() == null
                                 ? "Location lookup failed" : error.getMessage());

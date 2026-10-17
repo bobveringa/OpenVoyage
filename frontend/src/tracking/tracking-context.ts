@@ -35,9 +35,16 @@ export type StartTrackingInput = {
 }
 
 export type TrackingContextValue = {
+  canStartRecording?: boolean
+  syncMessage?: string | null
+  totalQueuedCount?: number
+  retentionWarning?: string | null
   activeSession: ActiveTrackingSession | null
   status: TrackingStatus
   error: string | null
+  // Only populated for a recording started in this page lifetime. Recovery
+  // skips startup feedback; the first saved fix starts a brief confirmation.
+  startupFeedback: { locationFoundAt: number | null } | null
   queueStats: QueueStats | null
   uploaderSnapshot: UploaderSnapshot | null
   // The cadence the Phase 3 policy currently has the OS running at, or null

@@ -8,6 +8,10 @@ export function describeUploaderStatus(status: UploaderStatus): string {
       return 'syncing…'
     case 'waiting-retry':
       return 'retrying…'
+    case 'waiting-batch':
+      return 'waiting for the next upload batch'
+    case 'paused-error':
+      return 'upload paused — check recording details'
     case 'paused-sign-in-required':
       return 'paused — sign in again to resume'
     case 'paused-account-mismatch':

@@ -24,6 +24,8 @@ from jobs.runtime import JobRuntime
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from models.api.token import TokenPayload
 from models.database.user import User
+from models.database.gps_tracking import GpsTrackingSession
+from models.database.trips import Trip, TripMember
 from services.gps.privacy_zone_service import GpsPrivacyZoneService
 from services.gps.tracking_service import GpsTrackingService
 from services.job_service import JobService
@@ -96,9 +98,11 @@ def _credentials_exception() -> HTTPException:
     )
 
 
-def _get_user_from_token(session: Session, token: str) -> User:
+def _get_user_from_token(
+    session: Session, token: str, expected_type: str = security.TOKEN_TYPE_ACCESS
+) -> User:
     try:
-        payload = security.decode_token(token, expected_type=security.TOKEN_TYPE_ACCESS)
+        payload = security.decode_token(token, expected_type=expected_type)
         token_data = TokenPayload(**payload)
     except InvalidTokenError, ValidationError:
         raise _credentials_exception()
@@ -113,6 +117,44 @@ def _get_user_from_token(session: Session, token: str) -> User:
         raise _credentials_exception()
 
     return cast(User, user)
+
+
+def get_tracking_upload_user(
+    session: SessionDep,
+    token: TokenDep,
+    trip_id: uuid.UUID,
+    session_id: uuid.UUID,
+) -> User:
+    try:
+        user = _get_user_from_token(session, token)
+    except HTTPException as exc:
+        if exc.status_code != 401:
+            raise
+        user = _get_user_from_token(session, token, security.TOKEN_TYPE_TRACKING_UPLOAD)
+        try:
+            payload = security.decode_token(token, security.TOKEN_TYPE_TRACKING_UPLOAD)
+            claimed_trip = uuid.UUID(str(payload['trip_id']))
+            claimed_session = uuid.UUID(str(payload['session_id']))
+        except InvalidTokenError, KeyError, ValueError, TypeError:
+            raise _credentials_exception()
+        if claimed_trip != trip_id or claimed_session != session_id:
+            raise HTTPException(status_code=403, detail='Upload token scope mismatch')
+        # No admin override is available to a scoped uploader.
+        existing = session.get(GpsTrackingSession, session_id)
+        if existing is not None and existing.recorded_by_user_id != user.id:
+            raise HTTPException(status_code=403, detail='Only the recorder may upload')
+        # A scoped token must never inherit the administrator's end-session
+        # override after their trip membership has been removed.
+        if session.get(Trip, trip_id) is None:
+            raise HTTPException(status_code=404, detail=f'Trip not found: {trip_id}')
+        if session.get(TripMember, (trip_id, user.id)) is None:
+            raise HTTPException(status_code=403, detail='Trip membership required')
+    if user.password_change_required:
+        raise HTTPException(status_code=403, detail='Password change required')
+    return user
+
+
+TrackingUploadUser = Annotated[User, Depends(get_tracking_upload_user)]
 
 
 def get_authenticated_user(

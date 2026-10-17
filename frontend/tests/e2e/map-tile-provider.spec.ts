@@ -12,6 +12,25 @@ const transparentPng = Buffer.from(
   'base64',
 )
 
+test('opens the GPS menu from a return link after membership finishes loading', async ({ page }) => {
+  await seedBrowserAuth(page)
+  const releaseSettings = await mockTripApi(page, 'OWNER')
+  releaseSettings()
+  await mockTileServers(page)
+  let releaseMembers = () => {}
+  const membersReady = new Promise<void>(resolve => { releaseMembers = resolve })
+  await page.route(`**/api/v1/trips/${tripId}/members`, async route => {
+    await membersReady
+    await route.fallback()
+  })
+  await page.goto(`/trips/${tripId}?tab=travel&dialog=management&section=gps`)
+  await expect(page.getByText(/Loading trip/)).toBeVisible()
+  releaseMembers()
+  await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('section')).toBe('gps')
+  expect(new URL(page.url()).searchParams.get('dialog')).toBe('management')
+})
+
 test.describe('mobile reading', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })
 

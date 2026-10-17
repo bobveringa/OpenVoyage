@@ -82,7 +82,7 @@ export function MobileTripToolbar({
             {currentUser ? <a className="rounded-xl px-4 py-3 text-sm font-semibold hover:bg-muted" href="/settings">Account settings</a> : null}
             {currentUser?.role === 'ADMIN' ? <a className="rounded-xl px-4 py-3 text-sm font-semibold hover:bg-muted" href="/admin">Admin</a> : null}
             <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm"><span>Appearance</span><ThemeModeToggle /></div>
-            {currentUser ? <Button className="h-11 justify-start" variant="ghost" onClick={() => { signOut(); navigate('/') }}>Log out</Button> : null}
+            {currentUser ? <Button className="h-11 justify-start" variant="ghost" onClick={() => { void signOut().then(() => navigate('/')).catch(() => {}) }}>Log out</Button> : null}
           </div>
       </Modal>
     </>

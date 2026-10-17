@@ -62,6 +62,7 @@ import {
   type TrackingStatus,
 } from '@/tracking/tracking-context'
 import { SessionUploader, type UploaderSnapshot } from '@/tracking/uploader'
+import { NativeTrackingProvider } from '@/tracking/native-tracking-provider'
 
 type TrackingProviderProps = {
   children: ReactNode
@@ -91,10 +92,20 @@ function baselineDecision(settings: TrackingSettings): AdaptiveDecision {
 }
 
 export function TrackingProvider({ children }: TrackingProviderProps) {
+  return isNativePlatform() ? <NativeTrackingProvider>{children}</NativeTrackingProvider> : <BrowserTrackingProvider>{children}</BrowserTrackingProvider>
+}
+
+function BrowserTrackingProvider({ children }: TrackingProviderProps) {
   const { accessToken, currentUser } = useAuth()
   const [activeSession, setActiveSession] = useState<ActiveTrackingSession | null>(null)
   const [status, setStatus] = useState<TrackingStatus>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [startupAttempt, setStartupAttempt] = useState<{
+    sessionId: string
+    locationFoundAt: number | null
+  } | null>(null)
+  const startupFeedback = activeSession && !activeSession.endedAt
+    && startupAttempt?.sessionId === activeSession.sessionId ? startupAttempt : null
   const [queueStats, setQueueStats] = useState<QueueStats | null>(null)
   const [uploaderSnapshot, setUploaderSnapshot] = useState<UploaderSnapshot | null>(null)
   const [adaptiveDecision, setAdaptiveDecision] = useState<AdaptiveDecision | null>(null)
@@ -300,6 +311,11 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       })
 
       lastAcceptedAtRef.current = Date.now()
+      setStartupAttempt((attempt) =>
+        attempt?.sessionId === sessionId && attempt.locationFoundAt === null
+          ? { ...attempt, locationFoundAt: Date.now() }
+          : attempt,
+      )
       lastAcceptedFixRef.current = {
         latitude: fix.latitude,
         longitude: fix.longitude,
@@ -715,6 +731,8 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       }
       setStatus('starting')
       setError(null)
+      setStartupAttempt(null)
+      setQueueStats(null)
 
       try {
         // Onboarding prompts (§11): a no-op once already granted/exempted,
@@ -852,6 +870,9 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
         replaceUploader(uploader)
         uploader.start()
 
+        // Set before start(): the source can deliver its first fix before
+        // start resolves. Recovered recordings never create this attempt.
+        setStartupAttempt({ sessionId, locationFoundAt: null })
         await getSource().start(buildSourceOptions(sessionId, startedAt))
         capturingRef.current = true
         setAdaptiveDecision(decisionRef.current)
@@ -1054,6 +1075,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       clockSkewWarningSeconds,
       currentTravelMode,
       error,
+      startupFeedback,
       locationWarning,
       notifySettingsChanged,
       queueStats,
@@ -1070,6 +1092,7 @@ export function TrackingProvider({ children }: TrackingProviderProps) {
       clockSkewWarningSeconds,
       currentTravelMode,
       error,
+      startupFeedback,
       locationWarning,
       notifySettingsChanged,
       queueStats,
