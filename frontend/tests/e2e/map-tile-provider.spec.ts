@@ -1,3 +1,4 @@
+import { seedAuthTokens } from './helpers/auth'
 import { expect, test, type Page, type Route } from '@playwright/test'
 
 const tripId = '11111111-1111-4111-8111-111111111111'
@@ -500,17 +501,12 @@ async function seedBrowserAuth(page: Page) {
     JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 60 * 60 }),
   ).toString('base64url')
 
-  await page.addInitScript((accessToken) => {
-    window.localStorage.setItem(
-      'openvoyage.auth',
-      JSON.stringify({
-        access_token: accessToken,
-        id_token: 'test-id-token',
-        refresh_token: 'test-refresh-token',
-        token_type: 'bearer',
-      }),
-    )
-  }, `test.${tokenPayload}.signature`)
+  await seedAuthTokens(page, {
+    access_token: `test.${tokenPayload}.signature`,
+    id_token: 'test-id-token',
+    refresh_token: 'test-refresh-token',
+    token_type: 'bearer',
+  })
 }
 
 async function mockTripApi(page: Page, role: 'MEMBER' | 'OWNER' = 'MEMBER') {

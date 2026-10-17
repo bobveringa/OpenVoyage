@@ -1,3 +1,4 @@
+import { seedAuthTokens } from './helpers/auth'
 import { expect, test, type Page, type Route } from '@playwright/test'
 
 type MockSetting = {
@@ -483,17 +484,12 @@ async function mockAdminApi(page: Page) {
     JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 60 * 60 }),
   ).toString('base64url')
 
-  await page.addInitScript((accessToken) => {
-    window.localStorage.setItem(
-      'openvoyage.auth',
-      JSON.stringify({
-        access_token: accessToken,
-        id_token: 'test-id-token',
-        refresh_token: 'test-refresh-token',
-        token_type: 'bearer',
-      }),
-    )
-  }, `test.${tokenPayload}.signature`)
+  await seedAuthTokens(page, {
+    access_token: `test.${tokenPayload}.signature`,
+    id_token: 'test-id-token',
+    refresh_token: 'test-refresh-token',
+    token_type: 'bearer',
+  })
 
   await page.route('**/api/v1/users/me', async (route) => {
     await fulfillJson(route, {

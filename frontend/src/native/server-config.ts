@@ -1,4 +1,5 @@
-import { getApiBaseUrl, setApiBaseUrl } from '@/api/client'
+import { getApiBaseUrl, normalizeApiBaseUrl, setApiBaseUrl } from '@/api/client'
+import { clearCachedCurrentUser, clearStoredAuthTokens } from '@/auth/auth-storage'
 import { getItem, setItem } from '@/native/kv-storage'
 import { isNativePlatform } from '@/native/platform'
 
@@ -11,9 +12,18 @@ export async function getStoredServerUrl(): Promise<string | null> {
 }
 
 export async function setStoredServerUrl(url: string): Promise<void> {
-  const normalized = url.replace(/\/+$/, '')
+  const normalized = normalizeApiBaseUrl(url)
+  const serverChanged = normalized !== getApiBaseUrl()
+  if (serverChanged) {
+    await clearStoredAuthTokens()
+    await clearCachedCurrentUser()
+  }
   await setItem(SERVER_URL_STORAGE_KEY, normalized)
-  setApiBaseUrl(normalized)
+  if (serverChanged) {
+    // Keep this document on its original server. Reloading discards the
+    // running session; bootstrap applies the new address before restoring auth.
+    window.location.reload()
+  }
 }
 
 export function getCurrentServerUrl(): string {
