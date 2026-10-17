@@ -1,3 +1,4 @@
+import { ClockFormatProvider } from '../../../src/components/clock-format-provider'
 import { Capacitor } from '@capacitor/core'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -184,4 +185,4 @@ export function Preview() {
     </AuthContext.Provider>
   )
 }
-createRoot(document.getElementById('root')!).render(<Preview />)
+createRoot(document.getElementById('root')!).render(<ClockFormatProvider><Preview /></ClockFormatProvider>)
