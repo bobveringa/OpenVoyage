@@ -40,6 +40,7 @@ from services.location_service import LocationNotFoundError
 from services.post_service import (
     DuplicatePostMediaError,
     InvalidBubbleMediaError,
+    InvalidPostDateError,
     MediaNotFoundError,
     PostMediaOwnershipError,
     PostNotFoundError,
@@ -140,7 +141,7 @@ def create_post(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except DuplicatePostMediaError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except InvalidBubbleMediaError as exc:
+    except (InvalidBubbleMediaError, InvalidPostDateError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
@@ -357,7 +358,7 @@ def update_post(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except DuplicatePostMediaError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except InvalidBubbleMediaError as exc:
+    except (InvalidBubbleMediaError, InvalidPostDateError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
@@ -403,6 +404,10 @@ def publish_post(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except PostPermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except InvalidPostDateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        )
     except PostRevisionMismatchError as exc:
         raise HTTPException(
             status_code=status.HTTP_412_PRECONDITION_FAILED, detail=str(exc)

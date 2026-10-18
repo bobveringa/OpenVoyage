@@ -7,6 +7,7 @@ import {
 } from '@playwright/test'
 import { env } from 'node:process'
 import { waitForMediaReady } from './helpers/media'
+import { seedAuthTokens } from './helpers/auth'
 
 type AuthTokens = {
   access_token: string
@@ -545,7 +546,7 @@ async function createPublishedPostWithApi(
           longitude: 4.9041,
         },
         media_ids: [media.id],
-        occurred_at: '2027-05-11T12:00:00Z',
+        occurred_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
         publish: true,
         title,
       },
@@ -568,9 +569,7 @@ async function deleteTripWithApi(
 
 async function seedBrowserAuth(page: Page, tokens: AuthTokens) {
   await page.goto('/login')
-  await page.evaluate((authTokens) => {
-    window.localStorage.setItem('openvoyage.auth', JSON.stringify(authTokens))
-  }, tokens)
+  await seedAuthTokens(page, tokens, true)
 }
 
 function authHeaders(tokens: AuthTokens) {

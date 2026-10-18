@@ -1,4 +1,4 @@
-import type { AuthTokens, CurrentUser } from '@/api/client'
+import { getApiBaseUrl, type AuthTokens, type CurrentUser } from '@/api/client'
 import { getItem, removeItem, setItem } from '@/native/kv-storage'
 
 const AUTH_STORAGE_KEY = 'openvoyage.auth'
@@ -11,9 +11,14 @@ export async function readStoredAuthTokens(): Promise<AuthTokens | null> {
   }
 
   try {
-    const parsed = JSON.parse(rawValue) as Partial<AuthTokens>
-    if (isAuthTokens(parsed)) {
-      return parsed
+    const parsed = JSON.parse(rawValue) as (Partial<AuthTokens> & { serverUrl?: unknown }) | null
+    if (parsed && parsed.serverUrl === getApiBaseUrl() && isAuthTokens(parsed)) {
+      return {
+        access_token: parsed.access_token,
+        refresh_token: parsed.refresh_token,
+        id_token: parsed.id_token,
+        token_type: parsed.token_type,
+      }
     }
   } catch {
     // Corrupt value below falls through to the same cleanup as a value that
@@ -25,7 +30,7 @@ export async function readStoredAuthTokens(): Promise<AuthTokens | null> {
 }
 
 export async function writeStoredAuthTokens(tokens: AuthTokens): Promise<void> {
-  await setItem(AUTH_STORAGE_KEY, JSON.stringify(tokens))
+  await setItem(AUTH_STORAGE_KEY, JSON.stringify({ ...tokens, serverUrl: getApiBaseUrl() }))
 }
 
 export async function clearStoredAuthTokens(): Promise<void> {
@@ -52,9 +57,9 @@ export async function readCachedCurrentUser(): Promise<CurrentUser | null> {
   }
 
   try {
-    const parsed = JSON.parse(rawValue) as Partial<CurrentUser>
-    if (typeof parsed.id === 'string') {
-      return parsed as CurrentUser
+    const parsed = JSON.parse(rawValue) as { serverUrl?: unknown; user?: Partial<CurrentUser> } | null
+    if (parsed?.serverUrl === getApiBaseUrl() && typeof parsed.user?.id === 'string') {
+      return parsed.user as CurrentUser
     }
   } catch {
     // Corrupt value falls through to cleanup below.
@@ -65,7 +70,7 @@ export async function readCachedCurrentUser(): Promise<CurrentUser | null> {
 }
 
 export async function writeCachedCurrentUser(user: CurrentUser): Promise<void> {
-  await setItem(CACHED_USER_STORAGE_KEY, JSON.stringify(user))
+  await setItem(CACHED_USER_STORAGE_KEY, JSON.stringify({ serverUrl: getApiBaseUrl(), user }))
 }
 
 export async function clearCachedCurrentUser(): Promise<void> {

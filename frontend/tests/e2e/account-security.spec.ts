@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { seedAuthTokens } from './helpers/auth'
 
 test('changes a password and signs out all devices', async ({ page }) => {
   const api = await mockSecurityApi(page, false)
@@ -80,17 +81,12 @@ async function mockSecurityApi(page: Page, passwordChangeRequired: boolean) {
   const initialAccessToken = createJwt('initial-access')
   const replacementAccessToken = createJwt('replacement-access')
 
-  await page.addInitScript((accessToken) => {
-    window.localStorage.setItem(
-      'openvoyage.auth',
-      JSON.stringify({
-        access_token: accessToken,
-        id_token: 'initial-id-token',
-        refresh_token: 'initial-refresh-token',
-        token_type: 'bearer',
-      }),
-    )
-  }, initialAccessToken)
+  await seedAuthTokens(page, {
+    access_token: initialAccessToken,
+    id_token: 'initial-id-token',
+    refresh_token: 'initial-refresh-token',
+    token_type: 'bearer',
+  })
 
   await page.route('**/api/v1/settings/public', (route) =>
     fulfillJson(route, { settings: {}, updated_at: null }),

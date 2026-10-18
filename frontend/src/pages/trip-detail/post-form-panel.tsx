@@ -245,11 +245,21 @@ export function PostFormPanel({
     (mapPointActive
       ? Boolean(selectedMapLocation)
       : Boolean(selectedSearchPlace || editingPost))
+  const [dateLimit, setDateLimit] = useState(() => new Date())
+  useEffect(() => {
+    const timer = window.setInterval(() => setDateLimit(new Date()), 10_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const occurredAtDate = parseDateTime(occurredAt)
+  const occurredAtInFuture = Boolean(
+    occurredAtDate && occurredAtDate.getTime() > dateLimit.getTime(),
+  )
   const canSubmit =
     hasLocation &&
     title.trim().length > 0 &&
     story.trim().length > 0 &&
-    occurredAt.trim().length > 0
+    occurredAtDate !== null &&
+    !occurredAtInFuture
   const uploadSummary = getDraftMediaUploadSummary(draftMedia)
   const mediaDescription = getDraftMediaSectionDescription(
     draftMedia.length,
@@ -995,9 +1005,15 @@ export function PostFormPanel({
           Occurred at
           <DateTimePicker
             disabled={formDisabled}
+            max={formatDateTimeInputValue(dateLimit)}
             onValueChange={setOccurredAt}
             value={occurredAt}
           />
+          {occurredAtInFuture ? (
+            <span className="text-sm text-destructive" role="alert">
+              Post date and time cannot be in the future.
+            </span>
+          ) : null}
         </label>
       </section>
 
