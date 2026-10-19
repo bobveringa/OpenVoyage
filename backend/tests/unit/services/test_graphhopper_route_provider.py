@@ -30,8 +30,8 @@ class FakeResponse:
     def __exit__(self, *_args: object) -> None:
         return None
 
-    def read(self) -> bytes:
-        return self.content
+    def read(self, size=-1) -> bytes:
+        return self.content if size < 0 else self.content[:size]
 
 
 def _provider(
@@ -81,7 +81,7 @@ def test_get_route_calls_graphhopper_and_parses_response(monkeypatch) -> None:
     assert parsed_url.netloc == 'example.test'
     assert parsed_url.path == '/api/1/route'
     assert query['point'] == ['51.4416,5.4697', '52.0907,5.1214']
-    assert query['vehicle'] == ['car']
+    assert query['profile'] == ['car']
     assert query['points_encoded'] == ['false']
     assert query['key'] == ['test-key']
     assert captured['user_agent'] == 'openvoyage-backend'
@@ -139,9 +139,41 @@ def test_get_route_wraps_graphhopper_http_errors(monkeypatch) -> None:
 
     monkeypatch.setattr(graphhopper_route_provider, 'urlopen', fake_urlopen)
 
-    with pytest.raises(RouteProviderError, match='rate limit exceeded'):
+    with pytest.raises(RouteProviderError, match='Routing limit reached'):
         _provider().get_route(
             coordinates_from=(5.4697, 51.4416),
             coordinates_to=(5.1214, 52.0907),
             travel_mode=TravelMode.CAR,
         )
+
+
+def test_requests_and_preserves_distinct_road_alternatives(monkeypatch):
+    captured = {}
+    paths = [
+        {
+            'points': {
+                'type': 'LineString',
+                'coordinates': [[4.9, 52.37], [5 + i / 100, 52.2], [5.12, 52.09]],
+            },
+            'distance': 50000 + i * 1000,
+            'time': 3600000 + i * 60000,
+        }
+        for i in range(3)
+    ]
+
+    def respond(request, **kwargs):
+        captured['query'] = parse_qs(urlsplit(request.full_url).query)
+        return FakeResponse({'paths': paths})
+
+    monkeypatch.setattr(graphhopper_route_provider, 'urlopen', respond)
+    route = _provider().get_route((4.9, 52.37), (5.12, 52.09), TravelMode.CAR)
+    assert captured['query']['profile'] == ['car']
+    assert captured['query']['algorithm'] == ['alternative_route']
+    assert captured['query']['alternative_route.max_paths'] == ['3']
+    assert len(route.alternatives) == 2
+    assert route.alternatives[1].geometry_geojson == paths[2]['points']
+    assert route.alternatives[1].duration_seconds == 3720
+    _provider().get_route((4.9, 52.37), (5.12, 52.09), TravelMode.CAR, via=(5, 52.2))
+    assert (
+        'algorithm' not in captured['query']
+    )  # GraphHopper alternatives require two points.

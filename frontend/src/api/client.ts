@@ -67,6 +67,11 @@ export type TripVisibility = components['schemas']['TripVisibility']
 export type GeoJsonLineString = components['schemas']['GeoJsonLineString']
 export type Itinerary = components['schemas']['ItineraryResponse']
 export type ItineraryStop = components['schemas']['ItineraryStopResponse']
+export type PlanningSegment = components['schemas']['SegmentIntent']
+export type PlanningPreview = components['schemas']['PreviewResponse']
+export type FlightLookupResult = components['schemas']['FlightLookupResponse']
+export type FlightLookupPayload = components['schemas']['FlightLookupRequest']
+export type PlanningEndpoint = components['schemas']['Endpoint']
 export type ItineraryTravelLeg =
   components['schemas']['ItineraryTravelLegResponse']
 export type ItineraryTravelRoute =
@@ -666,12 +671,14 @@ export async function resetAdminSetting(options: {
 }
 
 export async function geocodePlaces(options: {
+  type?: 'AIRPORT'
   countryCode?: string | null
   limit?: number
   query: string
 }): Promise<Place[]> {
   return requestJson<Place[]>(`${API_V1_PREFIX}/places/geocode`, {
     query: {
+      type: options.type,
       country_code: options.countryCode,
       limit: options.limit ?? 10,
       query: options.query,
@@ -1163,7 +1170,7 @@ export async function createItineraryStop(options: {
   accessToken: string
   itineraryRevision: number
 }): Promise<Itinerary> {
-  return requestJson<Itinerary>(
+  return requestItineraryMutation(
     `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/stops`,
     {
       method: 'POST',
@@ -1184,7 +1191,7 @@ export async function updateItineraryStop(options: {
   const tripId = encodeURIComponent(options.tripId)
   const stopId = encodeURIComponent(options.stopId)
 
-  return requestJson<Itinerary>(
+  return requestItineraryMutation(
     `${API_V1_PREFIX}/trips/${tripId}/itinerary/stops/${stopId}`,
     {
       method: 'PATCH',
@@ -1204,7 +1211,7 @@ export async function deleteItineraryStop(options: {
   const tripId = encodeURIComponent(options.tripId)
   const stopId = encodeURIComponent(options.stopId)
 
-  return requestJson<Itinerary>(
+  return requestItineraryMutation(
     `${API_V1_PREFIX}/trips/${tripId}/itinerary/stops/${stopId}`,
     {
       method: 'DELETE',
@@ -1243,6 +1250,7 @@ export async function replaceItineraryTravelLeg(options: {
 export async function refreshItineraryTravelLegRoute(options: {
   tripId: string
   legId: string
+  itineraryRevision: number
   accessToken: string
 }): Promise<{ itineraryRevision: number | null; leg: ItineraryTravelLeg }> {
   const tripId = encodeURIComponent(options.tripId)
@@ -1252,6 +1260,8 @@ export async function refreshItineraryTravelLegRoute(options: {
     `${API_V1_PREFIX}/trips/${tripId}/itinerary/legs/${legId}/route-refresh`,
     {
       method: 'POST',
+      ifMatchRevision: options.itineraryRevision,
+      timeoutMs: 35_000,
       accessToken: options.accessToken,
     },
   )
@@ -2074,4 +2084,37 @@ function readEtagRevision(response: Response) {
   const etag = response.headers.get('ETag')
   const match = /^"([0-9]+)"$/.exec(etag ?? '')
   return match ? Number(match[1]) : null
+}
+
+
+async function requestItineraryMutation(url: string, options: ApiRequestOptions): Promise<Itinerary> {
+  try {
+    return await requestJson<Itinerary>(url, options)
+  } catch (error) {
+    const body = error instanceof ApiError ? error.detail : null
+    const responseDetail = body && typeof body === 'object' && 'detail' in body ? body.detail : body
+    if (error instanceof ApiError && error.status === 409 && responseDetail && typeof responseDetail === 'object' && 'code' in responseDetail && responseDetail.code === 'TRAVEL_DELETION_REQUIRED') {
+      const detail = responseDetail as { connections?: { from: string; to: string }[] }
+      const names = detail.connections?.map((leg) => `${leg.from} to ${leg.to}`).join(', ') || 'the affected stops'
+      if (window.confirm(`This change will delete the travel information between ${names}. Continue?`)) {
+        return requestJson<Itinerary>(url, { ...options, query: { ...options.query, confirm_travel_deletion: true } })
+      }
+      return requestJson<Itinerary>(url.replace(/\/stops(?:\/[^/]+)?$/, ''), { accessToken: options.accessToken })
+    }
+    throw error
+  }
+}
+
+export async function previewTravel(options: { tripId: string; legId: string; accessToken: string; itineraryRevision: number; payload: ItineraryTravelReplacePayload; retryFailed?: boolean; signal?: AbortSignal }): Promise<PlanningPreview> {
+  return requestJson<PlanningPreview>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs/${encodeURIComponent(options.legId)}/preview`, {
+    method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
+    json: options.payload, query: { retry_failed: options.retryFailed ?? false }, timeoutMs: 35_000, signal: options.signal,
+  })
+}
+
+export async function lookupFlight(options: { tripId: string; legId: string; accessToken: string; itineraryRevision: number; payload: FlightLookupPayload; signal?: AbortSignal }): Promise<FlightLookupResult> {
+  return requestJson<FlightLookupResult>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs/${encodeURIComponent(options.legId)}/flight-lookups`, {
+    method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
+    json: options.payload, timeoutMs: 35_000, signal: options.signal,
+  })
 }

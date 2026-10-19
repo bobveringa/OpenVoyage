@@ -49,7 +49,8 @@ async def protect_social_responses_from_shared_caches(request, call_next):
     response = await call_next(request)
     path = request.url.path
     protects_private_state = (
-        '/posts' in path
+        '/itinerary' in path
+        or '/posts' in path
         or '/share-links' in path
         or path.endswith('/share-link-profile')
     )
@@ -72,7 +73,7 @@ app.add_middleware(
     # silently passes no matter how wrong the device clock is. Samples
     # recorded with a skewed clock fall outside [started_at, now) and the
     # server discards them without complaint, so the check has to work.
-    expose_headers=['Date'],
+    expose_headers=['Date', 'ETag'],
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)

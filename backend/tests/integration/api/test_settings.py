@@ -97,6 +97,7 @@ def test_admin_list_includes_redacted_secret_metadata(
         'routing.provider',
         'routing.graphhopper_base_url',
         'routing.graphhopper_api_key',
+        'flights.rapidapi_api_key',
         'media.max_upload_size_mb',
         'places.geonames_dataset',
         'media.orphan_retention_days',

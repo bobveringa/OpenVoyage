@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { geocodePlaces, getErrorMessage, type Place } from '@/api/client'
 import type { PlaceSearchStatus } from '@/components/places/place-search-dropdown'
 
-export function usePlaceSearch(query: string, enabled: boolean) {
+export function usePlaceSearch(query: string, enabled: boolean, type?: 'AIRPORT') {
   const [places, setPlaces] = useState<readonly Place[]>([])
   const [status, setStatus] = useState<PlaceSearchStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -22,7 +22,7 @@ export function usePlaceSearch(query: string, enabled: boolean) {
     setError(null)
 
     const timeoutId = window.setTimeout(() => {
-      void geocodePlaces({ limit: 8, query: trimmedQuery })
+      void geocodePlaces({ limit: 8, query: trimmedQuery, type })
         .then((results) => {
           if (cancelled) {
             return
@@ -46,7 +46,7 @@ export function usePlaceSearch(query: string, enabled: boolean) {
       cancelled = true
       window.clearTimeout(timeoutId)
     }
-  }, [enabled, query])
+  }, [enabled, query, type])
 
   return { error, places, status }
 }

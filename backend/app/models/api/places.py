@@ -15,6 +15,10 @@ class PlaceResponse(BaseModel):
     country_code: str
     region: str
     feature_class: str
+    feature_code: str | None = None
+    iata_code: str | None = None
+    icao_code: str | None = None
+    timezone: str | None = None
     population: int
 
     @classmethod
@@ -30,6 +34,8 @@ class PlaceResponse(BaseModel):
             region=place.region,
             feature_class=feature_class.name,
             population=place.population,
+            feature_code=place.feature_code, iata_code=place.iata_code,
+            icao_code=place.icao_code, timezone=place.timezone,
         )
 
 

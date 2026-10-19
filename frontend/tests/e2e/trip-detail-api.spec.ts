@@ -55,7 +55,7 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     await page.goto(`/trips/${trip.id}`)
 
     await expect(page.getByRole('heading', { name: /E2E API trip/ })).toBeVisible()
-    await page.getByRole('button', { name: 'Plan' }).click()
+    await page.getByRole('button', { name: 'Plan', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Planning' })).toBeVisible()
     await expectMapTilesRequested(page)
 
@@ -89,19 +89,18 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     await page
       .getByRole('button', { name: /E2E Coimbra to E2E Porto/ })
       .click()
-    await page.getByRole('button', { name: 'Mode' }).click()
-    await page.getByRole('option', { name: 'Car' }).click()
-    await page.getByRole('button', { name: 'Save leg' }).click()
+    const chooser = page.getByRole('dialog', { name: 'Select your route' })
+    await expect(chooser.getByRole('button', { name: 'Select this route' })).toBeEnabled()
+    await chooser.getByRole('button', { name: 'Select this route' }).click()
 
     if (expectsProviderBackedRoutes()) {
-      await expect(page.getByText('Provider route').first()).toBeVisible({
+      await expect(page.getByText('Route ready').first()).toBeVisible({
         timeout: 12000,
       })
     } else {
-      await expect(page.getByText('Simple route').first()).toBeVisible()
+      await expect(page.getByText('Route unavailable').first()).toBeVisible()
     }
 
-    await page.getByRole('button', { name: 'Cancel' }).click()
     await page.getByRole('button', { name: 'Travel' }).click()
     await page.getByRole('button', { name: 'New post' }).click()
     await expectReverseGeocodeForExactMapPoint(page)

@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 
 from core import security
 from core.config import settings
+from core.app_settings import FLIGHTS_RAPIDAPI_API_KEY
+from services.flight_provider import FlightProvider
 from core.db import get_engine
 from jobs.runtime import JobRuntime
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -330,11 +332,12 @@ def get_itinerary_route_service(
     session: SessionDep,
     background_tasks: BackgroundTasks,
     route_provider: Annotated[RouteProviderBase | None, Depends(get_route_provider)],
+    app_settings_service: AppSettingsServiceDep,
 ):
     return ItineraryRouteService(
         db=session,
         route_provider=route_provider,
-        background_tasks=background_tasks,
+        flight_provider=FlightProvider(app_settings_service.get_value(FLIGHTS_RAPIDAPI_API_KEY)),
     )
 
 

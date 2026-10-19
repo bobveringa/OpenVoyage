@@ -89,6 +89,10 @@ class Place(Base):
         default=0,
         server_default='0',
     )
+    feature_code: Mapped[str | None] = mapped_column(String(10))
+    iata_code: Mapped[str | None] = mapped_column(String(3), unique=True)
+    icao_code: Mapped[str | None] = mapped_column(String(4), unique=True)
+    timezone: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -69,6 +69,7 @@ DEFAULT_MAP_TILE_PROVIDER_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 ROUTING_PROVIDER_KEY = 'routing.provider'
 ROUTING_GRAPHHOPPER_BASE_URL_KEY = 'routing.graphhopper_base_url'
 ROUTING_GRAPHHOPPER_API_KEY = 'routing.graphhopper_api_key'
+FLIGHTS_RAPIDAPI_API_KEY = 'flights.rapidapi_api_key'
 MEDIA_MAX_UPLOAD_SIZE_MB_KEY = 'media.max_upload_size_mb'
 PLACES_GEONAMES_DATASET_KEY = 'places.geonames_dataset'
 MEDIA_ORPHAN_RETENTION_DAYS_KEY = 'media.orphan_retention_days'
@@ -78,6 +79,15 @@ IMMICH_ALLOW_ANY_SERVER_KEY = 'immich.allow_any_server'
 COOKIE_BANNER_ENABLED_KEY = 'site.cookie_banner_enabled'
 
 SETTING_DEFINITIONS = (
+    SettingDefinition(
+        key=FLIGHTS_RAPIDAPI_API_KEY,
+        value_type=SettingValueType.SECRET,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=True,
+        runtime_safe=True,
+        validation={'min_length': 1, 'max_length': 2048},
+        description='AeroDataBox RapidAPI key for optional flight lookup.',
+    ),
     SettingDefinition(
         key=COOKIE_BANNER_ENABLED_KEY,
         value_type=SettingValueType.BOOLEAN,

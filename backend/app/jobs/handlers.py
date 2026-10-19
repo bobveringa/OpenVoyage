@@ -9,7 +9,6 @@ from core.app_settings import (
 )
 from models.database.base import utcnow
 from services.app_settings_service import AppSettingsService
-from services.itinerary_routes import ItineraryRouteService
 from services.media_cleanup_service import MediaCleanupService
 from services.place_service import GeoNamesDataset, PlaceService
 
@@ -36,7 +35,9 @@ class GeoNamesImportJob(Job):
             replace_existing=True,
         )
 
+        reference_summary = self.place_service.import_airport_reference_data()
         summary = {
+            **reference_summary,
             'dataset': result.dataset.value,
             'deleted': result.deleted,
             'processed': result.processed,
@@ -44,31 +45,18 @@ class GeoNamesImportJob(Job):
         return JobResult(summary)
 
 
-class ItineraryRouteMaintenanceJob(Job):
-    key = JobKey.ITINERARY_ROUTE_MAINTENANCE
+class PlanningArtifactCleanupJob(Job):
+    key = JobKey.PLANNING_ARTIFACT_CLEANUP
 
-    def __init__(self, route_service: ItineraryRouteService) -> None:
-        self.route_service = route_service
+    def __init__(self, db):
+        self.db = db
 
     def run(self) -> JobResult:
-        result = self.route_service.run_route_maintenance(
-            queue_limit=500,
-            generation_limit=500,
-        )
-        queue = result.queue
-        generation = result.generation
-
-        summary = {
-            'attempted': generation.attempted,
-            'failed': generation.failed,
-            'queued_missing': queue.queued_missing,
-            'queued_retries': queue.queued_retries,
-            'ready': generation.ready,
-            'skipped': generation.skipped,
-            'skipped_max_attempts': queue.skipped_max_attempts,
-            'skipped_provider_unavailable': queue.skipped_provider_unavailable,
-        }
-        return JobResult(summary)
+        from sqlalchemy import delete
+        from models.database.itinerary import ItineraryPlanningArtifact
+        result = self.db.execute(delete(ItineraryPlanningArtifact).where(ItineraryPlanningArtifact.expires_at <= utcnow()))
+        self.db.commit()
+        return JobResult({'deleted': result.rowcount})
 
 
 class OrphanedMediaCleanupJob(Job):

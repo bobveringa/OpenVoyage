@@ -1,0 +1,219 @@
+from datetime import date
+from types import SimpleNamespace
+
+import pytest
+from pydantic import ValidationError
+
+from models.api.planning import ConnectionIntent, Endpoint, FlightLookupRequest
+from services.flight_provider import FlightProvider, FlightUnavailable, parse_flights
+from services.planning_service import default_mode, same_endpoint
+
+
+@pytest.mark.parametrize(
+    'destination,expected',
+    [
+        ((52.09, 5.12), 'CAR'),
+        ((41.39, 2.17), 'FLIGHT'),
+        ((-33.92, 18.42), 'FLIGHT'),
+    ],
+)
+def test_mode_inference(destination, expected):
+    assert (
+        default_mode(
+            SimpleNamespace(latitude=52.37, longitude=4.9),
+            SimpleNamespace(latitude=destination[0], longitude=destination[1]),
+        )
+        == expected
+    )
+
+
+def test_mode_inference_estimate_boundary():
+    point = SimpleNamespace(latitude=52, longitude=5)
+    assert default_mode(point, point, 43199) == 'CAR'
+    assert default_mode(point, point, 43200) == 'FLIGHT'
+    assert default_mode(point, point, no_road=True) == 'FLIGHT'
+
+
+@pytest.mark.parametrize(
+    'segments',
+    [
+        [],
+        [{'travel_mode': 'CAR'}] * 21,
+        [{'travel_mode': 'CAR', 'via': [{'latitude': 1, 'longitude': 2}]}],
+        [{'travel_mode': 'CAR', 'duration_seconds': 900}],
+        [{'travel_mode': 'FLIGHT', 'flight': {'lookup': {}}}],
+        [{'travel_mode': 'TRAIN', 'via': {'latitude': 1, 'longitude': 2}}],
+        [{'travel_mode': 'CAR', 'from': {'place_id': 'not-a-uuid', 'latitude': 1}}],
+        [{'travel_mode': 'UNKNOWN'}],
+    ],
+)
+def test_intent_rejects_invalid_or_calculated_fields(segments):
+    with pytest.raises(ValidationError):
+        ConnectionIntent(segments=segments)
+
+
+def test_incomplete_flight_draft_is_valid():
+    assert ConnectionIntent(segments=[{'travel_mode': 'FLIGHT', 'flight': {}}])
+
+
+def test_airport_codes_match_despite_coordinate_differences():
+    a = Endpoint(latitude=52.3, longitude=4.7, iata_code='AMS')
+    b = Endpoint(latitude=52.31, longitude=4.71, iata_code='AMS')
+    assert same_endpoint(a, b)
+    assert not same_endpoint(a, b.model_copy(update={'iata_code': 'RTM'}))
+    assert not same_endpoint(
+        a.model_copy(update={'iata_code': None}),
+        b.model_copy(update={'iata_code': None}),
+    )
+
+
+def flight_payload():
+    return [
+        {
+            'number': 'KL 597',
+            'airline': {'name': 'KLM'},
+            'departure': {
+                'airport': {
+                    'name': 'Schiphol',
+                    'iata': 'AMS',
+                    'timeZone': 'Europe/Amsterdam',
+                    'location': {'lat': 52.3, 'lon': 4.7},
+                },
+                'scheduledTime': {'local': '2026-11-18T10:00:00+01:00'},
+            },
+            'arrival': {
+                'airport': {
+                    'name': 'Cape Town',
+                    'iata': 'CPT',
+                    'timeZone': 'Africa/Johannesburg',
+                    'location': {'lat': -33.97, 'lon': 18.6},
+                },
+                'scheduledTime': {'local': '2026-11-18T22:00:00+02:00'},
+            },
+        }
+    ]
+
+
+def test_provider_normalizes_and_compares_instants():
+    intent = FlightLookupRequest(
+        flight_number='kl 597', departure_date=date(2026, 11, 18)
+    )
+    result = parse_flights(flight_payload(), intent)
+    assert len(result) == 1
+    assert result[0].duration_seconds == 11 * 3600
+    assert result[0].departure_airport.iata_code == 'AMS'
+    assert 'status' not in result[0].model_dump()
+
+
+def test_missing_offsets_do_not_invent_estimate():
+    payload = flight_payload()
+    payload[0]['departure']['scheduledTime'] = {'local': '2026-11-18T10:00:00'}
+    result = parse_flights(
+        payload, FlightLookupRequest(flight_number='KL597', departure_date='2026-11-18')
+    )
+    assert result[0].duration_seconds is None
+
+
+def test_no_key_never_calls_provider(monkeypatch):
+    monkeypatch.setattr(
+        'services.flight_provider.urlopen',
+        lambda *_a, **_k: pytest.fail('Unexpected network call'),
+    )
+    with pytest.raises(FlightUnavailable):
+        FlightProvider(None).lookup(
+            FlightLookupRequest(flight_number='KL597', departure_date='2026-11-18')
+        )
+
+
+@pytest.mark.parametrize(
+    'overlap,airport_change,expected',
+    [
+        (False, False, 12600),
+        (True, False, None),
+        (False, True, None),
+    ],
+)
+def test_flight_chains_include_layovers_across_dst_and_reject_invalid_totals(
+    overlap, airport_change, expected
+):
+    import uuid
+    from models.api.planning import FlightLookup, SegmentIntent
+    from services.planning_service import PlanningService, ResolvedSegment
+    from unittest.mock import Mock
+
+    a = Endpoint(latitude=52, longitude=5, iata_code='AMS')
+    b = Endpoint(latitude=51, longitude=0, iata_code='LHR')
+    c = Endpoint(latitude=48, longitude=2, iata_code='CDG')
+    first = FlightLookup(
+        flight_number='KL123',
+        departure_date='2026-10-25',
+        fetched_at='2026-10-18T12:00:00Z',
+        departure_airport=a,
+        arrival_airport=b,
+        scheduled_departure='2026-10-25T01:30:00+02:00',
+        scheduled_arrival='2026-10-25T01:15:00+01:00',
+    )
+    second = FlightLookup(
+        flight_number='KL124',
+        departure_date='2026-10-25',
+        fetched_at='2026-10-18T12:00:00Z',
+        departure_airport=c if airport_change else b,
+        arrival_airport=c,
+        scheduled_departure='2026-10-25T01:00:00+01:00'
+        if overlap
+        else '2026-10-25T02:00:00+01:00',
+        scheduled_arrival='2026-10-25T04:00:00+01:00',
+    )
+    segments = [
+        ResolvedSegment(
+            SegmentIntent(travel_mode='FLIGHT'),
+            uuid.uuid4(),
+            'USER',
+            1,
+            lookup.departure_airport,
+            lookup.arrival_airport,
+            None,
+            lookup,
+            uuid.uuid4(),
+            None,
+        )
+        for lookup in (first, second)
+    ]
+    stop = SimpleNamespace(planned_start_date=date(2026, 10, 25))
+    result = PlanningService(Mock(), Mock()).connection(
+        SimpleNamespace(from_stop=stop, to_stop=stop), segments
+    )
+    assert result['duration_seconds'] == expected
+    assert result['duration_scope'] == ('FLIGHT_JOURNEY' if expected else None)
+    assert bool(result['warnings']) == (overlap or airport_change)
+
+
+def test_calculation_deadline_does_not_dispatch_remaining_segments(monkeypatch):
+    import uuid
+    from unittest.mock import Mock
+    from models.api.planning import SegmentIntent
+    from services.planning_service import PlanningService, ResolvedSegment
+
+    point = Endpoint(latitude=52, longitude=5)
+    segments = [
+        ResolvedSegment(
+            SegmentIntent(travel_mode='CAR'),
+            uuid.uuid4(),
+            'USER',
+            1,
+            point,
+            point,
+            None,
+            None,
+            None,
+            None,
+        )
+        for _ in range(3)
+    ]
+    clock = iter([0, 0, 31])
+    monkeypatch.setattr('services.planning_service.time.monotonic', lambda: next(clock))
+    service = PlanningService(Mock(), Mock())
+    service._calculate_one = Mock(return_value={'status': 'READY'})
+    service.calculate(segments)
+    assert service._calculate_one.call_count == 2
+    assert segments[-1].result is None

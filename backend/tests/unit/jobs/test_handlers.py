@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 from jobs import handlers
@@ -18,6 +17,7 @@ def test_geonames_import_job_uses_injected_services() -> None:
         processed=34,
     )
 
+    place_service.import_airport_reference_data.return_value = {'airports': 2, 'timezones_backfilled': 3}
     job = handlers.GeoNamesImportJob(
         app_settings=app_settings,
         place_service=place_service,
@@ -29,37 +29,20 @@ def test_geonames_import_job_uses_injected_services() -> None:
         replace_existing=True,
     )
     assert result.summary == {
+        'airports': 2, 'timezones_backfilled': 3,
         'dataset': 'cities500',
         'deleted': 12,
         'processed': 34,
     }
 
 
-def test_route_maintenance_job_summarizes_result() -> None:
-    queue = SimpleNamespace(
-        queued_missing=0,
-        queued_retries=0,
-        skipped_max_attempts=0,
-        skipped_provider_unavailable=True,
-    )
-    generation = SimpleNamespace(attempted=0, ready=0, failed=0, skipped=0)
-    maintenance_result = SimpleNamespace(queue=queue, generation=generation)
-    route_service = Mock()
-    route_service.run_route_maintenance.return_value = maintenance_result
-
-    job = handlers.ItineraryRouteMaintenanceJob(route_service=route_service)
-    result = job.run()
-
-    assert result.summary == {
-        'attempted': 0,
-        'failed': 0,
-        'queued_missing': 0,
-        'queued_retries': 0,
-        'ready': 0,
-        'skipped': 0,
-        'skipped_max_attempts': 0,
-        'skipped_provider_unavailable': True,
-    }
+def test_planning_artifact_job_deletes_only_expired_artifacts():
+    db = Mock()
+    db.execute.return_value.rowcount = 2
+    result = handlers.PlanningArtifactCleanupJob(db).run()
+    assert result.summary == {'deleted': 2}
+    assert 'expires_at <=' in str(db.execute.call_args.args[0])
+    db.commit.assert_called_once()
 
 
 def test_orphaned_media_cleanup_job_uses_injected_services(monkeypatch) -> None:

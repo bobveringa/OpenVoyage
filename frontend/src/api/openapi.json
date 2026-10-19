@@ -542,6 +542,362 @@
         "title": "CursorPaginatedResponse[TrackSampleResponse]",
         "type": "object"
       },
+      "Endpoint": {
+        "properties": {
+          "iata_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iata Code"
+          },
+          "icao_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icao Code"
+          },
+          "latitude": {
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "type": "number"
+          },
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
+          },
+          "place_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Place Id"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "title": "Endpoint",
+        "type": "object"
+      },
+      "ExistingLocationInput": {
+        "additionalProperties": false,
+        "properties": {
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id"
+        ],
+        "title": "ExistingLocationInput",
+        "type": "object"
+      },
+      "FlightCandidate": {
+        "properties": {
+          "candidate_id": {
+            "format": "uuid",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "lookup": {
+            "$ref": "#/components/schemas/FlightLookup"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "lookup",
+          "duration_seconds"
+        ],
+        "title": "FlightCandidate",
+        "type": "object"
+      },
+      "FlightIntent": {
+        "additionalProperties": false,
+        "properties": {
+          "airline_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline Name"
+          },
+          "arrival_airport_place_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arrival Airport Place Id"
+          },
+          "candidate_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          },
+          "departure_airport_place_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departure Airport Place Id"
+          },
+          "departure_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departure Date"
+          },
+          "flight_number": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flight Number"
+          }
+        },
+        "title": "FlightIntent",
+        "type": "object"
+      },
+      "FlightLookup": {
+        "properties": {
+          "airline_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline Name"
+          },
+          "arrival_airport": {
+            "$ref": "#/components/schemas/Endpoint"
+          },
+          "departure_airport": {
+            "$ref": "#/components/schemas/Endpoint"
+          },
+          "departure_date": {
+            "format": "date",
+            "title": "Departure Date",
+            "type": "string"
+          },
+          "fetched_at": {
+            "format": "date-time",
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "flight_number": {
+            "title": "Flight Number",
+            "type": "string"
+          },
+          "provider": {
+            "const": "aerodatabox",
+            "default": "aerodatabox",
+            "title": "Provider",
+            "type": "string"
+          },
+          "scheduled_arrival": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled Arrival"
+          },
+          "scheduled_departure": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled Departure"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "flight_number",
+          "departure_date",
+          "fetched_at",
+          "departure_airport",
+          "arrival_airport"
+        ],
+        "title": "FlightLookup",
+        "type": "object"
+      },
+      "FlightLookupRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "departure_date": {
+            "format": "date",
+            "title": "Departure Date",
+            "type": "string"
+          },
+          "flight_number": {
+            "maxLength": 16,
+            "title": "Flight Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "flight_number",
+          "departure_date"
+        ],
+        "title": "FlightLookupRequest",
+        "type": "object"
+      },
+      "FlightLookupResponse": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/FlightCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "retry_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After Seconds"
+          },
+          "status": {
+            "enum": [
+              "MATCHES",
+              "NOT_FOUND",
+              "UNAVAILABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "FlightLookupResponse",
+        "type": "object"
+      },
       "GeoJsonLineString": {
         "properties": {
           "coordinates": {
@@ -1259,6 +1615,32 @@
             "title": "Created At",
             "type": "string"
           },
+          "duration_scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "JOURNEY",
+                  "FLIGHT_JOURNEY"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Scope"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
           "from_stop_id": {
             "format": "uuid",
             "title": "From Stop Id",
@@ -1273,38 +1655,20 @@
             "title": "Notes",
             "type": "string"
           },
-          "operator": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Operator"
-          },
-          "reference": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference"
-          },
           "route": {
             "$ref": "#/components/schemas/ItineraryTravelRouteResponse"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentResponse"
+            },
+            "title": "Segments",
+            "type": "array"
           },
           "to_stop_id": {
             "format": "uuid",
             "title": "To Stop Id",
             "type": "string"
-          },
-          "travel_mode": {
-            "$ref": "#/components/schemas/TravelMode"
           },
           "trip_id": {
             "format": "uuid",
@@ -1315,6 +1679,13 @@
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
@@ -1322,10 +1693,11 @@
           "trip_id",
           "from_stop_id",
           "to_stop_id",
-          "travel_mode",
           "notes",
-          "operator",
-          "reference",
+          "segments",
+          "duration_seconds",
+          "duration_scope",
+          "warnings",
           "route",
           "created_at",
           "updated_at"
@@ -1338,39 +1710,34 @@
         "properties": {
           "notes": {
             "default": "",
+            "maxLength": 10000,
             "title": "Notes",
             "type": "string"
           },
-          "operator": {
+          "preview_id": {
             "anyOf": [
               {
-                "maxLength": 255,
+                "format": "uuid",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Operator"
+            "title": "Preview Id"
           },
-          "reference": {
-            "anyOf": [
-              {
-                "maxLength": 255,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference"
-          },
-          "travel_mode": {
-            "$ref": "#/components/schemas/TravelMode"
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentIntent"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Segments",
+            "type": "array"
           }
         },
         "required": [
-          "travel_mode"
+          "segments"
         ],
         "title": "ItineraryTravelReplaceRequest",
         "type": "object"
@@ -2136,9 +2503,42 @@
             "title": "Feature Class",
             "type": "string"
           },
+          "feature_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Code"
+          },
           "full_name": {
             "title": "Full Name",
             "type": "string"
+          },
+          "iata_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iata Code"
+          },
+          "icao_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icao Code"
           },
           "id": {
             "format": "uuid",
@@ -2164,6 +2564,17 @@
           "region": {
             "title": "Region",
             "type": "string"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
           }
         },
         "required": [
@@ -2817,6 +3228,30 @@
         "title": "PostUpdateRequest",
         "type": "object"
       },
+      "PreviewResponse": {
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/ItineraryTravelLegResponse"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "preview_id": {
+            "format": "uuid",
+            "title": "Preview Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "preview_id",
+          "expires_at",
+          "connection"
+        ],
+        "title": "PreviewResponse",
+        "type": "object"
+      },
       "PublicSettingsResponse": {
         "properties": {
           "settings": {
@@ -2874,6 +3309,40 @@
         "title": "ReverseGeocodeResponse",
         "type": "object"
       },
+      "RouteOption": {
+        "properties": {
+          "distance_meters": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance Meters"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/GeoJsonLineString"
+          }
+        },
+        "required": [
+          "geometry"
+        ],
+        "title": "RouteOption",
+        "type": "object"
+      },
       "ScheduledJobResponse": {
         "properties": {
           "audit": {
@@ -2911,6 +3380,270 @@
           "audit"
         ],
         "title": "ScheduledJobResponse",
+        "type": "object"
+      },
+      "SegmentIntent": {
+        "additionalProperties": false,
+        "properties": {
+          "flight": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightIntent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationCoordinatesInput"
+              },
+              {
+                "$ref": "#/components/schemas/LocationPlaceInput"
+              },
+              {
+                "$ref": "#/components/schemas/ExistingLocationInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "mode_selected": {
+            "default": false,
+            "title": "Mode Selected",
+            "type": "boolean"
+          },
+          "notes": {
+            "default": "",
+            "maxLength": 10000,
+            "title": "Notes",
+            "type": "string"
+          },
+          "route_option": {
+            "default": 0,
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Route Option",
+            "type": "integer"
+          },
+          "service_company": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Company"
+          },
+          "service_number": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Number"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationCoordinatesInput"
+              },
+              {
+                "$ref": "#/components/schemas/LocationPlaceInput"
+              },
+              {
+                "$ref": "#/components/schemas/ExistingLocationInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To"
+          },
+          "travel_mode": {
+            "$ref": "#/components/schemas/TravelMode"
+          },
+          "via": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationCoordinatesInput"
+              },
+              {
+                "$ref": "#/components/schemas/LocationPlaceInput"
+              },
+              {
+                "$ref": "#/components/schemas/ExistingLocationInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Via"
+          }
+        },
+        "required": [
+          "travel_mode"
+        ],
+        "title": "SegmentIntent",
+        "type": "object"
+      },
+      "SegmentResponse": {
+        "properties": {
+          "distance_meters": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance Meters"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "from_endpoint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Endpoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "geometry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoJsonLineString"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_version": {
+            "title": "Input Version",
+            "type": "integer"
+          },
+          "intent": {
+            "$ref": "#/components/schemas/SegmentIntent"
+          },
+          "lookup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightLookup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode_source": {
+            "enum": [
+              "AUTO",
+              "USER"
+            ],
+            "title": "Mode Source",
+            "type": "string"
+          },
+          "route_options": {
+            "items": {
+              "$ref": "#/components/schemas/RouteOption"
+            },
+            "title": "Route Options",
+            "type": "array"
+          },
+          "route_state": {
+            "enum": [
+              "NOT_CALCULATED",
+              "READY",
+              "FAILED",
+              "UNSUPPORTED"
+            ],
+            "title": "Route State",
+            "type": "string"
+          },
+          "to_endpoint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Endpoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "via_endpoint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Endpoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "intent",
+          "mode_source",
+          "input_version",
+          "from_endpoint",
+          "to_endpoint",
+          "geometry",
+          "route_state"
+        ],
+        "title": "SegmentResponse",
         "type": "object"
       },
       "SettingValueType": {
@@ -6161,6 +6894,23 @@
           },
           {
             "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "AIRPORT",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "in": "query",
             "name": "country_code",
             "required": false,
             "schema": {
@@ -7289,6 +8039,184 @@
         ]
       }
     },
+    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/flight-lookups": {
+      "post": {
+        "operationId": "lookup_flight_api_v1_trips__trip_id__itinerary_legs__leg_id__flight_lookups_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "leg_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Leg Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlightLookupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlightLookupResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Lookup Flight",
+        "tags": [
+          "itinerary"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/preview": {
+      "post": {
+        "operationId": "preview_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "leg_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Leg Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "retry_failed",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Retry Failed",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItineraryTravelReplaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Preview Leg",
+        "tags": [
+          "itinerary"
+        ]
+      }
+    },
     "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/route-refresh": {
       "post": {
         "operationId": "refresh_leg_route_api_v1_trips__trip_id__itinerary_legs__leg_id__route_refresh_post",
@@ -7311,6 +8239,22 @@
               "format": "uuid",
               "title": "Leg Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -7359,6 +8303,16 @@
               "format": "uuid",
               "title": "Trip Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm_travel_deletion",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm Travel Deletion",
+              "type": "boolean"
             }
           },
           {
@@ -7443,6 +8397,16 @@
               "format": "uuid",
               "title": "Stop Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm_travel_deletion",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm Travel Deletion",
+              "type": "boolean"
             }
           },
           {
@@ -7587,6 +8551,16 @@
               "format": "uuid",
               "title": "Stop Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm_travel_deletion",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm Travel Deletion",
+              "type": "boolean"
             }
           },
           {

@@ -1,6 +1,6 @@
 import type * as L from 'leaflet'
 
-import type { ItineraryTravelRoute, Media } from '@/api/client'
+import type { ItineraryTravelLeg, Media } from '@/api/client'
 
 export type TripVisibility = 'PLATFORM_PUBLIC' | 'PRIVATE' | 'PUBLIC'
 export type TripRole = 'MEMBER' | 'OWNER'
@@ -87,19 +87,7 @@ export type Stop = {
   visited: boolean
 }
 
-export type TravelLeg = {
-  created_at: string
-  from_stop_id: string
-  id: string
-  notes: string
-  operator: string | null
-  reference: string | null
-  route: ItineraryTravelRoute
-  to_stop_id: string
-  travel_mode: TravelMode
-  trip_id: string
-  updated_at: string
-}
+export type TravelLeg = ItineraryTravelLeg
 
 export type PostMedia = {
   alt: string

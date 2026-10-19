@@ -41,6 +41,9 @@ class Location(Base):
         ),
         nullable=False,
     )
+    source_place_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey('places.id', ondelete='RESTRICT'), index=True,
+    )
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,

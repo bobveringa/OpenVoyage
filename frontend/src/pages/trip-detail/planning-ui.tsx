@@ -1,3 +1,4 @@
+import { TravelLegEditDialog } from './travel-leg-editor'
 import {
   ArrowLeft,
   Check,
@@ -7,7 +8,6 @@ import {
   Navigation,
   PenLine,
   Plus,
-  RefreshCw,
   Search,
   Trash2,
   type LucideIcon,
@@ -26,10 +26,9 @@ import { Button } from '@/components/ui/button'
 import { DatePicker } from '@/components/ui/date-time-picker'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
-import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import type { Stop, TravelLeg, TravelMode } from '@/pages/trip-detail/models'
+import type { Stop, TravelLeg } from '@/pages/trip-detail/models'
 import type {
   CreateStopDraft,
   DraftPostLocation,
@@ -42,7 +41,6 @@ import {
   createFirstStopInsertionPoint,
   createStopEditDraft,
   createStopInsertionPointAfterStop,
-  createTravelLegEditDraft,
   formatCoordinates,
   formatDistance,
   formatDuration,
@@ -57,8 +55,6 @@ import {
   getStopPlaceName,
   getStopTitleSuggestion,
   getTravelModeIcon,
-  nullableTextValue,
-  travelModeOptions,
 } from '@/pages/trip-detail/planning-utils'
 import { getTravelModeLabel } from '@/pages/trip-detail/shared-utils'
 import { usePlaceSearch } from '@/hooks/use-place-search'
@@ -223,6 +219,9 @@ export function PlanningPanel({
         })}
       </div>
 
+      {travelLegs.some((leg) => leg.segments.some((segment) => segment.lookup)) ? (
+        <p className="text-xs text-muted-foreground">Flight information from <a href="https://aerodatabox.com/" target="_blank" rel="noopener" className="underline">AeroDataBox</a>.</p>
+      ) : null}
       <StopEditDialog
         onClose={() => setEditingStopId(null)}
         onSave={onStopSave}
@@ -753,17 +752,16 @@ function TravelLegCard({
   onEdit: (legId: string) => void
   toStop: Stop
 }) {
-  const ModeIcon = getTravelModeIcon(leg.travel_mode)
-  const legDetail = [leg.operator, leg.reference].filter(Boolean).join(' · ')
+  const ModeIcon = getTravelModeIcon(leg.segments[0]?.intent.travel_mode ?? 'CAR')
+  const legDetail = leg.segments.map((s) => s.intent.flight?.flight_number || s.intent.service_number).filter(Boolean).join(' · ')
   const routeDistanceLabel =
     leg.route.type === 'PROVIDER_BACKED' &&
     typeof leg.route.distance_meters === 'number'
       ? formatDistance(leg.route.distance_meters)
       : null
   const routeDurationLabel =
-    leg.route.type === 'PROVIDER_BACKED' &&
-    typeof leg.route.duration_seconds === 'number'
-      ? formatDuration(leg.route.duration_seconds)
+    typeof leg.duration_seconds === 'number'
+      ? `${formatDuration(leg.duration_seconds)}${leg.duration_scope === 'FLIGHT_JOURNEY' ? ' flight journey' : ''}`
       : null
   const hasRouteMetrics = Boolean(routeDistanceLabel || routeDurationLabel)
 
@@ -787,7 +785,7 @@ function TravelLegCard({
           type="button"
         >
           <span className="shrink-0 font-semibold text-primary">
-            {getTravelModeLabel(leg.travel_mode)}
+            {leg.segments.map((s) => getTravelModeLabel(s.intent.travel_mode)).join(' → ')}
           </span>
           <span
             className={cn(
@@ -822,7 +820,7 @@ function TravelLegCard({
             className="hidden shrink-0 lg:inline-flex"
             variant={leg.route.type === 'PROVIDER_BACKED' ? 'default' : 'outline'}
           >
-            {leg.route.type === 'PROVIDER_BACKED' ? 'Provider route' : 'Simple route'}
+            {leg.segments.some((s) => s.route_state === 'FAILED') ? 'Route unavailable' : leg.route.type === 'PROVIDER_BACKED' ? 'Route ready' : 'Approximate connection'}
           </Badge>
           <PenLine
             className="size-3.5 shrink-0 text-muted-foreground"
@@ -998,182 +996,6 @@ function StopEditDialog({
           >
             {saving ? 'Saving' : 'Save stop'}
           </Button>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-function TravelLegEditDialog({
-  fromStop,
-  leg,
-  onClose,
-  onRefreshRoute,
-  onSave,
-  open,
-  pendingAction,
-  saving,
-  toStop,
-}: {
-  fromStop: Stop | null
-  leg: TravelLeg | null
-  onClose: () => void
-  onRefreshRoute: (legId: string) => void
-  onSave: (legId: string, draft: TravelLegEditDraft) => void
-  open: boolean
-  pendingAction: string | null
-  saving: boolean
-  toStop: Stop | null
-}) {
-  const [draft, setDraft] = useState<TravelLegEditDraft>(() =>
-    createTravelLegEditDraft(leg),
-  )
-
-  useEffect(() => {
-    if (open) {
-      setDraft(createTravelLegEditDraft(leg))
-    }
-  }, [leg, open])
-
-  if (!leg || !fromStop || !toStop) {
-    return null
-  }
-
-  const ModeIcon = getTravelModeIcon(draft.travelMode)
-  const isRefreshing = pendingAction === 'Refreshing route'
-
-  return (
-    <Modal
-      description="Edit the travel leg and route source."
-      onClose={onClose}
-      open={open}
-      title={`${fromStop.title} to ${toStop.title}`}
-    >
-      <div className="grid gap-5">
-        <section className="space-y-3 rounded-[1.5rem] border border-border bg-muted/45 p-4">
-          <div className="flex items-start gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-card text-primary">
-              <ModeIcon className="size-5" aria-hidden="true" />
-            </span>
-            <div className="min-w-0">
-              <h3 className="font-semibold text-foreground">Travel leg</h3>
-              <p className="truncate text-sm text-muted-foreground">
-                {fromStop.location.name} to {toStop.location.name}
-              </p>
-            </div>
-          </div>
-
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Mode
-            <Select<TravelMode>
-              disabled={saving}
-              onValueChange={(travelMode) =>
-                setDraft((currentDraft) => ({
-                  ...currentDraft,
-                  travelMode,
-                }))
-              }
-              options={travelModeOptions}
-              value={draft.travelMode}
-            />
-          </label>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge
-              variant={leg.route.type === 'PROVIDER_BACKED' ? 'default' : 'outline'}
-            >
-              {leg.route.type === 'PROVIDER_BACKED'
-                ? 'Provider route'
-                : 'Simple route'}
-            </Badge>
-            {leg.route.distance_meters ? (
-              <span className="text-xs text-muted-foreground">
-                {formatDistance(leg.route.distance_meters)}
-              </span>
-            ) : null}
-            {leg.route.duration_seconds ? (
-              <span className="text-xs text-muted-foreground">
-                {formatDuration(leg.route.duration_seconds)}
-              </span>
-            ) : null}
-          </div>
-        </section>
-
-        <section className="grid gap-4 rounded-[1.5rem] border border-border bg-card p-4 sm:grid-cols-2">
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Operator
-            <Input
-              disabled={saving}
-              maxLength={255}
-              onChange={(event) =>
-                setDraft((currentDraft) => ({
-                  ...currentDraft,
-                  operator: nullableTextValue(event.target.value),
-                }))
-              }
-              placeholder="Rail company, airline, rental firm"
-              value={draft.operator ?? ''}
-            />
-          </label>
-
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Reference
-            <Input
-              disabled={saving}
-              maxLength={255}
-              onChange={(event) =>
-                setDraft((currentDraft) => ({
-                  ...currentDraft,
-                  reference: nullableTextValue(event.target.value),
-                }))
-              }
-              placeholder="Train number, booking code, route"
-              value={draft.reference ?? ''}
-            />
-          </label>
-
-          <label className="grid gap-2 text-sm font-medium text-foreground sm:col-span-2">
-            Notes
-            <Textarea
-              className="min-h-32 resize-none"
-              disabled={saving}
-              onChange={(event) =>
-                setDraft((currentDraft) => ({
-                  ...currentDraft,
-                  notes: event.target.value,
-                }))
-              }
-              placeholder="Tickets, buffers, transfers, pickup notes"
-              value={draft.notes}
-            />
-          </label>
-        </section>
-
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-          <Button
-            disabled={saving}
-            onClick={() => onRefreshRoute(leg.id)}
-            type="button"
-            variant="outline"
-          >
-            <RefreshCw
-              className={cn('size-4', isRefreshing && 'animate-spin')}
-              aria-hidden="true"
-            />
-            {isRefreshing ? 'Refreshing route' : 'Refresh route'}
-          </Button>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button disabled={saving} onClick={onClose} type="button" variant="outline">
-              Cancel
-            </Button>
-            <Button
-              disabled={saving}
-              onClick={() => onSave(leg.id, draft)}
-              type="button"
-            >
-              {saving ? 'Saving' : 'Save leg'}
-            </Button>
-          </div>
         </div>
       </div>
     </Modal>

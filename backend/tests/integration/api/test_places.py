@@ -80,6 +80,7 @@ def test_geocode_places_returns_matching_places(client, db_session, api_prefix) 
             'region': 'North Holland',
             'feature_class': 'POPULATED_PLACE',
             'population': 741636,
+            'feature_code': None, 'iata_code': None, 'icao_code': None, 'timezone': None,
         }
     ]
 

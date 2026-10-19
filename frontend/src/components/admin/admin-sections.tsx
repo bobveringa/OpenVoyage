@@ -74,6 +74,7 @@ type SettingPresentation = {
 const SETTING_KEYS = {
   cookieBannerEnabled: 'site.cookie_banner_enabled',
   themePalette: 'theme.palette',
+  flightApiKey: 'flights.rapidapi_api_key',
   graphHopperApiKey: 'routing.graphhopper_api_key',
   graphHopperBaseUrl: 'routing.graphhopper_base_url',
   maxUploadSize: 'media.max_upload_size_mb',
@@ -87,6 +88,11 @@ const SETTING_KEYS = {
 } as const
 
 const settingPresentations: Record<string, SettingPresentation> = {
+  [SETTING_KEYS.flightApiKey]: {
+    help: 'Optional write-only RapidAPI key for AeroDataBox flight lookup. Clear it to disable lookup; manual planning still works.',
+    label: 'AeroDataBox RapidAPI key',
+    placeholder: 'Enter a new API key',
+  },
   [SETTING_KEYS.cookieBannerEnabled]: {
     help: 'Show a cookie notice to visitors until they dismiss it in their browser.',
     label: 'Show cookie banner',
@@ -370,6 +376,14 @@ function SettingsAdminSections({
           onSave={handleSave}
           settings={[routingProvider]}
           title="Routing provider"
+        />
+        <SettingsGroup
+          description="Optional flight lookup. Manual flights and ground routes work without this key."
+          icon={Server}
+          onReset={handleReset}
+          onSave={handleSave}
+          settings={pickSettings(settingsByKey, [SETTING_KEYS.flightApiKey])}
+          title="Flights · AeroDataBox"
         />
         {routingProvider?.value === 'graphhopper' ? (
           <SettingsGroup

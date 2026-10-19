@@ -2,15 +2,16 @@ import enum
 import uuid
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
-from typing import Self, TypeAlias
+from pydantic import AwareDatetime
+from typing import Self, TypeAlias, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from models.api.planning import ConnectionIntent, SegmentResponse
 
 from models.api.geojson import GeoJsonLineString
 from models.api.locations import LocationInput, LocationResponse
 from models.api.users import UserSummaryResponse
 from models.database.itinerary import ItineraryStop, ItineraryTravelLeg
-from models.database.travel import TravelMode
 
 
 class ItineraryRouteType(str, enum.Enum):
@@ -45,13 +46,8 @@ class ItineraryPlacement(BaseModel):
     after_stop_id: uuid.UUID | None
 
 
-class ItineraryTravelReplaceRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-
-    travel_mode: TravelMode
-    notes: str = ''
-    operator: str | None = Field(default=None, max_length=255)
-    reference: str | None = Field(default=None, max_length=255)
+class ItineraryTravelReplaceRequest(ConnectionIntent):
+    pass
 
 
 class ItineraryStopCreateRequest(BaseModel):
@@ -99,33 +95,26 @@ class ItineraryTravelLegResponse(BaseModel):
     trip_id: uuid.UUID
     from_stop_id: uuid.UUID
     to_stop_id: uuid.UUID
-    travel_mode: TravelMode
     notes: str
-    operator: str | None
-    reference: str | None
+    segments: list[SegmentResponse]
+    duration_seconds: int | None
+    duration_scope: Literal['JOURNEY', 'FLIGHT_JOURNEY'] | None
+    warnings: list[str]
     route: ItineraryTravelRouteResponse
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_model(
-        cls,
-        leg: ItineraryTravelLeg,
-        *,
-        route: ItineraryTravelRouteResponse,
-    ) -> Self:
+    def from_model(cls, leg: ItineraryTravelLeg, *, route: dict) -> Self:
         return cls(
             id=leg.id,
             trip_id=leg.trip_id,
             from_stop_id=leg.from_stop_id,
             to_stop_id=leg.to_stop_id,
-            travel_mode=TravelMode(leg.travel_mode),
             notes=leg.notes,
-            operator=leg.operator,
-            reference=leg.reference,
-            route=route,
             created_at=leg.created_at,
             updated_at=leg.updated_at,
+            **route,
         )
 
 
@@ -235,3 +224,9 @@ class ItineraryStopDetailResponse(BaseModel):
                 else None
             ),
         )
+
+
+class PreviewResponse(BaseModel):
+    preview_id: uuid.UUID
+    expires_at: AwareDatetime
+    connection: ItineraryTravelLegResponse

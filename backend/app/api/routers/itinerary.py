@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException, Response
 from starlette import status
 
+from models.api.planning import FlightLookupRequest, FlightLookupResponse
 from api.deps import CurrentUser, ItineraryServiceDep, OptionalCurrentUser, ShareToken
 from models.api.itinerary import (
     ItineraryResponse,
@@ -13,6 +14,7 @@ from models.api.itinerary import (
     ItineraryStopUpdateRequest,
     ItineraryTravelLegResponse,
     ItineraryTravelReplaceRequest,
+    PreviewResponse,
 )
 from services.itinerary_service import (
     ItineraryPermissionError,
@@ -116,8 +118,10 @@ def create_stop(
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
+    confirm_travel_deletion: bool = False,
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ) -> ItineraryResponse:
+    itinerary_service.confirm_travel_deletion = confirm_travel_deletion
     try:
         snapshot = itinerary_service.create_stop(
             trip_id=trip_id,
@@ -180,8 +184,10 @@ def update_stop(
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
+    confirm_travel_deletion: bool = False,
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ) -> ItineraryResponse:
+    itinerary_service.confirm_travel_deletion = confirm_travel_deletion
     try:
         snapshot = itinerary_service.update_stop(
             trip_id=trip_id,
@@ -213,8 +219,10 @@ def delete_stop(
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
+    confirm_travel_deletion: bool = False,
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ) -> ItineraryResponse:
+    itinerary_service.confirm_travel_deletion = confirm_travel_deletion
     try:
         snapshot = itinerary_service.delete_stop(
             trip_id=trip_id,
@@ -305,12 +313,14 @@ def refresh_leg_route(
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ) -> ItineraryTravelLegResponse:
     try:
-        detail = itinerary_service.refresh_travel_leg_route(
+        detail = itinerary_service.calculate_saved_routes(
             trip_id=trip_id,
             leg_id=leg_id,
             current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
         )
     except Exception as exc:
         _raise_http_error(exc)
@@ -320,3 +330,24 @@ def refresh_leg_route(
         detail.leg,
         route=itinerary_service.route_service.resolve_route_response(detail.leg),
     )
+
+
+@router.post('/legs/{leg_id}/preview', response_model=PreviewResponse)
+def preview_leg(trip_id: uuid.UUID, leg_id: uuid.UUID, payload: ItineraryTravelReplaceRequest,
+                itinerary_service: ItineraryServiceDep, user: CurrentUser,
+                retry_failed: bool = False,
+                if_match: Annotated[str | None, Header(alias='If-Match')] = None):
+    try:
+        return itinerary_service.preview_travel(trip_id, leg_id, payload, user.id, _parse_if_match(if_match), retry_failed)
+    except Exception as exc:
+        _raise_http_error(exc)
+
+
+@router.post('/legs/{leg_id}/flight-lookups', response_model=FlightLookupResponse)
+def lookup_flight(trip_id: uuid.UUID, leg_id: uuid.UUID, payload: FlightLookupRequest,
+                  itinerary_service: ItineraryServiceDep, user: CurrentUser,
+                  if_match: Annotated[str | None, Header(alias='If-Match')] = None):
+    try:
+        return itinerary_service.lookup_flights(trip_id, leg_id, payload, user.id, _parse_if_match(if_match))
+    except Exception as exc:
+        _raise_http_error(exc)

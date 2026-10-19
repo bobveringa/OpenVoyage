@@ -548,6 +548,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/flight-lookups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lookup Flight */
+        post: operations["lookup_flight_api_v1_trips__trip_id__itinerary_legs__leg_id__flight_lookups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Leg */
+        post: operations["preview_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/route-refresh": {
         parameters: {
             query?: never;
@@ -1525,6 +1559,121 @@ export interface components {
             /** Next Cursor */
             next_cursor: string | null;
         };
+        /** Endpoint */
+        Endpoint: {
+            /** Iata Code */
+            iata_code?: string | null;
+            /** Icao Code */
+            icao_code?: string | null;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Place Id */
+            place_id?: string | null;
+            /** Timezone */
+            timezone?: string | null;
+        };
+        /** ExistingLocationInput */
+        ExistingLocationInput: {
+            /**
+             * Location Id
+             * Format: uuid
+             */
+            location_id: string;
+        };
+        /** FlightCandidate */
+        FlightCandidate: {
+            /**
+             * Candidate Id
+             * Format: uuid
+             */
+            candidate_id: string;
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            lookup: components["schemas"]["FlightLookup"];
+        };
+        /** FlightIntent */
+        FlightIntent: {
+            /** Airline Name */
+            airline_name?: string | null;
+            /** Arrival Airport Place Id */
+            arrival_airport_place_id?: string | null;
+            /** Candidate Id */
+            candidate_id?: string | null;
+            /** Departure Airport Place Id */
+            departure_airport_place_id?: string | null;
+            /** Departure Date */
+            departure_date?: string | null;
+            /** Flight Number */
+            flight_number?: string | null;
+        };
+        /** FlightLookup */
+        FlightLookup: {
+            /** Airline Name */
+            airline_name?: string | null;
+            arrival_airport: components["schemas"]["Endpoint"];
+            departure_airport: components["schemas"]["Endpoint"];
+            /**
+             * Departure Date
+             * Format: date
+             */
+            departure_date: string;
+            /**
+             * Fetched At
+             * Format: date-time
+             */
+            fetched_at: string;
+            /** Flight Number */
+            flight_number: string;
+            /**
+             * Provider
+             * @default aerodatabox
+             * @constant
+             */
+            provider: "aerodatabox";
+            /** Scheduled Arrival */
+            scheduled_arrival?: string | null;
+            /** Scheduled Departure */
+            scheduled_departure?: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /** FlightLookupRequest */
+        FlightLookupRequest: {
+            /**
+             * Departure Date
+             * Format: date
+             */
+            departure_date: string;
+            /** Flight Number */
+            flight_number: string;
+        };
+        /** FlightLookupResponse */
+        FlightLookupResponse: {
+            /** Candidates */
+            candidates?: components["schemas"]["FlightCandidate"][];
+            /** Expires At */
+            expires_at?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Retry After Seconds */
+            retry_after_seconds?: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "MATCHES" | "NOT_FOUND" | "UNAVAILABLE";
+        };
         /** GeoJsonLineString */
         GeoJsonLineString: {
             /** Coordinates */
@@ -1804,6 +1953,10 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Duration Scope */
+            duration_scope: ("JOURNEY" | "FLIGHT_JOURNEY") | null;
+            /** Duration Seconds */
+            duration_seconds: number | null;
             /**
              * From Stop Id
              * Format: uuid
@@ -1816,17 +1969,14 @@ export interface components {
             id: string;
             /** Notes */
             notes: string;
-            /** Operator */
-            operator: string | null;
-            /** Reference */
-            reference: string | null;
             route: components["schemas"]["ItineraryTravelRouteResponse"];
+            /** Segments */
+            segments: components["schemas"]["SegmentResponse"][];
             /**
              * To Stop Id
              * Format: uuid
              */
             to_stop_id: string;
-            travel_mode: components["schemas"]["TravelMode"];
             /**
              * Trip Id
              * Format: uuid
@@ -1837,6 +1987,8 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /** Warnings */
+            warnings: string[];
         };
         /** ItineraryTravelReplaceRequest */
         ItineraryTravelReplaceRequest: {
@@ -1845,11 +1997,10 @@ export interface components {
              * @default
              */
             notes: string;
-            /** Operator */
-            operator?: string | null;
-            /** Reference */
-            reference?: string | null;
-            travel_mode: components["schemas"]["TravelMode"];
+            /** Preview Id */
+            preview_id?: string | null;
+            /** Segments */
+            segments: components["schemas"]["SegmentIntent"][];
         };
         /** ItineraryTravelRouteResponse */
         ItineraryTravelRouteResponse: {
@@ -2108,8 +2259,14 @@ export interface components {
             country_code: string;
             /** Feature Class */
             feature_class: string;
+            /** Feature Code */
+            feature_code?: string | null;
             /** Full Name */
             full_name: string;
+            /** Iata Code */
+            iata_code?: string | null;
+            /** Icao Code */
+            icao_code?: string | null;
             /**
              * Id
              * Format: uuid
@@ -2125,6 +2282,8 @@ export interface components {
             population: number;
             /** Region */
             region: string;
+            /** Timezone */
+            timezone?: string | null;
         };
         /**
          * PlatformPermission
@@ -2345,6 +2504,20 @@ export interface components {
             /** Title */
             title?: string | null;
         };
+        /** PreviewResponse */
+        PreviewResponse: {
+            connection: components["schemas"]["ItineraryTravelLegResponse"];
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Preview Id
+             * Format: uuid
+             */
+            preview_id: string;
+        };
         /** PublicSettingsResponse */
         PublicSettingsResponse: {
             /** Settings */
@@ -2365,6 +2538,14 @@ export interface components {
             distance_km: number;
             place: components["schemas"]["PlaceResponse"];
         };
+        /** RouteOption */
+        RouteOption: {
+            /** Distance Meters */
+            distance_meters?: number | null;
+            /** Duration Seconds */
+            duration_seconds?: number | null;
+            geometry: components["schemas"]["GeoJsonLineString"];
+        };
         /** ScheduledJobResponse */
         ScheduledJobResponse: {
             audit: components["schemas"]["JobAuditResponse"];
@@ -2377,6 +2558,72 @@ export interface components {
             /** Name */
             name: string;
             schedule: components["schemas"]["JobScheduleResponse"];
+        };
+        /** SegmentIntent */
+        SegmentIntent: {
+            flight?: components["schemas"]["FlightIntent"] | null;
+            /** From */
+            from?: components["schemas"]["LocationCoordinatesInput"] | components["schemas"]["LocationPlaceInput"] | components["schemas"]["ExistingLocationInput"] | null;
+            /** Id */
+            id?: string | null;
+            /**
+             * Mode Selected
+             * @default false
+             */
+            mode_selected: boolean;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /**
+             * Route Option
+             * @default 0
+             */
+            route_option: number;
+            /** Service Company */
+            service_company?: string | null;
+            /** Service Number */
+            service_number?: string | null;
+            /** To */
+            to?: components["schemas"]["LocationCoordinatesInput"] | components["schemas"]["LocationPlaceInput"] | components["schemas"]["ExistingLocationInput"] | null;
+            travel_mode: components["schemas"]["TravelMode"];
+            /** Via */
+            via?: components["schemas"]["LocationCoordinatesInput"] | components["schemas"]["LocationPlaceInput"] | components["schemas"]["ExistingLocationInput"] | null;
+        };
+        /** SegmentResponse */
+        SegmentResponse: {
+            /** Distance Meters */
+            distance_meters?: number | null;
+            /** Duration Seconds */
+            duration_seconds?: number | null;
+            /** Error Code */
+            error_code?: string | null;
+            from_endpoint: components["schemas"]["Endpoint"] | null;
+            geometry: components["schemas"]["GeoJsonLineString"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Input Version */
+            input_version: number;
+            intent: components["schemas"]["SegmentIntent"];
+            lookup?: components["schemas"]["FlightLookup"] | null;
+            /**
+             * Mode Source
+             * @enum {string}
+             */
+            mode_source: "AUTO" | "USER";
+            /** Route Options */
+            route_options?: components["schemas"]["RouteOption"][];
+            /**
+             * Route State
+             * @enum {string}
+             */
+            route_state: "NOT_CALCULATED" | "READY" | "FAILED" | "UNSUPPORTED";
+            to_endpoint: components["schemas"]["Endpoint"] | null;
+            via_endpoint?: components["schemas"]["Endpoint"] | null;
         };
         /**
          * SettingValueType
@@ -3868,6 +4115,7 @@ export interface operations {
             query: {
                 query: string;
                 limit?: number;
+                type?: "AIRPORT" | null;
                 country_code?: string | null;
             };
             header?: never;
@@ -4454,10 +4702,90 @@ export interface operations {
             };
         };
     };
+    lookup_flight_api_v1_trips__trip_id__itinerary_legs__leg_id__flight_lookups_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                trip_id: string;
+                leg_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FlightLookupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlightLookupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__preview_post: {
+        parameters: {
+            query?: {
+                retry_failed?: boolean;
+            };
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                trip_id: string;
+                leg_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItineraryTravelReplaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     refresh_leg_route_api_v1_trips__trip_id__itinerary_legs__leg_id__route_refresh_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 trip_id: string;
                 leg_id: string;
@@ -4488,7 +4816,9 @@ export interface operations {
     };
     create_stop_api_v1_trips__trip_id__itinerary_stops_post: {
         parameters: {
-            query?: never;
+            query?: {
+                confirm_travel_deletion?: boolean;
+            };
             header?: {
                 "If-Match"?: string | null;
             };
@@ -4559,7 +4889,9 @@ export interface operations {
     };
     delete_stop_api_v1_trips__trip_id__itinerary_stops__stop_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                confirm_travel_deletion?: boolean;
+            };
             header?: {
                 "If-Match"?: string | null;
             };
@@ -4593,7 +4925,9 @@ export interface operations {
     };
     update_stop_api_v1_trips__trip_id__itinerary_stops__stop_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                confirm_travel_deletion?: boolean;
+            };
             header?: {
                 "If-Match"?: string | null;
             };

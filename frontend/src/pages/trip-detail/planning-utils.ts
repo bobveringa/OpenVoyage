@@ -162,9 +162,7 @@ export function createTravelLegEditDraft(
 ): TravelLegEditDraft {
   return {
     notes: leg?.notes ?? '',
-    operator: leg?.operator ?? null,
-    reference: leg?.reference ?? null,
-    travelMode: leg?.travel_mode ?? 'UNKNOWN',
+    segments: leg?.segments.map((segment) => ({ ...segment.intent, id: segment.id, mode_selected: false })) ?? [{ travel_mode: 'CAR', mode_selected: false, route_option: 0, notes: '' }],
   }
 }
 

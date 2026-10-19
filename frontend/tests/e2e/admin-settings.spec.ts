@@ -27,6 +27,9 @@ const defaultThemePalette = {
 }
 
 const initialSettings: MockSetting[] = [
+  { key: 'flights.rapidapi_api_key', value: null, default_value: null, value_type: 'secret',
+    description: 'Optional AeroDataBox RapidAPI key', is_configured: false, runtime_safe: true,
+    updated_at: null, validation: { min_length: 1, max_length: 2048 }, visibility: 'admin' },
   {
     default_value: false,
     description: 'Show visitors a dismissible notice that the site uses cookies.',
@@ -593,3 +596,22 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
     status,
   })
 }
+
+
+test('configures the optional flight key through the same write-only admin controls', async ({ page }) => {
+  const api = await mockAdminApi(page)
+  await page.goto('/admin#routing')
+  const input = page.getByLabel('AeroDataBox RapidAPI key', { exact: true })
+  const form = page.locator('form').filter({ has: input })
+  await expect(input).toHaveAttribute('type', 'password')
+  await expect(input).toHaveValue('')
+  await input.fill('synthetic-flight-key')
+  await form.getByRole('button', { name: 'Replace key', exact: true }).click()
+  await expect(form.getByText('API key replaced.')).toBeVisible()
+  await expect(input).toHaveValue('')
+  expect(api.updates).toContainEqual({ key: 'flights.rapidapi_api_key', value: 'synthetic-flight-key' })
+  await form.getByRole('button', { name: 'Clear key', exact: true }).click()
+  await form.getByRole('button', { name: 'Confirm clear', exact: true }).click()
+  await expect(form.getByText('Not configured', { exact: true })).toBeVisible()
+  expect(api.resets).toContain('flights.rapidapi_api_key')
+})

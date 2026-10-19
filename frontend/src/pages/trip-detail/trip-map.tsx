@@ -7,7 +7,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   type GpsPostCandidate,
   type ItineraryRouteType,
-  type ItineraryTravelRoute,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { getTravelPostsInRouteOrder } from '@/pages/trip-detail/trip-selectors'
@@ -42,7 +41,7 @@ import {
 import { usePublicSetting } from '@/settings/public-settings'
 import { useTheme } from '@/theme'
 
-type RouteFitMode = 'mobile-picker' | 'mobile-travel' | 'mobile-fullscreen' | 'workspace'
+type RouteFitMode = 'route-preview' | 'mobile-picker' | 'mobile-travel' | 'mobile-fullscreen' | 'workspace'
 
 type RouteEndpoint = {
   coordinates: L.LatLngTuple
@@ -63,6 +62,7 @@ type RouteSegment = {
   routeType: ItineraryRouteType
   travelMode?: TravelMode
   visibleToMembersOnly?: boolean
+  alternative?: boolean
 }
 
 type FocusedPostNeighbor = {
@@ -409,7 +409,7 @@ export function TripLeafletMap({
     }
     const animationFrameId = window.requestAnimationFrame(() => {
       map.invalidateSize()
-      const viewKey = `${routeMode}:${fitMode}`
+      const viewKey = `${routeMode}:${fitMode}:${fitMode === 'route-preview' ? routeKey : ''}`
       if (!focusedPostIdRef.current && fittedViewRef.current !== viewKey) {
         fitRouteBounds(
           map,
@@ -523,7 +523,7 @@ export function TripLeafletMap({
   return (
     <div
       aria-label="Interactive trip route map"
-      className="trip-leaflet-map absolute inset-0"
+      className={'trip-leaflet-map absolute inset-0' + (fitMode === 'route-preview' ? ' min-h-0' : '')}
       ref={mapContainerRef}
     />
   )
@@ -749,6 +749,7 @@ function fitRouteBounds(
 }
 
 function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
+  if (fitMode === 'route-preview') return { paddingTopLeft: [28, 28], paddingBottomRight: [48, 88], maxZoom: 12, animate: false }
   if (fitMode === 'mobile-fullscreen') {
     return { maxZoom: 8, paddingTopLeft: [32, 112], paddingBottomRight: [64, 48] }
   }
@@ -994,6 +995,7 @@ function createRouteKey(
         leg.to_stop_id,
         leg.route.type,
         createRouteGeometryKey(leg.route.geometry),
+        ...leg.segments.flatMap((segment) => [segment.intent.travel_mode, segment.route_state, segment.geometry ? createRouteGeometryKey(segment.geometry) : '', ...(segment.route_options || []).map((option) => createRouteGeometryKey(option.geometry))]),
       ].join(':'),
     )
     .join('|')
@@ -1086,17 +1088,28 @@ function getItineraryRouteSegments(
     }
 
     const leg = legsByPair.get(createStopPairKey(fromStop.id, toStop.id))
-    const routeCoordinates = leg
-      ? getRouteCoordinates(leg.route)
-      : getSimpleRouteCoordinates(fromStop, toStop)
-    const coordinates =
-      routeCoordinates ?? getSimpleRouteCoordinates(fromStop, toStop)
-
-    segments.push({
-      coordinates,
-      kind: 'itinerary',
-      routeType: leg?.route.type ?? 'SIMPLE',
-    })
+    if (leg?.segments?.length) {
+      for (const segment of leg.segments) {
+        // Missing road calculations have no honest road geometry to draw.
+        if (['CAR', 'BIKE', 'WALK'].includes(segment.intent.travel_mode) && segment.route_state !== 'READY') continue
+        if (!segment.geometry) continue
+        const coordinates = getGeoJsonLineStringCoordinates(segment.geometry)
+        if (!coordinates) continue
+        for (const option of segment.route_options || []) {
+          if (createRouteGeometryKey(option.geometry) === createRouteGeometryKey(segment.geometry)) continue
+          const alternative = getGeoJsonLineStringCoordinates(option.geometry)
+          if (alternative) segments.push({ coordinates: alternative, kind: 'itinerary', routeType: 'PROVIDER_BACKED', alternative: true })
+        }
+        segments.push({
+          coordinates: segment.route_state === 'READY' ? coordinates : createGeodesicRoute(coordinates),
+          kind: 'itinerary',
+          routeType: segment.route_state === 'READY' ? 'PROVIDER_BACKED' : 'SIMPLE',
+          travelMode: segment.intent.travel_mode,
+        })
+      }
+    } else if (!leg) {
+      segments.push({ coordinates: getSimpleRouteCoordinates(fromStop, toStop), kind: 'itinerary', routeType: 'SIMPLE' })
+    }
   }
 
   return segments
@@ -1178,8 +1191,11 @@ function getRouteSegmentPathOptions(
     }
   }
 
+  if (segment.alternative) return { color: '#64748b', weight: 4, opacity: 0.5, interactive: false }
+
   if (routeMode === 'itinerary') {
     return {
+      dashArray: segment.routeType === 'SIMPLE' ? '7 9' : undefined,
       color: getThemeColor('--primary', '#0F766E'),
       lineCap: 'round',
       lineJoin: 'round',
@@ -1251,18 +1267,6 @@ function getPointToPointRouteCoordinates(
   return [fromCoordinates, toCoordinates]
 }
 
-function getRouteCoordinates(
-  route: ItineraryTravelRoute,
-): L.LatLngTuple[] | null {
-  const coordinates = getGeoJsonLineStringCoordinates(route.geometry)
-  if (!coordinates) {
-    return null
-  }
-
-  return route.type === 'SIMPLE'
-    ? createGeodesicRoute(coordinates)
-    : coordinates
-}
 
 function createPlaceMarkerHtml(stopOrder: number | null) {
   const className =

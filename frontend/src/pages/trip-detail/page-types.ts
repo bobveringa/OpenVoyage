@@ -3,7 +3,6 @@ import type * as L from 'leaflet'
 import type { Media, UserSearchResult } from '@/api/client'
 import type {
   PostMedia,
-  TravelMode,
   TripRole,
   TripVisibility,
 } from './models'
@@ -67,12 +66,7 @@ export type StopEditDraft = {
   title: string
 }
 
-export type TravelLegEditDraft = {
-  notes: string
-  operator: string | null
-  reference: string | null
-  travelMode: TravelMode
-}
+export type TravelLegEditDraft = import('@/api/client').ItineraryTravelReplacePayload
 
 export type PostSubmitDraft = {
   bubbleMediaId: string | null

@@ -1,3 +1,4 @@
+import { PlanningSessionContext } from '@/pages/trip-detail/planning-session'
 import { useMediaUpload } from '@/hooks/use-media-upload'
 import type * as L from 'leaflet'
 import {
@@ -107,7 +108,6 @@ import type {
   PostMedia,
   Stop,
   TravelLeg,
-  TravelMode,
   TravelPost,
   TravelPostRoute,
   TripTrackingGeometry,
@@ -198,6 +198,7 @@ export function TripDetailPage({
   const [tripShareLinks, setTripShareLinks] =
     useState<readonly ShareLinkViewModel[]>([])
   const [plannedStops, setPlannedStops] = useState<readonly Stop[]>([])
+  const [planningPreview, setPlanningPreview] = useState<TravelLeg | null>(null)
   const [travelLegs, setTravelLegs] = useState<readonly TravelLeg[]>([])
   const [travelPosts, setTravelPosts] = useState<readonly TravelPost[]>([])
   const [trackingGeometry, setTrackingGeometry] = useState<TripTrackingGeometry>(
@@ -503,29 +504,6 @@ export function TripDetailPage({
       }
     },
     [pendingAction],
-  )
-
-  const reloadItineraryUntilRouteReady = useCallback(
-    async (legId: string, expectedProviderRoute: boolean) => {
-      if (!tripId) {
-        return
-      }
-
-      const maxAttempts = expectedProviderRoute ? 6 : 1
-      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        if (attempt > 0) {
-          await delay(450)
-        }
-
-        const itinerary = await getItinerary({ accessToken, shareToken, tripId })
-        applyItinerary(itinerary)
-        const leg = itinerary.legs.find((item) => item.id === legId)
-        if (!expectedProviderRoute || leg?.route.type === 'PROVIDER_BACKED') {
-          return
-        }
-      }
-    },
-    [accessToken, applyItinerary, shareToken, tripId],
   )
 
   const applyTripDetailUrlState = useCallback(
@@ -938,10 +916,6 @@ export function TripDetailPage({
       if (result.itineraryRevision !== null) {
         setItineraryRevision(result.itineraryRevision)
       }
-      await reloadItineraryUntilRouteReady(
-        legId,
-        canUseProviderRoute(draft.travelMode),
-      )
     })
   }
 
@@ -954,6 +928,7 @@ export function TripDetailPage({
     void runMutation('Refreshing route', async () => {
       const result = await refreshItineraryTravelLegRoute({
         accessToken,
+        itineraryRevision,
         legId,
         tripId,
       })
@@ -963,10 +938,6 @@ export function TripDetailPage({
       if (result.itineraryRevision !== null) {
         setItineraryRevision(result.itineraryRevision)
       }
-      await reloadItineraryUntilRouteReady(
-        legId,
-        canUseProviderRoute(result.leg.travel_mode),
-      )
     })
   }
 
@@ -1540,6 +1511,7 @@ export function TripDetailPage({
   }
 
   return (
+    <PlanningSessionContext value={{ accessToken, itineraryRevision, onPreview: setPlanningPreview, saveError: mutationError }}>
     <div className="relative z-0 -mx-4 min-h-[calc(100dvh-4rem-1px)] w-[calc(100%+2rem)] overflow-x-hidden sm:-mx-6 sm:w-[calc(100%+3rem)] lg:mx-0 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-hidden lg:px-6 lg:py-3">
       <div className="min-h-0 w-full lg:h-full">
         <div
@@ -1626,7 +1598,7 @@ export function TripDetailPage({
               onPostMarkerSelect={handleMapPostSelect}
               routeMode={mapRouteMode}
               stops={visibleStops}
-              travelLegs={travelLegs}
+              travelLegs={planningPreview ? travelLegs.map((leg) => leg.id === planningPreview.id ? planningPreview : leg) : travelLegs}
               trackingGeometry={trackingGeometry}
               travelPosts={travelPosts}
             />
@@ -1713,6 +1685,7 @@ export function TripDetailPage({
         />
       ) : null}
     </div>
+    </PlanningSessionContext>
   )
 }
 
@@ -1968,15 +1941,8 @@ function toCreateStopPayload(
   }
 }
 
-function toTravelLegPayload(
-  draft: TravelLegEditDraft,
-): ItineraryTravelReplacePayload {
-  return {
-    notes: draft.notes,
-    operator: draft.operator,
-    reference: draft.reference,
-    travel_mode: draft.travelMode,
-  }
+function toTravelLegPayload(draft: TravelLegEditDraft): ItineraryTravelReplacePayload {
+  return draft
 }
 
 function toPostCreatePayload(
@@ -2040,14 +2006,4 @@ function getPreviousSameDateStopId(
   }
 
   return sameDateStops[stopIndex - 1]?.id ?? null
-}
-
-function canUseProviderRoute(travelMode: TravelMode) {
-  return travelMode === 'WALK' || travelMode === 'BIKE' || travelMode === 'CAR'
-}
-
-function delay(ms: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, ms)
-  })
 }
