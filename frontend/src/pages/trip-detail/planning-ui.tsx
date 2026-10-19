@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import {
   Fragment,
+  useContext,
   useEffect,
   useState,
   type SyntheticEvent,
@@ -58,6 +59,7 @@ import {
 } from '@/pages/trip-detail/planning-utils'
 import { getTravelModeLabel } from '@/pages/trip-detail/shared-utils'
 import { usePlaceSearch } from '@/hooks/use-place-search'
+import { PlanningSessionContext } from './planning-session'
 
 export function LocationOptionCard({
   active,
@@ -148,6 +150,12 @@ export function PlanningPanel({
 }) {
   const [editingStopId, setEditingStopId] = useState<string | null>(null)
   const [editingLegId, setEditingLegId] = useState<string | null>(null)
+  const { airportTransferRequest } = useContext(PlanningSessionContext)
+  useEffect(() => {
+    if (canMutate && airportTransferRequest) {
+      setEditingLegId(airportTransferRequest.legId)
+    }
+  }, [airportTransferRequest, canMutate])
   const addStopDisabled = !canMutate || isMutating
   const editingStop = stops.find((stop) => stop.id === editingStopId) ?? null
   const editingLeg = travelLegs.find((leg) => leg.id === editingLegId) ?? null

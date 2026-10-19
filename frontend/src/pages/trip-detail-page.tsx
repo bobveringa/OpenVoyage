@@ -1,4 +1,5 @@
 import { PlanningSessionContext } from '@/pages/trip-detail/planning-session'
+import type { AirportTransferRequest, AirportTransferSide } from '@/pages/trip-detail/airport-transfers'
 import { useMediaUpload } from '@/hooks/use-media-upload'
 import type * as L from 'leaflet'
 import {
@@ -172,7 +173,7 @@ export function TripDetailPage({
   const immichEnabled = usePublicSetting('immich.enabled') === true
   const isDesktopLayout = useMediaQuery('(min-width: 64rem)')
   const shouldUseMobileMapPicker = !isDesktopLayout
-  const initialCanUseMemberUi = authStatus === 'authenticated'
+  const initialCanUseMemberUi = authStatus === 'loading' || authStatus === 'authenticated'
   const initialUrlState = readTripDetailUrlState({
     canEditTravelPosts: initialCanUseMemberUi,
     canOpenManagementDialogs: initialCanUseMemberUi,
@@ -198,6 +199,12 @@ export function TripDetailPage({
   const [tripShareLinks, setTripShareLinks] =
     useState<readonly ShareLinkViewModel[]>([])
   const [plannedStops, setPlannedStops] = useState<readonly Stop[]>([])
+  const [planningPanelHost, setPlanningPanelHost] = useState<HTMLDivElement | null>(null)
+  const [planningPanelOpen, setPlanningPanelOpen] = useState(false)
+  const [airportTransferRequest, setAirportTransferRequest] = useState<AirportTransferRequest | null>(null)
+  const handleAirportTransferSelect = useCallback((legId: string, side: AirportTransferSide) => {
+    setAirportTransferRequest((previous) => ({ legId, side, sequence: (previous?.sequence ?? 0) + 1 }))
+  }, [])
   const [planningPreview, setPlanningPreview] = useState<TravelLeg | null>(null)
   const [travelLegs, setTravelLegs] = useState<readonly TravelLeg[]>([])
   const [travelPosts, setTravelPosts] = useState<readonly TravelPost[]>([])
@@ -1283,6 +1290,7 @@ export function TripDetailPage({
 
   const handleModeChange = useCallback(
     (nextMode: TripMode) => {
+      setAirportTransferRequest(null)
       setFocusedPostId(null)
       navigateTripDetailUrlState({
         activeDialog: null,
@@ -1396,9 +1404,9 @@ export function TripDetailPage({
   }, [])
 
   useEffect(() => {
-    // Keep a requested management menu until membership has loaded. Clearing
-    // it using the empty initial member list loses settings return links.
-    if (loadState.status !== 'success' && activeDialog === 'management') return
+    // URL intent must survive session and membership loading. Permissions are
+    // enforced after the actual membership is known, before rendering member UI.
+    if (authStatus === 'loading' || loadState.status !== 'success') return
     const currentState = {
       activeDialog,
       managementSection,
@@ -1421,6 +1429,7 @@ export function TripDetailPage({
     }
   }, [
     activeDialog,
+    authStatus,
     applyTripDetailUrlState,
     canManageTrip,
     canMutate,
@@ -1511,7 +1520,7 @@ export function TripDetailPage({
   }
 
   return (
-    <PlanningSessionContext value={{ accessToken, itineraryRevision, onPreview: setPlanningPreview, saveError: mutationError }}>
+    <PlanningSessionContext value={{ accessToken, itineraryRevision, onPreview: setPlanningPreview, saveError: mutationError, panelHost: planningPanelHost, onPanelOpenChange: setPlanningPanelOpen, airportTransferRequest, onAirportTransferSelect: canMutate ? handleAirportTransferSelect : undefined }}>
     <div className="relative z-0 -mx-4 min-h-[calc(100dvh-4rem-1px)] w-[calc(100%+2rem)] overflow-x-hidden sm:-mx-6 sm:w-[calc(100%+3rem)] lg:mx-0 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-hidden lg:px-6 lg:py-3">
       <div className="min-h-0 w-full lg:h-full">
         <div
@@ -1588,6 +1597,8 @@ export function TripDetailPage({
           </div>
           {!shouldUseMobileMapPicker ? (
             <MapWorkspace
+              onPlanningPanelHostChange={setPlanningPanelHost}
+              planningPreview={planningPanelOpen ? planningPreview : null}
               draftMapLocation={activeDraftMapLocation}
               mapPointEnabled={mapPointTarget !== null}
               focusedPostId={focusedPostId}

@@ -579,7 +579,12 @@ class PlaceService:
         except ValueError:
             return None
 
-        if not math.isfinite(latitude) or not math.isfinite(longitude) or not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        if (
+            not math.isfinite(latitude)
+            or not math.isfinite(longitude)
+            or not -90 <= latitude <= 90
+            or not -180 <= longitude <= 180
+        ):
             return None
 
         geoname_id = row[0].strip()
@@ -720,8 +725,15 @@ class PlaceService:
             codes = {'iata': {}, 'icao': {}}
             with zipfile.ZipFile(aliases_path) as archive:
                 member = next(
-                    name for name in archive.namelist() if name.endswith('.txt')
+                    (
+                        name
+                        for name in archive.namelist()
+                        if Path(name).name == 'alternateNamesV2.txt'
+                    ),
+                    None,
                 )
+                if member is None:
+                    raise ValueError('GeoNames archive is missing alternateNamesV2.txt')
                 with archive.open(member) as source:
                     for line in source:
                         fields = line.decode('utf-8').rstrip('\n').split('\t')

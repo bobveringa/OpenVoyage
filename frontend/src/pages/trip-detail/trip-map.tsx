@@ -2,7 +2,9 @@ import 'leaflet/dist/leaflet.css'
 
 import * as L from 'leaflet'
 import { Compass } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { PlanningSessionContext } from './planning-session'
+import { airportTransferLabel, getAirportTransfers, type AirportTransfer } from './airport-transfers'
 
 import {
   type GpsPostCandidate,
@@ -41,7 +43,7 @@ import {
 import { usePublicSetting } from '@/settings/public-settings'
 import { useTheme } from '@/theme'
 
-type RouteFitMode = 'route-preview' | 'mobile-picker' | 'mobile-travel' | 'mobile-fullscreen' | 'workspace'
+type RouteFitMode = 'route-selector' | 'route-preview' | 'mobile-picker' | 'mobile-travel' | 'mobile-fullscreen' | 'workspace'
 
 type RouteEndpoint = {
   coordinates: L.LatLngTuple
@@ -63,6 +65,7 @@ type RouteSegment = {
   travelMode?: TravelMode
   visibleToMembersOnly?: boolean
   alternative?: boolean
+  transfer?: AirportTransfer
 }
 
 type FocusedPostNeighbor = {
@@ -108,6 +111,8 @@ const routeOverviewAnimationOptions = {
 } satisfies L.ZoomPanOptions
 
 export function MapWorkspace({
+  onPlanningPanelHostChange,
+  planningPreview = null,
   draftMapLocation,
   focusedPostId,
   gpsPostCandidates,
@@ -122,6 +127,8 @@ export function MapWorkspace({
   travelLegs,
   travelPosts,
 }: {
+  onPlanningPanelHostChange?: (host: HTMLDivElement | null) => void
+  planningPreview?: TravelLeg | null
   draftMapLocation: DraftPostLocation | null
   focusedPostId: string | null
   gpsPostCandidates: readonly GpsPostCandidate[]
@@ -139,8 +146,9 @@ export function MapWorkspace({
   const [resetNonce, setResetNonce] = useState(0)
 
   return (
-    <section className="relative min-h-0 min-w-0 overflow-hidden rounded-[2rem] border border-border bg-card shadow-sm lg:h-full">
+    <section aria-label={planningPreview ? 'Connection map preview' : 'Trip map'} className="relative min-h-0 min-w-0 overflow-hidden rounded-[2rem] border border-border bg-card shadow-sm lg:h-full">
       <TripLeafletMap
+        fitMode={planningPreview ? 'route-selector' : 'workspace'}
         draftMapLocation={draftMapLocation}
         focusedPostId={focusedPostId}
         gpsPostCandidates={gpsPostCandidates}
@@ -151,12 +159,13 @@ export function MapWorkspace({
         onPostMarkerSelect={onPostMarkerSelect}
         resetNonce={resetNonce}
         routeMode={routeMode}
-        stops={stops}
-        travelLegs={travelLegs}
+        stops={planningPreview ? stops.filter((stop) => stop.id === planningPreview.from_stop_id || stop.id === planningPreview.to_stop_id) : stops}
+        travelLegs={planningPreview ? [planningPreview] : travelLegs}
         trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
 
+      <div ref={onPlanningPanelHostChange} className="pointer-events-none absolute inset-y-3 left-3 z-[600] hidden w-[min(22rem,50%)] min-w-64 lg:block [&>*]:pointer-events-auto" />
       <div className="pointer-events-none absolute right-4 top-4 z-[500] lg:right-5">
         <div className="pointer-events-auto flex flex-wrap justify-end gap-2">
           <Button
@@ -217,6 +226,9 @@ export function TripLeafletMap({
   const latestLocationSelectRef = useRef(onDraftMapPointSelect)
   const latestGpsPostCandidateSelectRef = useRef(onGpsPostCandidateSelect)
   const latestPostMarkerSelectRef = useRef(onPostMarkerSelect)
+  const { onAirportTransferSelect } = useContext(PlanningSessionContext)
+  const latestTransferSelectRef = useRef(onAirportTransferSelect)
+  latestTransferSelectRef.current = onAirportTransferSelect
   const mapPointEnabledRef = useRef(mapPointEnabled)
   const mapRef = useRef<L.Map | null>(null)
   const postMarkerLayerRef = useRef<L.LayerGroup | null>(null)
@@ -267,6 +279,7 @@ export function TripLeafletMap({
     )
   }, [mapPointEnabled])
 
+  const showZoomControls = fitMode !== 'mobile-travel'
   useEffect(() => {
     const container = mapContainerRef.current
     if (!container) {
@@ -282,7 +295,7 @@ export function TripLeafletMap({
       zoomControl: false,
     })
 
-    if (fitMode !== 'mobile-travel') {
+    if (showZoomControls) {
       L.control.zoom({ position: 'bottomright' }).addTo(map)
     }
 
@@ -314,6 +327,10 @@ export function TripLeafletMap({
       resizeObserver.disconnect()
       window.cancelAnimationFrame(initialFrame)
       map.off('click', handleMapClick)
+      map.stop()
+      // Leaflet 1.x leaves a zoom fallback timer queued after remove().
+      // Clear its guard before destroying panes so resizing cannot access a removed map.
+      ;(map as L.Map & { _animatingZoom?: boolean })._animatingZoom = false
       map.remove()
       draftMarkerRef.current = null
       mapRef.current = null
@@ -323,7 +340,7 @@ export function TripLeafletMap({
       routeLayerRef.current = null
       tileLayerRef.current = null
     }
-  }, [fitMode])
+  }, [showZoomControls])
 
   useEffect(() => {
     const map = mapRef.current
@@ -340,7 +357,7 @@ export function TripLeafletMap({
         tileLayerRef.current = null
       }
     }
-  }, [fitMode, tileProvider])
+  }, [showZoomControls, tileProvider])
 
   useEffect(() => {
     const postMarkerLayer = postMarkerLayerRef.current
@@ -392,6 +409,7 @@ export function TripLeafletMap({
       travelLegsRef.current,
       travelPostsRef.current,
       trackingGeometryRef.current.openingRoute,
+      onAirportTransferSelect && routeMode === 'itinerary' ? (transfer) => latestTransferSelectRef.current?.(transfer.legId, transfer.side) : undefined,
     )
 
     const routeEndpointLayer = routeEndpointLayerRef.current
@@ -409,7 +427,7 @@ export function TripLeafletMap({
     }
     const animationFrameId = window.requestAnimationFrame(() => {
       map.invalidateSize()
-      const viewKey = `${routeMode}:${fitMode}:${fitMode === 'route-preview' ? routeKey : ''}`
+      const viewKey = `${routeMode}:${fitMode}:${fitMode === 'route-preview' || fitMode === 'route-selector' ? routeKey : ''}`
       if (!focusedPostIdRef.current && fittedViewRef.current !== viewKey) {
         fitRouteBounds(
           map,
@@ -428,7 +446,19 @@ export function TripLeafletMap({
     })
 
     return () => window.cancelAnimationFrame(animationFrameId)
-  }, [fitMode, isTripOngoing, routeKey, routeMode, themeMode, themePalette])
+  }, [fitMode, isTripOngoing, routeKey, routeMode, themeMode, themePalette, onAirportTransferSelect])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || fitMode !== 'route-selector') return
+    const observer = new ResizeObserver(() => {
+      map.invalidateSize({ animate: false })
+      fitRouteBounds(map, routeMode, stopsRef.current, travelLegsRef.current,
+        travelPostsRef.current, trackingGeometryRef.current.openingRoute, fitMode)
+    })
+    observer.observe(map.getContainer())
+    return () => observer.disconnect()
+  }, [fitMode, routeMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -536,6 +566,7 @@ function renderRouteLayer(
   travelLegs: readonly TravelLeg[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
+  onTransferSelect?: (transfer: AirportTransfer) => void,
 ) {
   const routeSegments = getMapRouteSegments(
     routeMode,
@@ -549,10 +580,29 @@ function renderRouteLayer(
       continue
     }
 
-    L.polyline(
+    const line = L.polyline(
       segment.coordinates,
       getRouteSegmentPathOptions(segment, routeMode),
     ).addTo(routeLayer)
+
+    if (segment.transfer) {
+      const transfer = segment.transfer
+      const label = airportTransferLabel(transfer)
+      line.bindTooltip(escapeHtml(label) + '<br>Transport not chosen · Approximate connection')
+      const element = line.getElement()
+      element?.setAttribute('aria-label', label)
+      if (onTransferSelect) {
+        line.on('click', () => onTransferSelect(transfer))
+        element?.setAttribute('role', 'button')
+        element?.setAttribute('tabindex', '0')
+        element?.addEventListener('keydown', (event) => {
+          if ((event as KeyboardEvent).key === 'Enter' || (event as KeyboardEvent).key === ' ') {
+            event.preventDefault()
+            onTransferSelect(transfer)
+          }
+        })
+      }
+    }
 
     if (
       routeMode === 'itinerary' ||
@@ -736,7 +786,9 @@ function fitRouteBounds(
   }
 
   const routeBounds = L.latLngBounds(routeCoordinates)
-  const routeFitOptions = getRouteFitOptions(fitMode)
+  const routeFitOptions = fitMode === 'route-selector'
+    ? { paddingTopLeft: [Math.min(352, Math.max(256, map.getSize().x / 2)) + 24, 48] as L.PointTuple, paddingBottomRight: [40, 48] as L.PointTuple, maxZoom: 12, animate: false }
+    : getRouteFitOptions(fitMode)
   if (options.animate) {
     map.flyToBounds(routeBounds, {
       ...routeFitOptions,
@@ -1089,6 +1141,12 @@ function getItineraryRouteSegments(
 
     const leg = legsByPair.get(createStopPairKey(fromStop.id, toStop.id))
     if (leg?.segments?.length) {
+      for (const transfer of getAirportTransfers(leg, fromStop, toStop)) {
+        segments.push({
+          coordinates: createGeodesicRoute([[transfer.from.latitude, transfer.from.longitude], [transfer.to.latitude, transfer.to.longitude]]),
+          kind: 'itinerary', routeType: 'SIMPLE', transfer,
+        })
+      }
       for (const segment of leg.segments) {
         // Missing road calculations have no honest road geometry to draw.
         if (['CAR', 'BIKE', 'WALK'].includes(segment.intent.travel_mode) && segment.route_state !== 'READY') continue
@@ -1195,6 +1253,7 @@ function getRouteSegmentPathOptions(
 
   if (routeMode === 'itinerary') {
     return {
+      className: segment.transfer ? 'trip-map-airport-transfer' : undefined,
       dashArray: segment.routeType === 'SIMPLE' ? '7 9' : undefined,
       color: getThemeColor('--primary', '#0F766E'),
       lineCap: 'round',
@@ -1205,6 +1264,7 @@ function getRouteSegmentPathOptions(
   }
 
   return {
+    className: segment.transfer ? 'trip-map-airport-transfer' : undefined,
     color: getThemeColor('--primary', '#0F766E'),
     dashArray: segment.routeType === 'SIMPLE' ? '10 10' : undefined,
     lineCap: 'round',

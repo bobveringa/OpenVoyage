@@ -62,11 +62,16 @@ def test_airport_import_backfills_all_existing_places_without_importing_every_fe
             ]
         ),
     )
-    aliases = archive(
-        tmp_path / 'aliases.zip',
-        'alternateNamesV2.txt',
-        '1\t2\tiata\tAMS\t1\t0\t0\t0\n2\t2\ticao\tEHAM\t1\t0\t0\t0\n',
-    )
+    aliases = tmp_path / 'aliases.zip'
+    # The official ZIP starts with this metadata file, not the alias rows.
+    with zipfile.ZipFile(aliases, 'w') as output:
+        output.writestr(
+            'iso-languagecodes.txt', 'ISO 639-3\tISO 639-2\tISO 639-1\tLanguage Name\n'
+        )
+        output.writestr(
+            'alternateNamesV2.txt',
+            '1\t2\tiata\tAMS\t1\t0\t0\t0\n2\t2\ticao\tEHAM\t1\t0\t0\t0\n',
+        )
     service = PlaceService(db_session)
     service.import_geonames_zip(cities, GeoNamesDataset.CITIES_500)
     first_id = db_session.scalar(select(Place.id).where(Place.external_id == '1'))

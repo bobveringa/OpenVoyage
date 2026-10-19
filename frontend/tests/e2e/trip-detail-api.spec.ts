@@ -89,7 +89,7 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     await page
       .getByRole('button', { name: /E2E Coimbra to E2E Porto/ })
       .click()
-    const chooser = page.getByRole('dialog', { name: 'Select your route' })
+    const chooser = page.getByRole('region', { name: 'Select your route', exact: true })
     await expect(chooser.getByRole('button', { name: 'Select this route' })).toBeEnabled()
     await chooser.getByRole('button', { name: 'Select this route' }).click()
 
@@ -230,7 +230,7 @@ test('creates nested comment replies and deletes reply subtrees', async ({
 
   try {
     await seedBrowserAuth(page, tokens)
-    await page.goto(`/trips/${trip.id}`)
+    await page.goto(`/trips/${trip.id}?tab=travel`)
     await expect(page.getByText(postTitle, { exact: true })).toBeVisible()
 
     await page.getByRole('button', { name: '0 comments' }).click()
