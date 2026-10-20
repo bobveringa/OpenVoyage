@@ -18,6 +18,9 @@ import { connectionWithOptions, routeDistance, routeTime } from './route-choice-
 import { PlanningPreviewCache, planningPreviewKey } from './planning-preview-cache'
 import { PlanningSessionContext } from './planning-session'
 import { airportTransferLabel, getAirportTransfers, type AirportTransfer, type AirportTransferSide } from './airport-transfers'
+import type { ConnectionLocation } from './outer-connection'
+import { ConnectionLocationPicker } from './connection-location-picker'
+import type { ConnectionAnchor } from './connection-endpoints'
 
 type PlaceInput = NonNullable<PlanningSegment['via']>
 const roadModes = ['CAR', 'BIKE', 'WALK']
@@ -28,7 +31,7 @@ const transitLabels: Record<string, [string, string]> = {
 
 export function EndpointPicker({ label, value, airport = false, placeholder, onChange, disabled }: {
   label: string; value?: PlaceInput | null; airport?: boolean; placeholder?: string
-  onChange: (value: PlaceInput | null) => void; disabled: boolean
+  onChange: (value: PlaceInput | null, resolved?: ConnectionAnchor['location']) => void; disabled: boolean
 }) {
   const [airportOnly, setAirportOnly] = useState(false)
   const [selectedPlace, setSelectedPlace] = useState<{ id: string; label: string } | null>(null)
@@ -51,18 +54,22 @@ export function EndpointPicker({ label, value, airport = false, placeholder, onC
       </div> : null}
       <PlaceSearchDropdown placeType={airport || airportOnly ? 'AIRPORT' : undefined} disabled={disabled} open={searching} places={search.places}
         status={search.status} error={search.error} query={query}
-        onSelect={(place) => { onChange({ place_id: place.id }); setSelectedPlace({ id: place.id, label: place.iata_code ? place.name + ' (' + place.iata_code + ')' : place.name }); setQuery(place.iata_code ? place.name + ' (' + place.iata_code + ')' : place.name); setSearching(false) }} />
+        onSelect={(place) => { onChange({ place_id: place.id }, place); setSelectedPlace({ id: place.id, label: place.iata_code ? place.name + ' (' + place.iata_code + ')' : place.name }); setQuery(place.iata_code ? place.name + ' (' + place.iata_code + ')' : place.name); setSearching(false) }} />
       {validCoordinates ? <Button disabled={disabled} type="button" variant="outline" onClick={() => {
-        onChange({ latitude: coordinates[0], longitude: coordinates[1] }); setSearching(false)
+        onChange({ latitude: coordinates[0], longitude: coordinates[1] }, { latitude: coordinates[0], longitude: coordinates[1], name: coordinates.join(', ') }); setSearching(false)
       }}>Use coordinates</Button> : null}
     </div>
   )
 }
 
-export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, saving, toStop }: {
+export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, saving, toStop, creating = false, outsideLocation, onOutsideLocationChange, onDelete }: {
   fromStop: Stop | null; leg: TravelLeg | null; onClose: () => void
   onRefreshRoute: (legId: string) => void; onSave: (id: string, draft: TravelLegEditDraft) => void
   open: boolean; pendingAction: string | null; saving: boolean; toStop: Stop | null
+  creating?: boolean
+  outsideLocation?: ConnectionLocation | null
+  onOutsideLocationChange?: (value: ConnectionLocation | null) => void
+  onDelete?: () => void
 }) {
   const session = useContext(PlanningSessionContext)
   const desktop = useMediaQuery('(min-width: 1024px)')
@@ -81,13 +88,21 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
   const closeAfterSave = useEffectEvent(onClose)
   const version = useRef(0)
   const request = useRef<AbortController | null>(null)
+  const appliedOutsideLocation = useRef(outsideLocation)
+  const initializeOutsideLocation = useEffectEvent((next: TravelLegEditDraft) => {
+    appliedOutsideLocation.current = outsideLocation
+    if (leg && onOutsideLocationChange) next[leg.connection_type === 'DEPARTURE' ? 'from' : 'to'] = outsideLocation
+      ? { type: 'LOCATION', location: outsideLocation.input } : undefined
+  })
   const showPreview = session.onPreview
   const calculateOnOpen = useEffectEvent((payload: TravelLegEditDraft) => { void calculate(false, payload) })
   useEffect(() => {
     version.current += 1
     request.current?.abort()
     previews.current.clear(); modeDrafts.current.clear()
-    const next = createTravelLegEditDraft(leg)
+    const next = createTravelLegEditDraft(creating ? null : leg)
+    if (leg && creating) { next.from = connectionEndpointInput(leg.from); next.to = connectionEndpointInput(leg.to) }
+    initializeOutsideLocation(next)
     if (fromStop) next.segments = next.segments.map((segment) => segment.travel_mode === 'FLIGHT' && !segment.flight?.departure_date ? {
       ...segment, flight: { ...segment.flight, departure_date: getStayLeaveDateValue(fromStop.planned_start_date, fromStop.planned_nights) },
     } : segment)
@@ -101,9 +116,19 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
       submittedLeg.current = null; closeAfterSave(); return
     }
     if (!open) submittedLeg.current = null
-    if (open && leg && next.segments.some((segment) => roadModes.includes(segment.travel_mode))) calculateOnOpen(next)
+    if (open && leg && !creating && next.segments.some((segment) => roadModes.includes(segment.travel_mode))) calculateOnOpen(next)
     return () => { version.current += 1; request.current?.abort(); showPreview(null) }
-  }, [leg, open, showPreview, fromStop])
+  }, [leg, open, showPreview, fromStop, creating])
+  const endpointReady = !onOutsideLocationChange || Boolean(outsideLocation)
+  const applyOutsideLocation = useEffectEvent(() => {
+    if (!leg || !onOutsideLocationChange) return
+    if (appliedOutsideLocation.current === outsideLocation) return
+    appliedOutsideLocation.current = outsideLocation
+    const side = leg.connection_type === 'DEPARTURE' ? 'from' : 'to'
+    const endpoint = outsideLocation ? { type: 'LOCATION' as const, location: outsideLocation.input } : undefined
+    if (JSON.stringify(draft[side]) !== JSON.stringify(endpoint)) update({ ...draft, [side]: endpoint })
+  })
+  useEffect(() => { applyOutsideLocation() }, [outsideLocation, leg])
   useEffect(() => {
     const transfer = session.airportTransferRequest
     if (open && transfer && transfer.legId === leg?.id && transfer.sequence !== handledTransferRequest.current) {
@@ -111,28 +136,33 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
       setTransferSide(transfer.side)
     }
   }, [open, leg?.id, session.airportTransferRequest])
-  const currentConnection = useMemo(() => {
+  const currentConnection = useMemo<TravelLeg | null>(() => {
     if (preview) return connectionWithOptions(preview.connection, draft)
     if (!leg || !dirty) return leg
+    const outside = outsideLocation ? { type: 'LOCATION' as const, location: { ...outsideLocation.anchor.location, id: 'draft-location', full_name: outsideLocation.anchor.title, country_code: '', region: '' } } : null
     const endpointsUnchanged = JSON.stringify([draft.from, draft.to]) === JSON.stringify([connectionEndpointInput(leg.from), connectionEndpointInput(leg.to)])
-    return { ...leg, segments: draft.segments.map((intent, index) => {
+    const from = outside && leg.connection_type === 'DEPARTURE' ? outside : leg.from
+    const to = outside && leg.connection_type === 'RETURN' ? outside : leg.to
+    const anchors = [from, to].map((endpoint) => resolveConnectionEndpoint(endpoint, [fromStop, toStop].filter((stop): stop is Stop => stop !== null)))
+    return { ...leg, from, to, segments: draft.segments.map((intent, index) => {
       const saved = leg.segments.find((segment) => segment.id === intent.id)
       const unchanged = endpointsUnchanged && saved && planningPreviewKey({ notes: '', segments: [saved.intent] }) === planningPreviewKey({ notes: '', segments: [intent] })
-      return { ...(saved || leg.segments[0]), id: intent.id || 'draft-' + index, intent,
+      return { ...(saved || leg.segments[0]), input_version: saved?.input_version ?? 1, mode_source: saved?.mode_source ?? 'USER', id: intent.id || 'draft-' + index, intent,
         geometry: unchanged ? saved.geometry : null,
         from_endpoint: unchanged ? saved.from_endpoint : null, to_endpoint: unchanged ? saved.to_endpoint : null,
         lookup: unchanged ? saved.lookup : null,
         route_state: unchanged ? saved.route_state : 'NOT_CALCULATED' as const, route_options: [],
         duration_seconds: unchanged ? saved.duration_seconds : null, distance_meters: unchanged ? saved.distance_meters : null }
-    }), duration_seconds: null, warnings: [], route: { ...leg.route, type: 'SIMPLE' as const } }
-  }, [preview, draft, leg, dirty])
-  useEffect(() => { if (open) showPreview(currentConnection) }, [currentConnection, open, showPreview])
+    }), duration_seconds: null, warnings: [], route: { ...leg.route, type: 'SIMPLE' as const,
+      geometry: { type: 'LineString' as const, coordinates: anchors.flatMap((anchor) => anchor ? [[anchor.location.longitude, anchor.location.latitude] as [number, number]] : []) } } }
+  }, [preview, draft, leg, dirty, outsideLocation, fromStop, toStop])
+  useEffect(() => { if (open) showPreview(endpointReady ? currentConnection : null) }, [currentConnection, open, showPreview, endpointReady])
   const endpointStops = [fromStop, toStop].filter((stop): stop is Stop => stop !== null)
-  const fromAnchor = leg ? resolveConnectionEndpoint((preview?.connection || leg).from, endpointStops) : null
-  const toAnchor = leg ? resolveConnectionEndpoint((preview?.connection || leg).to, endpointStops) : null
+  const fromAnchor = leg ? outsideLocation && leg.connection_type === 'DEPARTURE' ? outsideLocation.anchor : resolveConnectionEndpoint((preview?.connection || leg).from, endpointStops) : null
+  const toAnchor = leg ? outsideLocation && leg.connection_type === 'RETURN' ? outsideLocation.anchor : resolveConnectionEndpoint((preview?.connection || leg).to, endpointStops) : null
   if (!leg || !fromAnchor || !toAnchor) return null
   const currentLeg = leg
-  const disabled = saving || busy !== null
+  const disabled = saving || busy !== null || !endpointReady
   const transfers = currentConnection ? getAirportTransfers(currentConnection, fromAnchor, toAnchor) : []
   const activeTransfer = transfers.find((transfer) => transfer.side === transferSide)
   function transferCard(transfer: AirportTransfer) {
@@ -183,13 +213,13 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     setLookups((previous) => { const next = { ...previous }; delete next[index]; return next })
   }
   async function calculate(retryFailed = false, payload = draft) {
-    if (!session.accessToken) return
+    if (!session.accessToken || !payload.from || !payload.to || !endpointReady) return
     const activeVersion = version.current
     const controller = new AbortController()
     request.current = controller
     setBusy('Calculating route'); setError(null)
     try {
-      const result = await previewTravel({ tripId: leg!.trip_id, legId: leg!.id,
+      const result = await previewTravel({ tripId: leg!.trip_id, legId: creating ? undefined : leg!.id,
         accessToken: session.accessToken, itineraryRevision: session.itineraryRevision,
         payload: connectionWritePayload(payload), retryFailed, signal: controller.signal })
       if (version.current !== activeVersion) return
@@ -209,7 +239,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     request.current = controller
     setBusy('Looking up flight'); setError(null)
     try {
-      const result = await lookupFlight({ tripId: currentLeg.trip_id, legId: currentLeg.id,
+      const result = await lookupFlight({ tripId: currentLeg.trip_id, legId: creating ? undefined : currentLeg.id,
         accessToken: session.accessToken, itineraryRevision: session.itineraryRevision,
         payload: { flight_number: flight.flight_number, departure_date: flight.departure_date },
         signal: controller.signal })
@@ -240,7 +270,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     setDraft({ ...next, preview_id: cached?.preview_id })
     setPreview(cached)
     if (mode !== segment.travel_mode) setDetails(mode === 'FLIGHT' ? index : null)
-    if (!cached && roadModes.includes(mode)) void calculate(false, next)
+    if (!cached && (creating || roadModes.includes(mode))) void calculate(false, next)
   }
   function move(index: number, step: number) {
     previews.current.clear(); modeDrafts.current.clear()
@@ -253,19 +283,23 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
       description={'From ' + fromAnchor.title + ' to ' + toAnchor.title}
       footer={<div className="flex flex-wrap items-center justify-between gap-3">
         {error || session.saveError ? <p role="alert" className="w-full text-sm text-destructive">{error || session.saveError}</p> : null}
-        <p className="text-sm text-muted-foreground">{busy ? <span role="status" className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{busy}…</span> : currentConnection?.duration_seconds != null ? routeTime(currentConnection.duration_seconds) + (currentConnection.duration_scope === 'FLIGHT_JOURNEY' ? ' flight journey · airport transfers not included' : ' estimated travel time') : 'Select a route to preview it on the map'}</p>
+        <p className="text-sm text-muted-foreground">{!endpointReady ? 'Choose a location to continue.' : busy ? <span role="status" className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{busy}…</span> : currentConnection?.duration_seconds != null ? routeTime(currentConnection.duration_seconds) + (currentConnection.duration_scope === 'FLIGHT_JOURNEY' ? ' flight journey · airport transfers not included' : ' estimated travel time') : 'Select a route to preview it on the map'}</p>
         <div className="flex min-w-0 flex-wrap gap-2"><Button disabled={saving} type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        <Button disabled={disabled || Boolean(activeTransfer)} type="button" onClick={() => { submittedLeg.current = leg; onSave(leg.id, draft) }}>{saving ? 'Saving…' : 'Select this route'}</Button></div>
+        {onDelete ? <Button disabled={saving || busy !== null} type="button" variant="ghost" onClick={onDelete}>Remove {leg.connection_type === 'DEPARTURE' ? 'departure' : 'return'} connection</Button> : null}
+        <Button disabled={disabled || Boolean(activeTransfer)} type="button" onClick={() => { submittedLeg.current = leg; onSave(leg.id, draft) }}>{saving ? 'Saving…' : creating ? leg.connection_type === 'DEPARTURE' ? 'Add departure' : 'Add return' : 'Select this route'}</Button></div>
       </div>}>
       <div className="grid min-h-full min-w-0 grid-cols-1">
       <div className="order-2 grid min-w-0 grid-cols-1 content-start gap-4 p-4 lg:order-1 lg:p-5">
-          {(['from', 'to'] as const).map((side) => {
+          {onOutsideLocationChange ? !desktop ? <ConnectionLocationPicker label={leg.connection_type === 'DEPARTURE' ? 'Departure location' : 'Return location'}
+            value={outsideLocation ?? null} onChange={onOutsideLocationChange} disabled={saving || busy !== null} /> : null : (['from', 'to'] as const).map((side) => {
             const endpoint = draft[side]
             return endpoint?.type === 'LOCATION' ? <EndpointPicker key={side} label={side === 'from' ? 'Departure location' : 'Return location'}
               value={endpoint.location} disabled={disabled} onChange={(location) => {
                 if (location && !('location_id' in location)) update({ ...draft, [side]: { type: 'LOCATION', location } })
               }} /> : null
           })}
+
+        {!endpointReady ? <p role="status" className="text-sm text-muted-foreground">Choose a {leg.connection_type === 'DEPARTURE' ? 'departure' : 'return'} location to enable travel options.</p> : null}
 
         {activeTransfer ? <section aria-label="Choose airport transfer" className="grid min-w-0 gap-3">
           <h3 className="font-semibold">Airport transfer</h3>
@@ -352,7 +386,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
                   const Icon = getTravelModeIcon(mode)
                   const label = travelModeOptions.find((item) => item.value === mode)?.label || mode
                   return options.map((option, optionIndex) => {
-                    const selected = selectedMode && (segment.route_option || 0) === optionIndex
+                    const selected = endpointReady && selectedMode && (segment.route_option || 0) === optionIndex
                     const time = routeTime(option?.duration_seconds ?? modeEstimate?.duration_seconds)
                     const distance = routeDistance(option?.distance_meters ?? modeEstimate?.distance_meters)
                     return <div key={mode + optionIndex} className={'overflow-hidden rounded-2xl border-2 transition ' + (selected ? 'border-primary bg-primary/5 shadow-sm' : 'border-border/60 bg-muted/40 hover:border-primary/50')}><button type="button" role="radio" aria-checked={selected}
@@ -383,7 +417,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
           )
         })}
         {transfers.filter((transfer) => transfer.side === 'arrival').map(transferCard)}
-        <Button disabled={disabled || draft.segments.length >= 20} variant="outline" type="button"
+        {endpointReady ? <><Button disabled={disabled || draft.segments.length >= 20} variant="outline" type="button"
           onClick={() => update({ ...draft, segments: [...draft.segments, { travel_mode: 'CAR', mode_selected: true, route_option: 0, notes: '' }] })}><Plus className="size-4" />Add segment</Button>
         <details className="rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm font-medium">Journey notes</summary><Textarea className="mt-3" aria-label="Connection notes" disabled={disabled} value={draft.notes || ''} onChange={(event) => update({ ...draft, notes: event.target.value })} /></details>
         {currentConnection ? <div className="grid gap-2 rounded-xl bg-muted p-3" aria-live="polite">
@@ -395,10 +429,11 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
           <Button disabled={disabled} type="button" variant="outline" onClick={() => void calculate()}>Preview changes</Button>
 
         </div>
+        </> : null}
         </>}
       </div>
       {!desktop ? <section aria-label="Connection map preview" className="order-1 sticky top-0 z-10 h-64 overflow-hidden border-b border-border bg-muted lg:order-2 lg:sticky lg:top-0 lg:h-[calc(100dvh-15rem)] lg:min-h-[30rem] lg:max-h-[41rem] lg:border-b-0 lg:border-l">
-        {currentConnection ? <TripLeafletMap fitMode="route-preview" draftMapLocation={null} mapPointEnabled={false} onDraftMapPointSelect={() => {}}
+        {currentConnection && endpointReady ? <TripLeafletMap fitMode="route-preview" draftMapLocation={null} mapPointEnabled={false} onDraftMapPointSelect={() => {}}
           resetNonce={0} stops={endpointStops} travelLegs={[currentConnection]}
           travelPosts={[]} trackingGeometry={EMPTY_TRACKING_GEOMETRY} /> : null}
         <div className="pointer-events-none absolute bottom-3 left-3 right-12 z-[400] rounded-xl border border-border bg-card/95 p-3 text-xs shadow-sm">

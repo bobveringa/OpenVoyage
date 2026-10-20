@@ -127,7 +127,7 @@ export function MobileMapPointPicker({
             Back
           </Button>
           <Badge variant="secondary">
-            {target === 'stop' ? 'Planning stop' : 'Post location'}
+            {target === 'stop' ? 'Planning stop' : target === 'connection' ? 'Connection location' : 'Post location'}
           </Badge>
         </div>
       </div>

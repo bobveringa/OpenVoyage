@@ -168,20 +168,26 @@ def test_topology_and_creation_artifacts_cannot_be_forged(client, db_session, pl
         ).status_code
         == 404
     )
-    for travel in (
-        {'preview_id': str(uuid.uuid4())},
-        {'segments': [{'id': leg['segments'][0]['id'], 'travel_mode': 'CAR'}]},
-        {
-            'segments': [
-                {'travel_mode': 'FLIGHT', 'flight': {'candidate_id': str(uuid.uuid4())}}
-            ]
-        },
+    for travel, status in (
+        ({'preview_id': str(uuid.uuid4())}, 409),
+        ({'segments': [{'id': leg['segments'][0]['id'], 'travel_mode': 'CAR'}]}, 422),
+        (
+            {
+                'segments': [
+                    {
+                        'travel_mode': 'FLIGHT',
+                        'flight': {'candidate_id': str(uuid.uuid4())},
+                    }
+                ]
+            },
+            409,
+        ),
     ):
         assert (
             client.post(
                 base + '/legs', headers=headers(user, revision), json=body | travel
             ).status_code
-            == 422
+            == status
         )
     assert (
         client.post(base + '/legs', headers=headers(user), json=body).status_code == 428
@@ -346,6 +352,15 @@ def test_outer_read_and_mutation_access_matrix(
     body = write_body(created.json())
     for method, path, payload in [
         ('post', base + '/legs', outer_body(data, 'RETURN')),
+        ('post', base + '/legs/preview', outer_body(data, 'RETURN')),
+        (
+            'post',
+            base + '/legs/flight-lookups',
+            {
+                'flight_number': 'KL597',
+                'departure_date': '2026-11-18',
+            },
+        ),
         ('put', endpoint, body),
         ('post', endpoint + '/preview', body),
         ('delete', endpoint, None),
@@ -371,6 +386,146 @@ def test_outer_read_and_mutation_access_matrix(
         json={'revoked': True},
     )
     assert client.get(endpoint, headers=shared).status_code == anonymous
+
+
+@pytest.mark.parametrize('side', ['DEPARTURE', 'RETURN'])
+@pytest.mark.parametrize('route_option', [0, 1])
+def test_unsaved_connection_preview_is_atomic_and_bound_to_inputs(
+    client, db_session, plan, monkeypatch, side, route_option
+):
+    user, _, base, _, revision, _, data = plan
+    route = enable_routes(
+        db_session,
+        monkeypatch,
+        RouteResponse(
+            geometry_geojson={
+                'type': 'LineString',
+                'coordinates': [[-0.1, 51.5], [5.12, 52.09]],
+            },
+            distance_meters=1000,
+            duration_seconds=100,
+            alternatives=(
+                RouteResponse(
+                    geometry_geojson={
+                        'type': 'LineString',
+                        'coordinates': [[-0.1, 51.5], [1, 52], [5.12, 52.09]],
+                    },
+                    distance_meters=1200,
+                    duration_seconds=120,
+                ),
+            ),
+        ),
+    )
+    body = outer_body(
+        data, side, segments=[{'travel_mode': 'CAR', 'mode_selected': True}]
+    )
+    legs_before = db_session.scalar(
+        select(func.count()).select_from(ItineraryTravelLeg)
+    )
+    locations_before = db_session.scalar(select(func.count()).select_from(Location))
+    preview = client.post(
+        base + '/legs/preview', headers=headers(user, revision), json=body
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()['connection']['connection_type'] == side
+    assert route.call_count == 1
+    cached = client.post(
+        base + '/legs/preview', headers=headers(user, revision), json=body
+    )
+    assert cached.status_code == 200, cached.text
+    assert cached.json()['preview_id'] == preview.json()['preview_id']
+    assert route.call_count == 1
+    assert (
+        db_session.scalar(select(func.count()).select_from(ItineraryTravelLeg))
+        == legs_before
+    )
+    assert (
+        db_session.scalar(select(func.count()).select_from(Location))
+        == locations_before
+    )
+    assert client.get(base, headers=headers(user)).headers['etag'] == revision
+    changed = outer_body(
+        data, side, segments=body['segments'], preview_id=preview.json()['preview_id']
+    )
+    changed['from' if side == 'DEPARTURE' else 'to']['location']['latitude'] = 50
+    rejected = client.post(
+        base + '/legs', headers=headers(user, revision), json=changed
+    )
+    assert rejected.status_code == 409, rejected.text
+    body['segments'][0]['route_option'] = route_option
+    saved = client.post(
+        base + '/legs',
+        headers=headers(user, revision),
+        json=body | {'preview_id': preview.json()['preview_id']},
+    )
+    assert saved.status_code == 201, saved.text
+    assert saved.json()['segments'][0]['route_state'] == 'READY'
+    assert saved.json()['duration_seconds'] == (120 if route_option else 100)
+    assert saved.headers['etag'] != revision
+    assert route.call_count == 1
+
+
+def test_unsaved_flight_artifacts_are_actor_trip_and_revision_scoped(
+    client, db_session, plan, monkeypatch
+):
+    user, trip, base, _, revision, _, data = plan
+    member = create_user(db_session, password='PlanningPass123!')
+    add_trip_member(db_session, trip_id=trip.id, user_id=member.id)
+    db_session.commit()
+    matched_lookup(monkeypatch)
+    found = client.post(
+        base + '/legs/flight-lookups',
+        headers=headers(user, revision),
+        json={
+            'flight_number': 'KL597',
+            'departure_date': '2026-11-18',
+        },
+    )
+    assert found.status_code == 200, found.text
+    candidate = found.json()['candidates'][0]['candidate_id']
+    body = outer_body(
+        data,
+        segments=[
+            {
+                'travel_mode': 'FLIGHT',
+                'flight': {
+                    'flight_number': 'KL597',
+                    'departure_date': '2026-11-18',
+                    'candidate_id': candidate,
+                },
+            }
+        ],
+    )
+    preview = client.post(
+        base + '/legs/preview', headers=headers(user, revision), json=body
+    )
+    assert preview.status_code == 200, preview.text
+    body['preview_id'] = preview.json()['preview_id']
+    assert (
+        client.post(
+            base + '/legs', headers=headers(member, revision), json=body
+        ).status_code
+        == 409
+    )
+    foreign = create_trip(db_session, owner_id=user.id)
+    assert (
+        client.post(
+            f'/api/v1/trips/{foreign.id}/itinerary/legs/preview',
+            headers=headers(user, '"0"'),
+            json=body,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(base + '/legs', headers=headers(user, '"0"'), json=body).status_code
+        == 412
+    )
+    saved = client.post(base + '/legs', headers=headers(user, revision), json=body)
+    assert saved.status_code == 201, saved.text
+    assert saved.json()['segments'][0]['lookup'] is not None
+    assert db_session.get(
+        ItineraryPlanningArtifact, uuid.UUID(candidate)
+    ).leg_id == uuid.UUID(saved.json()['id'])
 
 
 def test_outer_flight_candidate_scope_and_warning_sides(

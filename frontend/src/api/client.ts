@@ -2124,15 +2124,15 @@ async function requestItineraryMutation(url: string, options: ApiRequestOptions)
   }
 }
 
-export async function previewTravel(options: { tripId: string; legId: string; accessToken: string; itineraryRevision: number; payload: ItineraryTravelReplacePayload; retryFailed?: boolean; signal?: AbortSignal }): Promise<PlanningPreview> {
-  return requestJson<PlanningPreview>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs/${encodeURIComponent(options.legId)}/preview`, {
+export async function previewTravel(options: { tripId: string; legId?: string; accessToken: string; itineraryRevision: number; payload: ItineraryTravelReplacePayload; retryFailed?: boolean; signal?: AbortSignal }): Promise<PlanningPreview> {
+  return requestJson<PlanningPreview>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs${options.legId ? '/' + encodeURIComponent(options.legId) : ''}/preview`, {
     method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
     json: options.payload, query: { retry_failed: options.retryFailed ?? false }, timeoutMs: 35_000, signal: options.signal,
   })
 }
 
-export async function lookupFlight(options: { tripId: string; legId: string; accessToken: string; itineraryRevision: number; payload: FlightLookupPayload; signal?: AbortSignal }): Promise<FlightLookupResult> {
-  return requestJson<FlightLookupResult>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs/${encodeURIComponent(options.legId)}/flight-lookups`, {
+export async function lookupFlight(options: { tripId: string; legId?: string; accessToken: string; itineraryRevision: number; payload: FlightLookupPayload; signal?: AbortSignal }): Promise<FlightLookupResult> {
+  return requestJson<FlightLookupResult>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs${options.legId ? '/' + encodeURIComponent(options.legId) : ''}/flight-lookups`, {
     method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
     json: options.payload, timeoutMs: 35_000, signal: options.signal,
   })

@@ -245,6 +245,8 @@ export function TripDetailPage({
     useState<DraftPostLocation | null>(null)
   const [draftStopLocation, setDraftStopLocation] =
     useState<DraftPostLocation | null>(null)
+  const [draftConnectionLocation, setDraftConnectionLocation] =
+    useState<DraftPostLocation | null>(null)
   const urlStateRef = useRef<TripDetailUrlState>(initialUrlState)
   // Which trip the rendered content belongs to, so a reload of the trip
   // already on screen can keep showing it instead of blanking out.
@@ -1241,6 +1243,8 @@ export function TripDetailPage({
               : 'create-post',
         })
         setMapPointTarget(selectedTarget)
+      } else if (target === 'connection') {
+        setDraftConnectionLocation(draftLocation)
       } else {
         setDraftStopLocation(draftLocation)
       }
@@ -1256,6 +1260,13 @@ export function TripDetailPage({
             return
           }
 
+          if (selectedTarget === 'connection') {
+            setDraftConnectionLocation((currentLocation) =>
+              hasSameCoordinates(currentLocation?.coordinates, coordinates)
+                ? resolvedLocation : currentLocation,
+            )
+            return
+          }
           setDraftStopLocation((currentLocation) =>
             hasSameCoordinates(currentLocation?.coordinates, coordinates)
               ? resolvedLocation
@@ -1489,13 +1500,13 @@ export function TripDetailPage({
       ? draftPostLocation
       : mapPointTarget === 'stop'
         ? draftStopLocation
-        : null
+        : mapPointTarget === 'connection' ? draftConnectionLocation : null
   const mobileMapPickerLocation =
     mobileMapPickerTarget === 'post'
       ? draftPostLocation
       : mobileMapPickerTarget === 'stop'
         ? draftStopLocation
-        : null
+        : mobileMapPickerTarget === 'connection' ? draftConnectionLocation : null
   const visibleMode: TripMode = canSwitchModes ? mode : 'traveling'
   const upcomingStops = getUpcomingStops(plannedStops)
   const mapRouteMode: MapRouteMode =
@@ -1539,7 +1550,13 @@ export function TripDetailPage({
   }
 
   return (
-    <PlanningSessionContext value={{ accessToken, itineraryRevision, onPreview: setPlanningPreview, saveError: mutationError, panelHost: planningPanelHost, onPanelOpenChange: setPlanningPanelOpen, airportTransferRequest, onAirportTransferSelect: canMutate ? handleAirportTransferSelect : undefined }}>
+    <PlanningSessionContext value={{ accessToken, itineraryRevision, onPreview: setPlanningPreview, saveError: mutationError, panelHost: planningPanelHost, onPanelOpenChange: setPlanningPanelOpen, airportTransferRequest, onAirportTransferSelect: canMutate ? handleAirportTransferSelect : undefined,
+      connectionMap: {
+        location: draftConnectionLocation, active: mapPointTarget === 'connection',
+        start: (initial) => { setDraftConnectionLocation(initial); handleMapPointTargetChange('connection') },
+        stop: () => handleMapPointTargetChange(null),
+      },
+    }}>
     <div className="relative z-0 -mx-4 min-h-[calc(100dvh-4rem-1px)] w-[calc(100%+2rem)] overflow-x-hidden sm:-mx-6 sm:w-[calc(100%+3rem)] lg:mx-0 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-hidden lg:px-6 lg:py-3">
       <div className="min-h-0 w-full lg:h-full">
         <div
@@ -1630,7 +1647,9 @@ export function TripDetailPage({
               onPostMarkerSelect={handleMapPostSelect}
               routeMode={mapRouteMode}
               stops={visibleStops}
-              travelLegs={planningPreview ? travelLegs.map((leg) => leg.id === planningPreview.id ? planningPreview : leg) : travelLegs}
+              travelLegs={planningPreview ? travelLegs.some((leg) => leg.id === planningPreview.id)
+                ? travelLegs.map((leg) => leg.id === planningPreview.id ? planningPreview : leg)
+                : [...travelLegs, planningPreview] : travelLegs}
               trackingGeometry={trackingGeometry}
               travelPosts={travelPosts}
             />

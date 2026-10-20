@@ -393,6 +393,39 @@ def refresh_leg_route(
     )
 
 
+@router.post('/legs/preview', response_model=PreviewResponse)
+def preview_new_connection(
+    trip_id: uuid.UUID,
+    payload: ItineraryTravelReplaceRequest,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+    retry_failed: bool = False,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+):
+    try:
+        return itinerary_service.preview_travel(
+            trip_id, None, payload, user.id, _parse_if_match(if_match), retry_failed
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+
+
+@router.post('/legs/flight-lookups', response_model=FlightLookupResponse)
+def lookup_new_connection_flight(
+    trip_id: uuid.UUID,
+    payload: FlightLookupRequest,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+):
+    try:
+        return itinerary_service.lookup_flights(
+            trip_id, None, payload, user.id, _parse_if_match(if_match)
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+
+
 @router.post('/legs/{leg_id}/preview', response_model=PreviewResponse)
 def preview_leg(
     trip_id: uuid.UUID,

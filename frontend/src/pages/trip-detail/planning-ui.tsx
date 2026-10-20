@@ -1,28 +1,25 @@
 import { resolveConnectionEndpoint, type ConnectionAnchor } from './connection-endpoints'
-import { EndpointPicker, TravelLegEditDialog } from './travel-leg-editor'
+import { TravelLegEditDialog } from './travel-leg-editor'
+import { ConnectionLocationPicker } from './connection-location-picker'
 import {
   ArrowLeft,
-  Check,
   Clock,
   Minus,
-  MousePointer2,
   Navigation,
   PenLine,
   Plus,
-  Search,
   Trash2,
-  type LucideIcon,
 } from 'lucide-react'
 import {
   Fragment,
   useContext,
   useEffect,
+  useEffectEvent,
   useState,
   type SyntheticEvent,
 } from 'react'
 
 import type { Place } from '@/api/client'
-import { PlaceSearchDropdown } from '@/components/places/place-search-dropdown'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DatePicker } from '@/components/ui/date-time-picker'
@@ -43,11 +40,9 @@ import {
   createFirstStopInsertionPoint,
   createStopEditDraft,
   createStopInsertionPointAfterStop,
-  formatCoordinates,
   formatDistance,
   formatDuration,
   formatNights,
-  formatPlaceDetail,
   formatStopDateLabel,
   getNightsBetweenDates,
   getPlaceCoordinates,
@@ -59,68 +54,12 @@ import {
   getTravelModeIcon,
 } from '@/pages/trip-detail/planning-utils'
 import { getTravelModeLabel } from '@/pages/trip-detail/shared-utils'
-import { usePlaceSearch } from '@/hooks/use-place-search'
 import { PlanningSessionContext } from './planning-session'
-
-export function LocationOptionCard({
-  active,
-  detail,
-  icon: Icon,
-  label,
-  onClick,
-  source,
-}: {
-  active: boolean
-  detail: string
-  icon: LucideIcon
-  label: string
-  onClick: () => void
-  source: string
-}) {
-  return (
-    <button
-      aria-pressed={active}
-      className={cn(
-        'flex w-full items-center gap-3 rounded-[1.25rem] border p-3 text-left transition-colors',
-        active
-          ? 'border-primary bg-card shadow-sm ring-2 ring-primary/12'
-          : 'border-border bg-card/75 hover:bg-card',
-      )}
-      onClick={onClick}
-      type="button"
-    >
-      <span
-        className={cn(
-          'grid size-10 shrink-0 place-items-center rounded-2xl',
-          active ? 'bg-primary text-primary-foreground' : 'bg-muted text-primary',
-        )}
-      >
-        <Icon className="size-4" aria-hidden="true" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-xs font-semibold uppercase text-muted-foreground">
-          {source}
-        </span>
-        <span className="mt-0.5 block truncate font-semibold text-foreground">
-          {label}
-        </span>
-        <span className="mt-0.5 block truncate text-sm text-muted-foreground">
-          {detail}
-        </span>
-      </span>
-      <span
-        className={cn(
-          'grid size-7 shrink-0 place-items-center rounded-full border transition-colors',
-          active
-            ? 'border-primary bg-primary text-primary-foreground'
-            : 'border-border bg-card text-transparent',
-        )}
-      >
-        <Check className="size-4" aria-hidden="true" />
-      </span>
-    </button>
-  )
-}
+import { createOuterConnectionDraft, type ConnectionLocation, type OuterConnectionSide } from './outer-connection'
+import { connectionWritePayload } from './planning-utils'
+import { useMediaQuery } from './use-media-query'
+import { PlaceLocationPicker } from './place-location-picker'
+export { LocationOptionCard } from './place-location-picker'
 
 export function PlanningPanel({
   canMutate,
@@ -155,15 +94,50 @@ export function PlanningPanel({
 }) {
   const [editingStopId, setEditingStopId] = useState<string | null>(null)
   const [editingLegId, setEditingLegId] = useState<string | null>(null)
-  const { airportTransferRequest } = useContext(PlanningSessionContext)
+  const { airportTransferRequest, connectionMap } = useContext(PlanningSessionContext)
+  const desktop = useMediaQuery('(min-width: 1024px)')
+  const [outerEditor, setOuterEditor] = useState<{
+    side: OuterConnectionSide; leg: TravelLeg; creating: boolean; location: ConnectionLocation | null
+  } | null>(null)
+  function closeConnectionEditor() {
+    setEditingLegId(null)
+    setOuterEditor(null)
+    connectionMap?.stop()
+  }
+  function openOuterEditor(side: OuterConnectionSide) {
+    const leg = travelLegs.find((item) => item.connection_type === side)
+    const endpoint = leg?.[side === 'DEPARTURE' ? 'from' : 'to']
+    const location = endpoint?.type === 'LOCATION' ? {
+      input: { latitude: endpoint.location.latitude, longitude: endpoint.location.longitude },
+      anchor: { title: endpoint.location.name, location: endpoint.location },
+    } : null
+    connectionMap?.stop()
+    setEditingLegId(leg?.id ?? null)
+    setOuterEditor({ side, leg: leg ?? createOuterConnectionDraft(side, side === 'DEPARTURE' ? stops[0] : stops[stops.length - 1]), creating: !leg, location })
+  }
+  function editConnection(id: string) {
+    const leg = travelLegs.find((item) => item.id === id)
+    if (leg?.connection_type === 'DEPARTURE' || leg?.connection_type === 'RETURN') openOuterEditor(leg.connection_type)
+    else { connectionMap?.stop(); setOuterEditor(null); setEditingLegId(id) }
+  }
+  useEffect(() => {
+    if (outerEditor && (outerEditor.creating
+      ? travelLegs.some((leg) => leg.connection_type === outerEditor.side)
+      : !travelLegs.some((leg) => leg.id === outerEditor.leg.id))) {
+      setOuterEditor(null)
+      setEditingLegId(null)
+      connectionMap?.stop()
+    }
+  }, [travelLegs, outerEditor, connectionMap])
+  const openRequestedConnection = useEffectEvent(editConnection)
   useEffect(() => {
     if (canMutate && airportTransferRequest) {
-      setEditingLegId(airportTransferRequest.legId)
+      openRequestedConnection(airportTransferRequest.legId)
     }
   }, [airportTransferRequest, canMutate])
   const addStopDisabled = !canMutate || isMutating
   const editingStop = stops.find((stop) => stop.id === editingStopId) ?? null
-  const editingLeg = travelLegs.find((leg) => leg.id === editingLegId) ?? null
+  const editingLeg = travelLegs.find((leg) => leg.id === editingLegId) ?? outerEditor?.leg ?? null
   const editingLegFromStop =
     editingLeg
       ? stops.find((stop) => editingLeg.from.type === 'STOP' && stop.id === editingLeg.from.stop_id) ?? null
@@ -175,6 +149,22 @@ export function PlanningPanel({
 
   return (
     <div className="min-w-0 space-y-5 p-4">
+      {outerEditor && desktop ? <>
+        <div className="flex items-start gap-3">
+          <Button aria-label="Back to stops" title="Back to stops" disabled={isMutating} onClick={closeConnectionEditor} size="icon" type="button" variant="outline">
+            <ArrowLeft className="size-4" aria-hidden="true" />
+          </Button>
+          <div>
+            <h2 className="text-base font-semibold text-foreground">{outerEditor.creating ? 'New ' : 'Edit '}{outerEditor.side === 'DEPARTURE' ? 'departure' : 'return'}</h2>
+            <p className="text-sm text-muted-foreground">{outerEditor.side === 'DEPARTURE' ? 'Choose a starting place for travel to ' + stops[0].title + '.' : 'Choose a destination after ' + stops[stops.length - 1].title + '.'}</p>
+          </div>
+        </div>
+        <ConnectionLocationPicker key={outerEditor.side + outerEditor.leg.id}
+          label={outerEditor.side === 'DEPARTURE' ? 'Departure location' : 'Return location'}
+          value={outerEditor.location} disabled={isMutating}
+          onChange={(location) => setOuterEditor((editor) => editor ? { ...editor, location } : null)} />
+        <Button variant="outline" disabled={isMutating} onClick={closeConnectionEditor} type="button">Cancel</Button>
+      </> : <>
       <div>
         <h2 className="text-base font-semibold text-foreground">Planning</h2>
         <p className="text-sm text-muted-foreground">
@@ -194,7 +184,7 @@ export function PlanningPanel({
         ) : null}
 
         {stops.length > 0 ? <OuterConnectionControl side="DEPARTURE" stops={stops} travelLegs={travelLegs}
-          disabled={addStopDisabled} canMutate={canMutate} onCreate={onConnectionCreate} onDelete={onConnectionDelete} onEdit={setEditingLegId} /> : null}
+          disabled={addStopDisabled} canMutate={canMutate} onEdit={() => openOuterEditor('DEPARTURE')} /> : null}
         {stops.map((stop, index) => {
           const nextStop = stops[index + 1]
           const leg = nextStop
@@ -220,7 +210,7 @@ export function PlanningPanel({
                   fromStop={stop}
                   leg={leg}
                   disabled={!canMutate || isMutating}
-                  onEdit={setEditingLegId}
+                  onEdit={editConnection}
                   toStop={nextStop}
                 />
               ) : null}
@@ -233,12 +223,13 @@ export function PlanningPanel({
           )
         })}
         {stops.length > 0 ? <OuterConnectionControl side="RETURN" stops={stops} travelLegs={travelLegs}
-          disabled={addStopDisabled} canMutate={canMutate} onCreate={onConnectionCreate} onDelete={onConnectionDelete} onEdit={setEditingLegId} /> : null}
+          disabled={addStopDisabled} canMutate={canMutate} onEdit={() => openOuterEditor('RETURN')} /> : null}
       </div>
 
       {travelLegs.some((leg) => leg.segments.some((segment) => segment.lookup)) ? (
         <p className="text-xs text-muted-foreground">Flight information from <a href="https://aerodatabox.com/" target="_blank" rel="noopener" className="underline">AeroDataBox</a>.</p>
       ) : null}
+      </>}
       <StopEditDialog
         onClose={() => setEditingStopId(null)}
         onSave={onStopSave}
@@ -249,9 +240,13 @@ export function PlanningPanel({
       <TravelLegEditDialog
         fromStop={editingLegFromStop}
         leg={editingLeg}
-        onClose={() => setEditingLegId(null)}
+        onClose={closeConnectionEditor}
         onRefreshRoute={onRefreshTravelLegRoute}
-        onSave={onTravelLegSave}
+        onSave={(id, draft) => outerEditor?.creating ? onConnectionCreate(connectionWritePayload(draft)) : onTravelLegSave(id, draft)}
+        creating={outerEditor?.creating}
+        outsideLocation={outerEditor?.location}
+        onOutsideLocationChange={outerEditor ? (location) => setOuterEditor((editor) => editor ? { ...editor, location } : null) : undefined}
+        onDelete={outerEditor && !outerEditor.creating ? () => onConnectionDelete(outerEditor.leg.id) : undefined}
         open={Boolean(editingLeg)}
         pendingAction={pendingAction}
         saving={isMutating}
@@ -261,38 +256,21 @@ export function PlanningPanel({
   )
 }
 
-function OuterConnectionControl({ side, stops, travelLegs, disabled, canMutate, onCreate, onDelete, onEdit }: {
-  side: 'DEPARTURE' | 'RETURN'; stops: readonly Stop[]; travelLegs: readonly TravelLeg[]
-  disabled: boolean; canMutate: boolean
-  onCreate: (payload: import('@/api/client').ItineraryTravelReplacePayload) => void
-  onDelete: (id: string) => void; onEdit: (id: string) => void
+function OuterConnectionControl({ side, stops, travelLegs, disabled, canMutate, onEdit }: {
+  side: OuterConnectionSide; stops: readonly Stop[]; travelLegs: readonly TravelLeg[]
+  disabled: boolean; canMutate: boolean; onEdit: () => void
 }) {
-  const [location, setLocation] = useState<{ place_id: string } | { latitude: number; longitude: number } | null>(null)
-  const [adding, setAdding] = useState(false)
   const leg = travelLegs.find((item) => item.connection_type === side)
   const label = side === 'DEPARTURE' ? 'departure' : 'return'
-  if (leg) {
-    const from = resolveConnectionEndpoint(leg.from, stops)
-    const to = resolveConnectionEndpoint(leg.to, stops)
-    return from && to ? <div className="space-y-1" aria-label={label + ' connection'}>
-      <p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p>
+  if (!canMutate && !leg) return null
+  const from = leg ? resolveConnectionEndpoint(leg.from, stops) : null
+  const to = leg ? resolveConnectionEndpoint(leg.to, stops) : null
+  return <div className="space-y-2" aria-label={leg ? label + ' connection' : undefined}>
+    {leg && from && to ? <>
+      <p className="pl-[4.25rem] text-xs font-semibold uppercase text-muted-foreground">{label}</p>
       <TravelLegCard disabled={disabled} fromStop={from} toStop={to} leg={leg} onEdit={onEdit} />
-      {canMutate ? <Button variant="ghost" disabled={disabled} onClick={() => onDelete(leg.id)}>Remove {label} connection</Button> : null}
-    </div> : null
-  }
-  if (!canMutate) return null
-  return <div className="space-y-2 rounded-xl border border-dashed border-border p-3">
-    {adding ? <>
-      <EndpointPicker label={label === 'departure' ? 'Departure location' : 'Return location'} value={location} disabled={disabled}
-        onChange={(value) => { if (!value || !('location_id' in value)) setLocation(value) }} />
-      <Button disabled={disabled || !location} onClick={() => {
-        if (!location) return
-        const stop = { type: 'STOP' as const, stop_id: side === 'DEPARTURE' ? stops[0].id : stops[stops.length - 1].id }
-        const outside = { type: 'LOCATION' as const, location }
-        onCreate(side === 'DEPARTURE' ? { from: outside, to: stop, notes: '' } : { from: stop, to: outside, notes: '' })
-      }}>Save {label} connection</Button>
-      <Button variant="ghost" disabled={disabled} onClick={() => setAdding(false)}>Cancel</Button>
-    </> : <Button variant="outline" disabled={disabled} onClick={() => setAdding(true)}>Add {label} connection</Button>}
+    </> : <StopInsertButton disabled={disabled} label={'Add ' + label} onClick={onEdit} />}
+
   </div>
 }
 
@@ -361,10 +339,6 @@ export function CreateStopPanel({
   const [placeResultsOpen, setPlaceResultsOpen] = useState(false)
   const [stopTitle, setStopTitle] = useState('')
   const [stopTitleEdited, setStopTitleEdited] = useState(false)
-  const placeSearch = usePlaceSearch(
-    searchValue,
-    locationSource === 'search' && !isSubmitting,
-  )
   const selectedSearchCoordinates = selectedSearchPlace
     ? getPlaceCoordinates(selectedSearchPlace)
     : null
@@ -485,72 +459,11 @@ export function CreateStopPanel({
         </div>
       </div>
 
-      <section className="space-y-3 rounded-[1.5rem] border border-border bg-muted/70 p-4">
-        <label className="grid gap-2 text-sm font-medium text-foreground">
-          Search places
-          <span className="relative">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <Input
-              className="pl-9"
-              disabled={isSubmitting}
-              onChange={(event) => {
-                handleSearchValueChange(event.target.value)
-              }}
-              onFocus={() => setPlaceResultsOpen(true)}
-              placeholder="Search places"
-              value={searchValue}
-            />
-          </span>
-        </label>
-        <PlaceSearchDropdown
-          disabled={isSubmitting}
-          error={placeSearch.error}
-          onSelect={handlePlaceSelect}
-          open={
-            locationSource === 'search' &&
-            placeResultsOpen &&
-            !selectedSearchPlace
-          }
-          places={placeSearch.places}
-          query={searchValue}
-          status={placeSearch.status}
-        />
-
-        <LocationOptionCard
-          active={locationSource === 'search' && !mapPointActive}
-          detail={
-            selectedSearchPlace
-              ? formatPlaceDetail(selectedSearchPlace)
-              : 'Select a place from the geocode results.'
-          }
-          icon={Search}
-          label={selectedSearchLabel || 'Search for a place'}
-          onClick={selectSearchLocation}
-          source="Searched place"
-        />
-
-        <LocationOptionCard
-          active={locationSource === 'map' && mapPointActive}
-          detail={
-            locationSource === 'map' && mapPointActive && draftLocation
-              ? `Map point · ${formatCoordinates(draftLocation.coordinates)}`
-              : locationSource === 'map' && mapPointActive
-                ? 'Click on the map to place this stop.'
-                : 'Map placement disabled'
-          }
-          icon={MousePointer2}
-          label={draftLocation?.label ?? 'Map point'}
-          onClick={selectMapLocation}
-          source={
-            locationSource === 'map' && mapPointActive
-              ? 'Active map source'
-              : 'Exact point'
-          }
-        />
-      </section>
+      <PlaceLocationPicker disabled={isSubmitting} searchValue={searchValue} selectedPlace={selectedSearchPlace}
+        resultsOpen={placeResultsOpen} source={locationSource} mapActive={mapPointActive} mapLocation={draftLocation}
+        onSearchChange={handleSearchValueChange} onSearchFocus={() => setPlaceResultsOpen(true)}
+        onSelectPlace={handlePlaceSelect} onSelectSearch={selectSearchLocation} onSelectMap={selectMapLocation}
+        selectedSearchLabel={selectedSearchLabel} mapInstruction="Click on the map to place this stop." />
 
       <section className="space-y-3 rounded-[1.5rem] border border-border bg-card p-4">
         <div>
@@ -797,7 +710,9 @@ function TravelLegCard({
   leg,
   onEdit,
   toStop,
+  active = false,
 }: {
+  active?: boolean
   disabled: boolean
   fromStop: ConnectionAnchor
   leg: TravelLeg
@@ -831,7 +746,8 @@ function TravelLegCard({
 
       <section className="min-w-0">
         <button
-          className="flex min-h-10 w-full items-center gap-2 rounded-[1.1rem] border border-border bg-card/85 px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-muted"
+          aria-pressed={active}
+          className={cn("flex min-h-10 w-full items-center gap-2 rounded-[1.1rem] border border-border bg-card/85 px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-muted", active && "border-primary bg-primary/5")}
           disabled={disabled}
           onClick={() => onEdit(leg.id)}
           type="button"

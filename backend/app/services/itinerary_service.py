@@ -486,21 +486,36 @@ class ItineraryService:
         trip, _ = self._require_manage_trip_locked(
             trip_id, current_user_id, expected_revision
         )
-        if payload.preview_id or any(
-            s.id or (s.flight and s.flight.candidate_id)
-            for s in (payload.segments or [])
-        ):
-            raise HTTPException(
-                422, 'New connections cannot reuse segments, candidates or previews'
+        draft = self._new_connection_draft(trip_id, payload, current_user_id)
+        # Validate draft artifacts against the actor, trip, inputs and revision
+        # before assigning them to the newly persisted connection.
+        artifacts = []
+        for segment in payload.segments or []:
+            if segment.flight and segment.flight.candidate_id:
+                artifacts.append(
+                    self.route_service.artifact(
+                        segment.flight.candidate_id,
+                        'FLIGHT_CANDIDATE',
+                        draft,
+                        current_user_id,
+                    )
+                )
+        self.route_service.build(draft, payload, current_user_id)
+        if payload.preview_id:
+            artifacts.append(
+                self.route_service.artifact(
+                    payload.preview_id,
+                    'PREVIEW',
+                    draft,
+                    current_user_id,
+                    expected_revision,
+                    self.route_service.binding(draft, payload),
+                )
             )
         leg = ItineraryTravelLeg(
             id=uuid.uuid4(), trip_id=trip_id, notes='', segments=[]
         )
-        draft = self._connection_draft(leg, payload, current_user_id, creating=True)
-        existing = self._load_legs_by_pair(trip_id)
         pair = (draft.from_stop_id, draft.to_stop_id)
-        if pair in existing:
-            raise HTTPException(409, {'code': 'CONNECTION_ALREADY_EXISTS'})
         leg.from_stop_id, leg.to_stop_id = pair
         for side, endpoint in (('from', payload.from_), ('to', payload.to)):
             if endpoint.type == 'LOCATION':
@@ -512,12 +527,38 @@ class ItineraryService:
                 setattr(leg, f'{side}_location_id', location.id)
         self.db.add(leg)
         self.db.flush()
+        for artifact in artifacts:
+            artifact.leg_id = leg.id
         self._editing_user_id = current_user_id
         self._replace_travel(leg=leg, payload=payload)
         self._increment_revision(trip)
         self.db.commit()
         return ItineraryTravelLegDetail(
             self._get_leg_or_raise(trip_id, leg.id), trip.itinerary_revision
+        )
+
+    def _new_connection_draft(self, trip_id, payload, actor):
+        from models.database.base import utcnow
+
+        leg = SimpleNamespace(
+            id=uuid.UUID(int=0),
+            trip_id=trip_id,
+            notes='',
+            segments=[],
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        draft = self._connection_draft(leg, payload, actor, creating=True)
+        if (draft.from_stop_id, draft.to_stop_id) in self._load_legs_by_pair(trip_id):
+            raise HTTPException(409, {'code': 'CONNECTION_ALREADY_EXISTS'})
+        draft.artifact_leg_id = None
+        return draft
+
+    def _planning_connection(self, trip_id, leg_id, payload, actor):
+        if leg_id is None:
+            return self._new_connection_draft(trip_id, payload, actor)
+        return self._connection_draft(
+            self._get_leg_or_raise(trip_id, leg_id), payload, actor
         )
 
     def delete_travel_leg(self, trip_id, leg_id, current_user_id, expected_revision):
@@ -562,8 +603,7 @@ class ItineraryService:
         from services.planning_service import calculation_gate
 
         self._require_manage_trip_locked(trip_id, actor, revision)
-        leg = self._get_leg_or_raise(trip_id, leg_id)
-        leg = self._connection_draft(leg, payload, actor)
+        leg = self._planning_connection(trip_id, leg_id, payload, actor)
         segments = self.route_service.build(leg, payload, actor)
         binding = self.route_service.binding(leg, payload)
         # Do not spend credits again for the same completed, unexpired preview.
@@ -609,8 +649,7 @@ class ItineraryService:
         finally:
             calculation_gate.leave(actor, trip_id)
         self._require_manage_trip_locked(trip_id, actor, revision)
-        leg = self._get_leg_or_raise(trip_id, leg_id)
-        leg = self._connection_draft(leg, payload, actor)
+        leg = self._planning_connection(trip_id, leg_id, payload, actor)
         current_segments = self.route_service.build(leg, payload, actor)
         if self.route_service.binding(leg, payload) != binding or [
             segment.input_hash for segment in current_segments
@@ -691,7 +730,11 @@ class ItineraryService:
         from services.planning_service import calculation_gate, fingerprint
 
         self._require_manage_trip_locked(trip_id, actor, revision)
-        leg = self._get_leg_or_raise(trip_id, leg_id)
+        leg = (
+            self._get_leg_or_raise(trip_id, leg_id)
+            if leg_id is not None
+            else SimpleNamespace(id=None, trip_id=trip_id)
+        )
         cached = self.route_service.flight_lookup(leg, actor, payload)
         if cached:
             return cached
@@ -711,7 +754,8 @@ class ItineraryService:
             calculation_gate.leave(actor, trip_id)
         # Candidates survive unrelated revisions, but never removal of access/leg.
         self._require_manage_trip_locked_without_revision(trip_id, actor)
-        self._get_leg_or_raise(trip_id, leg_id)
+        if leg_id is not None:
+            self._get_leg_or_raise(trip_id, leg_id)
         if not matches:
             return FlightLookupResponse(status='NOT_FOUND')
         candidates, expiry = [], None

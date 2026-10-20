@@ -35,7 +35,7 @@ export function createDraftMapPointLocation(
 ): DraftPostLocation {
   return {
     coordinates,
-    label: target === 'stop' ? 'Selected stop location' : 'Selected post location',
+    label: target === 'stop' ? 'Selected stop location' : target === 'connection' ? 'Selected connection location' : 'Selected post location',
   }
 }
 

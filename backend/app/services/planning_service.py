@@ -301,7 +301,7 @@ class PlanningService:
             row is None
             or row.kind != kind
             or row.trip_id != leg.trip_id
-            or row.leg_id != leg.id
+            or row.leg_id != getattr(leg, 'artifact_leg_id', leg.id)
             or row.created_by_user_id != actor
             or row.expires_at <= utcnow()
             or (revision is not None and row.itinerary_revision != revision)
@@ -939,7 +939,8 @@ class PlanningService:
                 select(ItineraryPlanningArtifact).where(
                     ItineraryPlanningArtifact.kind == 'FLIGHT_CANDIDATE',
                     ItineraryPlanningArtifact.trip_id == leg.trip_id,
-                    ItineraryPlanningArtifact.leg_id == leg.id,
+                    ItineraryPlanningArtifact.leg_id
+                    == getattr(leg, 'artifact_leg_id', leg.id),
                     ItineraryPlanningArtifact.created_by_user_id == actor,
                     ItineraryPlanningArtifact.input_hash == binding,
                     ItineraryPlanningArtifact.expires_at > utcnow(),

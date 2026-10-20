@@ -72,12 +72,13 @@ test('one-stop departure flight and independent return render, edit, and confirm
   await expect(page.getByLabel('Departure location', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Select this route' }).click()
   await expect(page.getByRole('heading', { name: 'Select your route' })).toHaveCount(0)
+  await returnCard.getByRole('button').click()
   page.once('dialog', dialog => dialog.dismiss())
   await Promise.all([
     page.waitForResponse(response => response.url().endsWith(`/trips/${tripId}/itinerary`) && response.request().method() === 'GET'),
     page.getByRole('button', { name: 'Remove return connection', exact: true }).click(),
   ])
-  await expect(returnCard).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Edit return', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Remove return connection', exact: true })).toBeEnabled()
   page.once('dialog', async dialog => { expect(dialog.message()).toContain('Brussels home'); await dialog.accept() })
   await page.getByRole('button', { name: 'Remove return connection', exact: true }).click()
@@ -89,7 +90,7 @@ test('one-stop departure flight and independent return render, edit, and confirm
   await expect(page.getByRole('button', { name: 'Add departure connection', exact: true })).toHaveCount(0)
 })
 
-test('saves a selected outside location before opening the connection editor', async ({ page }) => {
+test('opens departure travel immediately and saves location and transport together', async ({ page }) => {
   await seedBrowserAuth(page)
   const release = await mockTripApi(page, 'OWNER')
   release()
@@ -97,17 +98,22 @@ test('saves a selected outside location before opening the connection editor', a
   const itinerary = createItinerary() as Itinerary
   await page.route(`**/api/v1/trips/${tripId}/itinerary/legs`, async route => {
     const payload = route.request().postDataJSON()
-    expect(payload).toEqual({ from: { type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } }, to: { type: 'STOP', stop_id: firstStopId }, notes: '' })
+    expect(payload).toMatchObject({ from: { type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } }, to: { type: 'STOP', stop_id: firstStopId }, notes: '', segments: [{ travel_mode: 'CAR' }] })
     await route.fulfill({ status: 201, headers: { ETag: '"2"' }, json: {
       ...itinerary.legs[0], id: 'saved-departure', connection_type: 'DEPARTURE',
       from: { type: 'LOCATION', location: createLocation('outside-a', 'London', 51.5, -0.1) }, to: payload.to,
     } })
   })
   await page.goto(`/trips/${tripId}`)
-  await page.getByRole('button', { name: 'Add departure connection', exact: true }).click()
-  await page.getByLabel('Departure location', { exact: true }).fill('51.5, -0.1')
+  await page.getByRole('button', { name: 'Add departure', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Select your route', exact: true })
+  await expect(panel).toBeVisible()
+  await expect(panel.getByRole('radio', { name: 'Train', exact: true })).toBeDisabled()
+  await expect(panel.getByRole('button', { name: 'Add departure', exact: true })).toBeDisabled()
+  await page.getByRole('textbox', { name: 'Search places', exact: true }).fill('51.5, -0.1')
   await page.getByRole('button', { name: 'Use coordinates', exact: true }).click()
-  await page.getByRole('button', { name: 'Save departure connection', exact: true }).click()
+  await expect(panel.getByRole('radio', { name: 'Train', exact: true })).toBeEnabled()
+  await panel.getByRole('button', { name: 'Add departure', exact: true }).click()
   await expect(page.getByLabel('departure connection', { exact: true })).toContainText('London to Amsterdam')
   await expect(page.locator('.trip-map-connection-endpoint')).toBeInViewport()
   await expect(page.getByRole('heading', { name: 'Select your route' })).toHaveCount(0)

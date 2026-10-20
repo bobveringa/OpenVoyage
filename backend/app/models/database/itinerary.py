@@ -387,7 +387,7 @@ class ItineraryPlanningArtifact(Base):
     trip_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey('trips.id', ondelete='CASCADE')
     )
-    leg_id: Mapped[uuid.UUID]
+    leg_id: Mapped[uuid.UUID | None]
     created_by_user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey('users.id', ondelete='CASCADE')
     )

@@ -7,7 +7,7 @@ import type {
   TripVisibility,
 } from './models'
 
-export type MapPointTarget = 'post' | 'stop'
+export type MapPointTarget = 'post' | 'stop' | 'connection'
 
 export type DraftMediaUploadStatus =
   | 'existing'
