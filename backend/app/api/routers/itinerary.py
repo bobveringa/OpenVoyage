@@ -2,7 +2,7 @@ import re
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, Header, HTTPException, Request, Response
 from starlette import status
 
 from models.api.planning import FlightLookupRequest, FlightLookupResponse
@@ -243,6 +243,67 @@ def delete_stop(
     )
 
 
+@router.post(
+    '/legs',
+    status_code=status.HTTP_201_CREATED,
+    response_model=ItineraryTravelLegResponse,
+)
+def create_leg(
+    trip_id: uuid.UUID,
+    payload: ItineraryTravelReplaceRequest,
+    response: Response,
+    request: Request,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+):
+    try:
+        detail = itinerary_service.create_travel_leg(
+            trip_id,
+            payload,
+            user.id,
+            _parse_if_match(if_match),
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+    response.headers['ETag'] = _etag(detail.itinerary_revision)
+    response.headers['Location'] = f'{request.url.path}/{detail.leg.id}'
+    return ItineraryTravelLegResponse.from_model(
+        detail.leg,
+        route=itinerary_service.route_service.resolve_route_response(detail.leg),
+    )
+
+
+@router.delete('/legs/{leg_id}', response_model=ItineraryResponse)
+def delete_leg(
+    trip_id: uuid.UUID,
+    leg_id: uuid.UUID,
+    response: Response,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+    confirm_travel_deletion: bool = False,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+):
+    itinerary_service.confirm_travel_deletion = confirm_travel_deletion
+    try:
+        snapshot = itinerary_service.delete_travel_leg(
+            trip_id,
+            leg_id,
+            user.id,
+            _parse_if_match(if_match),
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+    response.headers['ETag'] = _etag(snapshot.itinerary_revision)
+    return ItineraryResponse.from_parts(
+        trip_id=snapshot.trip_id,
+        itinerary_revision=snapshot.itinerary_revision,
+        stops=snapshot.stops,
+        legs=snapshot.legs,
+        route_resolver=itinerary_service.route_service.resolve_route_response,
+    )
+
+
 @router.get(
     '/legs/{leg_id}',
     response_model=ItineraryTravelLegResponse,
@@ -333,21 +394,35 @@ def refresh_leg_route(
 
 
 @router.post('/legs/{leg_id}/preview', response_model=PreviewResponse)
-def preview_leg(trip_id: uuid.UUID, leg_id: uuid.UUID, payload: ItineraryTravelReplaceRequest,
-                itinerary_service: ItineraryServiceDep, user: CurrentUser,
-                retry_failed: bool = False,
-                if_match: Annotated[str | None, Header(alias='If-Match')] = None):
+def preview_leg(
+    trip_id: uuid.UUID,
+    leg_id: uuid.UUID,
+    payload: ItineraryTravelReplaceRequest,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+    retry_failed: bool = False,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+):
     try:
-        return itinerary_service.preview_travel(trip_id, leg_id, payload, user.id, _parse_if_match(if_match), retry_failed)
+        return itinerary_service.preview_travel(
+            trip_id, leg_id, payload, user.id, _parse_if_match(if_match), retry_failed
+        )
     except Exception as exc:
         _raise_http_error(exc)
 
 
 @router.post('/legs/{leg_id}/flight-lookups', response_model=FlightLookupResponse)
-def lookup_flight(trip_id: uuid.UUID, leg_id: uuid.UUID, payload: FlightLookupRequest,
-                  itinerary_service: ItineraryServiceDep, user: CurrentUser,
-                  if_match: Annotated[str | None, Header(alias='If-Match')] = None):
+def lookup_flight(
+    trip_id: uuid.UUID,
+    leg_id: uuid.UUID,
+    payload: FlightLookupRequest,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+):
     try:
-        return itinerary_service.lookup_flights(trip_id, leg_id, payload, user.id, _parse_if_match(if_match))
+        return itinerary_service.lookup_flights(
+            trip_id, leg_id, payload, user.id, _parse_if_match(if_match)
+        )
     except Exception as exc:
         _raise_http_error(exc)

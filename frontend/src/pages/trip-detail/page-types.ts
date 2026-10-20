@@ -66,7 +66,11 @@ export type StopEditDraft = {
   title: string
 }
 
-export type TravelLegEditDraft = import('@/api/client').ItineraryTravelReplacePayload
+export type TravelLegEditDraft = Omit<import('@/api/client').ItineraryTravelReplacePayload, 'segments' | 'from' | 'to'> & {
+  segments: import('@/api/client').PlanningSegment[]
+  from?: import('@/api/client').ItineraryTravelReplacePayload['from']
+  to?: import('@/api/client').ItineraryTravelReplacePayload['to']
+}
 
 export type PostSubmitDraft = {
   bubbleMediaId: string | null

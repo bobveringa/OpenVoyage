@@ -217,3 +217,51 @@ def test_calculation_deadline_does_not_dispatch_remaining_segments(monkeypatch):
     service.calculate(segments)
     assert service._calculate_one.call_count == 2
     assert segments[-1].result is None
+
+
+@pytest.mark.parametrize(
+    'kind,departure_warning,arrival_warning',
+    [
+        ('DEPARTURE', False, True),
+        ('RETURN', True, False),
+        ('BETWEEN_STOPS', True, True),
+    ],
+)
+def test_flight_dates_only_compare_real_stop_sides(
+    kind, departure_warning, arrival_warning
+):
+    import uuid
+    from unittest.mock import Mock
+    from models.api.planning import FlightLookup, SegmentIntent
+    from services.planning_service import PlanningService, ResolvedSegment
+
+    point = Endpoint(latitude=52, longitude=5)
+    lookup = FlightLookup(
+        flight_number='KL597',
+        departure_date='2026-11-18',
+        fetched_at='2026-11-17T12:00:00Z',
+        departure_airport=point,
+        arrival_airport=point,
+        scheduled_departure='2026-11-18T10:00:00+01:00',
+        scheduled_arrival='2026-11-18T14:00:00+02:00',
+    )
+    stop = SimpleNamespace(planned_start_date=date(2026, 11, 17), planned_nights=3)
+    leg = SimpleNamespace(
+        from_stop=None if kind == 'DEPARTURE' else stop,
+        to_stop=None if kind == 'RETURN' else stop,
+    )
+    segment = ResolvedSegment(
+        SegmentIntent(travel_mode='FLIGHT', flight={'departure_date': '2026-11-18'}),
+        uuid.uuid4(),
+        'USER',
+        1,
+        point,
+        point,
+        None,
+        lookup,
+        uuid.uuid4(),
+        None,
+    )
+    warnings = PlanningService(Mock(), Mock()).connection(leg, [segment])['warnings']
+    assert any('preceding stop' in warning for warning in warnings) == departure_warning
+    assert any('destination stop' in warning for warning in warnings) == arrival_warning

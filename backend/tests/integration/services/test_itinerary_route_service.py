@@ -20,6 +20,10 @@ from services.app_settings_service import AppSettingsService
 from services.planning_service import calculation_gate
 
 
+def connection_write(leg, travel):
+    return {'from': leg['from'], 'to': leg['to'], **travel}
+
+
 def headers(user, revision=None):
     token = security.create_auth_tokens(subject=user.id, email=user.email)[
         'access_token'
@@ -104,7 +108,9 @@ def test_defaults_and_saves_never_call_providers(client, plan, monkeypatch):
     assert leg['segments'][0]['intent']['travel_mode'] == 'CAR'
     assert leg['segments'][0]['mode_source'] == 'AUTO'
     payload = {'notes': 'Remember luggage', 'segments': [leg['segments'][0]['intent']]}
-    response = client.put(endpoint, headers=headers(user, revision), json=payload)
+    response = client.put(
+        endpoint, headers=headers(user, revision), json=connection_write(leg, payload)
+    )
     assert response.status_code == 200, response.text
     assert response.json()['segments'][0]['mode_source'] == 'AUTO'
     assert client.get(base, headers=headers(user)).status_code == 200
@@ -112,7 +118,7 @@ def test_defaults_and_saves_never_call_providers(client, plan, monkeypatch):
 
 
 def test_no_flight_key_keeps_draft_editable(client, plan, monkeypatch):
-    user, _, _, endpoint, revision, _, _ = plan
+    user, _, _, endpoint, revision, leg, _ = plan
     monkeypatch.setattr(
         'services.flight_provider.urlopen',
         lambda *_a, **_k: pytest.fail('Network without key'),
@@ -127,17 +133,20 @@ def test_no_flight_key_keeps_draft_editable(client, plan, monkeypatch):
     save = client.put(
         endpoint,
         headers=headers(user, revision),
-        json={
-            'segments': [
-                {
-                    'travel_mode': 'FLIGHT',
-                    'flight': {
-                        'flight_number': 'KL597',
-                        'departure_date': '2026-11-18',
-                    },
-                }
-            ]
-        },
+        json=connection_write(
+            leg,
+            {
+                'segments': [
+                    {
+                        'travel_mode': 'FLIGHT',
+                        'flight': {
+                            'flight_number': 'KL597',
+                            'departure_date': '2026-11-18',
+                        },
+                    }
+                ]
+            },
+        ),
     )
     assert save.status_code == 200, save.text
     assert save.json()['duration_seconds'] is None
@@ -153,7 +162,9 @@ def test_preview_failure_is_adopted_without_retry(client, plan, db_session):
         ]
     }
     preview = client.post(
-        endpoint + '/preview', headers=headers(user, revision), json=payload
+        endpoint + '/preview',
+        headers=headers(user, revision),
+        json=connection_write(leg, payload),
     )
     assert preview.status_code == 200, preview.text
     assert preview.json()['connection']['segments'][0]['route_state'] == 'FAILED'
@@ -165,7 +176,9 @@ def test_preview_failure_is_adopted_without_retry(client, plan, db_session):
     save = client.put(
         endpoint,
         headers=headers(user, revision),
-        json=payload | {'preview_id': preview.json()['preview_id']},
+        json=connection_write(
+            leg, payload | {'preview_id': preview.json()['preview_id']}
+        ),
     )
     assert save.status_code == 200, save.text
     assert save.json()['segments'][0]['route_state'] == 'FAILED'
@@ -179,7 +192,9 @@ def test_explicit_same_mode_is_preserved_and_requires_deletion_confirmation(
     save = client.put(
         endpoint,
         headers=headers(user, revision),
-        json={'segments': [leg['segments'][0]['intent'] | {'mode_selected': True}]},
+        json=connection_write(
+            leg, {'segments': [leg['segments'][0]['intent'] | {'mode_selected': True}]}
+        ),
     )
     assert save.status_code == 200, save.text
     assert save.json()['segments'][0]['mode_source'] == 'USER'
@@ -218,24 +233,29 @@ def test_candidates_survive_notes_edits_and_do_not_leak_artifact_ids(
     notes = client.put(
         endpoint,
         headers=headers(user, revision),
-        json={'notes': 'Notes', 'segments': [leg['segments'][0]['intent']]},
+        json=connection_write(
+            leg, {'notes': 'Notes', 'segments': [leg['segments'][0]['intent']]}
+        ),
     )
     assert notes.status_code == 200, notes.text
     save = client.put(
         endpoint,
         headers=headers(user, notes.headers['etag']),
-        json={
-            'segments': [
-                {
-                    'travel_mode': 'FLIGHT',
-                    'flight': {
-                        'flight_number': 'KL597',
-                        'departure_date': '2026-11-18',
-                        'candidate_id': candidate,
-                    },
-                }
-            ]
-        },
+        json=connection_write(
+            leg,
+            {
+                'segments': [
+                    {
+                        'travel_mode': 'FLIGHT',
+                        'flight': {
+                            'flight_number': 'KL597',
+                            'departure_date': '2026-11-18',
+                            'candidate_id': candidate,
+                        },
+                    }
+                ]
+            },
+        ),
     )
     assert save.status_code == 200, save.text
     result = save.json()
@@ -254,7 +274,7 @@ def test_planning_actions_require_editor_and_revision(client, db_session, plan, 
     payload = (
         {'flight_number': 'KL597', 'departure_date': '2026-11-18'}
         if action == 'flight-lookups'
-        else {'segments': [leg['segments'][0]['intent']]}
+        else connection_write(leg, {'segments': [leg['segments'][0]['intent']]})
     )
     response = client.post(
         endpoint + '/' + action, headers=headers(viewer, revision), json=payload
@@ -269,7 +289,7 @@ def test_planning_actions_require_editor_and_revision(client, db_session, plan, 
 
 
 def test_candidate_is_bound_to_actor_and_inputs(client, db_session, plan, monkeypatch):
-    user, _, _, endpoint, revision, _, _ = plan
+    user, _, _, endpoint, revision, leg, _ = plan
     matched_lookup(monkeypatch)
     found = client.post(
         endpoint + '/flight-lookups',
@@ -280,18 +300,21 @@ def test_candidate_is_bound_to_actor_and_inputs(client, db_session, plan, monkey
     invalid = client.put(
         endpoint,
         headers=headers(user, revision),
-        json={
-            'segments': [
-                {
-                    'travel_mode': 'FLIGHT',
-                    'flight': {
-                        'flight_number': 'KL598',
-                        'departure_date': '2026-11-18',
-                        'candidate_id': candidate,
-                    },
-                }
-            ]
-        },
+        json=connection_write(
+            leg,
+            {
+                'segments': [
+                    {
+                        'travel_mode': 'FLIGHT',
+                        'flight': {
+                            'flight_number': 'KL598',
+                            'departure_date': '2026-11-18',
+                            'candidate_id': candidate,
+                        },
+                    }
+                ]
+            },
+        ),
     )
     assert invalid.status_code == 409, invalid.text
     artifact = db_session.get(ItineraryPlanningArtifact, uuid.UUID(candidate))
@@ -300,24 +323,27 @@ def test_candidate_is_bound_to_actor_and_inputs(client, db_session, plan, monkey
     expired = client.put(
         endpoint,
         headers=headers(user, revision),
-        json={
-            'segments': [
-                {
-                    'travel_mode': 'FLIGHT',
-                    'flight': {
-                        'flight_number': 'KL597',
-                        'departure_date': '2026-11-18',
-                        'candidate_id': candidate,
-                    },
-                }
-            ]
-        },
+        json=connection_write(
+            leg,
+            {
+                'segments': [
+                    {
+                        'travel_mode': 'FLIGHT',
+                        'flight': {
+                            'flight_number': 'KL597',
+                            'departure_date': '2026-11-18',
+                            'candidate_id': candidate,
+                        },
+                    }
+                ]
+            },
+        ),
     )
     assert expired.status_code == 409
 
 
 def test_mixed_journey_has_no_combined_total(client, plan, monkeypatch):
-    user, _, _, endpoint, revision, _, _ = plan
+    user, _, _, endpoint, revision, leg, _ = plan
     matched_lookup(monkeypatch)
     found = client.post(
         endpoint + '/flight-lookups',
@@ -328,19 +354,22 @@ def test_mixed_journey_has_no_combined_total(client, plan, monkeypatch):
     save = client.put(
         endpoint,
         headers=headers(user, revision),
-        json={
-            'segments': [
-                {'travel_mode': 'CAR'},
-                {
-                    'travel_mode': 'FLIGHT',
-                    'flight': {
-                        'flight_number': 'KL597',
-                        'departure_date': '2026-11-18',
-                        'candidate_id': candidate,
+        json=connection_write(
+            leg,
+            {
+                'segments': [
+                    {'travel_mode': 'CAR'},
+                    {
+                        'travel_mode': 'FLIGHT',
+                        'flight': {
+                            'flight_number': 'KL597',
+                            'departure_date': '2026-11-18',
+                            'candidate_id': candidate,
+                        },
                     },
-                },
-            ]
-        },
+                ]
+            },
+        ),
     )
     assert save.status_code == 200, save.text
     assert save.json()['duration_seconds'] is None
@@ -350,16 +379,19 @@ def test_mixed_journey_has_no_combined_total(client, plan, monkeypatch):
 
 
 def test_ground_endpoint_inheritance_and_cross_trip_reference(client, db_session, plan):
-    user, _, _, endpoint, revision, _, _ = plan
+    user, _, _, endpoint, revision, leg, _ = plan
     save = client.put(
         endpoint,
         headers=headers(user, revision),
-        json={
-            'segments': [
-                {'travel_mode': 'CAR', 'to': {'latitude': 52.2, 'longitude': 5}},
-                {'travel_mode': 'WALK'},
-            ]
-        },
+        json=connection_write(
+            leg,
+            {
+                'segments': [
+                    {'travel_mode': 'CAR', 'to': {'latitude': 52.2, 'longitude': 5}},
+                    {'travel_mode': 'WALK'},
+                ]
+            },
+        ),
     )
     assert save.status_code == 200, save.text
     assert (
@@ -382,11 +414,14 @@ def test_ground_endpoint_inheritance_and_cross_trip_reference(client, db_session
     invalid = client.put(
         endpoint,
         headers=headers(user, save.headers['etag']),
-        json={
-            'segments': [
-                {'travel_mode': 'CAR', 'via': {'location_id': str(location.id)}}
-            ]
-        },
+        json=connection_write(
+            leg,
+            {
+                'segments': [
+                    {'travel_mode': 'CAR', 'via': {'location_id': str(location.id)}}
+                ]
+            },
+        ),
     )
     assert invalid.status_code == 422
 
@@ -394,7 +429,7 @@ def test_ground_endpoint_inheritance_and_cross_trip_reference(client, db_session
 def test_admin_flight_key_is_encrypted_and_never_public(
     db_session, api_prefix, client, plan
 ):
-    user, _, _, _, _, _, _ = plan
+    user, _, _, _, _, leg, _ = plan
     service = AppSettingsService(db_session)
     service.update_setting(FLIGHTS_RAPIDAPI_API_KEY, 'synthetic-flight-key', user.id)
     record = service.get_admin_setting(FLIGHTS_RAPIDAPI_API_KEY)
@@ -410,7 +445,7 @@ def test_departing_member_loses_artifacts_but_saved_travel_survives(
     from factories.trips import add_trip_member
     from models.database.user import UserRole
 
-    owner, trip, _, endpoint, revision, _, _ = plan
+    owner, trip, _, endpoint, revision, leg, _ = plan
     member = create_user(db_session, password='PlanningPass123!')
     add_trip_member(db_session, trip_id=trip.id, user_id=member.id)
     matched_lookup(monkeypatch)
@@ -435,10 +470,16 @@ def test_departing_member_loses_artifacts_but_saved_travel_survives(
         ],
     }
     assert (
-        client.put(endpoint, headers=headers(owner, revision), json=payload).status_code
+        client.put(
+            endpoint,
+            headers=headers(owner, revision),
+            json=connection_write(leg, payload),
+        ).status_code
         == 409
     )
-    saved = client.put(endpoint, headers=headers(member, revision), json=payload)
+    saved = client.put(
+        endpoint, headers=headers(member, revision), json=connection_write(leg, payload)
+    )
     assert saved.status_code == 200, saved.text
     owner.role = UserRole.ADMIN
     db_session.commit()
@@ -457,7 +498,7 @@ def test_departing_member_loses_artifacts_but_saved_travel_survives(
         client.post(
             endpoint + '/preview',
             headers=headers(member, saved.headers['etag']),
-            json={'segments': [{'travel_mode': 'CAR'}]},
+            json=connection_write(leg, {'segments': [{'travel_mode': 'CAR'}]}),
         ).status_code
         == 404
     )
@@ -506,19 +547,25 @@ def test_successful_preview_is_reused_and_source_only_edit_keeps_estimate(
         ]
     }
     preview = client.post(
-        endpoint + '/preview', headers=headers(user, revision), json=payload
+        endpoint + '/preview',
+        headers=headers(user, revision),
+        json=connection_write(leg, payload),
     )
     assert preview.status_code == 200, preview.text
     assert preview.json()['connection']['duration_seconds'] == 3600
     assert route.call_args.kwargs['via'] == (5.0, 52.2)
     again = client.post(
-        endpoint + '/preview', headers=headers(user, revision), json=payload
+        endpoint + '/preview',
+        headers=headers(user, revision),
+        json=connection_write(leg, payload),
     )
     assert again.json()['preview_id'] == preview.json()['preview_id']
     saved = client.put(
         endpoint,
         headers=headers(user, revision),
-        json=payload | {'preview_id': preview.json()['preview_id']},
+        json=connection_write(
+            leg, payload | {'preview_id': preview.json()['preview_id']}
+        ),
     )
     assert saved.status_code == 200, saved.text
     segment = saved.json()['segments'][0]
@@ -528,10 +575,13 @@ def test_successful_preview_is_reused_and_source_only_edit_keeps_estimate(
     explicit = client.put(
         endpoint,
         headers=headers(user, saved.headers['etag']),
-        json={
-            'notes': 'No recalculation',
-            'segments': [segment['intent'] | {'mode_selected': True}],
-        },
+        json=connection_write(
+            leg,
+            {
+                'notes': 'No recalculation',
+                'segments': [segment['intent'] | {'mode_selected': True}],
+            },
+        ),
     )
     assert explicit.status_code == 200, explicit.text
     assert explicit.json()['duration_seconds'] == 3600
@@ -572,7 +622,7 @@ def test_provider_completion_discards_stale_results_without_holding_trip_lock(
     result = client.post(
         endpoint + '/preview',
         headers=headers(user, revision),
-        json={'segments': [leg['segments'][0]['intent']]},
+        json=connection_write(leg, {'segments': [leg['segments'][0]['intent']]}),
     )
     assert result.status_code == 412, result.text
     route.assert_called_once()
@@ -603,12 +653,16 @@ def test_stop_location_edit_preserves_choices_and_invalidates_route(
         'segments': [leg['segments'][0]['intent'] | {'mode_selected': True}],
     }
     preview = client.post(
-        endpoint + '/preview', headers=headers(user, revision), json=payload
+        endpoint + '/preview',
+        headers=headers(user, revision),
+        json=connection_write(leg, payload),
     )
     saved = client.put(
         endpoint,
         headers=headers(user, revision),
-        json=payload | {'preview_id': preview.json()['preview_id']},
+        json=connection_write(
+            leg, payload | {'preview_id': preview.json()['preview_id']}
+        ),
     )
     assert saved.status_code == 200, saved.text
     changed = client.patch(
@@ -633,10 +687,13 @@ def test_stop_insertion_cancel_is_atomic_and_confirmation_creates_fresh_connecti
     saved = client.put(
         endpoint,
         headers=headers(user, revision),
-        json={
-            'notes': 'Booked travel',
-            'segments': [leg['segments'][0]['intent'] | {'mode_selected': True}],
-        },
+        json=connection_write(
+            leg,
+            {
+                'notes': 'Booked travel',
+                'segments': [leg['segments'][0]['intent'] | {'mode_selected': True}],
+            },
+        ),
     )
     count = db_session.scalar(select(func.count()).select_from(Location))
     payload = {
@@ -687,13 +744,17 @@ def test_new_connection_uses_an_already_available_matching_car_estimate(
     )
     payload = {'segments': [leg['segments'][0]['intent']]}
     preview = client.post(
-        endpoint + '/preview', headers=headers(user, revision), json=payload
+        endpoint + '/preview',
+        headers=headers(user, revision),
+        json=connection_write(leg, payload),
     )
     assert preview.status_code == 200, preview.text
     saved = client.put(
         endpoint,
         headers=headers(user, revision),
-        json=payload | {'preview_id': preview.json()['preview_id']},
+        json=connection_write(
+            leg, payload | {'preview_id': preview.json()['preview_id']}
+        ),
     )
     assert saved.status_code == 200, saved.text
     revision = saved.headers['etag']
@@ -744,7 +805,9 @@ def test_road_alternative_preview_selection_is_bound_and_saved_exactly(
     )
     payload = {'segments': [leg['segments'][0]['intent']]}
     preview = client.post(
-        endpoint + '/preview', headers=headers(user, revision), json=payload
+        endpoint + '/preview',
+        headers=headers(user, revision),
+        json=connection_write(leg, payload),
     )
     assert preview.status_code == 200, preview.text
     connection = preview.json()['connection']
@@ -773,22 +836,34 @@ def test_road_alternative_preview_selection_is_bound_and_saved_exactly(
         ]
     }
     assert (
-        client.put(endpoint, headers=headers(user, revision), json=forged).status_code
+        client.put(
+            endpoint,
+            headers=headers(user, revision),
+            json=connection_write(leg, forged),
+        ).status_code
         == 409
     )
     missing = chosen | {'preview_id': str(uuid.uuid4())}
     assert (
-        client.put(endpoint, headers=headers(user, revision), json=missing).status_code
+        client.put(
+            endpoint,
+            headers=headers(user, revision),
+            json=connection_write(leg, missing),
+        ).status_code
         == 409
     )
     out_of_range = chosen | {'segments': [chosen['segments'][0] | {'route_option': 2}]}
     assert (
         client.put(
-            endpoint, headers=headers(user, revision), json=out_of_range
+            endpoint,
+            headers=headers(user, revision),
+            json=connection_write(leg, out_of_range),
         ).status_code
         == 409
     )
-    saved = client.put(endpoint, headers=headers(user, revision), json=chosen)
+    saved = client.put(
+        endpoint, headers=headers(user, revision), json=connection_write(leg, chosen)
+    )
     assert saved.status_code == 200, saved.text
     assert saved.json()['segments'][0]['geometry'] == alternative
     assert saved.json()['route']['geometry'] == alternative
@@ -805,7 +880,7 @@ def test_road_alternative_preview_selection_is_bound_and_saved_exactly(
     reopened = client.post(
         endpoint + '/preview',
         headers=headers(user, saved.headers['etag']),
-        json=reopened_payload,
+        json=connection_write(leg, reopened_payload),
     )
     assert reopened.status_code == 200, reopened.text
     assert reopened.json()['connection']['segments'][0]['geometry'] == alternative

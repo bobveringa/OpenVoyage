@@ -1,4 +1,5 @@
-import { TravelLegEditDialog } from './travel-leg-editor'
+import { resolveConnectionEndpoint, type ConnectionAnchor } from './connection-endpoints'
+import { EndpointPicker, TravelLegEditDialog } from './travel-leg-editor'
 import {
   ArrowLeft,
   Check,
@@ -130,6 +131,8 @@ export function PlanningPanel({
   onStopDelete,
   onStopSave,
   onTravelLegSave,
+  onConnectionCreate,
+  onConnectionDelete,
   pendingAction,
   stops,
   tripStartDate,
@@ -143,6 +146,8 @@ export function PlanningPanel({
   onStopDelete: (stopId: string) => void
   onStopSave: (stopId: string, draft: StopEditDraft) => void
   onTravelLegSave: (legId: string, draft: TravelLegEditDraft) => void
+  onConnectionCreate: (payload: import('@/api/client').ItineraryTravelReplacePayload) => void
+  onConnectionDelete: (legId: string) => void
   pendingAction: string | null
   stops: readonly Stop[]
   tripStartDate: string
@@ -161,11 +166,11 @@ export function PlanningPanel({
   const editingLeg = travelLegs.find((leg) => leg.id === editingLegId) ?? null
   const editingLegFromStop =
     editingLeg
-      ? stops.find((stop) => stop.id === editingLeg.from_stop_id) ?? null
+      ? stops.find((stop) => editingLeg.from.type === 'STOP' && stop.id === editingLeg.from.stop_id) ?? null
       : null
   const editingLegToStop =
     editingLeg
-      ? stops.find((stop) => stop.id === editingLeg.to_stop_id) ?? null
+      ? stops.find((stop) => editingLeg.to.type === 'STOP' && stop.id === editingLeg.to.stop_id) ?? null
       : null
 
   return (
@@ -188,13 +193,15 @@ export function PlanningPanel({
           />
         ) : null}
 
+        {stops.length > 0 ? <OuterConnectionControl side="DEPARTURE" stops={stops} travelLegs={travelLegs}
+          disabled={addStopDisabled} canMutate={canMutate} onCreate={onConnectionCreate} onDelete={onConnectionDelete} onEdit={setEditingLegId} /> : null}
         {stops.map((stop, index) => {
           const nextStop = stops[index + 1]
           const leg = nextStop
             ? travelLegs.find(
                 (travelLeg) =>
-                  travelLeg.from_stop_id === stop.id &&
-                  travelLeg.to_stop_id === nextStop.id,
+                  travelLeg.from.type === 'STOP' && travelLeg.from.stop_id === stop.id &&
+                  travelLeg.to.type === 'STOP' && travelLeg.to.stop_id === nextStop.id,
               )
             : undefined
 
@@ -225,6 +232,8 @@ export function PlanningPanel({
             </Fragment>
           )
         })}
+        {stops.length > 0 ? <OuterConnectionControl side="RETURN" stops={stops} travelLegs={travelLegs}
+          disabled={addStopDisabled} canMutate={canMutate} onCreate={onConnectionCreate} onDelete={onConnectionDelete} onEdit={setEditingLegId} /> : null}
       </div>
 
       {travelLegs.some((leg) => leg.segments.some((segment) => segment.lookup)) ? (
@@ -243,13 +252,48 @@ export function PlanningPanel({
         onClose={() => setEditingLegId(null)}
         onRefreshRoute={onRefreshTravelLegRoute}
         onSave={onTravelLegSave}
-        open={Boolean(editingLeg && editingLegFromStop && editingLegToStop)}
+        open={Boolean(editingLeg)}
         pendingAction={pendingAction}
         saving={isMutating}
         toStop={editingLegToStop}
       />
     </div>
   )
+}
+
+function OuterConnectionControl({ side, stops, travelLegs, disabled, canMutate, onCreate, onDelete, onEdit }: {
+  side: 'DEPARTURE' | 'RETURN'; stops: readonly Stop[]; travelLegs: readonly TravelLeg[]
+  disabled: boolean; canMutate: boolean
+  onCreate: (payload: import('@/api/client').ItineraryTravelReplacePayload) => void
+  onDelete: (id: string) => void; onEdit: (id: string) => void
+}) {
+  const [location, setLocation] = useState<{ place_id: string } | { latitude: number; longitude: number } | null>(null)
+  const [adding, setAdding] = useState(false)
+  const leg = travelLegs.find((item) => item.connection_type === side)
+  const label = side === 'DEPARTURE' ? 'departure' : 'return'
+  if (leg) {
+    const from = resolveConnectionEndpoint(leg.from, stops)
+    const to = resolveConnectionEndpoint(leg.to, stops)
+    return from && to ? <div className="space-y-1" aria-label={label + ' connection'}>
+      <p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p>
+      <TravelLegCard disabled={disabled} fromStop={from} toStop={to} leg={leg} onEdit={onEdit} />
+      {canMutate ? <Button variant="ghost" disabled={disabled} onClick={() => onDelete(leg.id)}>Remove {label} connection</Button> : null}
+    </div> : null
+  }
+  if (!canMutate) return null
+  return <div className="space-y-2 rounded-xl border border-dashed border-border p-3">
+    {adding ? <>
+      <EndpointPicker label={label === 'departure' ? 'Departure location' : 'Return location'} value={location} disabled={disabled}
+        onChange={(value) => { if (!value || !('location_id' in value)) setLocation(value) }} />
+      <Button disabled={disabled || !location} onClick={() => {
+        if (!location) return
+        const stop = { type: 'STOP' as const, stop_id: side === 'DEPARTURE' ? stops[0].id : stops[stops.length - 1].id }
+        const outside = { type: 'LOCATION' as const, location }
+        onCreate(side === 'DEPARTURE' ? { from: outside, to: stop, notes: '' } : { from: stop, to: outside, notes: '' })
+      }}>Save {label} connection</Button>
+      <Button variant="ghost" disabled={disabled} onClick={() => setAdding(false)}>Cancel</Button>
+    </> : <Button variant="outline" disabled={disabled} onClick={() => setAdding(true)}>Add {label} connection</Button>}
+  </div>
 }
 
 function StopInsertButton({
@@ -755,10 +799,10 @@ function TravelLegCard({
   toStop,
 }: {
   disabled: boolean
-  fromStop: Stop
+  fromStop: ConnectionAnchor
   leg: TravelLeg
   onEdit: (legId: string) => void
-  toStop: Stop
+  toStop: ConnectionAnchor
 }) {
   const ModeIcon = getTravelModeIcon(leg.segments[0]?.intent.travel_mode ?? 'CAR')
   const legDetail = leg.segments.map((s) => s.intent.flight?.flight_number || s.intent.service_number).filter(Boolean).join(' · ')

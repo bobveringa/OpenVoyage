@@ -1,3 +1,4 @@
+import { connectionEndpointInput, resolveConnectionEndpoint } from './connection-endpoints'
 import { TripLeafletMap } from './trip-map'
 import { EMPTY_TRACKING_GEOMETRY } from './models'
 import { useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
@@ -12,7 +13,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { usePlaceSearch } from '@/hooks/use-place-search'
 import type { Stop, TravelLeg, TravelMode } from './models'
 import type { TravelLegEditDraft } from './page-types'
-import { createTravelLegEditDraft, formatDuration, getStayLeaveDateValue, getTravelModeIcon, travelModeOptions } from './planning-utils'
+import { connectionWritePayload, createTravelLegEditDraft, formatDuration, getStayLeaveDateValue, getTravelModeIcon, travelModeOptions } from './planning-utils'
 import { connectionWithOptions, routeDistance, routeTime } from './route-choice-utils'
 import { PlanningPreviewCache, planningPreviewKey } from './planning-preview-cache'
 import { PlanningSessionContext } from './planning-session'
@@ -25,7 +26,7 @@ const transitLabels: Record<string, [string, string]> = {
   FERRY: ['Ferry company', 'Service'], OTHER: ['Service company', 'Service number'],
 }
 
-function EndpointPicker({ label, value, airport = false, placeholder, onChange, disabled }: {
+export function EndpointPicker({ label, value, airport = false, placeholder, onChange, disabled }: {
   label: string; value?: PlaceInput | null; airport?: boolean; placeholder?: string
   onChange: (value: PlaceInput | null) => void; disabled: boolean
 }) {
@@ -113,9 +114,10 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
   const currentConnection = useMemo(() => {
     if (preview) return connectionWithOptions(preview.connection, draft)
     if (!leg || !dirty) return leg
+    const endpointsUnchanged = JSON.stringify([draft.from, draft.to]) === JSON.stringify([connectionEndpointInput(leg.from), connectionEndpointInput(leg.to)])
     return { ...leg, segments: draft.segments.map((intent, index) => {
       const saved = leg.segments.find((segment) => segment.id === intent.id)
-      const unchanged = saved && planningPreviewKey({ notes: '', segments: [saved.intent] }) === planningPreviewKey({ notes: '', segments: [intent] })
+      const unchanged = endpointsUnchanged && saved && planningPreviewKey({ notes: '', segments: [saved.intent] }) === planningPreviewKey({ notes: '', segments: [intent] })
       return { ...(saved || leg.segments[0]), id: intent.id || 'draft-' + index, intent,
         geometry: unchanged ? saved.geometry : null,
         from_endpoint: unchanged ? saved.from_endpoint : null, to_endpoint: unchanged ? saved.to_endpoint : null,
@@ -123,12 +125,15 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
         route_state: unchanged ? saved.route_state : 'NOT_CALCULATED' as const, route_options: [],
         duration_seconds: unchanged ? saved.duration_seconds : null, distance_meters: unchanged ? saved.distance_meters : null }
     }), duration_seconds: null, warnings: [], route: { ...leg.route, type: 'SIMPLE' as const } }
-  }, [preview, draft, leg, dirty, fromStop, toStop])
+  }, [preview, draft, leg, dirty])
   useEffect(() => { if (open) showPreview(currentConnection) }, [currentConnection, open, showPreview])
-  if (!leg || !fromStop || !toStop) return null
+  const endpointStops = [fromStop, toStop].filter((stop): stop is Stop => stop !== null)
+  const fromAnchor = leg ? resolveConnectionEndpoint((preview?.connection || leg).from, endpointStops) : null
+  const toAnchor = leg ? resolveConnectionEndpoint((preview?.connection || leg).to, endpointStops) : null
+  if (!leg || !fromAnchor || !toAnchor) return null
   const currentLeg = leg
   const disabled = saving || busy !== null
-  const transfers = currentConnection ? getAirportTransfers(currentConnection, fromStop, toStop) : []
+  const transfers = currentConnection ? getAirportTransfers(currentConnection, fromAnchor, toAnchor) : []
   const activeTransfer = transfers.find((transfer) => transfer.side === transferSide)
   function transferCard(transfer: AirportTransfer) {
     return <button type="button" key={transfer.side} aria-label={airportTransferLabel(transfer)}
@@ -186,7 +191,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     try {
       const result = await previewTravel({ tripId: leg!.trip_id, legId: leg!.id,
         accessToken: session.accessToken, itineraryRevision: session.itineraryRevision,
-        payload, retryFailed, signal: controller.signal })
+        payload: connectionWritePayload(payload), retryFailed, signal: controller.signal })
       if (version.current !== activeVersion) return
       previews.current.put(payload, session.itineraryRevision, result)
       setPreview(result); setDraft((previous) => ({ ...previous, preview_id: result.preview_id,
@@ -219,7 +224,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     const target = mode === segment.travel_mode ? segment : remembered || {
       ...segment, via: null, from: null, to: null,
       service_company: null, service_number: null,
-      flight: mode === 'FLIGHT' ? { departure_date: getStayLeaveDateValue(fromStop!.planned_start_date, fromStop!.planned_nights) } : null,
+      flight: mode === 'FLIGHT' ? { ...(fromStop ? { departure_date: getStayLeaveDateValue(fromStop.planned_start_date, fromStop.planned_nights) } : {}) } : null,
     }
     return { ...draft, preview_id: undefined, segments: draft.segments.map((item, i) => i === index ? {
       ...target, notes: segment.notes, travel_mode: mode, mode_selected: true, route_option: optionIndex,
@@ -245,7 +250,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
   }
   return (
     <RouteChooserShell desktop={desktop} open={open} onClose={onClose}
-      description={'From ' + fromStop.title + ' to ' + toStop.title}
+      description={'From ' + fromAnchor.title + ' to ' + toAnchor.title}
       footer={<div className="flex flex-wrap items-center justify-between gap-3">
         {error || session.saveError ? <p role="alert" className="w-full text-sm text-destructive">{error || session.saveError}</p> : null}
         <p className="text-sm text-muted-foreground">{busy ? <span role="status" className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{busy}…</span> : currentConnection?.duration_seconds != null ? routeTime(currentConnection.duration_seconds) + (currentConnection.duration_scope === 'FLIGHT_JOURNEY' ? ' flight journey · airport transfers not included' : ' estimated travel time') : 'Select a route to preview it on the map'}</p>
@@ -254,6 +259,14 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
       </div>}>
       <div className="grid min-h-full min-w-0 grid-cols-1">
       <div className="order-2 grid min-w-0 grid-cols-1 content-start gap-4 p-4 lg:order-1 lg:p-5">
+          {(['from', 'to'] as const).map((side) => {
+            const endpoint = draft[side]
+            return endpoint?.type === 'LOCATION' ? <EndpointPicker key={side} label={side === 'from' ? 'Departure location' : 'Return location'}
+              value={endpoint.location} disabled={disabled} onChange={(location) => {
+                if (location && !('location_id' in location)) update({ ...draft, [side]: { type: 'LOCATION', location } })
+              }} /> : null
+          })}
+
         {activeTransfer ? <section aria-label="Choose airport transfer" className="grid min-w-0 gap-3">
           <h3 className="font-semibold">Airport transfer</h3>
           <p className="break-words text-sm">{activeTransfer.from.name} → {activeTransfer.to.name}</p>
@@ -298,9 +311,9 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
                 {currentLookup ? <p className="min-w-0 break-words text-xs text-muted-foreground">{currentLookup.departure_airport.name} → {currentLookup.arrival_airport.name}
                   {currentLookup.scheduled_departure ? ' · ' + currentLookup.scheduled_departure : ''}</p> : null}
               </> : <>
-                {index === 0 ? <p className="text-sm">From: {fromStop.location.name}</p> :
+                {index === 0 ? <p className="text-sm">From: {fromAnchor.location.name}</p> :
                   <EndpointPicker label="From" disabled={disabled} value={segment.from} placeholder={estimate?.from_endpoint?.name || saved?.from_endpoint?.name || 'Inherit the preceding endpoint'} onChange={(value) => updateSegment(index, { from: value })} />}
-                {index === draft.segments.length - 1 ? <p className="text-sm">To: {toStop.location.name}</p> :
+                {index === draft.segments.length - 1 ? <p className="text-sm">To: {toAnchor.location.name}</p> :
                   <EndpointPicker label="To" disabled={disabled} value={segment.to} placeholder={estimate?.to_endpoint?.name || saved?.to_endpoint?.name || 'Inherit the next endpoint'} onChange={(value) => updateSegment(index, { to: value })} />}
                 {roadModes.includes(segment.travel_mode) ? <EndpointPicker label="Via (optional)" disabled={disabled} value={segment.via} placeholder={saved?.via_endpoint ? saved.via_endpoint.name || saved.via_endpoint.latitude + ', ' + saved.via_endpoint.longitude : undefined} onChange={(value) => updateSegment(index, { via: value })} /> : <p className="text-xs text-muted-foreground">Approximate connection; no timetable estimate.</p>}
               </>}
@@ -386,10 +399,10 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
       </div>
       {!desktop ? <section aria-label="Connection map preview" className="order-1 sticky top-0 z-10 h-64 overflow-hidden border-b border-border bg-muted lg:order-2 lg:sticky lg:top-0 lg:h-[calc(100dvh-15rem)] lg:min-h-[30rem] lg:max-h-[41rem] lg:border-b-0 lg:border-l">
         {currentConnection ? <TripLeafletMap fitMode="route-preview" draftMapLocation={null} mapPointEnabled={false} onDraftMapPointSelect={() => {}}
-          resetNonce={0} stops={[fromStop, toStop]} travelLegs={[currentConnection]}
+          resetNonce={0} stops={endpointStops} travelLegs={[currentConnection]}
           travelPosts={[]} trackingGeometry={EMPTY_TRACKING_GEOMETRY} /> : null}
         <div className="pointer-events-none absolute bottom-3 left-3 right-12 z-[400] rounded-xl border border-border bg-card/95 p-3 text-xs shadow-sm">
-          <div className="flex items-center gap-2 font-medium"><MapPin className="size-4 text-primary" />{fromStop.title} → {toStop.title}</div>
+          <div className="flex items-center gap-2 font-medium"><MapPin className="size-4 text-primary" />{fromAnchor.title} → {toAnchor.title}</div>
           <p className="mt-1 text-muted-foreground">Solid: calculated route · Gray: alternatives · Dashed: approximate</p>
         </div>
       </section> : null}

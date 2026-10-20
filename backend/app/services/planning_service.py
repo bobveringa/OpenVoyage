@@ -38,6 +38,7 @@ from models.database.itinerary import (
 )
 from models.database.locations import Location
 from models.database.places import Place
+from services.connection_endpoints import endpoint_location, endpoint_identity
 from services.flight_provider import FlightProvider
 from services.route_providers.route_provider import (
     RouteProviderError,
@@ -312,15 +313,46 @@ class PlanningService:
             )
         return row
 
+    def binding(self, leg, intent):
+        # Resolve outside inputs before hashing. Place and coordinate inputs for the
+        # same anchor share both equality semantics and preview cache identity.
+        travel = ConnectionIntent(
+            notes=intent.notes,
+            segments=self.intent_segments(leg, intent),
+        )
+        return fingerprint(
+            {
+                'travel': draft_hash(travel),
+                'from': endpoint_identity(leg, 'from'),
+                'to': endpoint_identity(leg, 'to'),
+            }
+        )
+
+    def intent_segments(self, leg, intent):
+        if intent.segments is not None:
+            return intent.segments
+        return [
+            SegmentIntent(
+                travel_mode=self.infer_mode(
+                    endpoint_location(leg, 'from'),
+                    endpoint_location(leg, 'to'),
+                    leg.trip_id,
+                )
+            )
+        ]
+
     def build(self, leg, intent=None, actor=None):
         is_proposed = intent is not None
         previous_hashes = (
-            {s.id: s.input_hash for s in self.build(leg)} if is_proposed else {}
+            {s.id: s.input_hash for s in self.build(leg)}
+            if is_proposed and leg.segments
+            else {}
         )
         intent = intent or self.saved_intent(leg)
         old = {row.id: row for row in leg.segments}
         result = []
-        for item in intent.segments:
+        inferred = intent.segments is None
+        for item in self.intent_segments(leg, intent):
             row = old.get(item.id)
             if item.id is not None and row is None:
                 raise HTTPException(422, 'Segment does not belong to this connection')
@@ -386,11 +418,15 @@ class PlanningService:
                     self.endpoint(item.to, leg.trip_id),
                 )
             source = (
-                'USER'
-                if row is None
-                or row.travel_mode != item.travel_mode
-                or item.mode_selected
-                else row.mode_source
+                'AUTO'
+                if inferred
+                else (
+                    'USER'
+                    if row is None
+                    or row.travel_mode != item.travel_mode
+                    or item.mode_selected
+                    else row.mode_source
+                )
             )
             saved_result = None
             if row and row.route and row.route.input_version == row.input_version:
@@ -429,8 +465,8 @@ class PlanningService:
                 )
             )
         anchors = (
-            self.location_endpoint(leg.from_stop.location),
-            self.location_endpoint(leg.to_stop.location),
+            self.location_endpoint(endpoint_location(leg, 'from')),
+            self.location_endpoint(endpoint_location(leg, 'to')),
         )
         for seg, key, anchor in (
             (result[0], 'start', anchors[0]),
@@ -440,7 +476,8 @@ class PlanningService:
                 entered = getattr(seg, key)
                 if is_proposed and entered and not same_endpoint(entered, anchor):
                     raise HTTPException(
-                        422, 'Outer ground endpoints must match the itinerary stops'
+                        422,
+                        'Outer ground endpoints must match the connection endpoints',
                     )
                 setattr(seg, key, anchor)
         for left, right in zip(result, result[1:]):
@@ -506,8 +543,8 @@ class PlanningService:
             )
             if mode == 'FLIGHT' and geometry is None:
                 geometry = point_geometry(
-                    seg.start or self.location_endpoint(leg.from_stop.location),
-                    seg.end or self.location_endpoint(leg.to_stop.location),
+                    seg.start or self.location_endpoint(endpoint_location(leg, 'from')),
+                    seg.end or self.location_endpoint(endpoint_location(leg, 'to')),
                 )
             duration = (
                 seg.lookup.duration_seconds
@@ -559,6 +596,7 @@ class PlanningService:
                 mode == 'FLIGHT'
                 and seg.intent.flight
                 and seg.intent.flight.departure_date
+                and leg.from_stop is not None
             ):
                 leave_date = leg.from_stop.planned_start_date + timedelta(
                     days=leg.from_stop.planned_nights
@@ -567,7 +605,12 @@ class PlanningService:
                     warnings.append(
                         f'Segment {index + 1} departs before the planned departure from the preceding stop'
                     )
-            if mode == 'FLIGHT' and seg.lookup and seg.lookup.scheduled_arrival:
+            if (
+                mode == 'FLIGHT'
+                and seg.lookup
+                and seg.lookup.scheduled_arrival
+                and leg.to_stop is not None
+            ):
                 local_arrival = seg.lookup.scheduled_arrival.date()
                 if local_arrival > leg.to_stop.planned_start_date:
                     warnings.append(
@@ -613,8 +656,8 @@ class PlanningService:
         coordinates = (
             coordinates
             or point_geometry(
-                self.location_endpoint(leg.from_stop.location),
-                self.location_endpoint(leg.to_stop.location),
+                self.location_endpoint(endpoint_location(leg, 'from')),
+                self.location_endpoint(endpoint_location(leg, 'to')),
             )['coordinates']
         )
         return {
@@ -648,7 +691,7 @@ class PlanningService:
                     leg,
                     actor,
                     revision,
-                    draft_hash(intent),
+                    self.binding(leg, intent),
                 )
             except HTTPException:
                 pass  # Expiry must not prevent saving user intent.

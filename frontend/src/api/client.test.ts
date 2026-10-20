@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   configureAuthTokenRefresh,
+  deleteItineraryTravelLeg,
   deleteTripShareLink,
   restoreTripShareLink,
   revokeTripShareLink,
@@ -116,5 +117,31 @@ describe('background upload authorization', () => {
     expect(refresh).toHaveBeenCalled()
     expect(new Headers(fetchMock.mock.calls[0][1].headers).get('Authorization')).toBe('Bearer fresh-access')
     configureAuthTokenRefresh(null)
+  })
+})
+
+
+describe('outer connection deletion confirmation', () => {
+  it.each([false, true])('keeps the current revision and handles confirmation %s', async (confirm) => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetchMock)
+    const confirmation = vi.spyOn(window, 'confirm').mockReturnValue(confirm)
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ detail: {
+      code: 'TRAVEL_DELETION_REQUIRED', connections: [{ from: 'Schiphol', to: 'Paris' }, { from: 'Paris', to: 'Brussels' }],
+    } }), { status: 409, headers: { 'Content-Type': 'application/json' } }))
+    const snapshot = { trip_id: 'trip', itinerary_revision: confirm ? 8 : 7, stops: [], legs: [] }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(snapshot), { headers: { 'Content-Type': 'application/json' } }))
+    expect(await deleteItineraryTravelLeg({ tripId: 'trip', legId: 'leg', accessToken: 'token', itineraryRevision: 7 })).toEqual(snapshot)
+    expect(confirmation).toHaveBeenCalledWith(expect.stringContaining('Schiphol to Paris, Paris to Brussels'))
+    const [url, options] = fetchMock.mock.calls[1]
+    if (confirm) {
+      expect(String(url)).toContain('/itinerary/legs/leg?confirm_travel_deletion=true')
+      expect(options?.method).toBe('DELETE')
+      expect(new Headers(options?.headers).get('If-Match')).toBe('"7"')
+    } else {
+      expect(String(url)).toMatch(/\/itinerary$/)
+      expect(options?.method).toBe('GET')
+    }
+    confirmation.mockRestore()
   })
 })

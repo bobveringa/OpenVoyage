@@ -14,6 +14,105 @@ const transparentPng = Buffer.from(
   'base64',
 )
 
+test('one-stop departure flight and independent return render, edit, and confirm deletion', async ({ page }) => {
+  await seedBrowserAuth(page)
+  const release = await mockTripApi(page, 'OWNER')
+  release()
+  await mockTileServers(page)
+  const itinerary = createItinerary() as Itinerary
+  itinerary.stops = itinerary.stops.slice(0, 1)
+  const template = itinerary.legs[0]
+  const departure: ItineraryTravelLeg = {
+    ...template, id: 'departure', connection_type: 'DEPARTURE', notes: 'Outbound flight',
+    from: { type: 'LOCATION', location: createLocation('outside-a', 'London', 51.5, -0.1) },
+    to: { type: 'STOP', stop_id: firstStopId },
+    segments: [{ ...template.segments[0], id: 'departure-segment',
+      intent: { travel_mode: 'FLIGHT', flight: { flight_number: 'KL1000', departure_date: '2027-05-10' } },
+      from_endpoint: { name: 'LHR', latitude: 51.47, longitude: -0.45 },
+      to_endpoint: { name: 'AMS', latitude: 52.31, longitude: 4.76 },
+      geometry: { type: 'LineString', coordinates: [[-0.45, 51.47], [4.76, 52.31]] },
+    }],
+  }
+  const returning: ItineraryTravelLeg = {
+    ...template, id: 'return', connection_type: 'RETURN',
+    from: { type: 'STOP', stop_id: firstStopId },
+    to: { type: 'LOCATION', location: createLocation('outside-b', 'Brussels home', 50.85, 4.35) },
+  }
+  itinerary.legs = [departure, returning]
+  await page.route(`**/api/v1/trips/${tripId}/itinerary`, route => fulfillJson(route, itinerary))
+  await page.route(`**/api/v1/trips/${tripId}/itinerary/legs/departure`, async route => {
+    expect(route.request().method()).toBe('PUT')
+    const payload = route.request().postDataJSON()
+    expect(payload.from).toEqual({ type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } })
+    expect(payload.to).toEqual({ type: 'STOP', stop_id: firstStopId })
+    await route.fulfill({ json: departure, headers: { ETag: '"2"' } })
+  })
+  await page.route(`**/api/v1/trips/${tripId}/itinerary/legs/return**`, async route => {
+    const confirmed = new URL(route.request().url()).searchParams.get('confirm_travel_deletion') === 'true'
+    if (!confirmed) return fulfillJson(route, { detail: { code: 'TRAVEL_DELETION_REQUIRED', connections: [{ id: returning.id, from: 'Amsterdam', to: 'Brussels home' }] } }, 409)
+    itinerary.legs = [departure]
+    itinerary.itinerary_revision += 1
+    await fulfillJson(route, itinerary)
+  })
+  await page.route(`**/api/v1/trips/${tripId}/itinerary/stops/${firstStopId}**`, async route => {
+    const confirmed = new URL(route.request().url()).searchParams.get('confirm_travel_deletion') === 'true'
+    if (!confirmed) return fulfillJson(route, { detail: { code: 'TRAVEL_DELETION_REQUIRED', connections: [{ id: departure.id, from: 'London', to: 'Amsterdam' }] } }, 409)
+    itinerary.stops = []; itinerary.legs = []; itinerary.itinerary_revision += 1
+    await fulfillJson(route, itinerary)
+  })
+  await page.goto(`/trips/${tripId}`)
+  const departureCard = page.getByLabel('departure connection', { exact: true })
+  const returnCard = page.getByLabel('return connection', { exact: true })
+  await expect(departureCard).toContainText('London to Amsterdam')
+  await expect(returnCard).toContainText('Amsterdam to Brussels home')
+  await expect(page.locator('.trip-map-connection-endpoint')).toHaveCount(2)
+  await expect(page.locator('.trip-map-airport-transfer')).toHaveCount(2)
+  await departureCard.getByRole('button', { name: /Flight/ }).click()
+  await expect(page.getByRole('heading', { name: 'Select your route' })).toBeVisible()
+  await expect(page.getByLabel('Departure location', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Select this route' }).click()
+  await expect(page.getByRole('heading', { name: 'Select your route' })).toHaveCount(0)
+  page.once('dialog', dialog => dialog.dismiss())
+  await Promise.all([
+    page.waitForResponse(response => response.url().endsWith(`/trips/${tripId}/itinerary`) && response.request().method() === 'GET'),
+    page.getByRole('button', { name: 'Remove return connection', exact: true }).click(),
+  ])
+  await expect(returnCard).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Remove return connection', exact: true })).toBeEnabled()
+  page.once('dialog', async dialog => { expect(dialog.message()).toContain('Brussels home'); await dialog.accept() })
+  await page.getByRole('button', { name: 'Remove return connection', exact: true }).click()
+  await expect(returnCard).toHaveCount(0)
+  page.once('dialog', async dialog => { expect(dialog.message()).toContain('London to Amsterdam'); await dialog.accept() })
+  await page.getByRole('button', { name: 'Delete Amsterdam', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Create your first stop', exact: true })).toBeVisible()
+  await expect(departureCard).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Add departure connection', exact: true })).toHaveCount(0)
+})
+
+test('saves a selected outside location before opening the connection editor', async ({ page }) => {
+  await seedBrowserAuth(page)
+  const release = await mockTripApi(page, 'OWNER')
+  release()
+  await mockTileServers(page)
+  const itinerary = createItinerary() as Itinerary
+  await page.route(`**/api/v1/trips/${tripId}/itinerary/legs`, async route => {
+    const payload = route.request().postDataJSON()
+    expect(payload).toEqual({ from: { type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } }, to: { type: 'STOP', stop_id: firstStopId }, notes: '' })
+    await route.fulfill({ status: 201, headers: { ETag: '"2"' }, json: {
+      ...itinerary.legs[0], id: 'saved-departure', connection_type: 'DEPARTURE',
+      from: { type: 'LOCATION', location: createLocation('outside-a', 'London', 51.5, -0.1) }, to: payload.to,
+    } })
+  })
+  await page.goto(`/trips/${tripId}`)
+  await page.getByRole('button', { name: 'Add departure connection', exact: true }).click()
+  await page.getByLabel('Departure location', { exact: true }).fill('51.5, -0.1')
+  await page.getByRole('button', { name: 'Use coordinates', exact: true }).click()
+  await page.getByRole('button', { name: 'Save departure connection', exact: true }).click()
+  await expect(page.getByLabel('departure connection', { exact: true })).toContainText('London to Amsterdam')
+  await expect(page.locator('.trip-map-connection-endpoint')).toBeInViewport()
+  await expect(page.getByRole('heading', { name: 'Select your route' })).toHaveCount(0)
+})
+
 test('opens the GPS menu from a return link after membership finishes loading', async ({ page }) => {
   await seedBrowserAuth(page)
   const releaseSettings = await mockTripApi(page, 'OWNER')
@@ -648,7 +747,8 @@ function createItinerary() {
     legs: [
       {
         created_at: timestamp,
-        from_stop_id: firstStopId,
+        connection_type: 'BETWEEN_STOPS',
+        from: { type: 'STOP', stop_id: firstStopId },
         id: '88888888-8888-4888-8888-888888888888',
         notes: '',
         duration_seconds: null,
@@ -675,7 +775,7 @@ function createItinerary() {
           },
           type: 'SIMPLE',
         },
-        to_stop_id: secondStopId,
+        to: { type: 'STOP', stop_id: secondStopId },
         trip_id: tripId,
         updated_at: timestamp,
       },

@@ -1,3 +1,4 @@
+import { connectionEndpointInput } from './connection-endpoints'
 import type * as L from 'leaflet'
 import {
   Bike,
@@ -161,6 +162,7 @@ export function createTravelLegEditDraft(
   leg: TravelLeg | null,
 ): TravelLegEditDraft {
   return {
+    ...(leg ? { from: connectionEndpointInput(leg.from), to: connectionEndpointInput(leg.to) } : {}),
     notes: leg?.notes ?? '',
     segments: leg?.segments.map((segment) => ({ ...segment.intent, id: segment.id, mode_selected: false })) ?? [{ travel_mode: 'CAR', mode_selected: false, route_option: 0, notes: '' }],
   }
@@ -194,3 +196,8 @@ function formatMonthDayLabel(date: Date) {
   }).format(date)
 }
 
+
+export function connectionWritePayload(draft: TravelLegEditDraft): import('@/api/client').ItineraryTravelReplacePayload {
+  if (!draft.from || !draft.to) throw new Error('Select both connection endpoints')
+  return { ...draft, from: draft.from, to: draft.to }
+}

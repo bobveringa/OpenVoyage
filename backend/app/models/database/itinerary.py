@@ -15,6 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -154,15 +155,50 @@ class ItineraryTravelLeg(Base):
             'trip_id', 'to_stop_id', name='uq_itinerary_travel_legs_trip_to_stop_id'
         ),
         CheckConstraint(
-            'from_stop_id <> to_stop_id', name='ck_itinerary_travel_legs_distinct_stops'
+            'from_stop_id IS NULL OR to_stop_id IS NULL OR from_stop_id <> to_stop_id',
+            name='ck_itinerary_travel_legs_distinct_stops',
+        ),
+        CheckConstraint(
+            '(from_stop_id IS NOT NULL) <> (from_location_id IS NOT NULL)',
+            name='ck_itinerary_legs_from_endpoint',
+        ),
+        CheckConstraint(
+            '(to_stop_id IS NOT NULL) <> (to_location_id IS NOT NULL)',
+            name='ck_itinerary_legs_to_endpoint',
+        ),
+        CheckConstraint(
+            'from_stop_id IS NOT NULL OR to_stop_id IS NOT NULL',
+            name='ck_itinerary_legs_stop_endpoint',
+        ),
+        *(
+            ForeignKeyConstraint(
+                ['trip_id', key],
+                ['locations.trip_id', 'locations.id'],
+                name=f'fk_itinerary_legs_trip_{key}',
+            )
+            for key in ('from_location_id', 'to_location_id')
+        ),
+        Index(
+            'uq_itinerary_legs_departure',
+            'trip_id',
+            unique=True,
+            postgresql_where=text('from_stop_id IS NULL'),
+        ),
+        Index(
+            'uq_itinerary_legs_return',
+            'trip_id',
+            unique=True,
+            postgresql_where=text('to_stop_id IS NULL'),
         ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     trip_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey('trips.id', ondelete='CASCADE')
     )
-    from_stop_id: Mapped[uuid.UUID]
-    to_stop_id: Mapped[uuid.UUID]
+    from_stop_id: Mapped[uuid.UUID | None]
+    to_stop_id: Mapped[uuid.UUID | None]
+    from_location_id: Mapped[uuid.UUID | None]
+    to_location_id: Mapped[uuid.UUID | None]
     notes: Mapped[str] = mapped_column(Text, default='', server_default='')
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now()
@@ -173,16 +209,35 @@ class ItineraryTravelLeg(Base):
         onupdate=utcnow,
         server_default=func.now(),
     )
-    from_stop: Mapped['ItineraryStop'] = relationship(
+    from_stop: Mapped['ItineraryStop | None'] = relationship(
         primaryjoin='and_(ItineraryTravelLeg.trip_id == ItineraryStop.trip_id, ItineraryTravelLeg.from_stop_id == ItineraryStop.id)',
         foreign_keys='[ItineraryTravelLeg.trip_id, ItineraryTravelLeg.from_stop_id]',
         viewonly=True,
     )
-    to_stop: Mapped['ItineraryStop'] = relationship(
+    to_stop: Mapped['ItineraryStop | None'] = relationship(
         primaryjoin='and_(ItineraryTravelLeg.trip_id == ItineraryStop.trip_id, ItineraryTravelLeg.to_stop_id == ItineraryStop.id)',
         foreign_keys='[ItineraryTravelLeg.trip_id, ItineraryTravelLeg.to_stop_id]',
         viewonly=True,
     )
+    from_location: Mapped['Location | None'] = relationship(
+        primaryjoin='and_(ItineraryTravelLeg.trip_id == Location.trip_id, ItineraryTravelLeg.from_location_id == Location.id)',
+        foreign_keys='[ItineraryTravelLeg.trip_id, ItineraryTravelLeg.from_location_id]',
+        viewonly=True,
+    )
+    to_location: Mapped['Location | None'] = relationship(
+        primaryjoin='and_(ItineraryTravelLeg.trip_id == Location.trip_id, ItineraryTravelLeg.to_location_id == Location.id)',
+        foreign_keys='[ItineraryTravelLeg.trip_id, ItineraryTravelLeg.to_location_id]',
+        viewonly=True,
+    )
+
+    @property
+    def connection_type(self):
+        if self.from_stop_id is None:
+            return 'DEPARTURE'
+        if self.to_stop_id is None:
+            return 'RETURN'
+        return 'BETWEEN_STOPS'
+
     segments: Mapped[list['ItineraryTravelSegment']] = relationship(
         cascade='all, delete-orphan',
         passive_deletes=True,

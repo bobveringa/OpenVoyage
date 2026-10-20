@@ -1221,6 +1221,25 @@ export async function deleteItineraryStop(options: {
   )
 }
 
+export async function createItineraryTravelLeg(options: {
+  tripId: string; payload: ItineraryTravelReplacePayload; accessToken: string; itineraryRevision: number
+}): Promise<{ itineraryRevision: number | null; leg: ItineraryTravelLeg }> {
+  const result = await requestJsonResponse<ItineraryTravelLeg>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs`,
+    { method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision, json: options.payload },
+  )
+  return { itineraryRevision: readEtagRevision(result.response), leg: result.data }
+}
+
+export async function deleteItineraryTravelLeg(options: {
+  tripId: string; legId: string; accessToken: string; itineraryRevision: number
+}): Promise<Itinerary> {
+  return requestItineraryMutation(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs/${encodeURIComponent(options.legId)}`,
+    { method: 'DELETE', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision },
+  )
+}
+
 export async function replaceItineraryTravelLeg(options: {
   tripId: string
   legId: string
@@ -2099,7 +2118,7 @@ async function requestItineraryMutation(url: string, options: ApiRequestOptions)
       if (window.confirm(`This change will delete the travel information between ${names}. Continue?`)) {
         return requestJson<Itinerary>(url, { ...options, query: { ...options.query, confirm_travel_deletion: true } })
       }
-      return requestJson<Itinerary>(url.replace(/\/stops(?:\/[^/]+)?$/, ''), { accessToken: options.accessToken })
+      return requestJson<Itinerary>(url.replace(/\/(?:stops|legs)(?:\/[^/]+)?$/, ''), { accessToken: options.accessToken })
     }
     throw error
   }

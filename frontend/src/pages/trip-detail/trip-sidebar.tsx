@@ -215,6 +215,8 @@ export function TripSidebar({
   onStopChange,
   onStopDelete,
   onTravelLegSave,
+  onConnectionCreate,
+  onConnectionDelete,
   onTravelingViewChange,
   pendingAction,
   planningView,
@@ -267,6 +269,8 @@ export function TripSidebar({
   onStopChange: (stopId: string, updates: Partial<Stop>) => void
   onStopDelete: (stopId: string) => void
   onTravelLegSave: (legId: string, draft: TravelLegEditDraft) => void
+  onConnectionCreate: (payload: import('@/api/client').ItineraryTravelReplacePayload) => void
+  onConnectionDelete: (legId: string) => void
   onTravelingViewChange: (view: TravelingView) => void
   pendingAction: string | null
   planningView: PlanningView
@@ -380,6 +384,8 @@ export function TripSidebar({
             onStopDelete={onStopDelete}
             onStopSave={onStopSave}
             onTravelLegSave={onTravelLegSave}
+            onConnectionCreate={onConnectionCreate}
+            onConnectionDelete={onConnectionDelete}
             pendingAction={pendingAction}
             stops={stops}
             tripStartDate={trip.startDate}

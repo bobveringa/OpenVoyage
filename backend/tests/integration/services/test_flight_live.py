@@ -18,7 +18,7 @@ from integration.services.test_itinerary_route_service import plan, headers  # n
     os.getenv('RUN_LIVE_FLIGHT_TESTS') != '1', reason='Explicit live API test only'
 )
 def test_configured_and_unconfigured_flight_api(client, db_session, plan):  # noqa: F811
-    user, _, _, endpoint, revision, _, _ = plan
+    user, _, _, endpoint, revision, leg, _ = plan
     payload = {'flight_number': 'KL597', 'departure_date': '2026-11-18'}
     unconfigured = client.post(
         endpoint + '/flight-lookups', headers=headers(user, revision), json=payload
@@ -42,12 +42,14 @@ def test_configured_and_unconfigured_flight_api(client, db_session, plan):  # no
         endpoint,
         headers=headers(user, revision),
         json={
+            'from': leg['from'],
+            'to': leg['to'],
             'segments': [
                 {
                     'travel_mode': 'FLIGHT',
                     'flight': payload | {'candidate_id': candidate['candidate_id']},
                 }
-            ]
+            ],
         },
     )
     assert saved.status_code == 200

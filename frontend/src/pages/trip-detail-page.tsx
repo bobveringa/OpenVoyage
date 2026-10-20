@@ -1,3 +1,4 @@
+import { connectionWritePayload } from './trip-detail/planning-utils'
 import { PlanningSessionContext } from '@/pages/trip-detail/planning-session'
 import type { AirportTransferRequest, AirportTransferSide } from '@/pages/trip-detail/airport-transfers'
 import { useMediaUpload } from '@/hooks/use-media-upload'
@@ -22,6 +23,8 @@ import {
   deletePost,
   deleteTrip,
   deleteItineraryStop,
+  createItineraryTravelLeg,
+  deleteItineraryTravelLeg,
   getErrorMessage,
   getItinerary,
   getPost,
@@ -903,6 +906,22 @@ export function TripDetailPage({
     })
   }
 
+  function handleConnectionCreate(payload: ItineraryTravelReplacePayload) {
+    if (!tripId || !accessToken) return
+    void runMutation('Adding connection', async () => {
+      const result = await createItineraryTravelLeg({ tripId, accessToken, itineraryRevision, payload })
+      setTravelLegs((legs) => result.leg.connection_type === 'DEPARTURE' ? [result.leg, ...legs] : [...legs, result.leg])
+      if (result.itineraryRevision !== null) setItineraryRevision(result.itineraryRevision)
+    })
+  }
+
+  function handleConnectionDelete(legId: string) {
+    if (!tripId || !accessToken) return
+    void runMutation('Removing connection', async () => {
+      applyItinerary(await deleteItineraryTravelLeg({ tripId, legId, accessToken, itineraryRevision }))
+    })
+  }
+
   function handleTravelLegSave(legId: string, draft: TravelLegEditDraft) {
     if (!tripId || !accessToken) {
       setMutationError('Sign in to update travel legs.')
@@ -1578,6 +1597,8 @@ export function TripDetailPage({
               onStopChange={handleStopChange}
               onStopDelete={handleStopDelete}
               onTravelLegSave={handleTravelLegSave}
+              onConnectionCreate={handleConnectionCreate}
+              onConnectionDelete={handleConnectionDelete}
               onTravelingViewChange={handleTravelingViewChange}
               pendingAction={mediaStatus ?? pendingAction}
               postScrollRequest={postScrollRequest}
@@ -1953,7 +1974,7 @@ function toCreateStopPayload(
 }
 
 function toTravelLegPayload(draft: TravelLegEditDraft): ItineraryTravelReplacePayload {
-  return draft
+  return connectionWritePayload(draft)
 }
 
 function toPostCreatePayload(

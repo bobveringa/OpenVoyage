@@ -12,7 +12,7 @@ function canonical(value: unknown): unknown {
 
 // Match the server's preview binding: notes and selecting an option don't change a route.
 export function planningPreviewKey(draft: TravelLegEditDraft) {
-  return JSON.stringify(canonical({ segments: draft.segments.map((segment) => ({
+  return JSON.stringify(canonical({ from: draft.from, to: draft.to, segments: draft.segments.map((segment) => ({
     id: segment.id ?? null,
     travel_mode: segment.travel_mode,
     from: segment.from ?? null,

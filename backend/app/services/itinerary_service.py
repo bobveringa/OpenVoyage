@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from types import SimpleNamespace
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, joinedload
 
 from models.api.itinerary import (
@@ -12,7 +13,9 @@ from models.api.itinerary import (
     ItineraryStopUpdateRequest,
     ItineraryTravelReplaceRequest,
 )
+from models.api.planning import ConnectionIntent
 from models.database.itinerary import (
+    ItineraryPlanningArtifact,
     ItineraryStop,
     ItineraryTravelLeg,
     ItineraryTravelSegment,
@@ -20,13 +23,18 @@ from models.database.itinerary import (
 from fastapi import HTTPException
 from models.database.trips import Trip, TripMember
 from models.database.user import User
+from services.connection_endpoints import (
+    endpoint_location,
+    endpoint_label,
+    location_identity,
+)
 from services.itinerary_routes import ItineraryRouteService
 from services.location_service import LocationService
 from services.trip_access import get_membership, get_trip_read_access
 from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
 
-StopPair = tuple[uuid.UUID, uuid.UUID]
+StopPair = tuple[uuid.UUID | None, uuid.UUID | None]
 
 
 class ItineraryPermissionError(Exception):
@@ -155,6 +163,7 @@ class ItineraryService:
         legs_by_pair = self._rebalance_legs(
             trip_id=trip_id,
             new_pairs=self._adjacent_pairs(new_order),
+            new_order=new_order,
         )
         self._apply_side_replacements(
             legs_by_pair=legs_by_pair,
@@ -196,8 +205,8 @@ class ItineraryService:
         legs_by_pair = self._load_legs_by_pair(trip_id=trip_id)
         return ItineraryStopDetail(
             stop=stop,
-            incoming_leg=legs_by_pair.get(incoming_pair) if incoming_pair else None,
-            outgoing_leg=legs_by_pair.get(outgoing_pair) if outgoing_pair else None,
+            incoming_leg=legs_by_pair.get(incoming_pair or (None, stop_id)),
+            outgoing_leg=legs_by_pair.get(outgoing_pair or (stop_id, None)),
             itinerary_revision=trip.itinerary_revision,
         )
 
@@ -281,19 +290,15 @@ class ItineraryService:
             return self._load_itinerary_snapshot(trip=trip)
 
         legs_by_pair = self._load_legs_by_pair(trip_id=trip_id)
-        if placement_changed:
+        if placement_changed or has_location_replacement:
             self._apply_order(new_order)
             legs_by_pair = self._rebalance_legs(
                 trip_id=trip_id,
                 new_pairs=self._adjacent_pairs(new_order),
+                new_order=new_order,
+                reset_stop_ids={stop_id} if has_location_replacement else set(),
             )
 
-        if has_location_replacement:
-            self._reset_side_legs(
-                legs_by_pair=legs_by_pair,
-                incoming_pair=incoming_pair,
-                outgoing_pair=outgoing_pair,
-            )
         if placement_changed or has_location_replacement:
             self._apply_side_replacements(
                 legs_by_pair=legs_by_pair,
@@ -335,6 +340,7 @@ class ItineraryService:
         legs_by_pair = self._rebalance_legs(
             trip_id=trip_id,
             new_pairs=self._adjacent_pairs(new_order),
+            new_order=new_order,
         )
         self._sync_bridge_route_after_stop_delete(
             old_ordered_stops=old_stops,
@@ -378,20 +384,36 @@ class ItineraryService:
             expected_revision=expected_revision,
         )
         leg = self._get_leg_or_raise(trip_id=trip_id, leg_id=leg_id)
-        current_pairs = set(self._adjacent_pairs(self._load_ordered_stops(trip_id)))
-        if (leg.from_stop_id, leg.to_stop_id) not in current_pairs:
-            raise ItineraryTravelLegNotFoundError(
-                f'Itinerary travel leg not found: {leg_id}'
-            )
-
-        if self._travel_payload_matches_leg(payload=payload, leg=leg):
+        draft = self._connection_draft(leg, payload, current_user_id)
+        endpoints_changed = any(
+            endpoint_location(leg, side).id != endpoint_location(draft, side).id
+            for side in ('from', 'to')
+        )
+        if not endpoints_changed and self._travel_payload_matches_leg(
+            payload=payload, leg=leg
+        ):
             return ItineraryTravelLegDetail(
-                leg=leg,
-                itinerary_revision=trip.itinerary_revision,
+                leg=leg, itinerary_revision=trip.itinerary_revision
             )
-
         self._editing_user_id = current_user_id
+        if endpoints_changed:
+            for side in ('from', 'to'):
+                if getattr(draft, f'{side}_stop_id') is None:
+                    endpoint = getattr(payload, 'from_' if side == 'from' else 'to')
+                    location = self.location_service.create_location_for_trip(
+                        trip_id,
+                        current_user_id,
+                        endpoint.location,
+                    )
+                    setattr(leg, f'{side}_location_id', location.id)
+                    self.db.expire(leg, [f'{side}_location'])
+            for segment in leg.segments:
+                if segment.flight:
+                    segment.flight.lookup = None
+                    segment.flight.lookup_owner_user_id = None
         self._replace_travel(leg=leg, payload=payload)
+        if endpoints_changed:
+            self._clear_artifacts(leg)
         self.route_service.invalidate(leg)
         self._increment_revision(trip)
         self.db.commit()
@@ -399,6 +421,123 @@ class ItineraryService:
             leg=self._get_leg_or_raise(trip_id=trip_id, leg_id=leg_id),
             itinerary_revision=trip.itinerary_revision,
         )
+
+    def _connection_draft(self, leg, payload, actor, *, creating=False):
+        stops = self._load_ordered_stops(leg.trip_id)
+        stop_map = {stop.id: stop for stop in stops}
+        pair = tuple(
+            endpoint.stop_id if endpoint.type == 'STOP' else None
+            for endpoint in (payload.from_, payload.to)
+        )
+        for stop_id in pair:
+            if stop_id is not None and stop_id not in stop_map:
+                raise ItineraryStopNotFoundError(f'Itinerary stop not found: {stop_id}')
+        allowed = self._adjacent_pairs(stops)
+        if stops:
+            allowed += [(None, stops[0].id), (stops[-1].id, None)]
+        if (
+            pair not in allowed
+            or (creating and None not in pair)
+            or (not creating and pair != (leg.from_stop_id, leg.to_stop_id))
+        ):
+            raise HTTPException(
+                409,
+                {
+                    'code': 'CONNECTION_TOPOLOGY_CONFLICT',
+                    'message': 'Connection endpoints must preserve itinerary topology',
+                },
+            )
+        values = {
+            key: getattr(leg, key)
+            for key in (
+                'id',
+                'trip_id',
+                'notes',
+                'segments',
+                'created_at',
+                'updated_at',
+            )
+        }
+        for side, endpoint, stop_id in zip(
+            ('from', 'to'), (payload.from_, payload.to), pair
+        ):
+            values[f'{side}_stop_id'] = stop_id
+            values[f'{side}_stop'] = stop_map.get(stop_id)
+            values[f'{side}_location'] = None
+            if endpoint.type == 'LOCATION':
+                resolved = self.location_service._resolve_location_input(
+                    endpoint.location
+                )
+                current = getattr(leg, f'{side}_location', None)
+                if current and location_identity(current) == location_identity(
+                    resolved
+                ):
+                    location = current
+                else:
+                    location = SimpleNamespace(
+                        **vars(resolved),
+                        id=uuid.uuid4(),
+                        source_place_id=getattr(endpoint.location, 'place_id', None),
+                    )
+                values[f'{side}_location'] = location
+        return SimpleNamespace(**values)
+
+    def create_travel_leg(self, trip_id, payload, current_user_id, expected_revision):
+        trip, _ = self._require_manage_trip_locked(
+            trip_id, current_user_id, expected_revision
+        )
+        if payload.preview_id or any(
+            s.id or (s.flight and s.flight.candidate_id)
+            for s in (payload.segments or [])
+        ):
+            raise HTTPException(
+                422, 'New connections cannot reuse segments, candidates or previews'
+            )
+        leg = ItineraryTravelLeg(
+            id=uuid.uuid4(), trip_id=trip_id, notes='', segments=[]
+        )
+        draft = self._connection_draft(leg, payload, current_user_id, creating=True)
+        existing = self._load_legs_by_pair(trip_id)
+        pair = (draft.from_stop_id, draft.to_stop_id)
+        if pair in existing:
+            raise HTTPException(409, {'code': 'CONNECTION_ALREADY_EXISTS'})
+        leg.from_stop_id, leg.to_stop_id = pair
+        for side, endpoint in (('from', payload.from_), ('to', payload.to)):
+            if endpoint.type == 'LOCATION':
+                location = self.location_service.create_location_for_trip(
+                    trip_id,
+                    current_user_id,
+                    endpoint.location,
+                )
+                setattr(leg, f'{side}_location_id', location.id)
+        self.db.add(leg)
+        self.db.flush()
+        self._editing_user_id = current_user_id
+        self._replace_travel(leg=leg, payload=payload)
+        self._increment_revision(trip)
+        self.db.commit()
+        return ItineraryTravelLegDetail(
+            self._get_leg_or_raise(trip_id, leg.id), trip.itinerary_revision
+        )
+
+    def delete_travel_leg(self, trip_id, leg_id, current_user_id, expected_revision):
+        trip, _ = self._require_manage_trip_locked(
+            trip_id, current_user_id, expected_revision
+        )
+        leg = self._get_leg_or_raise(trip_id, leg_id)
+        if leg.from_stop_id is not None and leg.to_stop_id is not None:
+            raise HTTPException(
+                409,
+                {
+                    'code': 'CONNECTION_TOPOLOGY_CONFLICT',
+                    'message': 'Between-stop connections are managed by the itinerary',
+                },
+            )
+        self._confirm_discard([leg])
+        self.db.delete(leg)
+        self._increment_revision(trip)
+        self.db.commit()
+        return self._load_itinerary_snapshot_by_id(trip_id)
 
     def _get_readable_trip_or_raise(
         self,
@@ -420,12 +559,13 @@ class ItineraryService:
         self, trip_id, leg_id, payload, actor, revision, retry_failed=False
     ):
         from models.api.itinerary import ItineraryTravelLegResponse, PreviewResponse
-        from services.planning_service import calculation_gate, draft_hash
+        from services.planning_service import calculation_gate
 
         self._require_manage_trip_locked(trip_id, actor, revision)
         leg = self._get_leg_or_raise(trip_id, leg_id)
+        leg = self._connection_draft(leg, payload, actor)
         segments = self.route_service.build(leg, payload, actor)
-        binding = draft_hash(payload)
+        binding = self.route_service.binding(leg, payload)
         # Do not spend credits again for the same completed, unexpired preview.
         from models.database.itinerary import ItineraryPlanningArtifact
         from models.database.base import utcnow
@@ -470,6 +610,12 @@ class ItineraryService:
             calculation_gate.leave(actor, trip_id)
         self._require_manage_trip_locked(trip_id, actor, revision)
         leg = self._get_leg_or_raise(trip_id, leg_id)
+        leg = self._connection_draft(leg, payload, actor)
+        current_segments = self.route_service.build(leg, payload, actor)
+        if self.route_service.binding(leg, payload) != binding or [
+            segment.input_hash for segment in current_segments
+        ] != [segment.input_hash for segment in segments]:
+            raise ItineraryRevisionMismatchError('Connection endpoint inputs changed')
         result = self.route_service.connection(leg, segments)
         if any(
             s.intent.travel_mode in ('CAR', 'BIKE', 'WALK')
@@ -490,7 +636,7 @@ class ItineraryService:
             actor,
             {
                 'routes': [s.result for s in segments],
-                'connection': connection.model_dump(mode='json'),
+                'connection': connection.model_dump(mode='json', by_alias=True),
             },
             binding,
             revision,
@@ -652,7 +798,13 @@ class ItineraryService:
         legs_by_pair = self._load_legs_by_pair(trip_id=trip.id)
         ordered_legs = [
             legs_by_pair[pair]
-            for pair in self._adjacent_pairs(stops)
+            for pair in (
+                [(None, stops[0].id)]
+                + self._adjacent_pairs(stops)
+                + [(stops[-1].id, None)]
+                if stops
+                else []
+            )
             if pair in legs_by_pair
         ]
         return ItinerarySnapshot(
@@ -768,81 +920,117 @@ class ItineraryService:
             same_day_position += 1
         self.db.flush()
 
-    def _rebalance_legs(
-        self,
-        *,
-        trip_id: uuid.UUID,
-        new_pairs: list[StopPair],
-    ) -> dict[StopPair, ItineraryTravelLeg]:
-        new_pair_set = set(new_pairs)
-        existing_legs = self._load_legs_by_pair(trip_id=trip_id)
-        kept: dict[StopPair, ItineraryTravelLeg] = {}
-
-        affected = [
-            leg
-            for pair, leg in existing_legs.items()
-            if pair not in new_pair_set
-            and (
-                leg.notes
-                or len(leg.segments) > 1
-                or any(
-                    seg.mode_source == 'USER'
-                    or seg.notes
-                    or seg.flight
-                    or seg.service_company
-                    or seg.service_number
-                    or seg.from_location_id
-                    or seg.to_location_id
-                    or seg.via_location_id
-                    for seg in leg.segments
+    @staticmethod
+    def _customized(leg):
+        return bool(
+            leg.notes
+            or len(leg.segments) > 1
+            or any(
+                seg.mode_source == 'USER'
+                or seg.notes
+                or (
+                    seg.flight
+                    and any(
+                        getattr(seg.flight, field)
+                        for field in (
+                            'flight_number',
+                            'departure_date',
+                            'departure_airport_place_id',
+                            'arrival_airport_place_id',
+                            'airline_name',
+                            'lookup',
+                        )
+                    )
                 )
+                or seg.service_company
+                or seg.service_number
+                or seg.from_location_id
+                or seg.to_location_id
+                or seg.via_location_id
+                for seg in leg.segments
             )
-        ]
+        )
+
+    def _confirm_discard(self, legs):
+        affected = [leg for leg in legs if self._customized(leg)]
         if affected and not self.confirm_travel_deletion:
             detail = {
                 'code': 'TRAVEL_DELETION_REQUIRED',
                 'connections': [
                     {
                         'id': str(leg.id),
-                        'from': leg.from_stop.title,
-                        'to': leg.to_stop.title,
+                        'from': endpoint_label(leg, 'from'),
+                        'to': endpoint_label(leg, 'to'),
                     }
                     for leg in affected
                 ],
             }
             self.db.rollback()
             raise HTTPException(409, detail)
-        for pair, leg in existing_legs.items():
-            if pair in new_pair_set:
-                kept[pair] = leg
-            else:
-                self.db.delete(leg)
-        self.db.flush()
 
+    def _clear_artifacts(self, leg):
+        self.db.execute(
+            delete(ItineraryPlanningArtifact).where(
+                ItineraryPlanningArtifact.trip_id == leg.trip_id,
+                ItineraryPlanningArtifact.leg_id == leg.id,
+            )
+        )
+
+    def _rebalance_legs(self, *, trip_id, new_pairs, new_order, reset_stop_ids=None):
+        reset_stop_ids = reset_stop_ids or set()
+        existing = self._load_legs_by_pair(trip_id)
+        desired = set(new_pairs)
+        removals, resets, reanchors = [], [], []
+        for pair, leg in existing.items():
+            if leg.from_stop_id is None or leg.to_stop_id is None:
+                if not new_order:
+                    removals.append(leg)
+                    continue
+                target = (
+                    (None, new_order[0].id)
+                    if leg.from_stop_id is None
+                    else (new_order[-1].id, None)
+                )
+                if pair != target:
+                    reanchors.append((leg, target))
+                    resets.append(leg)
+            elif pair not in desired:
+                removals.append(leg)
+        self._confirm_discard(removals + resets)
+        for leg in removals:
+            self.db.delete(leg)
+        # Release old stop uniqueness before reanchoring, and reanchor before stop deletion.
+        self.db.flush()
+        for leg, pair in reanchors:
+            leg.from_stop_id, leg.to_stop_id = pair
+            self.db.expire(leg, ['from_stop', 'to_stop'])
+        self.db.flush()
+        for leg in resets:
+            self._reset_travel(leg)
+        for leg in existing.values():
+            if (
+                leg not in removals
+                and leg not in resets
+                and reset_stop_ids.intersection((leg.from_stop_id, leg.to_stop_id))
+            ):
+                self.route_service.invalidate(leg)
+                self._clear_artifacts(leg)
+        kept = {
+            (leg.from_stop_id, leg.to_stop_id): leg
+            for leg in existing.values()
+            if leg not in removals
+        }
         for pair in new_pairs:
             if pair not in kept:
                 leg = ItineraryTravelLeg(
-                    trip_id=trip_id,
-                    from_stop_id=pair[0],
-                    to_stop_id=pair[1],
-                    notes='',
-                    segments=[
-                        ItineraryTravelSegment(
-                            trip_id=trip_id,
-                            position=0,
-                            mode_source='AUTO',
-                            travel_mode=self.route_service.infer_mode(
-                                self.db.get(ItineraryStop, pair[0]).location,
-                                self.db.get(ItineraryStop, pair[1]).location,
-                                trip_id,
-                            ),
-                        )
-                    ],
+                    trip_id=trip_id, from_stop_id=pair[0], to_stop_id=pair[1], notes=''
                 )
                 self.db.add(leg)
+                self.db.flush()
+                self._reset_travel(leg)
                 kept[pair] = leg
         self.db.flush()
-        return {pair: kept[pair] for pair in new_pairs}
+        return kept
 
     def _apply_stop_metadata_updates(
         self,
@@ -890,8 +1078,8 @@ class ItineraryService:
         *,
         incoming_pair: StopPair | None,
         outgoing_pair: StopPair | None,
-        incoming_travel: ItineraryTravelReplaceRequest | None,
-        outgoing_travel: ItineraryTravelReplaceRequest | None,
+        incoming_travel: ConnectionIntent | None,
+        outgoing_travel: ConnectionIntent | None,
     ) -> None:
         if incoming_travel is not None and incoming_pair is None:
             raise ItineraryTravelValidationError(
@@ -908,8 +1096,8 @@ class ItineraryService:
         legs_by_pair: dict[StopPair, ItineraryTravelLeg],
         incoming_pair: StopPair | None,
         outgoing_pair: StopPair | None,
-        incoming_travel: ItineraryTravelReplaceRequest | None,
-        outgoing_travel: ItineraryTravelReplaceRequest | None,
+        incoming_travel: ConnectionIntent | None,
+        outgoing_travel: ConnectionIntent | None,
     ) -> None:
         if incoming_pair is not None and incoming_travel is not None:
             self._replace_travel(
@@ -919,17 +1107,6 @@ class ItineraryService:
             self._replace_travel(
                 leg=legs_by_pair[outgoing_pair], payload=outgoing_travel
             )
-
-    def _reset_side_legs(
-        self,
-        *,
-        legs_by_pair: dict[StopPair, ItineraryTravelLeg],
-        incoming_pair: StopPair | None,
-        outgoing_pair: StopPair | None,
-    ) -> None:
-        for pair in (incoming_pair, outgoing_pair):
-            if pair is not None:
-                self._reset_travel(legs_by_pair[pair])
 
     def _sync_side_routes(
         self,
@@ -968,7 +1145,21 @@ class ItineraryService:
             self.route_service.invalidate(bridge_leg)
 
     def _reset_travel(self, leg: ItineraryTravelLeg) -> None:
-        self.route_service.invalidate(leg)
+        self._clear_artifacts(leg)
+        leg.notes = ''
+        leg.segments = [
+            ItineraryTravelSegment(
+                trip_id=leg.trip_id,
+                position=0,
+                mode_source='AUTO',
+                travel_mode=self.route_service.infer_mode(
+                    endpoint_location(leg, 'from'),
+                    endpoint_location(leg, 'to'),
+                    leg.trip_id,
+                ),
+            )
+        ]
+        self.db.flush()
 
     def _replace_travel(self, *, leg, payload) -> None:
         trip = self.db.get(Trip, leg.trip_id)
@@ -977,10 +1168,22 @@ class ItineraryService:
         )
 
     def _travel_payload_matches_leg(self, *, payload, leg) -> bool:
-        if payload.preview_id or any(s.mode_selected for s in payload.segments):
+        if payload.preview_id or any(s.mode_selected for s in (payload.segments or [])):
             return False
+        if payload.segments is None:
+            return (
+                not self._customized(leg)
+                and not payload.notes
+                and len(leg.segments) == 1
+                and leg.segments[0].travel_mode
+                == self.route_service.infer_mode(
+                    endpoint_location(leg, 'from'),
+                    endpoint_location(leg, 'to'),
+                    leg.trip_id,
+                )
+            )
         return payload.model_dump(
-            mode='json', by_alias=True, exclude={'preview_id'}
+            mode='json', by_alias=True, exclude={'preview_id', 'from_', 'to'}
         ) == self.route_service.saved_intent(leg).model_dump(
             mode='json', by_alias=True, exclude={'preview_id'}
         )

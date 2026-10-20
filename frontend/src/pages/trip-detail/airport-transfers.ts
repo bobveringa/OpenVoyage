@@ -1,4 +1,5 @@
-import type { Stop, TravelLeg } from './models'
+import type { ConnectionAnchor } from './connection-endpoints'
+import type { TravelLeg } from './models'
 import { getCentralAngle } from './route-geometry'
 
 export type AirportTransferSide = 'departure' | 'arrival'
@@ -12,7 +13,7 @@ export type AirportTransfer = {
 }
 
 /** Visual gaps only: these are never saved as transport or included in estimates. */
-export function getAirportTransfers(leg: TravelLeg, fromStop: Stop, toStop: Stop): AirportTransfer[] {
+export function getAirportTransfers(leg: TravelLeg, fromStop: ConnectionAnchor, toStop: ConnectionAnchor): AirportTransfer[] {
   const transfers: AirportTransfer[] = []
   const first = leg.segments[0]
   const last = leg.segments[leg.segments.length - 1]

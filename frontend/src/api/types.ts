@@ -530,6 +530,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/itinerary/legs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Leg */
+        post: operations["create_leg_api_v1_trips__trip_id__itinerary_legs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}": {
         parameters: {
             query?: never;
@@ -542,7 +559,8 @@ export interface paths {
         /** Replace Leg */
         put: operations["replace_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__put"];
         post?: never;
-        delete?: never;
+        /** Delete Leg */
+        delete: operations["delete_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1531,6 +1549,18 @@ export interface components {
             /** File */
             file: string;
         };
+        /** ConnectionIntent */
+        ConnectionIntent: {
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /** Preview Id */
+            preview_id?: string | null;
+            /** Segments */
+            segments: components["schemas"]["SegmentIntent"][];
+        };
         /** CurrentUserResponse */
         CurrentUserResponse: {
             /**
@@ -1871,7 +1901,7 @@ export interface components {
         ItineraryRouteType: "PROVIDER_BACKED" | "SIMPLE";
         /** ItineraryStopCreateRequest */
         ItineraryStopCreateRequest: {
-            incoming_travel?: components["schemas"]["ItineraryTravelReplaceRequest"] | null;
+            incoming_travel?: components["schemas"]["ConnectionIntent"] | null;
             /** Location */
             location: components["schemas"]["LocationPlaceInput"] | components["schemas"]["LocationCoordinatesInput"];
             /**
@@ -1879,7 +1909,7 @@ export interface components {
              * @default
              */
             notes: string;
-            outgoing_travel?: components["schemas"]["ItineraryTravelReplaceRequest"] | null;
+            outgoing_travel?: components["schemas"]["ConnectionIntent"] | null;
             placement: components["schemas"]["ItineraryPlacement"];
             /** Planned Nights */
             planned_nights: number;
@@ -1934,12 +1964,12 @@ export interface components {
         };
         /** ItineraryStopUpdateRequest */
         ItineraryStopUpdateRequest: {
-            incoming_travel?: components["schemas"]["ItineraryTravelReplaceRequest"] | null;
+            incoming_travel?: components["schemas"]["ConnectionIntent"] | null;
             /** Location */
             location?: components["schemas"]["LocationPlaceInput"] | components["schemas"]["LocationCoordinatesInput"] | null;
             /** Notes */
             notes?: string | null;
-            outgoing_travel?: components["schemas"]["ItineraryTravelReplaceRequest"] | null;
+            outgoing_travel?: components["schemas"]["ConnectionIntent"] | null;
             placement?: components["schemas"]["ItineraryPlacement"] | null;
             /** Planned Nights */
             planned_nights?: number | null;
@@ -1949,6 +1979,11 @@ export interface components {
         /** ItineraryTravelLegResponse */
         ItineraryTravelLegResponse: {
             /**
+             * Connection Type
+             * @enum {string}
+             */
+            connection_type: "BETWEEN_STOPS" | "DEPARTURE" | "RETURN";
+            /**
              * Created At
              * Format: date-time
              */
@@ -1957,11 +1992,8 @@ export interface components {
             duration_scope: ("JOURNEY" | "FLIGHT_JOURNEY") | null;
             /** Duration Seconds */
             duration_seconds: number | null;
-            /**
-             * From Stop Id
-             * Format: uuid
-             */
-            from_stop_id: string;
+            /** From */
+            from: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointResponse"];
             /**
              * Id
              * Format: uuid
@@ -1972,11 +2004,8 @@ export interface components {
             route: components["schemas"]["ItineraryTravelRouteResponse"];
             /** Segments */
             segments: components["schemas"]["SegmentResponse"][];
-            /**
-             * To Stop Id
-             * Format: uuid
-             */
-            to_stop_id: string;
+            /** To */
+            to: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointResponse"];
             /**
              * Trip Id
              * Format: uuid
@@ -1992,6 +2021,8 @@ export interface components {
         };
         /** ItineraryTravelReplaceRequest */
         ItineraryTravelReplaceRequest: {
+            /** From */
+            from: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointInput"];
             /**
              * Notes
              * @default
@@ -2000,7 +2031,9 @@ export interface components {
             /** Preview Id */
             preview_id?: string | null;
             /** Segments */
-            segments: components["schemas"]["SegmentIntent"][];
+            segments?: components["schemas"]["SegmentIntent"][];
+            /** To */
+            to: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointInput"];
         };
         /** ItineraryTravelRouteResponse */
         ItineraryTravelRouteResponse: {
@@ -2111,6 +2144,25 @@ export interface components {
             enabled?: boolean | null;
             /** Timezone */
             timezone?: string | null;
+        };
+        /** LocationConnectionEndpointInput */
+        LocationConnectionEndpointInput: {
+            /** Location */
+            location: components["schemas"]["LocationPlaceInput"] | components["schemas"]["LocationCoordinatesInput"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "LOCATION";
+        };
+        /** LocationConnectionEndpointResponse */
+        LocationConnectionEndpointResponse: {
+            location: components["schemas"]["LocationResponse"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "LOCATION";
         };
         /** LocationCoordinatesInput */
         LocationCoordinatesInput: {
@@ -2698,6 +2750,19 @@ export interface components {
          * @enum {string}
          */
         SortDirection: "asc" | "desc";
+        /** StopConnectionEndpoint */
+        StopConnectionEndpoint: {
+            /**
+             * Stop Id
+             * Format: uuid
+             */
+            stop_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "STOP";
+        };
         /**
          * TimeFormat
          * @enum {string}
@@ -4630,6 +4695,43 @@ export interface operations {
             };
         };
     };
+    create_leg_api_v1_trips__trip_id__itinerary_legs_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItineraryTravelReplaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItineraryTravelLegResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__get: {
         parameters: {
             query?: never;
@@ -4689,6 +4791,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ItineraryTravelLegResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__delete: {
+        parameters: {
+            query?: {
+                confirm_travel_deletion?: boolean;
+            };
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                trip_id: string;
+                leg_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItineraryResponse"];
                 };
             };
             /** @description Validation Error */

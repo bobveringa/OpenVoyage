@@ -1,3 +1,4 @@
+import { resolveConnectionEndpoint } from './connection-endpoints'
 import 'leaflet/dist/leaflet.css'
 
 import * as L from 'leaflet'
@@ -35,10 +36,8 @@ import type {
 import {
   createRouteGeometryKey,
   createGeodesicRoute,
-  createStopPairKey,
   getCentralAngle,
   getGeoJsonLineStringCoordinates,
-  getSimpleRouteCoordinates,
 } from '@/pages/trip-detail/route-geometry'
 import { usePublicSetting } from '@/settings/public-settings'
 import { useTheme } from '@/theme'
@@ -159,7 +158,7 @@ export function MapWorkspace({
         onPostMarkerSelect={onPostMarkerSelect}
         resetNonce={resetNonce}
         routeMode={routeMode}
-        stops={planningPreview ? stops.filter((stop) => stop.id === planningPreview.from_stop_id || stop.id === planningPreview.to_stop_id) : stops}
+        stops={planningPreview ? stops.filter((stop) => (planningPreview.from.type === 'STOP' && stop.id === planningPreview.from.stop_id) || (planningPreview.to.type === 'STOP' && stop.id === planningPreview.to.stop_id)) : stops}
         travelLegs={planningPreview ? [planningPreview] : travelLegs}
         trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
@@ -415,6 +414,19 @@ export function TripLeafletMap({
     const routeEndpointLayer = routeEndpointLayerRef.current
     if (routeEndpointLayer) {
       routeEndpointLayer.clearLayers()
+      if (routeMode === 'itinerary') {
+        for (const leg of travelLegsRef.current) {
+          for (const endpoint of [leg.from, leg.to]) {
+            if (endpoint.type !== 'LOCATION') continue
+            const anchor = resolveConnectionEndpoint(endpoint, stopsRef.current)
+            if (!anchor) continue
+            L.circleMarker([anchor.location.latitude, anchor.location.longitude], {
+              className: 'trip-map-connection-endpoint', radius: 6,
+              color: getThemeColor('--primary', '#0F766E'), fillOpacity: 1,
+            }).bindTooltip(escapeHtml(anchor.title)).addTo(routeEndpointLayer)
+          }
+        }
+      }
       if (routeMode === 'travel-timeline' && isTripOngoing) {
         renderRouteEndpointMarker(
           routeEndpointLayer,
@@ -427,7 +439,13 @@ export function TripLeafletMap({
     }
     const animationFrameId = window.requestAnimationFrame(() => {
       map.invalidateSize()
-      const viewKey = `${routeMode}:${fitMode}:${fitMode === 'route-preview' || fitMode === 'route-selector' ? routeKey : ''}`
+      const outsideAnchors = routeMode === 'itinerary' ? travelLegsRef.current.flatMap((leg) =>
+        [leg.from, leg.to].filter((endpoint) => endpoint.type === 'LOCATION').map((endpoint) => {
+          const anchor = resolveConnectionEndpoint(endpoint, stopsRef.current)
+          return anchor ? [anchor.location.latitude, anchor.location.longitude] : null
+        }),
+      ) : []
+      const viewKey = `${routeMode}:${fitMode}:${JSON.stringify(outsideAnchors)}:${fitMode === 'route-preview' || fitMode === 'route-selector' ? routeKey : ''}`
       if (!focusedPostIdRef.current && fittedViewRef.current !== viewKey) {
         fitRouteBounds(
           map,
@@ -1043,8 +1061,8 @@ function createRouteKey(
     .map((leg) =>
       [
         leg.id,
-        leg.from_stop_id,
-        leg.to_stop_id,
+        JSON.stringify(leg.from),
+        JSON.stringify(leg.to),
         leg.route.type,
         createRouteGeometryKey(leg.route.geometry),
         ...leg.segments.flatMap((segment) => [segment.intent.travel_mode, segment.route_state, segment.geometry ? createRouteGeometryKey(segment.geometry) : '', ...(segment.route_options || []).map((option) => createRouteGeometryKey(option.geometry))]),
@@ -1124,22 +1142,11 @@ function getItineraryRouteSegments(
   stops: readonly Stop[],
   travelLegs: readonly TravelLeg[],
 ): RouteSegment[] {
-  const legsByPair = new Map<string, TravelLeg>(
-    travelLegs.map((leg): [string, TravelLeg] => [
-      createStopPairKey(leg.from_stop_id, leg.to_stop_id),
-      leg,
-    ]),
-  )
   const segments: RouteSegment[] = []
-
-  for (let index = 0; index < stops.length - 1; index += 1) {
-    const fromStop = stops[index]
-    const toStop = stops[index + 1]
-    if (!fromStop || !toStop) {
-      continue
-    }
-
-    const leg = legsByPair.get(createStopPairKey(fromStop.id, toStop.id))
+  for (const leg of travelLegs) {
+    const fromStop = resolveConnectionEndpoint(leg.from, stops)
+    const toStop = resolveConnectionEndpoint(leg.to, stops)
+    if (!fromStop || !toStop) continue
     if (leg?.segments?.length) {
       for (const transfer of getAirportTransfers(leg, fromStop, toStop)) {
         segments.push({
@@ -1165,8 +1172,6 @@ function getItineraryRouteSegments(
           travelMode: segment.intent.travel_mode,
         })
       }
-    } else if (!leg) {
-      segments.push({ coordinates: getSimpleRouteCoordinates(fromStop, toStop), kind: 'itinerary', routeType: 'SIMPLE' })
     }
   }
 
@@ -1304,6 +1309,14 @@ function getRouteBoundsCoordinates(
     openingRoute,
   ).flatMap((segment) => segment.coordinates)
 
+  if (routeMode === 'itinerary') {
+    for (const leg of travelLegs) {
+      for (const endpoint of [leg.from, leg.to]) {
+        const anchor = resolveConnectionEndpoint(endpoint, stops)
+        if (anchor) routeCoordinates.push([anchor.location.latitude, anchor.location.longitude])
+      }
+    }
+  }
   if (routeCoordinates.length > 0) {
     return routeCoordinates
   }

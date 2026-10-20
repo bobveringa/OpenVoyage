@@ -101,7 +101,7 @@ class ConnectionIntent(StrictInput):
 
     @model_validator(mode='after')
     def unique_ids(self):
-        ids = [s.id for s in self.segments if s.id is not None]
+        ids = [s.id for s in (self.segments or []) if s.id is not None]
         if len(ids) != len(set(ids)):
             raise ValueError('Duplicate segment IDs')
         return self

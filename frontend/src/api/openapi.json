@@ -444,6 +444,43 @@
         "title": "Body_upload_media_api_v1_media_post",
         "type": "object"
       },
+      "ConnectionIntent": {
+        "additionalProperties": false,
+        "properties": {
+          "notes": {
+            "default": "",
+            "maxLength": 10000,
+            "title": "Notes",
+            "type": "string"
+          },
+          "preview_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Id"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentIntent"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Segments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "segments"
+        ],
+        "title": "ConnectionIntent",
+        "type": "object"
+      },
       "CurrentUserResponse": {
         "properties": {
           "id": {
@@ -1359,7 +1396,7 @@
           "incoming_travel": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ItineraryTravelReplaceRequest"
+                "$ref": "#/components/schemas/ConnectionIntent"
               },
               {
                 "type": "null"
@@ -1385,7 +1422,7 @@
           "outgoing_travel": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ItineraryTravelReplaceRequest"
+                "$ref": "#/components/schemas/ConnectionIntent"
               },
               {
                 "type": "null"
@@ -1527,7 +1564,7 @@
           "incoming_travel": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ItineraryTravelReplaceRequest"
+                "$ref": "#/components/schemas/ConnectionIntent"
               },
               {
                 "type": "null"
@@ -1562,7 +1599,7 @@
           "outgoing_travel": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ItineraryTravelReplaceRequest"
+                "$ref": "#/components/schemas/ConnectionIntent"
               },
               {
                 "type": "null"
@@ -1610,6 +1647,15 @@
       },
       "ItineraryTravelLegResponse": {
         "properties": {
+          "connection_type": {
+            "enum": [
+              "BETWEEN_STOPS",
+              "DEPARTURE",
+              "RETURN"
+            ],
+            "title": "Connection Type",
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -1641,10 +1687,23 @@
             ],
             "title": "Duration Seconds"
           },
-          "from_stop_id": {
-            "format": "uuid",
-            "title": "From Stop Id",
-            "type": "string"
+          "from": {
+            "discriminator": {
+              "mapping": {
+                "LOCATION": "#/components/schemas/LocationConnectionEndpointResponse",
+                "STOP": "#/components/schemas/StopConnectionEndpoint"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StopConnectionEndpoint"
+              },
+              {
+                "$ref": "#/components/schemas/LocationConnectionEndpointResponse"
+              }
+            ],
+            "title": "From"
           },
           "id": {
             "format": "uuid",
@@ -1665,10 +1724,23 @@
             "title": "Segments",
             "type": "array"
           },
-          "to_stop_id": {
-            "format": "uuid",
-            "title": "To Stop Id",
-            "type": "string"
+          "to": {
+            "discriminator": {
+              "mapping": {
+                "LOCATION": "#/components/schemas/LocationConnectionEndpointResponse",
+                "STOP": "#/components/schemas/StopConnectionEndpoint"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StopConnectionEndpoint"
+              },
+              {
+                "$ref": "#/components/schemas/LocationConnectionEndpointResponse"
+              }
+            ],
+            "title": "To"
           },
           "trip_id": {
             "format": "uuid",
@@ -1691,8 +1763,9 @@
         "required": [
           "id",
           "trip_id",
-          "from_stop_id",
-          "to_stop_id",
+          "connection_type",
+          "from",
+          "to",
           "notes",
           "segments",
           "duration_seconds",
@@ -1708,6 +1781,24 @@
       "ItineraryTravelReplaceRequest": {
         "additionalProperties": false,
         "properties": {
+          "from": {
+            "discriminator": {
+              "mapping": {
+                "LOCATION": "#/components/schemas/LocationConnectionEndpointInput",
+                "STOP": "#/components/schemas/StopConnectionEndpoint"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StopConnectionEndpoint"
+              },
+              {
+                "$ref": "#/components/schemas/LocationConnectionEndpointInput"
+              }
+            ],
+            "title": "From"
+          },
           "notes": {
             "default": "",
             "maxLength": 10000,
@@ -1734,10 +1825,29 @@
             "minItems": 1,
             "title": "Segments",
             "type": "array"
+          },
+          "to": {
+            "discriminator": {
+              "mapping": {
+                "LOCATION": "#/components/schemas/LocationConnectionEndpointInput",
+                "STOP": "#/components/schemas/StopConnectionEndpoint"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StopConnectionEndpoint"
+              },
+              {
+                "$ref": "#/components/schemas/LocationConnectionEndpointInput"
+              }
+            ],
+            "title": "To"
           }
         },
         "required": [
-          "segments"
+          "from",
+          "to"
         ],
         "title": "ItineraryTravelReplaceRequest",
         "type": "object"
@@ -2113,6 +2223,52 @@
           }
         },
         "title": "JobUpdateRequest",
+        "type": "object"
+      },
+      "LocationConnectionEndpointInput": {
+        "additionalProperties": false,
+        "properties": {
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationPlaceInput"
+              },
+              {
+                "$ref": "#/components/schemas/LocationCoordinatesInput"
+              }
+            ],
+            "title": "Location"
+          },
+          "type": {
+            "const": "LOCATION",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "location"
+        ],
+        "title": "LocationConnectionEndpointInput",
+        "type": "object"
+      },
+      "LocationConnectionEndpointResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "location": {
+            "$ref": "#/components/schemas/LocationResponse"
+          },
+          "type": {
+            "const": "LOCATION",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "location"
+        ],
+        "title": "LocationConnectionEndpointResponse",
         "type": "object"
       },
       "LocationCoordinatesInput": {
@@ -3815,6 +3971,27 @@
         ],
         "title": "SortDirection",
         "type": "string"
+      },
+      "StopConnectionEndpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "stop_id": {
+            "format": "uuid",
+            "title": "Stop Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "STOP",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "stop_id"
+        ],
+        "title": "StopConnectionEndpoint",
+        "type": "object"
       },
       "TimeFormat": {
         "enum": [
@@ -7883,7 +8060,163 @@
         ]
       }
     },
+    "/api/v1/trips/{trip_id}/itinerary/legs": {
+      "post": {
+        "operationId": "create_leg_api_v1_trips__trip_id__itinerary_legs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItineraryTravelReplaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItineraryTravelLegResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Leg",
+        "tags": [
+          "itinerary"
+        ]
+      }
+    },
     "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}": {
+      "delete": {
+        "operationId": "delete_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "leg_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Leg Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm_travel_deletion",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm Travel Deletion",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItineraryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Leg",
+        "tags": [
+          "itinerary"
+        ]
+      },
       "get": {
         "operationId": "get_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__get",
         "parameters": [
