@@ -9,7 +9,7 @@ import { MapWorkspace } from '../../../src/pages/trip-detail/trip-map'
 import { MobileMapPointPicker } from '../../../src/pages/trip-detail/trip-sidebar'
 import { useMediaQuery } from '../../../src/pages/trip-detail/use-media-query'
 import { createOuterConnectionDraft } from '../../../src/pages/trip-detail/outer-connection'
-import { createItineraryTravelLeg, type ItineraryTravelReplacePayload } from '../../../src/api/client'
+import { createItineraryTravelLeg, deleteItineraryTravelLeg, type ItineraryTravelReplacePayload } from '../../../src/api/client'
 import { EMPTY_TRACKING_GEOMETRY, type Stop, type TravelLeg } from '../../../src/pages/trip-detail/models'
 import type { DraftPostLocation } from '../../../src/pages/trip-detail/page-types'
 import '../../../src/index.css'
@@ -34,7 +34,15 @@ export function Preview() {
   const desktop = useMediaQuery('(min-width: 1024px)')
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const [preview, setPreview] = useState<TravelLeg | null>(null)
-  const [legs, setLegs] = useState([interior])
+  const [legs, setLegs] = useState(() => {
+    const side = new URLSearchParams(window.location.search).get('connection')
+    if (side !== 'departure' && side !== 'return') return [interior]
+    const outside = { type: 'LOCATION' as const, location: { ...stops[0].location, name: 'London', latitude: 51.5, longitude: -0.1 } }
+    const leg: TravelLeg = { ...interior, id: 'saved-' + side, connection_type: side === 'departure' ? 'DEPARTURE' : 'RETURN',
+      from: side === 'departure' ? outside : { type: 'STOP', stop_id: 'last' },
+      to: side === 'return' ? outside : { type: 'STOP', stop_id: 'first' } }
+    return [interior, leg]
+  })
   const [location, setLocation] = useState<DraftPostLocation | null>(null)
   const [active, setActive] = useState(false)
   const [picker, setPicker] = useState(false)
@@ -47,17 +55,24 @@ export function Preview() {
       setLegs((previous) => [...previous, result.leg])
     } catch (error) { setError(String(error)) } finally { setSaving(false) }
   }
+  async function remove(legId: string) {
+    setSaving(true); setError(null)
+    try {
+      const result = await deleteItineraryTravelLeg({ tripId: 'trip', legId, accessToken: 'fixture', itineraryRevision: 2, confirmTravelDeletion: true })
+      setLegs(result.legs)
+    } catch (error) { setError(String(error)) } finally { setSaving(false) }
+  }
   return <PlanningSessionContext value={{ accessToken: 'fixture', itineraryRevision: 2, panelHost: host, onPanelOpenChange: noop,
     onPreview: setPreview, saveError: error, connectionMap: { location, active,
       start: (initial) => { setLocation(initial); setActive(true); setPicker(!desktop) },
       stop: () => { setActive(false); setPicker(false) },
     } }}>
-    <main className="h-dvh p-4">
+    <main className="relative z-0 h-dvh p-4">
       <h1 className="mb-4 text-2xl font-semibold">A weekend in the Netherlands</h1>
       <div style={{ display: 'grid', height: 'calc(100dvh - 5rem)', gridTemplateColumns: desktop ? '25rem minmax(0, 1fr)' : '1fr', gap: 16 }}>
         <div className="overflow-auto rounded-2xl border border-border bg-card"><PlanningPanel canMutate isMutating={saving}
           onAddStop={noop} onRefreshTravelLegRoute={noop} onStopChange={noop} onStopDelete={noop} onStopSave={noop}
-          onTravelLegSave={noop} onConnectionCreate={(payload) => void create(payload)} onConnectionDelete={noop}
+          onTravelLegSave={noop} onConnectionCreate={(payload) => void create(payload)} onConnectionDelete={(id) => void remove(id)}
           pendingAction={null} stops={stops} tripStartDate="2026-11-18" travelLegs={legs} /></div>
         {desktop ? <MapWorkspace onPlanningPanelHostChange={setHost} planningPreview={preview}
           draftMapLocation={active ? location : null} focusedPostId={null} gpsPostCandidates={[]} isTripOngoing={false}

@@ -23,6 +23,7 @@ let root: Root
 let selectMapPoint: (point: DraftPostLocation) => void
 const create = vi.fn()
 const save = vi.fn()
+const remove = vi.fn()
 const noop = () => {}
 function automaticPreview(side: 'DEPARTURE' | 'RETURN', mode: TravelMode) {
   return { preview_id: 'automatic-preview', expires_at: '2099-01-01T00:00:00Z', connection: {
@@ -32,18 +33,20 @@ function automaticPreview(side: 'DEPARTURE' | 'RETURN', mode: TravelMode) {
       route_state: mode === 'FLIGHT' ? 'UNSUPPORTED' : 'READY', geometry: null, from_endpoint: null, to_endpoint: null }],
   } }
 }
-function Harness({ legs = [] }: { legs?: TravelLeg[] }) {
+function Harness({ legs = [], canMutate = true, saving = false, saveError = null }: {
+  legs?: TravelLeg[]; canMutate?: boolean; saving?: boolean; saveError?: string | null
+}) {
   const [location, setLocation] = useState<DraftPostLocation | null>(null)
   const [active, setActive] = useState(false)
   useEffect(() => { selectMapPoint = setLocation }, [])
   return createElement(PlanningSessionContext.Provider, { value: {
-    accessToken: 'token', itineraryRevision: 2, panelHost, onPreview: noop, onPanelOpenChange: noop,
+    accessToken: 'token', itineraryRevision: 2, panelHost, onPreview: noop, onPanelOpenChange: noop, saveError,
     connectionMap: { location, active, start: (point) => { setLocation(point); setActive(true) }, stop: () => setActive(false) },
   } }, createElement(ClockFormatContext.Provider, { value: { preference: '24-hour', setPreference: noop } },
     createElement(PlanningPanel, {
-      canMutate: true, isMutating: false, stops: [stop], tripStartDate: '2026-11-18', travelLegs: legs, pendingAction: null,
+      canMutate, isMutating: saving, stops: [stop], tripStartDate: '2026-11-18', travelLegs: legs, pendingAction: null,
       onAddStop: noop, onRefreshTravelLegRoute: noop, onStopChange: noop, onStopDelete: noop, onStopSave: noop,
-      onTravelLegSave: save, onConnectionCreate: create, onConnectionDelete: noop,
+      onTravelLegSave: save, onConnectionCreate: create, onConnectionDelete: remove,
     })))
 }
 function button(label: string, scope: ParentNode = document) {
@@ -164,4 +167,49 @@ it('opens an existing outer flight with its mode and both endpoints intact', asy
     from: { type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } },
     to: { type: 'STOP', stop_id: stop.id }, segments: [expect.objectContaining({ travel_mode: 'FLIGHT' })],
   }))
+})
+
+for (const side of ['DEPARTURE', 'RETURN'] as const) {
+  it('confirms ' + side.toLowerCase() + ' removal without losing edits, and retains failures for retry', async () => {
+    const label = side.toLowerCase()
+    const outside = { type: 'LOCATION' as const, location: { ...stop.location, name: 'London' } }
+    const leg: TravelLeg = { ...createOuterConnectionDraft(side, stop), id: 'saved-' + label,
+      from: side === 'DEPARTURE' ? outside : { type: 'STOP', stop_id: stop.id },
+      to: side === 'RETURN' ? outside : { type: 'STOP', stop_id: stop.id },
+      segments: [{ id: 'flight', input_version: 1, mode_source: 'USER', intent: { travel_mode: 'FLIGHT', mode_selected: false, notes: '', route_option: 0 },
+        route_state: 'UNSUPPORTED', geometry: null, from_endpoint: null, to_endpoint: null }],
+    }
+    const legs = [leg]
+    await act(async () => root.render(createElement(Harness, { legs })))
+    const trigger = () => document.querySelector<HTMLButtonElement>('[aria-label="Remove ' + label + ' connection"]')!
+    await click(trigger())
+    expect(document.body.textContent).toContain('Remove ' + label + '?')
+    expect(document.body.textContent).toContain('Your itinerary stops will stay.')
+    expect(remove).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(button('Keep ' + label))
+    await click(button('Keep ' + label))
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(remove).not.toHaveBeenCalled()
+    await click([...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes('Flight'))!)
+    await click(radio('Train'))
+    await click(trigger())
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(radio('Train').getAttribute('aria-checked')).toBe('true')
+    await click(trigger()); await click(button('Remove ' + label))
+    expect(remove).toHaveBeenCalledExactlyOnceWith(leg.id)
+    await act(async () => root.render(createElement(Harness, { legs, saving: true })))
+    expect(button('Removing...').disabled).toBe(true)
+    expect(button('Keep ' + label).disabled).toBe(true)
+    await act(async () => root.render(createElement(Harness, { legs, saveError: 'Could not remove connection' })))
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('Could not remove connection')
+    await click(button('Keep ' + label))
+    expect(radio('Train').getAttribute('aria-checked')).toBe('true')
+  })
+}
+
+it('does not offer connection removal to a reader', async () => {
+  const leg: TravelLeg = { ...createOuterConnectionDraft('DEPARTURE', stop), id: 'saved' }
+  await act(async () => root.render(createElement(Harness, { legs: [leg], canMutate: false })))
+  expect(document.querySelector('[aria-label="Remove departure connection"]')).toBeNull()
 })

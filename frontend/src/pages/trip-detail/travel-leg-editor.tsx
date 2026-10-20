@@ -297,11 +297,14 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
   return (
     <RouteChooserShell desktop={desktop} open={open} onClose={onClose}
       description={'From ' + fromAnchor.title + ' to ' + toAnchor.title}
+      headerActions={!desktop && onDelete ? <Button aria-label={'Remove ' + (leg.connection_type === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
+        title={'Remove ' + (leg.connection_type === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
+        className="text-destructive hover:bg-destructive/10" disabled={saving} type="button" variant="ghost" size="icon" onClick={onDelete}>
+        <Trash2 className="size-4" aria-hidden="true" /></Button> : undefined}
       footer={<div className="flex flex-wrap items-center justify-between gap-3">
         {error || session.saveError ? <p role="alert" className="w-full text-sm text-destructive">{error || session.saveError}</p> : null}
         <p className="text-sm text-muted-foreground">{!endpointReady ? 'Choose a location to continue.' : busy ? <span role="status" className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{busy}…</span> : currentConnection?.duration_seconds != null ? routeTime(currentConnection.duration_seconds) + (currentConnection.duration_scope === 'FLIGHT_JOURNEY' ? ' flight journey · airport transfers not included' : ' estimated travel time') : 'Select a route to preview it on the map'}</p>
         <div className="flex min-w-0 flex-wrap gap-2"><Button disabled={saving} type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        {onDelete ? <Button disabled={saving || busy !== null} type="button" variant="ghost" onClick={onDelete}>Remove {leg.connection_type === 'DEPARTURE' ? 'departure' : 'return'} connection</Button> : null}
         <Button disabled={disabled || Boolean(activeTransfer)} type="button" onClick={() => { submittedLeg.current = leg; onSave(leg.id, draft) }}>{saving ? 'Saving…' : creating ? leg.connection_type === 'DEPARTURE' ? 'Add departure' : 'Add return' : 'Select this route'}</Button></div>
       </div>}>
       <div className="grid min-h-full min-w-0 grid-cols-1">

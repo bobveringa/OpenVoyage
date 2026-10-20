@@ -7,13 +7,14 @@ import { Modal } from '@/components/ui/modal'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { PlanningSessionContext } from './planning-session'
 
-export function RouteChooserShell({ children, desktop, description, footer, onClose, open }: {
+export function RouteChooserShell({ children, desktop, description, footer, onClose, open, headerActions }: {
   children: ReactNode
   desktop: boolean
   description: string
   footer: ReactNode
   onClose: () => void
   open: boolean
+  headerActions?: ReactNode
 }) {
   const titleId = useId()
   const { panelHost, onPanelOpenChange } = useContext(PlanningSessionContext)
@@ -35,7 +36,7 @@ export function RouteChooserShell({ children, desktop, description, footer, onCl
     <Modal fullscreenOnMobile open={open} onClose={onClose}
       className="sm:max-w-6xl sm:h-[min(54rem,calc(100dvh-2rem))]"
       contentClassName="m-0 rounded-none p-0" title="Select your route"
-      description={description} footer={footer}>
+      description={description} footer={footer} headerActions={headerActions}>
       {children}
     </Modal>
   )
@@ -48,7 +49,9 @@ export function RouteChooserShell({ children, desktop, description, footer, onCl
           <h2 id={titleId} className="text-lg font-semibold">Select your route</h2>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
-        <Button aria-label="Close route chooser" size="icon" variant="ghost" onClick={onClose}><X className="size-4" /></Button>
+        <div className="flex shrink-0 items-center gap-1">{headerActions}
+          <Button aria-label="Close route chooser" size="icon" variant="ghost" onClick={onClose}><X className="size-4" /></Button>
+        </div>
       </header>
       <ScrollArea className="min-h-0 min-w-0">{children}</ScrollArea>
       <footer className="border-t border-border bg-card p-4">{footer}</footer>

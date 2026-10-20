@@ -59,6 +59,7 @@ import { createOuterConnectionDraft, type ConnectionLocation, type OuterConnecti
 import { connectionWritePayload } from './planning-utils'
 import { useMediaQuery } from './use-media-query'
 import { PlaceLocationPicker } from './place-location-picker'
+import { ConnectionRemovalDialog } from './connection-removal-dialog'
 export { LocationOptionCard } from './place-location-picker'
 
 export function PlanningPanel({
@@ -94,12 +95,24 @@ export function PlanningPanel({
 }) {
   const [editingStopId, setEditingStopId] = useState<string | null>(null)
   const [editingLegId, setEditingLegId] = useState<string | null>(null)
-  const { airportTransferRequest, connectionMap } = useContext(PlanningSessionContext)
+  const { airportTransferRequest, connectionMap, saveError } = useContext(PlanningSessionContext)
   const desktop = useMediaQuery('(min-width: 1024px)')
   const [outerEditor, setOuterEditor] = useState<{
     side: OuterConnectionSide; leg: TravelLeg; creating: boolean; location: ConnectionLocation | null
   } | null>(null)
+  const [removingLegId, setRemovingLegId] = useState<string | null>(null)
+  const [removalSubmitted, setRemovalSubmitted] = useState(false)
+  const removingLeg = travelLegs.find((leg) => leg.id === removingLegId) ?? null
+  function requestRemoval(id: string) {
+    if (!canMutate || isMutating) return
+    setRemovalSubmitted(false)
+    setRemovingLegId(id)
+  }
+  useEffect(() => {
+    if (!removingLeg) { setRemovingLegId(null); setRemovalSubmitted(false) }
+  }, [removingLeg])
   function closeConnectionEditor() {
+    if (removingLegId) return
     setEditingLegId(null)
     setOuterEditor(null)
     connectionMap?.stop()
@@ -154,10 +167,15 @@ export function PlanningPanel({
           <Button aria-label="Back to stops" title="Back to stops" disabled={isMutating} onClick={closeConnectionEditor} size="icon" type="button" variant="outline">
             <ArrowLeft className="size-4" aria-hidden="true" />
           </Button>
-          <div>
+          <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold text-foreground">{outerEditor.creating ? 'New ' : 'Edit '}{outerEditor.side === 'DEPARTURE' ? 'departure' : 'return'}</h2>
             <p className="text-sm text-muted-foreground">{outerEditor.side === 'DEPARTURE' ? 'Choose a starting place for travel to ' + stops[0].title + '.' : 'Choose a destination after ' + stops[stops.length - 1].title + '.'}</p>
           </div>
+          {!outerEditor.creating ? <Button aria-label={'Remove ' + (outerEditor.side === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
+            title={'Remove ' + (outerEditor.side === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
+            className="size-8 shrink-0 rounded-xl text-destructive hover:bg-destructive/10" disabled={isMutating}
+            size="icon" type="button" variant="ghost" onClick={() => requestRemoval(outerEditor.leg.id)}>
+            <Trash2 className="size-3.5" aria-hidden="true" /></Button> : null}
         </div>
         <ConnectionLocationPicker key={outerEditor.side + outerEditor.leg.id}
           label={outerEditor.side === 'DEPARTURE' ? 'Departure location' : 'Return location'}
@@ -184,7 +202,7 @@ export function PlanningPanel({
         ) : null}
 
         {stops.length > 0 ? <OuterConnectionControl side="DEPARTURE" stops={stops} travelLegs={travelLegs}
-          disabled={addStopDisabled} canMutate={canMutate} onEdit={() => openOuterEditor('DEPARTURE')} /> : null}
+          disabled={addStopDisabled} canMutate={canMutate} onEdit={() => openOuterEditor('DEPARTURE')} onRemove={requestRemoval} /> : null}
         {stops.map((stop, index) => {
           const nextStop = stops[index + 1]
           const leg = nextStop
@@ -223,7 +241,7 @@ export function PlanningPanel({
           )
         })}
         {stops.length > 0 ? <OuterConnectionControl side="RETURN" stops={stops} travelLegs={travelLegs}
-          disabled={addStopDisabled} canMutate={canMutate} onEdit={() => openOuterEditor('RETURN')} /> : null}
+          disabled={addStopDisabled} canMutate={canMutate} onEdit={() => openOuterEditor('RETURN')} onRemove={requestRemoval} /> : null}
       </div>
 
       {travelLegs.some((leg) => leg.segments.some((segment) => segment.lookup)) ? (
@@ -246,19 +264,28 @@ export function PlanningPanel({
         creating={outerEditor?.creating}
         outsideLocation={outerEditor?.location}
         onOutsideLocationChange={outerEditor ? (location) => setOuterEditor((editor) => editor ? { ...editor, location } : null) : undefined}
-        onDelete={outerEditor && !outerEditor.creating ? () => onConnectionDelete(outerEditor.leg.id) : undefined}
+        onDelete={outerEditor && !outerEditor.creating ? () => requestRemoval(outerEditor.leg.id) : undefined}
         open={Boolean(editingLeg)}
         pendingAction={pendingAction}
         saving={isMutating}
         toStop={editingLegToStop}
       />
+      <ConnectionRemovalDialog leg={removingLeg} stops={stops} removing={isMutating}
+        error={removalSubmitted ? saveError ?? null : null}
+        onCancel={() => { if (!isMutating) setRemovingLegId(null) }}
+        onConfirm={() => {
+          if (!removingLeg || !canMutate || isMutating) return
+          setRemovalSubmitted(true)
+          onConnectionDelete(removingLeg.id)
+        }} />
     </div>
   )
 }
 
-function OuterConnectionControl({ side, stops, travelLegs, disabled, canMutate, onEdit }: {
+function OuterConnectionControl({ side, stops, travelLegs, disabled, canMutate, onEdit, onRemove }: {
   side: OuterConnectionSide; stops: readonly Stop[]; travelLegs: readonly TravelLeg[]
   disabled: boolean; canMutate: boolean; onEdit: () => void
+  onRemove: (id: string) => void
 }) {
   const leg = travelLegs.find((item) => item.connection_type === side)
   const label = side === 'DEPARTURE' ? 'departure' : 'return'
@@ -268,7 +295,8 @@ function OuterConnectionControl({ side, stops, travelLegs, disabled, canMutate, 
   return <div className="space-y-2" aria-label={leg ? label + ' connection' : undefined}>
     {leg && from && to ? <>
       <p className="pl-[4.25rem] text-xs font-semibold uppercase text-muted-foreground">{label}</p>
-      <TravelLegCard disabled={disabled} fromStop={from} toStop={to} leg={leg} onEdit={onEdit} />
+      <TravelLegCard disabled={disabled} fromStop={from} toStop={to} leg={leg} onEdit={onEdit}
+        onRemove={canMutate ? () => onRemove(leg.id) : undefined} />
     </> : <StopInsertButton disabled={disabled} label={'Add ' + label} onClick={onEdit} />}
 
   </div>
@@ -711,6 +739,7 @@ function TravelLegCard({
   onEdit,
   toStop,
   active = false,
+  onRemove,
 }: {
   active?: boolean
   disabled: boolean
@@ -718,6 +747,7 @@ function TravelLegCard({
   leg: TravelLeg
   onEdit: (legId: string) => void
   toStop: ConnectionAnchor
+  onRemove?: () => void
 }) {
   const ModeIcon = getTravelModeIcon(leg.segments[0]?.intent.travel_mode ?? 'CAR')
   const legDetail = leg.segments.map((s) => s.intent.flight?.flight_number || s.intent.service_number).filter(Boolean).join(' · ')
@@ -745,6 +775,7 @@ function TravelLegCard({
       </div>
 
       <section className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1">
         <button
           aria-pressed={active}
           className={cn("flex min-h-10 w-full items-center gap-2 rounded-[1.1rem] border border-border bg-card/85 px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-muted", active && "border-primary bg-primary/5")}
@@ -795,6 +826,11 @@ function TravelLegCard({
             aria-hidden="true"
           />
         </button>
+        {onRemove ? <Button aria-label={'Remove ' + (leg.connection_type === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
+          title={'Remove ' + (leg.connection_type === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
+          className="size-8 shrink-0 rounded-xl text-destructive hover:bg-destructive/10" disabled={disabled}
+          size="icon" type="button" variant="ghost" onClick={onRemove}><Trash2 className="size-3.5" aria-hidden="true" /></Button> : null}
+        </div>
       </section>
     </div>
   )

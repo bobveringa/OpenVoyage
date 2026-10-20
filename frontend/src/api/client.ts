@@ -1233,10 +1233,13 @@ export async function createItineraryTravelLeg(options: {
 
 export async function deleteItineraryTravelLeg(options: {
   tripId: string; legId: string; accessToken: string; itineraryRevision: number
+  confirmTravelDeletion?: boolean
 }): Promise<Itinerary> {
-  return requestItineraryMutation(
+  const remove = options.confirmTravelDeletion ? requestJson<Itinerary> : requestItineraryMutation
+  return remove(
     `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs/${encodeURIComponent(options.legId)}`,
-    { method: 'DELETE', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision },
+    { method: 'DELETE', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
+      query: options.confirmTravelDeletion ? { confirm_travel_deletion: true } : undefined },
   )
 }
 

@@ -39,6 +39,7 @@ test('one-stop departure flight and independent return render, edit, and confirm
     to: { type: 'LOCATION', location: createLocation('outside-b', 'Brussels home', 50.85, 4.35) },
   }
   itinerary.legs = [departure, returning]
+  let returnDeletes = 0
   await page.route(`**/api/v1/trips/${tripId}/itinerary`, route => fulfillJson(route, itinerary))
   await page.route(`**/api/v1/trips/${tripId}/itinerary/legs/departure`, async route => {
     expect(route.request().method()).toBe('PUT')
@@ -48,8 +49,10 @@ test('one-stop departure flight and independent return render, edit, and confirm
     await route.fulfill({ json: departure, headers: { ETag: '"2"' } })
   })
   await page.route(`**/api/v1/trips/${tripId}/itinerary/legs/return**`, async route => {
+    if (route.request().method() !== 'DELETE') return route.fallback()
+    returnDeletes += 1
     const confirmed = new URL(route.request().url()).searchParams.get('confirm_travel_deletion') === 'true'
-    if (!confirmed) return fulfillJson(route, { detail: { code: 'TRAVEL_DELETION_REQUIRED', connections: [{ id: returning.id, from: 'Amsterdam', to: 'Brussels home' }] } }, 409)
+    expect(confirmed).toBe(true)
     itinerary.legs = [departure]
     itinerary.itinerary_revision += 1
     await fulfillJson(route, itinerary)
@@ -72,19 +75,20 @@ test('one-stop departure flight and independent return render, edit, and confirm
   await expect(page.getByLabel('Departure location', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Select this route' }).click()
   await expect(page.getByRole('heading', { name: 'Select your route' })).toHaveCount(0)
-  await returnCard.getByRole('button').click()
-  page.once('dialog', dialog => dialog.dismiss())
-  await Promise.all([
-    page.waitForResponse(response => response.url().endsWith(`/trips/${tripId}/itinerary`) && response.request().method() === 'GET'),
-    page.getByRole('button', { name: 'Remove return connection', exact: true }).click(),
-  ])
+  await returnCard.getByRole('button', { name: /Amsterdam to Brussels home/ }).click()
+  await page.getByRole('button', { name: 'Remove return connection', exact: true }).click()
+  const removal = page.getByRole('dialog', { name: 'Remove return?', exact: true })
+  await expect(removal).toContainText('Amsterdam → Brussels home')
+  await removal.getByRole('button', { name: 'Keep return', exact: true }).click()
+  expect(returnDeletes).toBe(0)
   await expect(page.getByRole('heading', { name: 'Edit return', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Remove return connection', exact: true })).toBeEnabled()
-  page.once('dialog', async dialog => { expect(dialog.message()).toContain('Brussels home'); await dialog.accept() })
   await page.getByRole('button', { name: 'Remove return connection', exact: true }).click()
+  await removal.getByRole('button', { name: 'Remove return', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Select your route' })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Planning', exact: true })).toBeVisible()
   await expect(returnCard).toHaveCount(0)
+  expect(returnDeletes).toBe(1)
   page.once('dialog', async dialog => { expect(dialog.message()).toContain('London to Amsterdam'); await dialog.accept() })
   await page.getByRole('button', { name: 'Delete Amsterdam', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Create your first stop', exact: true })).toBeVisible()

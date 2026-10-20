@@ -122,6 +122,24 @@ describe('background upload authorization', () => {
 
 
 describe('outer connection deletion confirmation', () => {
+  it.each([200, 409])('never prompts again after in-app confirmation, including response %s', async (status) => {
+    configureAuthTokenRefresh(null)
+    const confirmation = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const snapshot = { trip_id: 'trip', itinerary_revision: 8, stops: [], legs: [] }
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(status === 200 ? snapshot : {
+      detail: { code: 'TRAVEL_DELETION_REQUIRED', message: 'Could not remove connection', connections: [{ from: 'London', to: 'Amsterdam' }] },
+    }), { status, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const result = deleteItineraryTravelLeg({ tripId: 'trip', legId: 'leg', accessToken: 'token', itineraryRevision: 7, confirmTravelDeletion: true })
+      if (status === 200) expect(await result).toEqual(snapshot)
+      else await expect(result).rejects.toThrow('Could not remove connection')
+      expect(fetchMock).toHaveBeenCalledOnce()
+      expect(String(fetchMock.mock.calls[0][0])).toContain('/itinerary/legs/leg?confirm_travel_deletion=true')
+      expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('If-Match')).toBe('"7"')
+      expect(confirmation).not.toHaveBeenCalled()
+    } finally { confirmation.mockRestore() }
+  })
   it.each([false, true])('keeps the current revision and handles confirmation %s', async (confirm) => {
     const fetchMock = vi.fn<typeof fetch>()
     vi.stubGlobal('fetch', fetchMock)

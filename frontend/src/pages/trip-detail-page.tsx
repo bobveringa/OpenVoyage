@@ -920,7 +920,7 @@ export function TripDetailPage({
   function handleConnectionDelete(legId: string) {
     if (!tripId || !accessToken) return
     void runMutation('Removing connection', async () => {
-      applyItinerary(await deleteItineraryTravelLeg({ tripId, legId, accessToken, itineraryRevision }))
+      applyItinerary(await deleteItineraryTravelLeg({ tripId, legId, accessToken, itineraryRevision, confirmTravelDeletion: true }))
     })
   }
 

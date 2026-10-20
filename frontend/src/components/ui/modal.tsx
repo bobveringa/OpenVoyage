@@ -20,6 +20,7 @@ type ModalProps = {
   open: boolean
   title: ReactNode
   toolbar?: ReactNode
+  headerActions?: ReactNode
 }
 
 export function Modal({
@@ -36,6 +37,7 @@ export function Modal({
   open,
   title,
   toolbar,
+  headerActions,
 }: ModalProps) {
   const titleId = useId()
   useEffect(() => {
@@ -106,17 +108,20 @@ export function Modal({
               <p className="text-sm text-muted-foreground">{description}</p>
             ) : null}
           </div>
-          {dismissible ? (
-            <Button
-              aria-label="Close"
-              onClick={onClose}
-              size="icon"
-              type="button"
-              variant="ghost"
-            >
-              <X className="size-4" aria-hidden="true" />
-            </Button>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-1">
+            {headerActions}
+            {dismissible ? (
+              <Button
+                aria-label="Close"
+                onClick={onClose}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <X className="size-4" aria-hidden="true" />
+              </Button>
+            ) : null}
+          </div>
         </div>
         {toolbar ? (
           <div className="border-b border-border bg-card px-5 py-3 shadow-sm">
