@@ -53,6 +53,54 @@ def write_body(leg, **travel):
 
 
 @pytest.mark.parametrize('side', ['DEPARTURE', 'RETURN'])
+@pytest.mark.parametrize(
+    'latitude,longitude,mode', [(51.5, -0.1, 'CAR'), (-33.92, 18.42, 'FLIGHT')]
+)
+def test_unsaved_outer_preview_uses_regular_default_mode_and_saves_it(
+    client, db_session, plan, monkeypatch, side, latitude, longitude, mode
+):
+    user, _, base, _, revision, _, data = plan
+    route = enable_routes(
+        db_session,
+        monkeypatch,
+        RouteResponse(
+            geometry_geojson={
+                'type': 'LineString',
+                'coordinates': [[longitude, latitude], [4.9, 52.37]],
+            },
+            distance_meters=1000,
+            duration_seconds=100,
+        ),
+    )
+    body = outer_body(data, side)
+    body['from' if side == 'DEPARTURE' else 'to']['location'] = {
+        'latitude': latitude,
+        'longitude': longitude,
+    }
+    response = client.post(
+        base + '/legs/preview', headers=headers(user, revision), json=body
+    )
+    assert response.status_code == 200, response.text
+    preview = response.json()
+    segment = preview['connection']['segments'][0]
+    assert segment['intent']['travel_mode'] == mode
+    assert segment['mode_source'] == 'AUTO'
+    assert route.call_count == (1 if mode == 'CAR' else 0)
+    saved = client.post(
+        base + '/legs',
+        headers=headers(user, revision),
+        json=body
+        | {
+            'segments': [segment['intent']],
+            'preview_id': preview['preview_id'],
+        },
+    )
+    assert saved.status_code == 201, saved.text
+    assert saved.json()['segments'][0]['intent']['travel_mode'] == mode
+    assert route.call_count == (1 if mode == 'CAR' else 0)
+
+
+@pytest.mark.parametrize('side', ['DEPARTURE', 'RETURN'])
 def test_outer_lifecycle_preview_defaults_and_noop(
     client, db_session, plan, monkeypatch, side
 ):  # noqa: F811

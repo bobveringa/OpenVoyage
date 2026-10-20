@@ -88,6 +88,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
   const closeAfterSave = useEffectEvent(onClose)
   const version = useRef(0)
   const request = useRef<AbortController | null>(null)
+  const inferNewConnectionMode = useRef(creating)
   const appliedOutsideLocation = useRef(outsideLocation)
   const initializeOutsideLocation = useEffectEvent((next: TravelLegEditDraft) => {
     appliedOutsideLocation.current = outsideLocation
@@ -100,6 +101,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     version.current += 1
     request.current?.abort()
     previews.current.clear(); modeDrafts.current.clear()
+    inferNewConnectionMode.current = creating
     const next = createTravelLegEditDraft(creating ? null : leg)
     if (leg && creating) { next.from = connectionEndpointInput(leg.from); next.to = connectionEndpointInput(leg.to) }
     initializeOutsideLocation(next)
@@ -126,7 +128,10 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     appliedOutsideLocation.current = outsideLocation
     const side = leg.connection_type === 'DEPARTURE' ? 'from' : 'to'
     const endpoint = outsideLocation ? { type: 'LOCATION' as const, location: outsideLocation.input } : undefined
-    if (JSON.stringify(draft[side]) !== JSON.stringify(endpoint)) update({ ...draft, [side]: endpoint })
+    if (JSON.stringify(draft[side]) !== JSON.stringify(endpoint)) {
+      const next = update({ ...draft, [side]: endpoint }, true)
+      if (open && next.from && next.to) void calculate(false, next)
+    }
   })
   useEffect(() => { applyOutsideLocation() }, [outsideLocation, leg])
   useEffect(() => {
@@ -188,7 +193,8 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     // Selecting a mode is the explicit request to calculate its route.
     void calculate(false, next)
   }
-  function update(next: TravelLegEditDraft) {
+  function update(next: TravelLegEditDraft, preserveDefaultMode = false) {
+    if (!preserveDefaultMode) inferNewConnectionMode.current = false
     if (next.segments.length !== draft.segments.length || next.segments.some((segment, index) => segment.id !== draft.segments[index]?.id)) {
       previews.current.clear(); modeDrafts.current.clear()
     }
@@ -198,11 +204,11 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
       segments: value.segments.map((segment) => ({ ...segment, notes: '' })) })
     const notesOnly = withoutNotes(next) === withoutNotes(draft)
     setDirty(true); setBusy(null); setError(null)
-    if (notesOnly) setDraft(next)
-    else {
-      setDraft({ ...next, preview_id: undefined, segments: next.segments.map((segment) => ({ ...segment, route_option: 0 })) })
-      setPreview(null)
-    }
+    const updated = notesOnly ? next : { ...next, preview_id: undefined,
+      segments: next.segments.map((segment) => ({ ...segment, route_option: 0 })) }
+    setDraft(updated)
+    if (!notesOnly) setPreview(null)
+    return updated
   }
   function updateSegment(index: number, change: Partial<PlanningSegment>) {
     update({ ...draft, segments: draft.segments.map((segment, i) => i === index ? { ...segment, ...change } : segment) })
@@ -217,15 +223,24 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     const activeVersion = version.current
     const controller = new AbortController()
     request.current = controller
+    // Omitting segments uses the same server default as a new between-stop connection.
+    const inferMode = creating && inferNewConnectionMode.current
     setBusy('Calculating route'); setError(null)
     try {
       const result = await previewTravel({ tripId: leg!.trip_id, legId: creating ? undefined : leg!.id,
         accessToken: session.accessToken, itineraryRevision: session.itineraryRevision,
-        payload: connectionWritePayload(payload), retryFailed, signal: controller.signal })
+        payload: { ...connectionWritePayload(payload), ...(inferMode ? { preview_id: undefined, segments: undefined } : {}) },
+        retryFailed, signal: controller.signal })
       if (version.current !== activeVersion) return
-      previews.current.put(payload, session.itineraryRevision, result)
+      const inferredSegments = inferMode ? result.connection.segments.map((segment) => ({ ...segment.intent, id: undefined,
+        mode_selected: false, notes: payload.segments[0]?.notes ?? '' })) : null
+      const resolved = inferredSegments ? { ...payload, segments: inferredSegments } : payload
+      previews.current.put(resolved, session.itineraryRevision, result)
       setPreview(result); setDraft((previous) => ({ ...previous, preview_id: result.preview_id,
-        segments: previous.segments.map((segment, index) => ({ ...segment, route_option: Math.min(segment.route_option || 0, Math.max(0, (result.connection.segments[index]?.route_options?.length || 0) - 1)) })) }))
+        segments: (inferredSegments ?? previous.segments).map((segment, index) => ({ ...segment, route_option: Math.min(segment.route_option || 0, Math.max(0, (result.connection.segments[index]?.route_options?.length || 0) - 1)) })) }))
+      if (inferredSegments && inferredSegments[0]?.travel_mode !== payload.segments[0]?.travel_mode) {
+        setDetails(inferredSegments[0]?.travel_mode === 'FLIGHT' ? 0 : null)
+      }
       showPreview(result.connection)
     } catch (failure) {
       if (version.current === activeVersion) setError(getErrorMessage(failure))
@@ -261,6 +276,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     } : item) }
   }
   function chooseMode(index: number, mode: TravelMode, optionIndex = 0) {
+    inferNewConnectionMode.current = false
     const segment = draft.segments[index]
     modeDrafts.current.set((segment.id || index) + ':' + segment.travel_mode, segment)
     const next = draftForMode(index, mode, optionIndex)

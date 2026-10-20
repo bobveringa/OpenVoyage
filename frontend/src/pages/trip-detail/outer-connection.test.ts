@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PlanningPanel } from './planning-ui'
 import { PlanningSessionContext } from './planning-session'
 import { ClockFormatContext } from '@/lib/date-time'
-import type { Stop, TravelLeg } from './models'
+import type { Stop, TravelLeg, TravelMode } from './models'
 import { createOuterConnectionDraft } from './outer-connection'
 import type { DraftPostLocation } from './page-types'
 
@@ -24,6 +24,14 @@ let selectMapPoint: (point: DraftPostLocation) => void
 const create = vi.fn()
 const save = vi.fn()
 const noop = () => {}
+function automaticPreview(side: 'DEPARTURE' | 'RETURN', mode: TravelMode) {
+  return { preview_id: 'automatic-preview', expires_at: '2099-01-01T00:00:00Z', connection: {
+    ...createOuterConnectionDraft(side, stop),
+    segments: [{ id: 'temporary-segment', input_version: 1, mode_source: 'AUTO',
+      intent: { travel_mode: mode, mode_selected: false, notes: '', route_option: 0 },
+      route_state: mode === 'FLIGHT' ? 'UNSUPPORTED' : 'READY', geometry: null, from_endpoint: null, to_endpoint: null }],
+  } }
+}
 function Harness({ legs = [] }: { legs?: TravelLeg[] }) {
   const [location, setLocation] = useState<DraftPostLocation | null>(null)
   const [active, setActive] = useState(false)
@@ -63,6 +71,47 @@ afterEach(async () => {
   container.remove(); panelHost.remove(); vi.unstubAllGlobals()
 })
 for (const side of ['departure', 'return']) {
+  it('requests the automatic travel mode when the ' + side + ' location becomes available', async () => {
+    await click(button('Add ' + side))
+    expect(api.previewTravel).not.toHaveBeenCalled()
+    await click([...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes('Exact point'))!)
+    await point()
+    expect(api.previewTravel).toHaveBeenCalledTimes(1)
+    expect(api.previewTravel.mock.calls[0][0]).toMatchObject({
+      payload: {
+        [side === 'departure' ? 'from' : 'to']: { type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } },
+        [side === 'departure' ? 'to' : 'from']: { type: 'STOP', stop_id: stop.id },
+      },
+    })
+    expect(api.previewTravel.mock.calls[0][0].payload.segments).toBeUndefined()
+    await point(51.5, 'Near London')
+    expect(api.previewTravel).toHaveBeenCalledTimes(1)
+    await point(50.85, 'Brussels')
+    expect(api.previewTravel).toHaveBeenCalledTimes(2)
+    expect(api.previewTravel.mock.calls[1][0].payload[side === 'departure' ? 'from' : 'to'].location.latitude).toBe(50.85)
+    await click(button('Clear ' + side + ' location'))
+    expect(api.previewTravel).toHaveBeenCalledTimes(2)
+    expect(radio('Car').disabled).toBe(true)
+  })
+  it('uses the server default for ' + side + ' and keeps an explicit mode after the location changes', async () => {
+    const connectionSide = side === 'departure' ? 'DEPARTURE' : 'RETURN'
+    api.previewTravel.mockResolvedValueOnce(automaticPreview(connectionSide, 'FLIGHT'))
+    await click(button('Add ' + side))
+    await click([...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes('Exact point'))!)
+    await point(-33.92, 'Cape Town')
+    expect(radio('Flight').getAttribute('aria-checked')).toBe('true')
+    expect(api.lookupFlight).not.toHaveBeenCalled()
+    api.previewTravel.mockResolvedValueOnce(automaticPreview(connectionSide, 'CAR'))
+    await point()
+    expect(radio('Car').getAttribute('aria-checked')).toBe('true')
+    expect(api.previewTravel.mock.calls[1][0].payload.segments).toBeUndefined()
+    await click(radio('Train'))
+    await point(-33.92, 'Cape Town')
+    expect(radio('Train').getAttribute('aria-checked')).toBe('true')
+    const lastRequest = api.previewTravel.mock.calls[api.previewTravel.mock.calls.length - 1][0]
+    expect(lastRequest.payload.segments[0].travel_mode).toBe('TRAIN')
+    expect(lastRequest.payload.segments[0].mode_selected).toBe(true)
+  })
   it('opens ' + side + ' travel alongside the location and saves both together', async () => {
     await click(button('Add ' + side))
     expect(panelHost.textContent).toContain('Select your route')

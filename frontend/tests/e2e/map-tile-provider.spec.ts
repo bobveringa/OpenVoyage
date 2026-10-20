@@ -82,6 +82,8 @@ test('one-stop departure flight and independent return render, edit, and confirm
   await expect(page.getByRole('button', { name: 'Remove return connection', exact: true })).toBeEnabled()
   page.once('dialog', async dialog => { expect(dialog.message()).toContain('Brussels home'); await dialog.accept() })
   await page.getByRole('button', { name: 'Remove return connection', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Select your route' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Planning', exact: true })).toBeVisible()
   await expect(returnCard).toHaveCount(0)
   page.once('dialog', async dialog => { expect(dialog.message()).toContain('London to Amsterdam'); await dialog.accept() })
   await page.getByRole('button', { name: 'Delete Amsterdam', exact: true }).click()
@@ -96,6 +98,17 @@ test('opens departure travel immediately and saves location and transport togeth
   release()
   await mockTileServers(page)
   const itinerary = createItinerary() as Itinerary
+  let previews = 0
+  await page.route(`**/api/v1/trips/${tripId}/itinerary/legs/preview**`, async route => {
+    previews += 1
+    const payload = route.request().postDataJSON()
+    expect(payload.segments).toBeUndefined()
+    await fulfillJson(route, { preview_id: 'draft-preview', expires_at: '2099-01-01T00:00:00Z', connection: {
+      ...itinerary.legs[0], id: '00000000-0000-0000-0000-000000000000', connection_type: 'DEPARTURE',
+      from: { type: 'LOCATION', location: createLocation('outside-a', 'London', 51.5, -0.1) }, to: payload.to,
+      segments: [{ ...itinerary.legs[0].segments[0], intent: { travel_mode: 'CAR', mode_selected: false, notes: '', route_option: 0 }, route_state: 'READY' }],
+    } })
+  })
   await page.route(`**/api/v1/trips/${tripId}/itinerary/legs`, async route => {
     const payload = route.request().postDataJSON()
     expect(payload).toMatchObject({ from: { type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } }, to: { type: 'STOP', stop_id: firstStopId }, notes: '', segments: [{ travel_mode: 'CAR' }] })
@@ -113,6 +126,7 @@ test('opens departure travel immediately and saves location and transport togeth
   await page.getByRole('textbox', { name: 'Search places', exact: true }).fill('51.5, -0.1')
   await page.getByRole('button', { name: 'Use coordinates', exact: true }).click()
   await expect(panel.getByRole('radio', { name: 'Train', exact: true })).toBeEnabled()
+  expect(previews).toBe(1)
   await panel.getByRole('button', { name: 'Add departure', exact: true }).click()
   await expect(page.getByLabel('departure connection', { exact: true })).toContainText('London to Amsterdam')
   await expect(page.locator('.trip-map-connection-endpoint')).toBeInViewport()
