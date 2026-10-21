@@ -6,6 +6,7 @@ import { ArrowDown, ArrowUp, Check, ChevronDown, Loader2, MapPin, Plus, Trash2 }
 import { getErrorMessage, lookupFlight, previewTravel, type FlightLookupResult, type PlanningPreview, type PlanningSegment } from '@/api/client'
 import { PlaceSearchDropdown } from '@/components/places/place-search-dropdown'
 import { Button } from '@/components/ui/button'
+import { DatePicker } from '@/components/ui/date-time-picker'
 import { Input } from '@/components/ui/input'
 import { RouteChooserShell } from './route-chooser-shell'
 import { useMediaQuery } from './use-media-query'
@@ -27,6 +28,11 @@ const roadModes = ['CAR', 'BIKE', 'WALK']
 const transitLabels: Record<string, [string, string]> = {
   TRAIN: ['Rail company', 'Train number'], BUS: ['Bus company', 'Service number'],
   FERRY: ['Ferry company', 'Service'], OTHER: ['Service company', 'Service number'],
+}
+
+function withFlightDepartureDate(segment: PlanningSegment, departureDate?: string): PlanningSegment {
+  return segment.travel_mode === 'FLIGHT' && !segment.flight?.departure_date && departureDate
+    ? { ...segment, flight: { ...segment.flight, departure_date: departureDate } } : segment
 }
 
 export function EndpointPicker({ label, value, airport = false, placeholder, onChange, disabled }: {
@@ -90,6 +96,8 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
   const request = useRef<AbortController | null>(null)
   const inferNewConnectionMode = useRef(creating)
   const appliedOutsideLocation = useRef(outsideLocation)
+  const defaultFlightDate = leg?.connection_type === 'DEPARTURE' ? toStop?.planned_start_date
+    : fromStop ? getStayLeaveDateValue(fromStop.planned_start_date, fromStop.planned_nights) : undefined
   const initializeOutsideLocation = useEffectEvent((next: TravelLegEditDraft) => {
     appliedOutsideLocation.current = outsideLocation
     if (leg && onOutsideLocationChange) next[leg.connection_type === 'DEPARTURE' ? 'from' : 'to'] = outsideLocation
@@ -105,9 +113,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     const next = createTravelLegEditDraft(creating ? null : leg)
     if (leg && creating) { next.from = connectionEndpointInput(leg.from); next.to = connectionEndpointInput(leg.to) }
     initializeOutsideLocation(next)
-    if (fromStop) next.segments = next.segments.map((segment) => segment.travel_mode === 'FLIGHT' && !segment.flight?.departure_date ? {
-      ...segment, flight: { ...segment.flight, departure_date: getStayLeaveDateValue(fromStop.planned_start_date, fromStop.planned_nights) },
-    } : segment)
+    next.segments = next.segments.map((segment) => withFlightDepartureDate(segment, defaultFlightDate))
     next.segments.forEach((segment, index) => modeDrafts.current.set((segment.id || index) + ':' + segment.travel_mode, segment))
     setDraft(next)
     setDetails(null)
@@ -120,7 +126,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     if (!open) submittedLeg.current = null
     if (open && leg && !creating && next.segments.some((segment) => roadModes.includes(segment.travel_mode))) calculateOnOpen(next)
     return () => { version.current += 1; request.current?.abort(); showPreview(null) }
-  }, [leg, open, showPreview, fromStop, creating])
+  }, [leg, open, showPreview, fromStop, creating, defaultFlightDate])
   const endpointReady = !onOutsideLocationChange || Boolean(outsideLocation)
   const applyOutsideLocation = useEffectEvent(() => {
     if (!leg || !onOutsideLocationChange) return
@@ -232,11 +238,12 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
         payload: { ...connectionWritePayload(payload), ...(inferMode ? { preview_id: undefined, segments: undefined } : {}) },
         retryFailed, signal: controller.signal })
       if (version.current !== activeVersion) return
-      const inferredSegments = inferMode ? result.connection.segments.map((segment) => ({ ...segment.intent, id: undefined,
-        mode_selected: false, notes: payload.segments[0]?.notes ?? '' })) : null
+      const inferredSegments = inferMode ? result.connection.segments.map((segment) => withFlightDepartureDate({ ...segment.intent, id: undefined,
+        mode_selected: false, notes: payload.segments[0]?.notes ?? '' }, defaultFlightDate)) : null
+      const addedFlightDate = inferredSegments?.some((segment, index) => segment.flight?.departure_date !== result.connection.segments[index].intent.flight?.departure_date)
       const resolved = inferredSegments ? { ...payload, segments: inferredSegments } : payload
-      previews.current.put(resolved, session.itineraryRevision, result)
-      setPreview(result); setDraft((previous) => ({ ...previous, preview_id: result.preview_id,
+      if (!addedFlightDate) previews.current.put(resolved, session.itineraryRevision, result)
+      setPreview(result); setDraft((previous) => ({ ...previous, preview_id: addedFlightDate ? undefined : result.preview_id,
         segments: (inferredSegments ?? previous.segments).map((segment, index) => ({ ...segment, route_option: Math.min(segment.route_option || 0, Math.max(0, (result.connection.segments[index]?.route_options?.length || 0) - 1)) })) }))
       if (inferredSegments && inferredSegments[0]?.travel_mode !== payload.segments[0]?.travel_mode) {
         setDetails(inferredSegments[0]?.travel_mode === 'FLIGHT' ? 0 : null)
@@ -269,7 +276,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     const target = mode === segment.travel_mode ? segment : remembered || {
       ...segment, via: null, from: null, to: null,
       service_company: null, service_number: null,
-      flight: mode === 'FLIGHT' ? { ...(fromStop ? { departure_date: getStayLeaveDateValue(fromStop.planned_start_date, fromStop.planned_nights) } : {}) } : null,
+      flight: mode === 'FLIGHT' ? { departure_date: defaultFlightDate } : null,
     }
     return { ...draft, preview_id: undefined, segments: draft.segments.map((item, i) => i === index ? {
       ...target, notes: segment.notes, travel_mode: mode, mode_selected: true, route_option: optionIndex,
@@ -297,10 +304,6 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
   return (
     <RouteChooserShell desktop={desktop} open={open} onClose={onClose}
       description={'From ' + fromAnchor.title + ' to ' + toAnchor.title}
-      headerActions={!desktop && onDelete ? <Button aria-label={'Remove ' + (leg.connection_type === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
-        title={'Remove ' + (leg.connection_type === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
-        className="text-destructive hover:bg-destructive/10" disabled={saving} type="button" variant="ghost" size="icon" onClick={onDelete}>
-        <Trash2 className="size-4" aria-hidden="true" /></Button> : undefined}
       footer={<div className="flex flex-wrap items-center justify-between gap-3">
         {error || session.saveError ? <p role="alert" className="w-full text-sm text-destructive">{error || session.saveError}</p> : null}
         <p className="text-sm text-muted-foreground">{!endpointReady ? 'Choose a location to continue.' : busy ? <span role="status" className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{busy}…</span> : currentConnection?.duration_seconds != null ? routeTime(currentConnection.duration_seconds) + (currentConnection.duration_scope === 'FLIGHT_JOURNEY' ? ' flight journey · airport transfers not included' : ' estimated travel time') : 'Select a route to preview it on the map'}</p>
@@ -310,7 +313,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
       <div className="grid min-h-full min-w-0 grid-cols-1">
       <div className="order-2 grid min-w-0 grid-cols-1 content-start gap-4 p-4 lg:order-1 lg:p-5">
           {onOutsideLocationChange ? !desktop ? <ConnectionLocationPicker label={leg.connection_type === 'DEPARTURE' ? 'Departure location' : 'Return location'}
-            value={outsideLocation ?? null} onChange={onOutsideLocationChange} disabled={saving || busy !== null} /> : null : (['from', 'to'] as const).map((side) => {
+            value={outsideLocation ?? null} onChange={onOutsideLocationChange} onRemove={onDelete} disabled={saving || busy !== null} /> : null : (['from', 'to'] as const).map((side) => {
             const endpoint = draft[side]
             return endpoint?.type === 'LOCATION' ? <EndpointPicker key={side} label={side === 'from' ? 'Departure location' : 'Return location'}
               value={endpoint.location} disabled={disabled} onChange={(location) => {
@@ -343,7 +346,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
           const segmentDetails = <div className="grid min-w-0 grid-cols-1 gap-3 rounded-xl bg-muted/40 p-3">
               {segment.travel_mode === 'FLIGHT' ? <>
                 <label className="grid min-w-0 grid-cols-1 gap-1 text-sm">Flight number<Input className="min-w-0 max-w-full" disabled={disabled} placeholder="KL597" value={flight.flight_number || ''} onChange={(event) => flightChange(index, { flight_number: event.target.value.trim().toUpperCase() || null })} /></label>
-                <label className="grid min-w-0 grid-cols-1 gap-1 text-sm">Departure date<Input className="min-w-0 max-w-full" disabled={disabled} type="date" value={flight.departure_date || ''} onChange={(event) => flightChange(index, { departure_date: event.target.value || null })} /></label>
+                <label className="grid min-w-0 grid-cols-1 gap-1 text-sm">Departure date<DatePicker className="min-w-0 max-w-full" ariaLabel="Departure date" disabled={disabled} value={flight.departure_date || ''} onValueChange={(value) => flightChange(index, { departure_date: value || null })} /></label>
                 <label className="grid min-w-0 grid-cols-1 gap-1 text-sm">Airline<Input className="min-w-0 max-w-full" disabled={disabled} value={flight.airline_name || ''} onChange={(event) => updateSegment(index, { flight: { ...flight, airline_name: event.target.value || null } })} /></label>
                 <EndpointPicker label="Departure airport" airport disabled={disabled}
                   value={flight.departure_airport_place_id ? { place_id: flight.departure_airport_place_id } : null}

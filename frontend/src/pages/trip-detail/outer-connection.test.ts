@@ -103,6 +103,11 @@ for (const side of ['departure', 'return']) {
     await click([...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes('Exact point'))!)
     await point(-33.92, 'Cape Town')
     expect(radio('Flight').getAttribute('aria-checked')).toBe('true')
+    const date = document.querySelector<HTMLButtonElement>('[aria-label="Departure date"]')!
+    await click(date)
+    const selectedDate = document.querySelector('[role="dialog"] .bg-primary')
+    expect(selectedDate?.textContent).toBe(side === 'departure' ? '18' : '20')
+    await click(date)
     expect(api.lookupFlight).not.toHaveBeenCalled()
     api.previewTravel.mockResolvedValueOnce(automaticPreview(connectionSide, 'CAR'))
     await point()
@@ -114,6 +119,18 @@ for (const side of ['departure', 'return']) {
     const lastRequest = api.previewTravel.mock.calls[api.previewTravel.mock.calls.length - 1][0]
     expect(lastRequest.payload.segments[0].travel_mode).toBe('TRAIN')
     expect(lastRequest.payload.segments[0].mode_selected).toBe(true)
+  })
+  it('prefills a manually selected ' + side + ' flight and preserves a chosen date when switching modes', async () => {
+    await click(button('Add ' + side))
+    await click([...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes('Exact point'))!)
+    await point()
+    await click(radio('Flight'))
+    await click(document.querySelector<HTMLButtonElement>('[aria-label="Departure date"]')!)
+    expect(document.querySelector('[role="dialog"] .bg-primary')?.textContent).toBe(side === 'departure' ? '18' : '20')
+    await click(button('17'))
+    await click(radio('Train')); await click(radio('Flight'))
+    await click(button('Add ' + side, panelHost))
+    expect(create.mock.calls[0][0].segments[0].flight.departure_date).toBe('2026-11-17')
   })
   it('opens ' + side + ' travel alongside the location and saves both together', async () => {
     await click(button('Add ' + side))
@@ -152,11 +169,11 @@ it('clearing the endpoint disables saving and travel again', async () => {
   expect(button('Add departure', panelHost).disabled).toBe(true)
   expect(create).not.toHaveBeenCalled()
 })
-it('opens an existing outer flight with its mode and both endpoints intact', async () => {
+it.each([undefined, '2026-11-15'])('opens an existing outer flight with date %s and both endpoints intact', async (departureDate) => {
   const leg: TravelLeg = {
     ...createOuterConnectionDraft('DEPARTURE', stop), id: 'saved',
     from: { type: 'LOCATION', location: { ...stop.location, latitude: 51.5, longitude: -0.1, name: 'London' } },
-    segments: [{ id: 'flight', input_version: 1, mode_source: 'USER', intent: { travel_mode: 'FLIGHT', mode_selected: false, notes: '', route_option: 0 },
+    segments: [{ id: 'flight', input_version: 1, mode_source: 'USER', intent: { travel_mode: 'FLIGHT', mode_selected: false, notes: '', route_option: 0, flight: departureDate ? { departure_date: departureDate } : null },
       route_state: 'UNSUPPORTED', geometry: null, from_endpoint: null, to_endpoint: null }],
   }
   await act(async () => root.render(createElement(Harness, { legs: [leg] })))
@@ -165,7 +182,7 @@ it('opens an existing outer flight with its mode and both endpoints intact', asy
   await click(button('Select this route'))
   expect(save).toHaveBeenCalledWith('saved', expect.objectContaining({
     from: { type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } },
-    to: { type: 'STOP', stop_id: stop.id }, segments: [expect.objectContaining({ travel_mode: 'FLIGHT' })],
+    to: { type: 'STOP', stop_id: stop.id }, segments: [expect.objectContaining({ travel_mode: 'FLIGHT', flight: { departure_date: departureDate ?? stop.planned_start_date } })],
   }))
 })
 
@@ -192,11 +209,14 @@ for (const side of ['DEPARTURE', 'RETURN'] as const) {
     expect(remove).not.toHaveBeenCalled()
     await click([...container.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.includes('Flight'))!)
     await click(radio('Train'))
-    await click(trigger())
+    const removeAction = () => button('Remove ' + label)
+    expect(removeAction().previousElementSibling?.textContent).toBe('Clear ' + label + ' location')
+    expect(document.querySelector('[aria-label="Remove ' + label + ' connection"]')).toBeNull()
+    await click(removeAction())
     await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(radio('Train').getAttribute('aria-checked')).toBe('true')
-    await click(trigger()); await click(button('Remove ' + label))
+    await click(removeAction()); await click([...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((item) => item.textContent === 'Remove ' + label)!)
     expect(remove).toHaveBeenCalledExactlyOnceWith(leg.id)
     await act(async () => root.render(createElement(Harness, { legs, saving: true })))
     expect(button('Removing...').disabled).toBe(true)

@@ -9,10 +9,10 @@ from pathlib import Path
 from shutil import copyfileobj
 from urllib.request import urlopen
 
-from sqlalchemy import and_, case, delete, func, or_, select, update
+from sqlalchemy import String, all_, and_, case, cast, delete, func, or_, select, update
 from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import ARRAY, insert
 from sqlalchemy.orm import Session
 
 from core.config import settings
@@ -542,7 +542,9 @@ class PlaceService:
                 result = self.db.execute(
                     delete(Place).where(
                         Place.external_source == GEONAMES_SOURCE,
-                        Place.external_id.not_in(seen_ids),
+                        # Bind the IDs as one array: expanding NOT IN exceeds
+                        # PostgreSQL's 65,535-parameter limit for city dumps.
+                        Place.external_id != all_(cast(list(seen_ids), ARRAY(String(64)))),
                         or_(Place.feature_code.is_(None), Place.feature_code != 'AIRP'),
                         Place.id.not_in(referenced),
                         Place.id.not_in(airport_refs),

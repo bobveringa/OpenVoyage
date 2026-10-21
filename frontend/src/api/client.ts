@@ -66,6 +66,9 @@ export type TripStatusFilter = components['schemas']['TripStatusFilter']
 export type TripVisibility = components['schemas']['TripVisibility']
 export type GeoJsonLineString = components['schemas']['GeoJsonLineString']
 export type Itinerary = components['schemas']['ItineraryResponse']
+export type TravelDeletionConnection = { from: string; to: string }
+export type TravelDeletionConfirmation = (connections: TravelDeletionConnection[]) => Promise<boolean>
+export class ItineraryMutationCancelledError extends Error {}
 export type ItineraryStop = components['schemas']['ItineraryStopResponse']
 export type PlanningSegment = components['schemas']['SegmentIntent']
 export type PlanningPreview = components['schemas']['PreviewResponse']
@@ -1169,6 +1172,7 @@ export async function createItineraryStop(options: {
   payload: ItineraryStopCreatePayload
   accessToken: string
   itineraryRevision: number
+  onConfirmTravelDeletion?: TravelDeletionConfirmation
 }): Promise<Itinerary> {
   return requestItineraryMutation(
     `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/stops`,
@@ -1178,6 +1182,7 @@ export async function createItineraryStop(options: {
       ifMatchRevision: options.itineraryRevision,
       json: options.payload,
     },
+    options.onConfirmTravelDeletion,
   )
 }
 
@@ -1187,6 +1192,7 @@ export async function updateItineraryStop(options: {
   payload: ItineraryStopUpdatePayload
   accessToken: string
   itineraryRevision: number
+  onConfirmTravelDeletion?: TravelDeletionConfirmation
 }): Promise<Itinerary> {
   const tripId = encodeURIComponent(options.tripId)
   const stopId = encodeURIComponent(options.stopId)
@@ -1199,6 +1205,7 @@ export async function updateItineraryStop(options: {
       ifMatchRevision: options.itineraryRevision,
       json: options.payload,
     },
+    options.onConfirmTravelDeletion,
   )
 }
 
@@ -1207,6 +1214,7 @@ export async function deleteItineraryStop(options: {
   stopId: string
   accessToken: string
   itineraryRevision: number
+  onConfirmTravelDeletion?: TravelDeletionConfirmation
 }): Promise<Itinerary> {
   const tripId = encodeURIComponent(options.tripId)
   const stopId = encodeURIComponent(options.stopId)
@@ -1218,6 +1226,7 @@ export async function deleteItineraryStop(options: {
       accessToken: options.accessToken,
       ifMatchRevision: options.itineraryRevision,
     },
+    options.onConfirmTravelDeletion,
   )
 }
 
@@ -1234,12 +1243,14 @@ export async function createItineraryTravelLeg(options: {
 export async function deleteItineraryTravelLeg(options: {
   tripId: string; legId: string; accessToken: string; itineraryRevision: number
   confirmTravelDeletion?: boolean
+  onConfirmTravelDeletion?: TravelDeletionConfirmation
 }): Promise<Itinerary> {
-  const remove = options.confirmTravelDeletion ? requestJson<Itinerary> : requestItineraryMutation
-  return remove(
-    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs/${encodeURIComponent(options.legId)}`,
-    { method: 'DELETE', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
-      query: options.confirmTravelDeletion ? { confirm_travel_deletion: true } : undefined },
+  const url = `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs/${encodeURIComponent(options.legId)}`
+  const request: ApiRequestOptions = { method: 'DELETE', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
+    query: options.confirmTravelDeletion ? { confirm_travel_deletion: true } : undefined }
+  if (options.confirmTravelDeletion) return requestJson<Itinerary>(url, request)
+  return requestItineraryMutation(
+    url, request, options.onConfirmTravelDeletion,
   )
 }
 
@@ -2109,19 +2120,19 @@ function readEtagRevision(response: Response) {
 }
 
 
-async function requestItineraryMutation(url: string, options: ApiRequestOptions): Promise<Itinerary> {
+async function requestItineraryMutation(url: string, options: ApiRequestOptions, confirm?: TravelDeletionConfirmation): Promise<Itinerary> {
   try {
     return await requestJson<Itinerary>(url, options)
   } catch (error) {
     const body = error instanceof ApiError ? error.detail : null
     const responseDetail = body && typeof body === 'object' && 'detail' in body ? body.detail : body
     if (error instanceof ApiError && error.status === 409 && responseDetail && typeof responseDetail === 'object' && 'code' in responseDetail && responseDetail.code === 'TRAVEL_DELETION_REQUIRED') {
-      const detail = responseDetail as { connections?: { from: string; to: string }[] }
-      const names = detail.connections?.map((leg) => `${leg.from} to ${leg.to}`).join(', ') || 'the affected stops'
-      if (window.confirm(`This change will delete the travel information between ${names}. Continue?`)) {
+      const detail = responseDetail as { connections?: TravelDeletionConnection[] }
+      if (!confirm) throw error
+      if (await confirm(detail.connections ?? [])) {
         return requestJson<Itinerary>(url, { ...options, query: { ...options.query, confirm_travel_deletion: true } })
       }
-      return requestJson<Itinerary>(url.replace(/\/(?:stops|legs)(?:\/[^/]+)?$/, ''), { accessToken: options.accessToken })
+      throw new ItineraryMutationCancelledError()
     }
     throw error
   }

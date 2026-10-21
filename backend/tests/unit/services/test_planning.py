@@ -5,7 +5,8 @@ import pytest
 from pydantic import ValidationError
 
 from models.api.planning import ConnectionIntent, Endpoint, FlightLookupRequest
-from services.flight_provider import FlightProvider, FlightUnavailable, parse_flights
+from services.flight_providers import AeroDataBoxFlightProvider, FlightUnavailable
+from services.flight_providers.aerodatabox_flight_provider import parse_flights
 from services.planning_service import default_mode, same_endpoint
 
 
@@ -116,11 +117,13 @@ def test_missing_offsets_do_not_invent_estimate():
 
 def test_no_key_never_calls_provider(monkeypatch):
     monkeypatch.setattr(
-        'services.flight_provider.urlopen',
+        'services.flight_providers.aerodatabox_flight_provider.urlopen',
         lambda *_a, **_k: pytest.fail('Unexpected network call'),
     )
     with pytest.raises(FlightUnavailable):
-        FlightProvider(None).lookup(
+        AeroDataBoxFlightProvider(
+            api_key=None, base_url='https://example.test', rapidapi_host='example.test'
+        ).lookup(
             FlightLookupRequest(flight_number='KL597', departure_date='2026-11-18')
         )
 

@@ -628,7 +628,10 @@ class ItineraryService:
                 if previous and previous['input_hash'] == seg.input_hash:
                     seg.result = previous
             connection = ItineraryTravelLegResponse.from_model(
-                leg, route=self.route_service.connection(leg, segments)
+                leg,
+                route=self.route_service.connection(
+                    leg, segments, infer_defaults=payload.segments is None
+                ),
             )
             connection.notes = payload.notes
             return PreviewResponse(
@@ -655,7 +658,9 @@ class ItineraryService:
             segment.input_hash for segment in current_segments
         ] != [segment.input_hash for segment in segments]:
             raise ItineraryRevisionMismatchError('Connection endpoint inputs changed')
-        result = self.route_service.connection(leg, segments)
+        result = self.route_service.connection(
+            leg, segments, infer_defaults=payload.segments is None
+        )
         if any(
             s.intent.travel_mode in ('CAR', 'BIKE', 'WALK')
             and s.start
@@ -710,6 +715,12 @@ class ItineraryService:
         for calculated in segments:
             if current[calculated.id].input_hash != calculated.input_hash:
                 raise ItineraryRevisionMismatchError('Route inputs changed')
+            if self.route_service.unavailable_auto_car(calculated):
+                row = next(s for s in leg.segments if s.id == calculated.id)
+                row.travel_mode = 'OTHER'
+                row.input_version += 1
+                row.route = None
+                continue
             if calculated.result is not None:
                 row = next(s for s in leg.segments if s.id == calculated.id)
                 row.route = None
@@ -726,7 +737,7 @@ class ItineraryService:
 
     def lookup_flights(self, trip_id, leg_id, payload, actor, revision):
         from models.api.planning import FlightCandidate, FlightLookupResponse
-        from services.flight_provider import FlightUnavailable
+        from services.flight_providers import FlightUnavailable
         from services.planning_service import calculation_gate, fingerprint
 
         self._require_manage_trip_locked(trip_id, actor, revision)

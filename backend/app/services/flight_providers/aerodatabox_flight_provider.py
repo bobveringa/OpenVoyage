@@ -9,18 +9,17 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import ValidationError
 
+from services.flight_providers.flight_provider import (
+    FlightProviderBase,
+    FlightUnavailable,
+)
+
 from models.api.planning import (
     Endpoint,
     FlightLookup,
     FlightLookupRequest,
     normalize_flight_number,
 )
-
-
-class FlightUnavailable(Exception):
-    def __init__(self, reason='Flight lookup unavailable', retry_after_seconds=None):
-        self.reason = reason
-        self.retry_after_seconds = retry_after_seconds
 
 
 def airport_snapshot(data: dict) -> Endpoint:
@@ -81,6 +80,7 @@ def parse_flights(payload: object, intent: FlightLookupRequest) -> list[FlightLo
                     continue
             lookup = FlightLookup(
                 flight_number=intent.flight_number,
+                provider='aerodatabox',
                 departure_date=intent.departure_date,
                 fetched_at=datetime.now(timezone.utc),
                 airline_name=(raw.get('airline') or {}).get('name'),
@@ -95,14 +95,21 @@ def parse_flights(payload: object, intent: FlightLookupRequest) -> list[FlightLo
     return results
 
 
-class FlightProvider:
-    def __init__(self, api_key: str | None):
-        self._api_key = api_key or ''
+class AeroDataBoxFlightProvider(FlightProviderBase):
+    name = 'aerodatabox'
+
+    def __init__(self, *, api_key: str | None, base_url: str, rapidapi_host: str):
+        self._api_key = (api_key or '').strip()
+        self.base_url = base_url.rstrip('/')
+        self.rapidapi_host = rapidapi_host
+
+    def is_configured(self) -> bool:
+        return bool(self._api_key)
 
     def lookup(
         self, intent: FlightLookupRequest, *, timeout: float = 10
     ) -> list[FlightLookup]:
-        if not self._api_key:
+        if not self.is_configured():
             raise FlightUnavailable('Flight lookup is not configured')
         query = urlencode(
             {
@@ -113,10 +120,10 @@ class FlightProvider:
             }
         )
         request = Request(
-            f'https://aerodatabox.p.rapidapi.com/flights/number/{intent.flight_number}/{intent.departure_date}?{query}',
+            f'{self.base_url}/flights/number/{intent.flight_number}/{intent.departure_date}?{query}',
             headers={
                 'X-RapidAPI-Key': self._api_key,
-                'X-RapidAPI-Host': 'aerodatabox.p.rapidapi.com',
+                'X-RapidAPI-Host': self.rapidapi_host,
             },
         )
         try:

@@ -14,7 +14,8 @@ from factories.places import create_place
 from models.api.planning import FlightLookupRequest
 from models.database.itinerary import ItineraryPlanningArtifact, ItinerarySegmentRoute
 from models.database.locations import Location
-from services.flight_provider import FlightProvider, parse_flights
+from services.flight_providers import AeroDataBoxFlightProvider
+from services.flight_providers.aerodatabox_flight_provider import parse_flights
 from services.route_providers import GraphHopperRouteProvider, RouteResponse
 from services.app_settings_service import AppSettingsService
 from services.planning_service import calculation_gate
@@ -97,8 +98,64 @@ def matched_lookup(monkeypatch):
         FlightLookupRequest(flight_number='KL597', departure_date='2026-11-18'),
     )
     lookup = Mock(return_value=matches)
-    monkeypatch.setattr(FlightProvider, 'lookup', lookup)
+    monkeypatch.setattr(AeroDataBoxFlightProvider, 'lookup', lookup)
     return lookup
+
+
+def test_alternative_provider_can_lookup_save_and_read_schedule(client, plan):
+    from api.deps import get_flight_provider
+    from services.flight_providers import FlightProviderBase
+
+    user, _, _, endpoint, revision, leg, _ = plan
+
+    class AlternativeProvider(FlightProviderBase):
+        name = 'alternative'
+
+        def is_configured(self):
+            return True
+
+        def lookup(self, intent, *, timeout=10):
+            return [
+                item.model_copy(update={'provider': self.name})
+                for item in parse_flights(flight_payload(), intent)
+            ]
+
+    client.app.dependency_overrides[get_flight_provider] = AlternativeProvider
+    try:
+        payload = {'flight_number': 'KL597', 'departure_date': '2026-11-18'}
+        found = client.post(
+            endpoint + '/flight-lookups', headers=headers(user, revision), json=payload
+        )
+        assert found.status_code == 200, found.text
+        candidate = found.json()['candidates'][0]
+        assert candidate['lookup']['provider'] == 'alternative'
+        saved = client.put(
+            endpoint,
+            headers=headers(user, revision),
+            json=connection_write(
+                leg,
+                {
+                    'segments': [
+                        {
+                            'travel_mode': 'FLIGHT',
+                            'flight': payload
+                            | {
+                                'candidate_id': candidate['candidate_id'],
+                            },
+                        }
+                    ],
+                },
+            ),
+        )
+        assert saved.status_code == 200, saved.text
+        assert saved.json()['segments'][0]['lookup']['provider'] == 'alternative'
+        client.app.dependency_overrides[get_flight_provider] = lambda: None
+        read = client.get(endpoint, headers=headers(user))
+        assert read.status_code == 200
+        assert read.json()['segments'][0]['lookup']['provider'] == 'alternative'
+        assert read.json()['duration_seconds'] == 39600
+    finally:
+        client.app.dependency_overrides.pop(get_flight_provider)
 
 
 def test_defaults_and_saves_never_call_providers(client, plan, monkeypatch):
@@ -120,7 +177,7 @@ def test_defaults_and_saves_never_call_providers(client, plan, monkeypatch):
 def test_no_flight_key_keeps_draft_editable(client, plan, monkeypatch):
     user, _, _, endpoint, revision, leg, _ = plan
     monkeypatch.setattr(
-        'services.flight_provider.urlopen',
+        'services.flight_providers.aerodatabox_flight_provider.urlopen',
         lambda *_a, **_k: pytest.fail('Network without key'),
     )
     response = client.post(

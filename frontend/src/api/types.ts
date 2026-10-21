@@ -1698,9 +1698,8 @@ export interface components {
             /**
              * Provider
              * @default aerodatabox
-             * @constant
              */
-            provider: "aerodatabox";
+            provider: string;
             /** Scheduled Arrival */
             scheduled_arrival?: string | null;
             /** Scheduled Departure */

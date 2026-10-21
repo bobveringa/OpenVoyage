@@ -171,15 +171,11 @@ export function PlanningPanel({
             <h2 className="text-base font-semibold text-foreground">{outerEditor.creating ? 'New ' : 'Edit '}{outerEditor.side === 'DEPARTURE' ? 'departure' : 'return'}</h2>
             <p className="text-sm text-muted-foreground">{outerEditor.side === 'DEPARTURE' ? 'Choose a starting place for travel to ' + stops[0].title + '.' : 'Choose a destination after ' + stops[stops.length - 1].title + '.'}</p>
           </div>
-          {!outerEditor.creating ? <Button aria-label={'Remove ' + (outerEditor.side === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
-            title={'Remove ' + (outerEditor.side === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
-            className="size-8 shrink-0 rounded-xl text-destructive hover:bg-destructive/10" disabled={isMutating}
-            size="icon" type="button" variant="ghost" onClick={() => requestRemoval(outerEditor.leg.id)}>
-            <Trash2 className="size-3.5" aria-hidden="true" /></Button> : null}
         </div>
         <ConnectionLocationPicker key={outerEditor.side + outerEditor.leg.id}
           label={outerEditor.side === 'DEPARTURE' ? 'Departure location' : 'Return location'}
           value={outerEditor.location} disabled={isMutating}
+          onRemove={!outerEditor.creating ? () => requestRemoval(outerEditor.leg.id) : undefined}
           onChange={(location) => setOuterEditor((editor) => editor ? { ...editor, location } : null)} />
         <Button variant="outline" disabled={isMutating} onClick={closeConnectionEditor} type="button">Cancel</Button>
       </> : <>

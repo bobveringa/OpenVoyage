@@ -19,8 +19,7 @@ from sqlalchemy.orm import Session
 
 from core import security
 from core.config import settings
-from core.app_settings import FLIGHTS_RAPIDAPI_API_KEY
-from services.flight_provider import FlightProvider
+from services.flight_providers import FlightProviderBase, FlightProviderFactory
 from core.db import get_engine
 from jobs.runtime import JobRuntime
 from models.api.pagination import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -328,16 +327,27 @@ def get_route_provider(
     return factory.create_routing_provider(app_settings_service)
 
 
+def get_flight_provider_factory() -> FlightProviderFactory:
+    return FlightProviderFactory()
+
+
+def get_flight_provider(
+    app_settings_service: AppSettingsServiceDep,
+    factory: Annotated[FlightProviderFactory, Depends(get_flight_provider_factory)],
+) -> FlightProviderBase | None:
+    return factory.create_flight_provider(app_settings_service)
+
+
 def get_itinerary_route_service(
     session: SessionDep,
     background_tasks: BackgroundTasks,
     route_provider: Annotated[RouteProviderBase | None, Depends(get_route_provider)],
-    app_settings_service: AppSettingsServiceDep,
+    flight_provider: Annotated[FlightProviderBase | None, Depends(get_flight_provider)],
 ):
     return ItineraryRouteService(
         db=session,
         route_provider=route_provider,
-        flight_provider=FlightProvider(app_settings_service.get_value(FLIGHTS_RAPIDAPI_API_KEY)),
+        flight_provider=flight_provider,
     )
 
 

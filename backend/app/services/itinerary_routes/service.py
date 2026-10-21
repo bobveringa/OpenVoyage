@@ -1,11 +1,17 @@
 from services.planning_service import PlanningService
 from services.location_service import LocationService
 from services.place_service import PlaceService
+from services.flight_providers import FlightProviderBase
 
 
 class ItineraryRouteService(PlanningService):
     def __init__(
-        self, *, db, route_provider=None, background_tasks=None, flight_provider=None
+        self,
+        *,
+        db,
+        route_provider=None,
+        background_tasks=None,
+        flight_provider: FlightProviderBase | None = None,
     ):
         super().__init__(
             db, LocationService(db, PlaceService(db)), route_provider, flight_provider

@@ -809,8 +809,9 @@
             "type": "string"
           },
           "provider": {
-            "const": "aerodatabox",
             "default": "aerodatabox",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Provider",
             "type": "string"
           },

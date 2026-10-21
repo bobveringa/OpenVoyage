@@ -38,8 +38,9 @@ from models.database.itinerary import (
 )
 from models.database.locations import Location
 from models.database.places import Place
+from models.database.travel import TravelMode
 from services.connection_endpoints import endpoint_location, endpoint_identity
-from services.flight_provider import FlightProvider
+from services.flight_providers import DisabledFlightProvider, FlightProviderBase
 from services.route_providers.route_provider import (
     RouteProviderError,
     RouteProviderLimitError,
@@ -175,11 +176,19 @@ calculation_gate = CalculationGate()
 
 
 class PlanningService:
-    def __init__(self, db, location_service, route_provider=None, flight_provider=None):
+    def __init__(
+        self,
+        db,
+        location_service,
+        route_provider=None,
+        flight_provider: FlightProviderBase | None = None,
+    ):
         self.db = db
         self.locations = location_service
         self.provider = route_provider
-        self.flights = flight_provider or FlightProvider(None)
+        self.flights = (
+            flight_provider if flight_provider is not None else DisabledFlightProvider()
+        )
 
     def infer_mode(self, start, end, trip_id):
         direct_car_hash = fingerprint(
@@ -526,12 +535,31 @@ class PlanningService:
             )
         }
 
-    def connection(self, leg, segments=None):
+    @staticmethod
+    def unavailable_auto_car(seg):
+        return (
+            seg.source == 'AUTO'
+            and seg.intent.travel_mode == 'CAR'
+            and seg.result is not None
+            and (
+                seg.result['status'] == 'UNSUPPORTED'
+                or (
+                    seg.result['status'] == 'FAILED'
+                    and seg.result.get('error_code')
+                    in {'NOT_CONFIGURED', 'ROUTE_UNAVAILABLE'}
+                )
+            )
+        )
+
+    def connection(self, leg, segments=None, *, infer_defaults=False):
         segments = segments if segments is not None else self.build(leg)
         responses, warnings, coordinates = [], [], []
         for index, seg in enumerate(segments):
             route = seg.result or {}
             mode = seg.intent.travel_mode
+            if infer_defaults and self.unavailable_auto_car(seg):
+                mode, route = 'OTHER', {}
+                warnings.append('No car route is available; Other was selected.')
             supported = mode in ROAD_MODES
             state = route.get(
                 'status', 'NOT_CALCULATED' if supported else 'UNSUPPORTED'
@@ -554,6 +582,7 @@ class PlanningService:
                 else None
             )
             saved_intent = seg.intent.model_copy(deep=True)
+            saved_intent.travel_mode = TravelMode(mode)
             if saved_intent.flight:
                 saved_intent.flight.candidate_id = None
             responses.append(

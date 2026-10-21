@@ -1,4 +1,5 @@
 import { useContext, useEffect, useEffectEvent, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import type { Place } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { PlaceLocationPicker } from './place-location-picker'
@@ -6,11 +7,12 @@ import { PlanningSessionContext } from './planning-session'
 import { getPlaceSearchInput } from './planning-utils'
 import type { ConnectionLocation } from './outer-connection'
 
-export function ConnectionLocationPicker({ label, value, onChange, disabled }: {
+export function ConnectionLocationPicker({ label, value, onChange, disabled, onRemove }: {
   label: string
   value: ConnectionLocation | null
   onChange: (value: ConnectionLocation | null) => void
   disabled: boolean
+  onRemove?: () => void
 }) {
   const { connectionMap } = useContext(PlanningSessionContext)
   const [source, setSource] = useState<'search' | 'map'>('search')
@@ -72,6 +74,12 @@ export function ConnectionLocationPicker({ label, value, onChange, disabled }: {
         setSearchedLocation(selected); setResultsOpen(false); onChange(selected)
       }}>Use coordinates</Button> : null}
     </PlaceLocationPicker>
-    {value ? <Button disabled={disabled} type="button" variant="ghost" onClick={clear}>Clear {label.toLowerCase()}</Button> : null}
+    {value || onRemove ? <div className="grid grid-cols-2 items-stretch gap-2">
+      {value ? <Button className="h-auto min-h-10 whitespace-normal px-3" disabled={disabled} type="button" variant="ghost" onClick={clear}>Clear {label.toLowerCase()}</Button> : null}
+      {onRemove ? <Button disabled={disabled} type="button" variant="outline"
+        className="h-auto min-h-10 whitespace-normal px-3 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={onRemove}>
+        <Trash2 className="size-4" aria-hidden="true" />Remove {label === 'Departure location' ? 'departure' : 'return'}
+      </Button> : null}
+    </div> : null}
   </div>
 }

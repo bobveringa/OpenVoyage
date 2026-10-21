@@ -75,6 +75,9 @@ const SETTING_KEYS = {
   cookieBannerEnabled: 'site.cookie_banner_enabled',
   themePalette: 'theme.palette',
   flightApiKey: 'flights.rapidapi_api_key',
+  flightProvider: 'flights.provider',
+  flightBaseUrl: 'flights.aerodatabox_base_url',
+  flightRapidApiHost: 'flights.aerodatabox_rapidapi_host',
   graphHopperApiKey: 'routing.graphhopper_api_key',
   graphHopperBaseUrl: 'routing.graphhopper_base_url',
   maxUploadSize: 'media.max_upload_size_mb',
@@ -88,6 +91,22 @@ const SETTING_KEYS = {
 } as const
 
 const settingPresentations: Record<string, SettingPresentation> = {
+  [SETTING_KEYS.flightProvider]: {
+    help: 'Choose the service used to look up flight schedules. Manual planning works with lookup disabled.',
+    label: 'Flight provider',
+    optionLabels: { aerodatabox: 'AeroDataBox', none: 'Flight lookup disabled' },
+  },
+  [SETTING_KEYS.flightBaseUrl]: {
+    help: 'Requests and the configured API key are sent to this AeroDataBox-compatible endpoint.',
+    inputType: 'url',
+    label: 'AeroDataBox base URL',
+    placeholder: 'https://aerodatabox.p.rapidapi.com',
+  },
+  [SETTING_KEYS.flightRapidApiHost]: {
+    help: 'Hostname sent in the X-RapidAPI-Host header, without a scheme or path.',
+    label: 'AeroDataBox RapidAPI host',
+    placeholder: 'aerodatabox.p.rapidapi.com',
+  },
   [SETTING_KEYS.flightApiKey]: {
     help: 'Optional write-only RapidAPI key for AeroDataBox flight lookup. Clear it to disable lookup; manual planning still works.',
     label: 'AeroDataBox RapidAPI key',
@@ -378,13 +397,27 @@ function SettingsAdminSections({
           title="Routing provider"
         />
         <SettingsGroup
-          description="Optional flight lookup. Manual flights and ground routes work without this key."
+          description="Choose the service used for optional flight schedule lookup."
           icon={Server}
           onReset={handleReset}
           onSave={handleSave}
-          settings={pickSettings(settingsByKey, [SETTING_KEYS.flightApiKey])}
-          title="Flights · AeroDataBox"
+          settings={pickSettings(settingsByKey, [SETTING_KEYS.flightProvider])}
+          title="Flight provider"
         />
+        {settingsByKey.get(SETTING_KEYS.flightProvider)?.value === 'aerodatabox' ? (
+          <SettingsGroup
+            description="Configure the endpoint, RapidAPI host, and write-only key used for flight lookup."
+            icon={Server}
+            onReset={handleReset}
+            onSave={handleSave}
+            settings={pickSettings(settingsByKey, [
+              SETTING_KEYS.flightBaseUrl,
+              SETTING_KEYS.flightRapidApiHost,
+              SETTING_KEYS.flightApiKey,
+            ])}
+            title="AeroDataBox"
+          />
+        ) : null}
         {routingProvider?.value === 'graphhopper' ? (
           <SettingsGroup
             description="Configure the endpoint and write-only credentials used for GraphHopper route requests."

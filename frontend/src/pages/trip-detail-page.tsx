@@ -1,4 +1,6 @@
 import { connectionWritePayload } from './trip-detail/planning-utils'
+import { calculateNewStopRoutes } from './trip-detail/stop-routes'
+import { TravelDeletionDialog } from './trip-detail/travel-deletion-dialog'
 import { PlanningSessionContext } from '@/pages/trip-detail/planning-session'
 import type { AirportTransferRequest, AirportTransferSide } from '@/pages/trip-detail/airport-transfers'
 import { useMediaUpload } from '@/hooks/use-media-upload'
@@ -16,6 +18,7 @@ import {
   addTripMember,
   addTripViewer,
   ApiError,
+  ItineraryMutationCancelledError,
   createItineraryStop,
   createPost,
   createTripShareLink,
@@ -51,6 +54,7 @@ import {
   type CurrentUser,
   type GpsPostCandidate,
   type Itinerary,
+  type TravelDeletionConnection,
   type ItineraryStopCreatePayload,
   type ItineraryStopUpdatePayload,
   type ItineraryTravelReplacePayload,
@@ -193,6 +197,19 @@ export function TripDetailPage({
   )
   const [itineraryRevision, setItineraryRevision] = useState(0)
   const [mutationError, setMutationError] = useState<string | null>(null)
+  const [travelDeletionConnections, setTravelDeletionConnections] = useState<TravelDeletionConnection[] | null>(null)
+  const travelDeletionResolver = useRef<((confirmed: boolean) => void) | null>(null)
+  const confirmTravelDeletion = useCallback((connections: TravelDeletionConnection[]) => new Promise<boolean>((resolve) => {
+    travelDeletionResolver.current = resolve
+    setTravelDeletionConnections(connections)
+  }), [])
+  const finishTravelDeletion = useCallback((confirmed: boolean) => {
+    travelDeletionResolver.current?.(confirmed)
+    travelDeletionResolver.current = null
+    setTravelDeletionConnections(null)
+  }, [])
+  const cancelTravelDeletion = useCallback(() => finishTravelDeletion(false), [finishTravelDeletion])
+  useEffect(() => () => { travelDeletionResolver.current?.(false) }, [])
   const [postConflict, setPostConflict] = useState<PostConflictState | null>(
     null,
   )
@@ -510,6 +527,7 @@ export function TripDetailPage({
       try {
         await action()
       } catch (mutationFailure) {
+        if (mutationFailure instanceof ItineraryMutationCancelledError) return
         setMutationError(getErrorMessage(mutationFailure))
       } finally {
         setPendingAction(null)
@@ -898,6 +916,7 @@ export function TripDetailPage({
       }
 
       const itinerary = await updateItineraryStop({
+        onConfirmTravelDeletion: confirmTravelDeletion,
         accessToken,
         itineraryRevision,
         payload,
@@ -977,6 +996,7 @@ export function TripDetailPage({
 
     void runMutation('Deleting stop', async () => {
       const itinerary = await deleteItineraryStop({
+        onConfirmTravelDeletion: confirmTravelDeletion,
         accessToken,
         itineraryRevision,
         stopId,
@@ -994,6 +1014,7 @@ export function TripDetailPage({
 
     void runMutation('Creating stop', async () => {
       const itinerary = await createItineraryStop({
+        onConfirmTravelDeletion: confirmTravelDeletion,
         accessToken,
         itineraryRevision,
         payload: toCreateStopPayload(draft, plannedStops),
@@ -1009,6 +1030,17 @@ export function TripDetailPage({
         },
         'replace',
       )
+      setPendingAction('Calculating routes')
+      try {
+        await calculateNewStopRoutes({
+          itinerary,
+          previousStopIds: plannedStops.map((stop) => stop.id),
+          accessToken,
+          onUpdate: applyItinerary,
+        })
+      } catch (error) {
+        setMutationError(`Stop saved, but routes could not be calculated: ${getErrorMessage(error)}`)
+      }
     })
   }
 
@@ -1705,6 +1737,8 @@ export function TripDetailPage({
           viewers={tripViewers}
         />
       ) : null}
+      <TravelDeletionDialog connections={travelDeletionConnections}
+        onCancel={cancelTravelDeletion} onConfirm={() => finishTravelDeletion(true)} />
       <MobileMapPointPicker
         initialLocation={mobileMapPickerLocation}
         isTripOngoing={isTripCurrentlyOngoing}
