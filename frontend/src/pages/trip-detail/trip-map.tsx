@@ -2,6 +2,13 @@ import { resolveConnectionEndpoint } from './connection-endpoints'
 import 'leaflet/dist/leaflet.css'
 
 import * as L from 'leaflet'
+import {
+  RepeatedWorldLayer,
+  nearestWorldCoordinate,
+  normalizeWorldCoordinate,
+  shiftWorldCoordinate,
+  shiftWorldRoute,
+} from '@/lib/map-world-copies'
 import { Compass } from 'lucide-react'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { PlanningSessionContext } from './planning-session'
@@ -221,7 +228,7 @@ export function TripLeafletMap({
     [tileProviderSetting],
   )
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
-  const draftMarkerRef = useRef<L.Marker | null>(null)
+  const draftMarkerRef = useRef<RepeatedWorldLayer | null>(null)
   const latestLocationSelectRef = useRef(onDraftMapPointSelect)
   const latestGpsPostCandidateSelectRef = useRef(onGpsPostCandidateSelect)
   const latestPostMarkerSelectRef = useRef(onPostMarkerSelect)
@@ -230,9 +237,9 @@ export function TripLeafletMap({
   latestTransferSelectRef.current = onAirportTransferSelect
   const mapPointEnabledRef = useRef(mapPointEnabled)
   const mapRef = useRef<L.Map | null>(null)
-  const postMarkerLayerRef = useRef<L.LayerGroup | null>(null)
-  const gpsPostCandidateLayerRef = useRef<L.LayerGroup | null>(null)
-  const routeLayerRef = useRef<L.LayerGroup | null>(null)
+  const postMarkerLayerRef = useRef<RepeatedWorldLayer | null>(null)
+  const gpsPostCandidateLayerRef = useRef<RepeatedWorldLayer | null>(null)
+  const routeLayerRef = useRef<RepeatedWorldLayer | null>(null)
   const tileLayerRef = useRef<L.TileLayer | null>(null)
   const focusedPostIdRef = useRef<string | null>(focusedPostId)
   const travelPostsRef = useRef(travelPosts)
@@ -240,7 +247,7 @@ export function TripLeafletMap({
   const travelLegsRef = useRef(travelLegs)
   const trackingGeometryRef = useRef(trackingGeometry)
   const gpsPostCandidatesRef = useRef(gpsPostCandidates)
-  const routeEndpointLayerRef = useRef<L.LayerGroup | null>(null)
+  const routeEndpointLayerRef = useRef<RepeatedWorldLayer | null>(null)
   const fittedViewRef = useRef<string | null>(null)
   const routeKey = createRouteKey(
     routeMode,
@@ -303,9 +310,10 @@ export function TripLeafletMap({
         return
       }
 
+      const coordinate = normalizeWorldCoordinate([event.latlng.lat, event.latlng.lng])
       latestLocationSelectRef.current([
-        Number(event.latlng.lat.toFixed(4)),
-        Number(event.latlng.lng.toFixed(4)),
+        Number(coordinate[0].toFixed(4)),
+        Number(coordinate[1].toFixed(4)),
       ])
     }
 
@@ -313,10 +321,10 @@ export function TripLeafletMap({
     mapRef.current = map
     fittedViewRef.current = null
 
-    routeLayerRef.current = L.layerGroup().addTo(map)
-    postMarkerLayerRef.current = L.layerGroup().addTo(map)
-    gpsPostCandidateLayerRef.current = L.layerGroup().addTo(map)
-    routeEndpointLayerRef.current = L.layerGroup().addTo(map)
+    routeLayerRef.current = new RepeatedWorldLayer(map)
+    postMarkerLayerRef.current = new RepeatedWorldLayer(map)
+    gpsPostCandidateLayerRef.current = new RepeatedWorldLayer(map)
+    routeEndpointLayerRef.current = new RepeatedWorldLayer(map)
 
     const resizeObserver = new ResizeObserver(() => map.invalidateSize({ animate: false }))
     resizeObserver.observe(container)
@@ -364,15 +372,16 @@ export function TripLeafletMap({
       return
     }
 
-    postMarkerLayer.clearLayers()
-    if (routeMode === 'travel-timeline') {
+    postMarkerLayer.render((layer, offset) => {
+      if (routeMode !== 'travel-timeline') return
       renderPostMarkerLayer(
-        postMarkerLayer,
+        layer,
         travelPostsRef.current,
         focusedPostId,
         (postId) => latestPostMarkerSelectRef.current?.(postId),
+        offset,
       )
-    }
+    })
   }, [focusedPostId, routeMode, routeKey])
 
   useEffect(() => {
@@ -381,16 +390,15 @@ export function TripLeafletMap({
       return
     }
 
-    candidateLayer.clearLayers()
-    if (routeMode !== 'travel-timeline') {
-      return
-    }
-
-    renderGpsPostCandidateLayer(
-      candidateLayer,
-      gpsPostCandidatesRef.current,
-      (candidate) => latestGpsPostCandidateSelectRef.current?.(candidate),
-    )
+    candidateLayer.render((layer, offset) => {
+      if (routeMode !== 'travel-timeline') return
+      renderGpsPostCandidateLayer(
+        layer,
+        gpsPostCandidatesRef.current,
+        (candidate) => latestGpsPostCandidateSelectRef.current?.(candidate),
+        offset,
+      )
+    })
   }, [gpsPostCandidates, routeMode])
 
   useEffect(() => {
@@ -400,42 +408,44 @@ export function TripLeafletMap({
       return
     }
 
-    routeLayer.clearLayers()
-    renderRouteLayer(
-      routeLayer,
+    routeLayer.render((layer, offset) => renderRouteLayer(
+      layer,
       routeMode,
       stopsRef.current,
       travelLegsRef.current,
       travelPostsRef.current,
       trackingGeometryRef.current.openingRoute,
       onAirportTransferSelect && routeMode === 'itinerary' ? (transfer) => latestTransferSelectRef.current?.(transfer.legId, transfer.side) : undefined,
-    )
+      offset,
+    ))
 
     const routeEndpointLayer = routeEndpointLayerRef.current
     if (routeEndpointLayer) {
-      routeEndpointLayer.clearLayers()
-      if (routeMode === 'itinerary') {
-        for (const leg of travelLegsRef.current) {
-          for (const endpoint of [leg.from, leg.to]) {
-            if (endpoint.type !== 'LOCATION') continue
-            const anchor = resolveConnectionEndpoint(endpoint, stopsRef.current)
-            if (!anchor) continue
-            L.circleMarker([anchor.location.latitude, anchor.location.longitude], {
-              className: 'trip-map-connection-endpoint', radius: 6,
-              color: getThemeColor('--primary', '#0F766E'), fillOpacity: 1,
-            }).bindTooltip(escapeHtml(anchor.title)).addTo(routeEndpointLayer)
+      routeEndpointLayer.render((layer, offset) => {
+        if (routeMode === 'itinerary') {
+          for (const leg of travelLegsRef.current) {
+            for (const endpoint of [leg.from, leg.to]) {
+              if (endpoint.type !== 'LOCATION') continue
+              const anchor = resolveConnectionEndpoint(endpoint, stopsRef.current)
+              if (!anchor) continue
+              L.circleMarker(shiftWorldCoordinate([anchor.location.latitude, anchor.location.longitude], offset), {
+                className: 'trip-map-connection-endpoint', radius: 6,
+                color: getThemeColor('--primary', '#0F766E'), fillOpacity: 1,
+              }).bindTooltip(escapeHtml(anchor.title)).addTo(layer)
+            }
           }
         }
-      }
-      if (routeMode === 'travel-timeline' && isTripOngoing) {
-        renderRouteEndpointMarker(
-          routeEndpointLayer,
-          getTravelTimelineRouteEndpoint(
-            travelPostsRef.current,
-            trackingGeometryRef.current.openingRoute,
-          ),
-        )
-      }
+        if (routeMode === 'travel-timeline' && isTripOngoing) {
+          renderRouteEndpointMarker(
+            layer,
+            getTravelTimelineRouteEndpoint(
+              travelPostsRef.current,
+              trackingGeometryRef.current.openingRoute,
+            ),
+            offset,
+          )
+        }
+      })
     }
     const animationFrameId = window.requestAnimationFrame(() => {
       map.invalidateSize()
@@ -539,15 +549,19 @@ export function TripLeafletMap({
       return
     }
 
-    draftMarkerRef.current = L.marker(draftMapLocation.coordinates, {
-      icon: L.divIcon({
-        className: 'trip-map-div-icon',
-        html: createDraftPostMarkerHtml(),
-        iconAnchor: [18, 18],
-        iconSize: [36, 36],
-      }),
-      zIndexOffset: 700,
-    }).addTo(map)
+    const draftLayer = new RepeatedWorldLayer(map)
+    draftMarkerRef.current = draftLayer
+    draftLayer.render((layer, offset) => {
+      L.marker(shiftWorldCoordinate(draftMapLocation.coordinates, offset), {
+        icon: L.divIcon({
+          className: 'trip-map-div-icon',
+          html: createDraftPostMarkerHtml(),
+          iconAnchor: [18, 18],
+          iconSize: [36, 36],
+        }),
+        zIndexOffset: 700,
+      }).addTo(layer)
+    })
   }, [draftMapLocation])
 
   useEffect(() => {
@@ -585,6 +599,7 @@ function renderRouteLayer(
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
   onTransferSelect?: (transfer: AirportTransfer) => void,
+  longitudeOffset = 0,
 ) {
   const routeSegments = getMapRouteSegments(
     routeMode,
@@ -598,8 +613,9 @@ function renderRouteLayer(
       continue
     }
 
+    const coordinates = shiftWorldRoute(segment.coordinates, longitudeOffset)
     const line = L.polyline(
-      segment.coordinates,
+      coordinates,
       getRouteSegmentPathOptions(segment, routeMode),
     ).addTo(routeLayer)
 
@@ -630,7 +646,7 @@ function renderRouteLayer(
       continue
     }
 
-    L.polyline(segment.coordinates, {
+    L.polyline(coordinates, {
       color: getThemeColor('--card', '#FFFFFF'),
       dashArray: '2 10',
       lineCap: 'round',
@@ -644,7 +660,7 @@ function renderRouteLayer(
   const stopMarkerSize = showStopOrder ? 22 : 14
 
   for (const [stopIndex, stop] of stops.entries()) {
-    L.marker(getStopCoordinates(stop), {
+    L.marker(shiftWorldCoordinate(getStopCoordinates(stop), longitudeOffset), {
       icon: L.divIcon({
         className: 'trip-map-div-icon',
         html: createPlaceMarkerHtml(showStopOrder ? stopIndex + 1 : null),
@@ -660,12 +676,13 @@ function renderRouteLayer(
 function renderRouteEndpointMarker(
   layer: L.LayerGroup,
   endpoint: RouteEndpoint | null,
+  longitudeOffset = 0,
 ) {
   if (!endpoint) {
     return
   }
 
-  L.marker(endpoint.coordinates, {
+  L.marker(shiftWorldCoordinate(endpoint.coordinates, longitudeOffset), {
     icon: L.divIcon({
       className: 'trip-map-div-icon',
       html: createRouteEndpointBubbleHtml(endpoint.travelMode),
@@ -726,6 +743,7 @@ function renderPostMarkerLayer(
   travelPosts: readonly TravelPost[],
   focusedPostId: string | null,
   onPostMarkerSelect: (postId: string) => void,
+  longitudeOffset = 0,
 ) {
   const orderedPosts = [
     ...travelPosts.filter((post) => post.id !== focusedPostId),
@@ -735,7 +753,7 @@ function renderPostMarkerLayer(
   for (const post of orderedPosts) {
     const isFocused = post.id === focusedPostId
 
-    const marker = L.marker(post.coordinates, {
+    const marker = L.marker(shiftWorldCoordinate(post.coordinates, longitudeOffset), {
       icon: L.divIcon({
         className: 'trip-map-div-icon',
         html: createPostBubbleHtml(post, isFocused),
@@ -753,10 +771,11 @@ function renderGpsPostCandidateLayer(
   layer: L.LayerGroup,
   candidates: readonly GpsPostCandidate[],
   onSelect: (candidate: GpsPostCandidate) => void,
+  longitudeOffset = 0,
 ) {
   for (const candidate of candidates) {
     const coordinates: L.LatLngTuple = [candidate.latitude, candidate.longitude]
-    const marker = L.marker(coordinates, {
+    const marker = L.marker(shiftWorldCoordinate(coordinates, longitudeOffset), {
       icon: L.divIcon({
         className: 'trip-map-div-icon',
         html: createGpsPostCandidateHtml(),
@@ -859,17 +878,20 @@ function getFocusedPostViewPlan(
   const selectedNeighbors = selectFocusedPostZoomNeighbors(
     focusedPostContext.neighbors,
   )
+  const focusedCoordinate = nearestWorldCoordinate(
+    focusedPostContext.focusedPost.coordinates, map.getCenter().lng,
+  )
   if (selectedNeighbors.length === 0) {
     return {
-      coordinates: focusedPostContext.focusedPost.coordinates,
+      coordinates: focusedCoordinate,
       kind: 'center',
       zoom: getSingleFocusedPostZoom(fitMode),
     }
   }
 
   const selectedCoordinates = [
-    focusedPostContext.focusedPost.coordinates,
-    ...selectedNeighbors.map((neighbor) => neighbor.post.coordinates),
+    focusedCoordinate,
+    ...selectedNeighbors.map((neighbor) => nearestWorldCoordinate(neighbor.post.coordinates, focusedCoordinate[1])),
   ]
   const bounds = L.latLngBounds(selectedCoordinates)
   const boundsZoom = map.getBoundsZoom(
