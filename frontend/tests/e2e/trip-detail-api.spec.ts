@@ -86,10 +86,21 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     })
     await expect(page.getByText('E2E Porto', { exact: true })).toBeVisible()
 
+    if (!expectsProviderBackedRoutes()) {
+      // Automatic planning falls back to Other when routing is not configured.
+      const connection = page.getByRole('button', { name: /Other E2E Coimbra to E2E Porto/ })
+      await expect(connection).toContainText('Approximate connection')
+    }
+
     await page
       .getByRole('button', { name: /E2E Coimbra to E2E Porto/ })
       .click()
     const chooser = page.getByRole('region', { name: 'Select your route', exact: true })
+    if (!expectsProviderBackedRoutes()) {
+      await expect(chooser.getByRole('radio', { name: 'Other', exact: true })).toBeChecked()
+      // An explicit Car choice stays Car and reports the failed calculation.
+      await chooser.getByRole('radio', { name: 'Car', exact: true }).click()
+    }
     await expect(chooser.getByRole('button', { name: 'Select this route' })).toBeEnabled()
     await chooser.getByRole('button', { name: 'Select this route' }).click()
 
