@@ -1,17 +1,17 @@
 import { createContext } from 'react'
-import type { TravelLeg } from './models'
+import type { Connection } from './models'
 import type { AirportTransferRequest, AirportTransferSide } from './airport-transfers'
 import type { DraftPostLocation } from './page-types'
 
 export const PlanningSessionContext = createContext<{
   accessToken: string | null
   airportTransferRequest?: AirportTransferRequest | null
-  onAirportTransferSelect?: (legId: string, side: AirportTransferSide) => void
+  onAirportTransferSelect?: (connectionId: string, side: AirportTransferSide) => void
   saveError?: string | null
   panelHost: HTMLDivElement | null
   onPanelOpenChange: (open: boolean) => void
   itineraryRevision: number
-  onPreview: (leg: TravelLeg | null) => void
+  onPreview: (connection: Connection | null) => void
   connectionMap?: {
     location: DraftPostLocation | null
     active: boolean

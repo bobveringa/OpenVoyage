@@ -1,6 +1,6 @@
 import type { PlanningSegment } from '@/api/client'
 import type { ConnectionAnchor } from './connection-endpoints'
-import type { Stop, TravelLeg } from './models'
+import type { Stop, Connection } from './models'
 
 export type OuterConnectionSide = 'DEPARTURE' | 'RETURN'
 export type ConnectionLocation = {
@@ -10,7 +10,7 @@ export type ConnectionLocation = {
 
 // A local placeholder lets the regular route chooser render before location selection.
 // It is never saved or sent to the preview API until both endpoints are selected.
-export function createOuterConnectionDraft(side: OuterConnectionSide, stop: Stop): TravelLeg {
+export function createOuterConnectionDraft(side: OuterConnectionSide, stop: Stop): Connection {
   const outside = { type: 'LOCATION' as const, location: { ...stop.location, name: side === 'DEPARTURE' ? 'Choose starting place' : 'Choose return destination' } }
   const inside = { type: 'STOP' as const, stop_id: stop.id }
   return {

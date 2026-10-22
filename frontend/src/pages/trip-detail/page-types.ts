@@ -66,10 +66,10 @@ export type StopEditDraft = {
   title: string
 }
 
-export type TravelLegEditDraft = Omit<import('@/api/client').ItineraryTravelReplacePayload, 'segments' | 'from' | 'to'> & {
+export type ConnectionEditDraft = Omit<import('@/api/client').ItineraryConnectionReplacePayload, 'segments' | 'from' | 'to'> & {
   segments: import('@/api/client').PlanningSegment[]
-  from?: import('@/api/client').ItineraryTravelReplacePayload['from']
-  to?: import('@/api/client').ItineraryTravelReplacePayload['to']
+  from?: import('@/api/client').ItineraryConnectionReplacePayload['from']
+  to?: import('@/api/client').ItineraryConnectionReplacePayload['to']
 }
 
 export type PostSubmitDraft = {

@@ -53,13 +53,13 @@ def test_preparation_finalizes_only_unavailable_automatic_transport(
 ):
     import uuid
     from unittest.mock import Mock
-    from models.api.itinerary import ItineraryTravelReplaceRequest
+    from models.api.itinerary import ItineraryConnectionReplaceRequest
     from models.api.planning import SegmentIntent
     from services.planning_service import PlanningService, ResolvedSegment
 
     segment_id = uuid.uuid4()
     start, end = Endpoint(latitude=52, longitude=5), Endpoint(latitude=53, longitude=6)
-    leg = SimpleNamespace(
+    connection = SimpleNamespace(
         from_stop_id=uuid.uuid4(), to_stop_id=uuid.uuid4(), notes='Journey notes',
         from_stop=SimpleNamespace(location=start),
         to_stop=SimpleNamespace(location=end),
@@ -73,15 +73,15 @@ def test_preparation_finalizes_only_unavailable_automatic_transport(
     service = PlanningService(Mock(), Mock())
     segment.input_hash = service.segment_input_hash(segment)
     if action == 'infer':
-        intent = ItineraryTravelReplaceRequest.model_validate({
-            'from': {'type': 'STOP', 'stop_id': leg.from_stop_id},
-            'to': {'type': 'STOP', 'stop_id': leg.to_stop_id},
+        intent = ItineraryConnectionReplaceRequest.model_validate({
+            'from': {'type': 'STOP', 'stop_id': connection.from_stop_id},
+            'to': {'type': 'STOP', 'stop_id': connection.to_stop_id},
         })
     elif action == 'explicit':
         intent = ConnectionIntent(segments=[segment.intent])
     else:
         intent = None
-    prepared = service.prepare_connection(leg, intent, [segment])
+    prepared = service.prepare_connection(connection, intent, [segment])
     resolved = prepared.segments[0]
     fallback = expected == 'OTHER'
     assert resolved.intent.travel_mode == expected
@@ -90,7 +90,7 @@ def test_preparation_finalizes_only_unavailable_automatic_transport(
     assert resolved.version == (5 if fallback else 4)
     assert (resolved.result is None) == fallback
     assert bool(prepared.warnings) == fallback
-    assert prepared.binding == service.binding(leg, prepared.intent)
+    assert prepared.binding == service.binding(connection, prepared.intent)
     # Finalizing a suggestion must not alter the cached calculation inputs.
     assert segment.intent.travel_mode == 'CAR'
     assert segment.result['status'] == status
@@ -276,11 +276,11 @@ def test_calculation_deadline_does_not_dispatch_remaining_segments(monkeypatch):
         for _ in range(3)
     ]
     clock = iter([0, 0, 31])
-    monkeypatch.setattr('services.planning_service.time.monotonic', lambda: next(clock))
+    monkeypatch.setattr('services.planning_calculator.time.monotonic', lambda: next(clock))
     service = PlanningService(Mock(), Mock())
-    service._calculate_one = Mock(return_value={'status': 'READY'})
+    service.calculator._calculate_one = Mock(return_value={'status': 'READY'})
     service.calculate(segments)
-    assert service._calculate_one.call_count == 2
+    assert service.calculator._calculate_one.call_count == 2
     assert segments[-1].result is None
 
 
@@ -311,7 +311,7 @@ def test_flight_dates_only_compare_real_stop_sides(
         scheduled_arrival='2026-11-18T14:00:00+02:00',
     )
     stop = SimpleNamespace(planned_start_date=date(2026, 11, 17), planned_nights=3)
-    leg = SimpleNamespace(
+    connection = SimpleNamespace(
         from_stop=None if kind == 'DEPARTURE' else stop,
         to_stop=None if kind == 'RETURN' else stop,
     )
@@ -327,6 +327,35 @@ def test_flight_dates_only_compare_real_stop_sides(
         uuid.uuid4(),
         None,
     )
-    warnings = PlanningService(Mock(), Mock()).connection(leg, [segment])['warnings']
-    assert any('preceding stop' in warning for warning in warnings) == departure_warning
-    assert any('destination stop' in warning for warning in warnings) == arrival_warning
+    warnings = PlanningService(Mock(), Mock()).connection(connection, [segment])['warnings']
+    assert any('preceding stop' in warning.message for warning in warnings) == departure_warning
+    assert any('destination stop' in warning.message for warning in warnings) == arrival_warning
+
+
+@pytest.mark.parametrize('arrival,zone,stop_date,late', [
+    ('2026-11-18T23:30:00Z', 'Asia/Tokyo', '2026-11-18', True),
+    ('2026-11-19T01:00:00Z', 'America/Los_Angeles', '2026-11-18', False),
+    ('2026-10-25T01:30:00Z', 'Europe/Amsterdam', '2026-10-25', False),
+    ('2026-11-18T23:30:00+09:00', 'Asia/Tokyo', '2026-11-18', False),
+    ('2026-11-19T08:30:00+09:00', 'invalid/zone', '2026-11-18', True),
+])
+def test_arrival_warning_uses_destination_calendar_date(arrival, zone, stop_date, late):
+    import uuid
+    from unittest.mock import Mock
+    from models.api.planning import FlightLookup, SegmentIntent
+    from services.planning_service import PlanningService, ResolvedSegment
+
+    start = Endpoint(latitude=52.3, longitude=4.7)
+    end = Endpoint(latitude=35.5, longitude=139.7, timezone=zone)
+    lookup = FlightLookup(
+        flight_number='KL861', departure_date='2026-11-18', fetched_at='2026-11-17T12:00:00Z',
+        departure_airport=start, arrival_airport=end, scheduled_arrival=arrival,
+    )
+    segment_id = uuid.uuid4()
+    segment = ResolvedSegment(SegmentIntent(travel_mode='FLIGHT'), segment_id, 'USER', 1, start, end, None, lookup, uuid.uuid4(), None)
+    connection = SimpleNamespace(from_stop=None, to_stop=SimpleNamespace(planned_start_date=date.fromisoformat(stop_date)))
+    warnings = PlanningService(Mock(), Mock()).connection(connection, [segment])['warnings']
+    arrival_warnings = [warning for warning in warnings if warning.code == 'ARRIVAL_AFTER_STOP_START']
+    assert bool(arrival_warnings) == late
+    if late:
+        assert arrival_warnings[0].segment_id == segment_id

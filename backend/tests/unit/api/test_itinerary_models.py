@@ -2,7 +2,7 @@ import uuid
 import pytest
 from pydantic import ValidationError, TypeAdapter
 from models.api.itinerary import (
-    ItineraryTravelReplaceRequest,
+    ItineraryConnectionReplaceRequest,
     ConnectionEndpointResponse,
 )
 from datetime import date
@@ -44,7 +44,7 @@ def endpoint_body():
 
 def test_connection_write_defaults_and_strict_endpoint_unions():
     body = endpoint_body()
-    assert ItineraryTravelReplaceRequest.model_validate(body).segments is None
+    assert ItineraryConnectionReplaceRequest.model_validate(body).segments is None
     for changes in (
         {'segments': None},
         {'segments': []},
@@ -61,9 +61,9 @@ def test_connection_write_defaults_and_strict_endpoint_unions():
         {'segments': [{'travel_mode': 'CAR', 'duration_seconds': 100}]},
     ):
         with pytest.raises(ValidationError):
-            ItineraryTravelReplaceRequest.model_validate(body | changes)
+            ItineraryConnectionReplaceRequest.model_validate(body | changes)
     with pytest.raises(ValidationError):
-        ItineraryTravelReplaceRequest.model_validate(
+        ItineraryConnectionReplaceRequest.model_validate(
             {'segments': [{'travel_mode': 'CAR'}]}
         )
 

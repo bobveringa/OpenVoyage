@@ -444,6 +444,30 @@
         "title": "Body_upload_media_api_v1_media_post",
         "type": "object"
       },
+      "ConnectionDeletionSummary": {
+        "properties": {
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "from",
+          "to"
+        ],
+        "title": "ConnectionDeletionSummary",
+        "type": "object"
+      },
       "ConnectionIntent": {
         "additionalProperties": false,
         "properties": {
@@ -479,6 +503,23 @@
           "segments"
         ],
         "title": "ConnectionIntent",
+        "type": "object"
+      },
+      "ConnectionMutationResponse": {
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/ItineraryConnectionResponse"
+          },
+          "itinerary_revision": {
+            "title": "Itinerary Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "itinerary_revision",
+          "connection"
+        ],
+        "title": "ConnectionMutationResponse",
         "type": "object"
       },
       "CurrentUserResponse": {
@@ -1320,6 +1361,254 @@
         "title": "ImmichImportRequest",
         "type": "object"
       },
+      "ItineraryConnectionReplaceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "discriminator": {
+              "mapping": {
+                "LOCATION": "#/components/schemas/LocationConnectionEndpointInput",
+                "STOP": "#/components/schemas/StopConnectionEndpoint"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StopConnectionEndpoint"
+              },
+              {
+                "$ref": "#/components/schemas/LocationConnectionEndpointInput"
+              }
+            ],
+            "title": "From"
+          },
+          "notes": {
+            "default": "",
+            "maxLength": 10000,
+            "title": "Notes",
+            "type": "string"
+          },
+          "preview_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Id"
+          },
+          "segments": {
+            "description": "Omit to choose transport automatically. Provide one or more segments to choose transport explicitly. An empty list or null is not accepted.",
+            "items": {
+              "$ref": "#/components/schemas/SegmentIntent"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Segments",
+            "type": "array"
+          },
+          "to": {
+            "discriminator": {
+              "mapping": {
+                "LOCATION": "#/components/schemas/LocationConnectionEndpointInput",
+                "STOP": "#/components/schemas/StopConnectionEndpoint"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StopConnectionEndpoint"
+              },
+              {
+                "$ref": "#/components/schemas/LocationConnectionEndpointInput"
+              }
+            ],
+            "title": "To"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "title": "ItineraryConnectionReplaceRequest",
+        "type": "object"
+      },
+      "ItineraryConnectionResponse": {
+        "properties": {
+          "connection_type": {
+            "enum": [
+              "BETWEEN_STOPS",
+              "DEPARTURE",
+              "RETURN"
+            ],
+            "title": "Connection Type",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "duration_scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "JOURNEY",
+                  "FLIGHT_JOURNEY"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Scope"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "from": {
+            "discriminator": {
+              "mapping": {
+                "LOCATION": "#/components/schemas/LocationConnectionEndpointResponse",
+                "STOP": "#/components/schemas/StopConnectionEndpoint"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StopConnectionEndpoint"
+              },
+              {
+                "$ref": "#/components/schemas/LocationConnectionEndpointResponse"
+              }
+            ],
+            "title": "From"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "string"
+          },
+          "route": {
+            "$ref": "#/components/schemas/ItineraryConnectionRouteResponse"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentResponse"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "to": {
+            "discriminator": {
+              "mapping": {
+                "LOCATION": "#/components/schemas/LocationConnectionEndpointResponse",
+                "STOP": "#/components/schemas/StopConnectionEndpoint"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StopConnectionEndpoint"
+              },
+              {
+                "$ref": "#/components/schemas/LocationConnectionEndpointResponse"
+              }
+            ],
+            "title": "To"
+          },
+          "trip_id": {
+            "format": "uuid",
+            "title": "Trip Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/PlanningWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "trip_id",
+          "connection_type",
+          "from",
+          "to",
+          "notes",
+          "segments",
+          "duration_seconds",
+          "duration_scope",
+          "warnings",
+          "route",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ItineraryConnectionResponse",
+        "type": "object"
+      },
+      "ItineraryConnectionRouteResponse": {
+        "properties": {
+          "distance_meters": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance Meters"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/GeoJsonLineString"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ItineraryRouteType"
+          }
+        },
+        "required": [
+          "type",
+          "geometry",
+          "distance_meters",
+          "duration_seconds"
+        ],
+        "title": "ItineraryConnectionRouteResponse",
+        "type": "object"
+      },
       "ItineraryPlacement": {
         "additionalProperties": false,
         "properties": {
@@ -1350,16 +1639,16 @@
       },
       "ItineraryResponse": {
         "properties": {
+          "connections": {
+            "items": {
+              "$ref": "#/components/schemas/ItineraryConnectionResponse"
+            },
+            "title": "Connections",
+            "type": "array"
+          },
           "itinerary_revision": {
             "title": "Itinerary Revision",
             "type": "integer"
-          },
-          "legs": {
-            "items": {
-              "$ref": "#/components/schemas/ItineraryTravelLegResponse"
-            },
-            "title": "Legs",
-            "type": "array"
           },
           "stops": {
             "items": {
@@ -1378,7 +1667,7 @@
           "trip_id",
           "itinerary_revision",
           "stops",
-          "legs"
+          "connections"
         ],
         "title": "ItineraryResponse",
         "type": "object"
@@ -1394,7 +1683,7 @@
       "ItineraryStopCreateRequest": {
         "additionalProperties": false,
         "properties": {
-          "incoming_travel": {
+          "incoming_connection": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ConnectionIntent"
@@ -1420,7 +1709,7 @@
             "title": "Notes",
             "type": "string"
           },
-          "outgoing_travel": {
+          "outgoing_connection": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ConnectionIntent"
@@ -1456,20 +1745,20 @@
       },
       "ItineraryStopDetailResponse": {
         "properties": {
-          "incoming_leg": {
+          "incoming_connection": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ItineraryTravelLegResponse"
+                "$ref": "#/components/schemas/ItineraryConnectionResponse"
               },
               {
                 "type": "null"
               }
             ]
           },
-          "outgoing_leg": {
+          "outgoing_connection": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ItineraryTravelLegResponse"
+                "$ref": "#/components/schemas/ItineraryConnectionResponse"
               },
               {
                 "type": "null"
@@ -1482,8 +1771,8 @@
         },
         "required": [
           "stop",
-          "incoming_leg",
-          "outgoing_leg"
+          "incoming_connection",
+          "outgoing_connection"
         ],
         "title": "ItineraryStopDetailResponse",
         "type": "object"
@@ -1562,7 +1851,7 @@
       "ItineraryStopUpdateRequest": {
         "additionalProperties": false,
         "properties": {
-          "incoming_travel": {
+          "incoming_connection": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ConnectionIntent"
@@ -1597,7 +1886,7 @@
             ],
             "title": "Notes"
           },
-          "outgoing_travel": {
+          "outgoing_connection": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ConnectionIntent"
@@ -1644,254 +1933,6 @@
           }
         },
         "title": "ItineraryStopUpdateRequest",
-        "type": "object"
-      },
-      "ItineraryTravelLegResponse": {
-        "properties": {
-          "connection_type": {
-            "enum": [
-              "BETWEEN_STOPS",
-              "DEPARTURE",
-              "RETURN"
-            ],
-            "title": "Connection Type",
-            "type": "string"
-          },
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "duration_scope": {
-            "anyOf": [
-              {
-                "enum": [
-                  "JOURNEY",
-                  "FLIGHT_JOURNEY"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Duration Scope"
-          },
-          "duration_seconds": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Duration Seconds"
-          },
-          "from": {
-            "discriminator": {
-              "mapping": {
-                "LOCATION": "#/components/schemas/LocationConnectionEndpointResponse",
-                "STOP": "#/components/schemas/StopConnectionEndpoint"
-              },
-              "propertyName": "type"
-            },
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/StopConnectionEndpoint"
-              },
-              {
-                "$ref": "#/components/schemas/LocationConnectionEndpointResponse"
-              }
-            ],
-            "title": "From"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "notes": {
-            "title": "Notes",
-            "type": "string"
-          },
-          "route": {
-            "$ref": "#/components/schemas/ItineraryTravelRouteResponse"
-          },
-          "segments": {
-            "items": {
-              "$ref": "#/components/schemas/SegmentResponse"
-            },
-            "title": "Segments",
-            "type": "array"
-          },
-          "to": {
-            "discriminator": {
-              "mapping": {
-                "LOCATION": "#/components/schemas/LocationConnectionEndpointResponse",
-                "STOP": "#/components/schemas/StopConnectionEndpoint"
-              },
-              "propertyName": "type"
-            },
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/StopConnectionEndpoint"
-              },
-              {
-                "$ref": "#/components/schemas/LocationConnectionEndpointResponse"
-              }
-            ],
-            "title": "To"
-          },
-          "trip_id": {
-            "format": "uuid",
-            "title": "Trip Id",
-            "type": "string"
-          },
-          "updated_at": {
-            "format": "date-time",
-            "title": "Updated At",
-            "type": "string"
-          },
-          "warnings": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Warnings",
-            "type": "array"
-          }
-        },
-        "required": [
-          "id",
-          "trip_id",
-          "connection_type",
-          "from",
-          "to",
-          "notes",
-          "segments",
-          "duration_seconds",
-          "duration_scope",
-          "warnings",
-          "route",
-          "created_at",
-          "updated_at"
-        ],
-        "title": "ItineraryTravelLegResponse",
-        "type": "object"
-      },
-      "ItineraryTravelReplaceRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "from": {
-            "discriminator": {
-              "mapping": {
-                "LOCATION": "#/components/schemas/LocationConnectionEndpointInput",
-                "STOP": "#/components/schemas/StopConnectionEndpoint"
-              },
-              "propertyName": "type"
-            },
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/StopConnectionEndpoint"
-              },
-              {
-                "$ref": "#/components/schemas/LocationConnectionEndpointInput"
-              }
-            ],
-            "title": "From"
-          },
-          "notes": {
-            "default": "",
-            "maxLength": 10000,
-            "title": "Notes",
-            "type": "string"
-          },
-          "preview_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Preview Id"
-          },
-          "segments": {
-            "description": "Omit to choose transport automatically. Provide one or more segments to choose transport explicitly. An empty list or null is not accepted.",
-            "items": {
-              "$ref": "#/components/schemas/SegmentIntent"
-            },
-            "maxItems": 20,
-            "minItems": 1,
-            "title": "Segments",
-            "type": "array"
-          },
-          "to": {
-            "discriminator": {
-              "mapping": {
-                "LOCATION": "#/components/schemas/LocationConnectionEndpointInput",
-                "STOP": "#/components/schemas/StopConnectionEndpoint"
-              },
-              "propertyName": "type"
-            },
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/StopConnectionEndpoint"
-              },
-              {
-                "$ref": "#/components/schemas/LocationConnectionEndpointInput"
-              }
-            ],
-            "title": "To"
-          }
-        },
-        "required": [
-          "from",
-          "to"
-        ],
-        "title": "ItineraryTravelReplaceRequest",
-        "type": "object"
-      },
-      "ItineraryTravelRouteResponse": {
-        "properties": {
-          "distance_meters": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Distance Meters"
-          },
-          "duration_seconds": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Duration Seconds"
-          },
-          "geometry": {
-            "$ref": "#/components/schemas/GeoJsonLineString"
-          },
-          "type": {
-            "$ref": "#/components/schemas/ItineraryRouteType"
-          }
-        },
-        "required": [
-          "type",
-          "geometry",
-          "distance_meters",
-          "duration_seconds"
-        ],
-        "title": "ItineraryTravelRouteResponse",
         "type": "object"
       },
       "JobAuditResponse": {
@@ -2749,6 +2790,136 @@
         "title": "PlaceResponse",
         "type": "object"
       },
+      "PlanningErrorDetail": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "connections": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionDeletionSummary"
+            },
+            "title": "Connections",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "segment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment Id"
+          },
+          "validation_errors": {
+            "items": {
+              "$ref": "#/components/schemas/PlanningValidationIssue"
+            },
+            "title": "Validation Errors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "PlanningErrorDetail",
+        "type": "object"
+      },
+      "PlanningErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/PlanningErrorDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "PlanningErrorResponse",
+        "type": "object"
+      },
+      "PlanningValidationIssue": {
+        "properties": {
+          "location": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location",
+          "message",
+          "type"
+        ],
+        "title": "PlanningValidationIssue",
+        "type": "object"
+      },
+      "PlanningWarning": {
+        "properties": {
+          "code": {
+            "enum": [
+              "AUTO_CAR_UNAVAILABLE",
+              "UNRESOLVED_ENDPOINTS",
+              "ROUTING_LIMIT_REACHED",
+              "INVALID_FLIGHT_SCHEDULE",
+              "DEPARTURE_BEFORE_STOP_END",
+              "ARRIVAL_AFTER_STOP_START",
+              "UNRESOLVED_TRANSFER",
+              "OVERLAPPING_FLIGHTS",
+              "CALCULATION_INCOMPLETE"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "segment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment Id"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "PlanningWarning",
+        "type": "object"
+      },
       "PlatformPermission": {
         "description": "Permissions that apply to the platform rather than a specific trip.",
         "enum": [
@@ -3389,7 +3560,7 @@
       "PreviewResponse": {
         "properties": {
           "connection": {
-            "$ref": "#/components/schemas/ItineraryTravelLegResponse"
+            "$ref": "#/components/schemas/ItineraryConnectionResponse"
           },
           "expires_at": {
             "format": "date-time",
@@ -3501,23 +3672,7 @@
         "title": "RouteOption",
         "type": "object"
       },
-      "RouteOverviewGeometryResponse": {
-        "properties": {
-          "geometry": {
-            "$ref": "#/components/schemas/GeoJsonLineString"
-          },
-          "type": {
-            "$ref": "#/components/schemas/ItineraryRouteType"
-          }
-        },
-        "required": [
-          "type",
-          "geometry"
-        ],
-        "title": "RouteOverviewGeometryResponse",
-        "type": "object"
-      },
-      "RouteOverviewLegResponse": {
+      "RouteOverviewConnectionResponse": {
         "properties": {
           "from": {
             "discriminator": {
@@ -3578,7 +3733,23 @@
           "segments",
           "route"
         ],
-        "title": "RouteOverviewLegResponse",
+        "title": "RouteOverviewConnectionResponse",
+        "type": "object"
+      },
+      "RouteOverviewGeometryResponse": {
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/GeoJsonLineString"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ItineraryRouteType"
+          }
+        },
+        "required": [
+          "type",
+          "geometry"
+        ],
+        "title": "RouteOverviewGeometryResponse",
         "type": "object"
       },
       "RouteOverviewPointResponse": {
@@ -3606,11 +3777,11 @@
       },
       "RouteOverviewResponse": {
         "properties": {
-          "legs": {
+          "connections": {
             "items": {
-              "$ref": "#/components/schemas/RouteOverviewLegResponse"
+              "$ref": "#/components/schemas/RouteOverviewConnectionResponse"
             },
-            "title": "Legs",
+            "title": "Connections",
             "type": "array"
           },
           "stops": {
@@ -3629,7 +3800,7 @@
         "required": [
           "trip_id",
           "stops",
-          "legs"
+          "connections"
         ],
         "title": "RouteOverviewResponse",
         "type": "object"
@@ -8269,15 +8440,85 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -8326,7 +8567,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ItineraryTravelReplaceRequest"
+                "$ref": "#/components/schemas/ItineraryConnectionReplaceRequest"
               }
             }
           },
@@ -8337,21 +8578,91 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItineraryTravelLegResponse"
+                  "$ref": "#/components/schemas/ConnectionMutationResponse"
                 }
               }
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -8417,15 +8728,85 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -8484,7 +8865,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ItineraryTravelReplaceRequest"
+                "$ref": "#/components/schemas/ItineraryConnectionReplaceRequest"
               }
             }
           },
@@ -8501,15 +8882,85 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -8549,11 +9000,11 @@
           },
           {
             "in": "query",
-            "name": "confirm_travel_deletion",
+            "name": "confirm_connection_deletion",
             "required": false,
             "schema": {
               "default": false,
-              "title": "Confirm Travel Deletion",
+              "title": "Confirm Connection Deletion",
               "type": "boolean"
             }
           },
@@ -8585,15 +9036,85 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -8651,21 +9172,91 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItineraryTravelLegResponse"
+                  "$ref": "#/components/schemas/ItineraryConnectionResponse"
                 }
               }
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -8722,7 +9313,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ItineraryTravelReplaceRequest"
+                "$ref": "#/components/schemas/ItineraryConnectionReplaceRequest"
               }
             }
           },
@@ -8733,21 +9324,91 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItineraryTravelLegResponse"
+                  "$ref": "#/components/schemas/ConnectionMutationResponse"
                 }
               }
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -8823,15 +9484,85 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -8900,7 +9631,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ItineraryTravelReplaceRequest"
+                "$ref": "#/components/schemas/ItineraryConnectionReplaceRequest"
               }
             }
           },
@@ -8917,15 +9648,85 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -8985,21 +9786,91 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItineraryTravelLegResponse"
+                  "$ref": "#/components/schemas/ConnectionMutationResponse"
                 }
               }
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -9055,15 +9926,85 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -9093,11 +10034,11 @@
           },
           {
             "in": "query",
-            "name": "confirm_travel_deletion",
+            "name": "confirm_connection_deletion",
             "required": false,
             "schema": {
               "default": false,
-              "title": "Confirm Travel Deletion",
+              "title": "Confirm Connection Deletion",
               "type": "boolean"
             }
           },
@@ -9139,15 +10080,85 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -9187,11 +10198,11 @@
           },
           {
             "in": "query",
-            "name": "confirm_travel_deletion",
+            "name": "confirm_connection_deletion",
             "required": false,
             "schema": {
               "default": false,
-              "title": "Confirm Travel Deletion",
+              "title": "Confirm Connection Deletion",
               "type": "boolean"
             }
           },
@@ -9223,15 +10234,85 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -9295,15 +10376,85 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [
@@ -9341,11 +10492,11 @@
           },
           {
             "in": "query",
-            "name": "confirm_travel_deletion",
+            "name": "confirm_connection_deletion",
             "required": false,
             "schema": {
               "default": false,
-              "title": "Confirm Travel Deletion",
+              "title": "Confirm Connection Deletion",
               "type": "boolean"
             }
           },
@@ -9387,15 +10538,85 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
           }
         },
         "security": [

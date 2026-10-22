@@ -1,3 +1,5 @@
+
+from planning_helpers import planning_body
 from datetime import timedelta
 
 import pytest
@@ -68,8 +70,8 @@ def test_route_overview_access_and_private_planning_boundaries(
         },
     )
     assert stop_response.status_code == 201
-    stop_id = stop_response.json()['stops'][0]['id']
-    leg_response = client.post(
+    stop_id = planning_body(stop_response)['stops'][0]['id']
+    connection_response = client.post(
         f'{root}/connections',
         headers={**headers, 'If-Match': '"1"'},
         json={
@@ -91,8 +93,8 @@ def test_route_overview_access_and_private_planning_boundaries(
             ],
         },
     )
-    assert leg_response.status_code == 201
-    leg_id = leg_response.json()['id']
+    assert connection_response.status_code == 201
+    connection_id = planning_body(connection_response)['id']
 
     reader_headers = {}
     if audience == 'owner':
@@ -113,7 +115,7 @@ def test_route_overview_access_and_private_planning_boundaries(
             f'{api_prefix}/trips/{trip.id}/share-links', headers=headers, json={}
         )
         assert link.status_code == 201
-        reader_headers['X-Trip-Share-Token'] = link.json()['token']
+        reader_headers['X-Trip-Share-Token'] = planning_body(link)['token']
         if audience in {'revoked_share', 'expired_share'}:
             update = (
                 {'revoked': True}
@@ -123,7 +125,7 @@ def test_route_overview_access_and_private_planning_boundaries(
                 }
             )
             result = client.patch(
-                f'{api_prefix}/trips/{trip.id}/share-links/{link.json()["id"]}',
+                f'{api_prefix}/trips/{trip.id}/share-links/{planning_body(link)["id"]}',
                 headers=headers,
                 json=update,
             )
@@ -133,22 +135,22 @@ def test_route_overview_access_and_private_planning_boundaries(
 
     overview = client.get(f'{root}/overview', headers=reader_headers)
     assert overview.status_code == (200 if can_view else 404)
-    for path in ['', f'/stops/{stop_id}', f'/connections/{leg_id}']:
+    for path in ['', f'/stops/{stop_id}', f'/connections/{connection_id}']:
         result = client.get(f'{root}{path}', headers=reader_headers)
         assert result.status_code == (200 if can_plan else 403 if can_view else 404)
 
     if not can_view:
         return
-    data = overview.json()
+    data = planning_body(overview)
     assert overview.headers['cache-control'] == 'private, no-store'
     assert data['stops'][0]['title'] == 'Amsterdam'
     assert data['stops'][0]['visited'] is False
-    assert data['legs'][0]['from']['type'] == 'LOCATION'
-    assert data['legs'][0]['to']['stop_id'] == stop_id
+    assert data['connections'][0]['from']['type'] == 'LOCATION'
+    assert data['connections'][0]['to']['stop_id'] == stop_id
     assert (
-        data['legs'][0]['route']['geometry'] == leg_response.json()['route']['geometry']
+        data['connections'][0]['route']['geometry'] == planning_body(connection_response)['route']['geometry']
     )
-    assert data['legs'][0]['segments'][0]['intent'] == {'travel_mode': 'FLIGHT'}
+    assert data['connections'][0]['segments'][0]['intent'] == {'travel_mode': 'FLIGHT'}
 
     forbidden = {
         'notes',
@@ -189,6 +191,6 @@ def test_route_overview_access_and_private_planning_boundaries(
 
     if can_plan:
         assert (
-            client.get(f'{root}/connections/{leg_id}', headers=reader_headers).json()['notes']
+            planning_body(client.get(f'{root}/connections/{connection_id}', headers=reader_headers))['notes']
             == 'Private connection note'
         )

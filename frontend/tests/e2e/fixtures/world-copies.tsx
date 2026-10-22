@@ -7,7 +7,7 @@ import { PublicSettingsContext } from '../../../src/settings/public-settings-con
 import { ThemeProvider } from '../../../src/theme/theme-provider'
 import { TripLeafletMap } from '../../../src/pages/trip-detail/trip-map'
 import { createOuterConnectionDraft } from '../../../src/pages/trip-detail/outer-connection'
-import { EMPTY_TRACKING_GEOMETRY, type Stop, type TravelLeg, type TravelPost } from '../../../src/pages/trip-detail/models'
+import { EMPTY_TRACKING_GEOMETRY, type Stop, type Connection, type TravelPost } from '../../../src/pages/trip-detail/models'
 import type { GpsPostCandidate, TrackSample } from '../../../src/api/client'
 import '../../../src/index.css'
 
@@ -28,7 +28,7 @@ const stops: Stop[] = [
   location: { ...place, id: 'place-' + index, full_name: place.name, region: '', country_code: '' },
 }))
 const geometry = { type: 'LineString' as const, coordinates: [[26.1025, 44.4268], [-157.8581, 21.3099]] }
-const leg: TravelLeg = {
+const connection: Connection = {
   ...createOuterConnectionDraft('DEPARTURE', stops[0]), id: 'flight', connection_type: 'BETWEEN_STOPS',
   from: { type: 'STOP', stop_id: stops[0].id }, to: { type: 'STOP', stop_id: stops[1].id },
   segments: [{ id: 'flight-segment', input_version: 1, intent: { travel_mode: 'FLIGHT', mode_selected: false, notes: '', route_option: 0 },
@@ -70,7 +70,7 @@ export function Preview() {
         onSelect={setSelected} onMove={(lat, lon) => setMoved(JSON.stringify([lat, lon]))} /> :
       <TripLeafletMap draftMapLocation={null} mapPointEnabled onDraftMapPointSelect={(point) => setPicked(JSON.stringify(point))}
         resetNonce={0} routeMode={timeline ? 'travel-timeline' : 'itinerary'} stops={stops}
-        travelLegs={[leg]} travelPosts={timeline ? [post] : []} isTripOngoing={timeline}
+        connections={[connection]} travelPosts={timeline ? [post] : []} isTripOngoing={timeline}
         trackingGeometry={timeline ? { openingRoute: { durationSeconds: null, segments: [{ coordinates: [[21.1, -158], [21.8, -157.2]], travelMode: 'WALK', visibleToMembersOnly: true }] } } : EMPTY_TRACKING_GEOMETRY}
         gpsPostCandidates={timeline ? [candidate] : []} onGpsPostCandidateSelect={() => setSelected('candidate')}
         onPostMarkerSelect={setSelected} />}

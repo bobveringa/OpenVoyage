@@ -3,11 +3,11 @@ import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { resolveConnectionEndpoint } from './connection-endpoints'
-import type { Stop, TravelLeg } from './models'
+import type { Stop, Connection } from './models'
 import { getTravelModeLabel } from './shared-utils'
 
-export function ConnectionRemovalDialog({ leg, stops, removing, error, onCancel, onConfirm }: {
-  leg: TravelLeg | null
+export function ConnectionRemovalDialog({ connection, stops, removing, error, onCancel, onConfirm }: {
+  connection: Connection | null
   stops: readonly Stop[]
   removing: boolean
   error: string | null
@@ -17,7 +17,7 @@ export function ConnectionRemovalDialog({ leg, stops, removing, error, onCancel,
   const contentRef = useRef<HTMLDivElement>(null)
   const keepRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
-    if (!leg) return
+    if (!connection) return
     const previousFocus = document.activeElement
     const dialog = contentRef.current?.closest('[role="dialog"]')
     keepRef.current?.focus()
@@ -35,11 +35,11 @@ export function ConnectionRemovalDialog({ leg, stops, removing, error, onCancel,
       dialog?.removeEventListener('keydown', trapFocus)
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus()
     }
-  }, [leg])
-  if (!leg) return null
-  const label = leg.connection_type === 'DEPARTURE' ? 'departure' : 'return'
-  const from = resolveConnectionEndpoint(leg.from, stops)
-  const to = resolveConnectionEndpoint(leg.to, stops)
+  }, [connection])
+  if (!connection) return null
+  const label = connection.connection_type === 'DEPARTURE' ? 'departure' : 'return'
+  const from = resolveConnectionEndpoint(connection.from, stops)
+  const to = resolveConnectionEndpoint(connection.to, stops)
   return <Modal open title={'Remove ' + label + '?'} onClose={onCancel} dismissible={!removing}
     className="h-auto max-h-[calc(100dvh-2rem)] max-w-md" overlayClassName="z-[80]"
     description="This removes the connection and its travel details. Your itinerary stops will stay."
@@ -52,7 +52,7 @@ export function ConnectionRemovalDialog({ leg, stops, removing, error, onCancel,
     <div ref={contentRef} className="space-y-3">
       <div className="space-y-1 rounded-xl bg-muted p-3">
         <p className="break-words font-semibold">{from?.title} → {to?.title}</p>
-        <p className="break-words text-sm text-muted-foreground">{leg.segments.map((segment) => [
+        <p className="break-words text-sm text-muted-foreground">{connection.segments.map((segment) => [
           getTravelModeLabel(segment.intent.travel_mode), segment.intent.flight?.flight_number || segment.intent.service_number,
         ].filter(Boolean).join(' · ')).join(' → ')}</p>
       </div>

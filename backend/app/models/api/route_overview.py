@@ -22,7 +22,7 @@ from models.api.itinerary import (
 )
 from models.api.locations import LocationResponse
 from models.api.planning import Endpoint
-from models.database.itinerary import ItineraryTravelLeg
+from models.database.itinerary import ItineraryConnection
 from models.database.travel import TravelMode
 
 if TYPE_CHECKING:
@@ -69,7 +69,7 @@ class RouteOverviewGeometryResponse(BaseModel):
     geometry: GeoJsonLineString
 
 
-class RouteOverviewLegResponse(BaseModel):
+class RouteOverviewConnectionResponse(BaseModel):
     id: uuid.UUID
     from_: ConnectionEndpointResponse = Field(alias='from')
     to: ConnectionEndpointResponse
@@ -80,20 +80,20 @@ class RouteOverviewLegResponse(BaseModel):
 class RouteOverviewResponse(BaseModel):
     trip_id: uuid.UUID
     stops: list[RouteOverviewStopResponse]
-    legs: list[RouteOverviewLegResponse]
+    connections: list[RouteOverviewConnectionResponse]
 
     @classmethod
     def from_snapshot(
         cls,
         snapshot: ItinerarySnapshot,
-        route_resolver: Callable[[ItineraryTravelLeg], dict],
+        route_resolver: Callable[[ItineraryConnection], dict],
         *,
         today: date | None = None,
     ) -> Self:
         response_date = today or date.today()
-        legs = []
-        for leg in snapshot.legs:
-            resolved = route_resolver(leg)
+        connections = []
+        for connection in snapshot.connections:
+            resolved = route_resolver(connection)
             segments = []
             for segment in resolved['segments']:
                 segments.append(
@@ -111,11 +111,11 @@ class RouteOverviewResponse(BaseModel):
                         route_state=segment.route_state,
                     )
                 )
-            legs.append(
-                RouteOverviewLegResponse(
-                    id=leg.id,
-                    **{'from': connection_endpoint(leg, 'from')},
-                    to=connection_endpoint(leg, 'to'),
+            connections.append(
+                RouteOverviewConnectionResponse(
+                    id=connection.id,
+                    **{'from': connection_endpoint(connection, 'from')},
+                    to=connection_endpoint(connection, 'to'),
                     segments=segments,
                     route=RouteOverviewGeometryResponse(
                         type=resolved['route']['type'],
@@ -138,5 +138,5 @@ class RouteOverviewResponse(BaseModel):
                 )
                 for stop in snapshot.stops
             ],
-            legs=legs,
+            connections=connections,
         )

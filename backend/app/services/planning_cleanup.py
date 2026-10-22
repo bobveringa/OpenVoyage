@@ -31,12 +31,12 @@ def clear_account_flight_snapshots(db, user_id):
             .where(ItinerarySegmentFlight.lookup_owner_user_id == user_id)
         )
     )
-    legs = {s.leg_id for s in segments}
+    connections = {s.connection_id for s in segments}
     trips = {s.trip_id for s in segments}
-    if not legs:
+    if not connections:
         return
     affected_segments = select(ItineraryTravelSegment.id).where(
-        ItineraryTravelSegment.leg_id.in_(legs)
+        ItineraryTravelSegment.connection_id.in_(connections)
     )
     db.execute(
         delete(ItinerarySegmentRoute).where(
@@ -45,7 +45,7 @@ def clear_account_flight_snapshots(db, user_id):
     )
     db.execute(
         delete(ItineraryPlanningArtifact).where(
-            ItineraryPlanningArtifact.leg_id.in_(legs)
+            ItineraryPlanningArtifact.connection_id.in_(connections)
         )
     )
     db.execute(
@@ -58,7 +58,7 @@ def clear_account_flight_snapshots(db, user_id):
     )
     db.execute(
         update(ItineraryTravelSegment)
-        .where(ItineraryTravelSegment.leg_id.in_(legs))
+        .where(ItineraryTravelSegment.connection_id.in_(connections))
         .values(
             input_version=ItineraryTravelSegment.input_version + 1,
         )

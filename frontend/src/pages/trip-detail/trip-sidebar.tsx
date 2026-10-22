@@ -26,8 +26,8 @@ import { TripSidebarHeader } from '@/pages/trip-detail/management-ui'
 import type {
   Stop,
   MapStop,
-  MapTravelLeg,
-  TravelLeg,
+  MapConnection,
+  Connection,
   TravelPost,
   TripMemberViewModel,
   TripTrackingGeometry,
@@ -41,7 +41,7 @@ import type {
   PostSubmitDraft,
   StopEditDraft,
   StopInsertionPoint,
-  TravelLegEditDraft,
+  ConnectionEditDraft,
 } from '@/pages/trip-detail/page-types'
 import {
   CreateStopPanel,
@@ -72,7 +72,7 @@ export function MobileMapPointPicker({
   stops,
   target,
   trackingGeometry,
-  travelLegs,
+  connections,
   travelPosts,
 }: {
   initialLocation: DraftPostLocation | null
@@ -84,7 +84,7 @@ export function MobileMapPointPicker({
   stops: readonly MapStop[]
   target: MapPointTarget | null
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly MapTravelLeg[]
+  connections: readonly MapConnection[]
   travelPosts: readonly TravelPost[]
 }) {
   const [pendingLocation, setPendingLocation] =
@@ -118,7 +118,7 @@ export function MobileMapPointPicker({
         resetNonce={0}
         routeMode={routeMode}
         stops={stops}
-        travelLegs={travelLegs}
+        connections={connections}
         trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
@@ -213,11 +213,11 @@ export function TripSidebar({
   onPostPublish,
   onPostSubmit,
   onPlanningViewChange,
-  onRefreshTravelLegRoute,
+  onRefreshConnectionRoute,
   onStopSave,
   onStopChange,
   onStopDelete,
-  onTravelLegSave,
+  onConnectionSave,
   onConnectionCreate,
   onConnectionDelete,
   onTravelingViewChange,
@@ -233,7 +233,7 @@ export function TripSidebar({
   trip,
   trackingGeometry,
   tripMembers,
-  travelLegs,
+  connections,
   travelPosts,
   travelingView,
 }: {
@@ -269,13 +269,13 @@ export function TripSidebar({
   onPostPublish: (postId: string) => void
   onPostSubmit: (postId: string | null, draft: PostSubmitDraft) => void
   onPlanningViewChange: (view: PlanningView) => void
-  onRefreshTravelLegRoute: (legId: string) => void
+  onRefreshConnectionRoute: (connectionId: string) => void
   onStopSave: (stopId: string, draft: StopEditDraft) => void
   onStopChange: (stopId: string, updates: Partial<Stop>) => void
   onStopDelete: (stopId: string) => void
-  onTravelLegSave: (legId: string, draft: TravelLegEditDraft) => void
-  onConnectionCreate: (payload: import('@/api/client').ItineraryTravelReplacePayload) => void
-  onConnectionDelete: (legId: string) => void
+  onConnectionSave: (connectionId: string, draft: ConnectionEditDraft) => void
+  onConnectionCreate: (payload: import('@/api/client').ItineraryConnectionReplacePayload) => void
+  onConnectionDelete: (connectionId: string) => void
   onTravelingViewChange: (view: TravelingView) => void
   pendingAction: string | null
   planningView: PlanningView
@@ -293,7 +293,7 @@ export function TripSidebar({
   trip: TripViewModel
   trackingGeometry: TripTrackingGeometry
   tripMembers: readonly TripMemberViewModel[]
-  travelLegs: readonly TravelLeg[]
+  connections: readonly Connection[]
   travelPosts: readonly TravelPost[]
   travelingView: TravelingView
 }) {
@@ -388,17 +388,17 @@ export function TripSidebar({
             onAddStop={openCreateStop}
             canMutate={canMutate}
             isMutating={isMutating}
-            onRefreshTravelLegRoute={onRefreshTravelLegRoute}
+            onRefreshConnectionRoute={onRefreshConnectionRoute}
             onStopChange={onStopChange}
             onStopDelete={onStopDelete}
             onStopSave={onStopSave}
-            onTravelLegSave={onTravelLegSave}
+            onConnectionSave={onConnectionSave}
             onConnectionCreate={onConnectionCreate}
             onConnectionDelete={onConnectionDelete}
             pendingAction={pendingAction}
             stops={stops}
             tripStartDate={trip.startDate}
-            travelLegs={travelLegs}
+            connections={connections}
           />
         ) : travelingView === 'create-post' && canMutate ? (
           <PostFormPanel
@@ -464,7 +464,7 @@ export function TripSidebar({
             shareToken={shareToken}
             tripId={trip.id}
             stops={routeOverview.stops.filter((stop) => !stop.visited)}
-            travelLegs={routeOverview.legs}
+            connections={routeOverview.connections}
             trackingGeometry={trackingGeometry}
             travelPosts={travelPosts}
           />

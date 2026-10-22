@@ -1,5 +1,5 @@
-import type { TravelLeg } from './models'
-import type { TravelLegEditDraft } from './page-types'
+import type { Connection } from './models'
+import type { ConnectionEditDraft } from './page-types'
 
 export function routeTime(seconds: number | null | undefined) {
   if (seconds == null) return null
@@ -11,7 +11,7 @@ export function routeDistance(meters: number | null | undefined) {
   return meters == null ? null : new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(meters / 1000) + ' km'
 }
 
-export function connectionWithOptions(connection: TravelLeg, draft: TravelLegEditDraft): TravelLeg {
+export function connectionWithOptions(connection: Connection, draft: ConnectionEditDraft): Connection {
   const segments = connection.segments.map((segment, index) => {
     const option = segment.route_options?.[draft.segments[index]?.route_option || 0]
     return option ? { ...segment, ...option } : segment

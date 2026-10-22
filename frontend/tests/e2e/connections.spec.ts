@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import type { ItineraryTravelReplacePayload } from '../../src/api/client'
+import type { ItineraryConnectionReplacePayload } from '../../src/api/client'
 
 for (const mobile of [false, true]) {
   for (const side of ['departure', 'return']) {
@@ -8,7 +8,7 @@ for (const mobile of [false, true]) {
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
       const saves: Record<string, unknown>[] = []
-      const previews: ItineraryTravelReplacePayload[] = []
+      const previews: ItineraryConnectionReplacePayload[] = []
       await page.route('**/api/v1/places/geocode?**', (route) => route.fulfill({ json: [{
         id: 'london', name: 'London', full_name: 'London', latitude: 51.5, longitude: -0.1, region: 'England', country_code: 'GB',
       }] }))
@@ -42,7 +42,7 @@ for (const mobile of [false, true]) {
           return
         }
         const outside = { type: 'LOCATION', location: { id: 'location', name: 'London', full_name: 'London', region: '', country_code: 'GB', latitude: 51.5, longitude: -0.1 } }
-        await route.fulfill({ status: 201, headers: { ETag: '"3"' }, json: {
+        await route.fulfill({ status: 201, headers: { ETag: '"3"' }, json: { itinerary_revision: 3, connection: {
           id: 'saved', trip_id: 'trip', connection_type: side.toUpperCase(),
           from: side === 'departure' ? outside : payload.from, to: side === 'return' ? outside : payload.to,
           notes: payload.notes, segments: [{ id: 'segment', input_version: 1, mode_source: 'USER', intent: payload.segments[0],
@@ -50,7 +50,7 @@ for (const mobile of [false, true]) {
           duration_seconds: null, duration_scope: null, warnings: [],
           route: { type: 'SIMPLE', geometry: { type: 'LineString', coordinates: [[-0.1, 51.5], [4.9, 52.37]] }, duration_seconds: null, distance_meters: null },
           created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z',
-        } })
+        } } })
       })
       await page.goto('/tests/e2e/fixtures/connections.html')
       await page.getByRole('button', { name: 'Add ' + side, exact: true }).click()
@@ -119,7 +119,7 @@ for (const side of ['departure', 'return']) {
   test(`distant ${side} uses the server's Flight default and permits a manual override`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 960 })
     const outside = { id: 'cape-town', name: 'Cape Town', full_name: 'Cape Town', latitude: -33.92, longitude: 18.42, region: '', country_code: 'ZA' }
-    const requests: ItineraryTravelReplacePayload[] = []
+    const requests: ItineraryConnectionReplacePayload[] = []
     let flightLookups = 0
     await page.route('**/api/v1/places/geocode?**', (route) => route.fulfill({ json: [outside] }))
     await page.route('**/api/v1/trips/trip/itinerary/connections/flight-lookups', (route) => {
@@ -127,7 +127,7 @@ for (const side of ['departure', 'return']) {
       return route.fulfill({ json: { status: 'NOT_FOUND', candidates: [] } })
     })
     await page.route('**/api/v1/trips/trip/itinerary/connections/preview**', async (route) => {
-      const payload: ItineraryTravelReplacePayload = route.request().postDataJSON()
+      const payload: ItineraryConnectionReplacePayload = route.request().postDataJSON()
       requests.push(payload)
       const segment = payload.segments?.[0] ?? { travel_mode: 'FLIGHT', mode_selected: false, notes: '', route_option: 0 }
       const endpoint = { type: 'LOCATION', location: outside }

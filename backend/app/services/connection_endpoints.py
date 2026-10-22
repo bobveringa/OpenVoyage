@@ -1,14 +1,14 @@
 """Effective anchors shared by planning, reconciliation and response construction."""
 
 
-def endpoint_location(leg, side):
-    stop = getattr(leg, f'{side}_stop', None)
-    return stop.location if stop is not None else getattr(leg, f'{side}_location')
+def endpoint_location(connection, side):
+    stop = getattr(connection, f'{side}_stop', None)
+    return stop.location if stop is not None else getattr(connection, f'{side}_location')
 
 
-def endpoint_label(leg, side):
-    stop = getattr(leg, f'{side}_stop', None)
-    return stop.title if stop is not None else endpoint_location(leg, side).name
+def endpoint_label(connection, side):
+    stop = getattr(connection, f'{side}_stop', None)
+    return stop.title if stop is not None else endpoint_location(connection, side).name
 
 
 def location_identity(location):
@@ -16,9 +16,9 @@ def location_identity(location):
     return (location.longitude, location.latitude)
 
 
-def endpoint_identity(leg, side):
-    location = endpoint_location(leg, side)
+def endpoint_identity(connection, side):
+    location = endpoint_location(connection, side)
     return {
-        'stop_id': getattr(leg, f'{side}_stop_id', None),
+        'stop_id': getattr(connection, f'{side}_stop_id', None),
         'coordinates': location_identity(location),
     }

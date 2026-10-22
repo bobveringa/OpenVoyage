@@ -34,8 +34,8 @@ import {
 } from '@/pages/trip-detail/shared-utils'
 import type {
   MapStop,
-  MapTravelLeg,
-  TravelLeg,
+  MapConnection,
+  Connection,
   TravelMode,
   TravelPost,
   TravelPostRoute,
@@ -131,11 +131,11 @@ export function MapWorkspace({
   routeMode,
   stops,
   trackingGeometry,
-  travelLegs,
+  connections,
   travelPosts,
 }: {
   onPlanningPanelHostChange?: (host: HTMLDivElement | null) => void
-  planningPreview?: TravelLeg | null
+  planningPreview?: Connection | null
   draftMapLocation: DraftPostLocation | null
   focusedPostId: string | null
   gpsPostCandidates: readonly GpsPostCandidate[]
@@ -147,7 +147,7 @@ export function MapWorkspace({
   routeMode: MapRouteMode
   stops: readonly MapStop[]
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly MapTravelLeg[]
+  connections: readonly MapConnection[]
   travelPosts: readonly TravelPost[]
 }) {
   const [resetNonce, setResetNonce] = useState(0)
@@ -167,7 +167,7 @@ export function MapWorkspace({
         resetNonce={resetNonce}
         routeMode={routeMode}
         stops={planningPreview ? stops.filter((stop) => (planningPreview.from.type === 'STOP' && stop.id === planningPreview.from.stop_id) || (planningPreview.to.type === 'STOP' && stop.id === planningPreview.to.stop_id)) : stops}
-        travelLegs={planningPreview ? [planningPreview] : travelLegs}
+        connections={planningPreview ? [planningPreview] : connections}
         trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
@@ -203,7 +203,7 @@ export function TripLeafletMap({
   routeMode = 'itinerary',
   stops,
   trackingGeometry,
-  travelLegs,
+  connections,
   travelPosts,
 }: {
   draftMapLocation: DraftPostLocation | null
@@ -219,7 +219,7 @@ export function TripLeafletMap({
   routeMode?: MapRouteMode
   stops: readonly MapStop[]
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly MapTravelLeg[]
+  connections: readonly MapConnection[]
   travelPosts: readonly TravelPost[]
 }) {
   const { mode: themeMode, palette: themePalette } = useTheme()
@@ -245,7 +245,7 @@ export function TripLeafletMap({
   const focusedPostIdRef = useRef<string | null>(focusedPostId)
   const travelPostsRef = useRef(travelPosts)
   const stopsRef = useRef(stops)
-  const travelLegsRef = useRef(travelLegs)
+  const connectionsRef = useRef(connections)
   const trackingGeometryRef = useRef(trackingGeometry)
   const gpsPostCandidatesRef = useRef(gpsPostCandidates)
   const routeEndpointLayerRef = useRef<RepeatedWorldLayer | null>(null)
@@ -253,7 +253,7 @@ export function TripLeafletMap({
   const routeKey = createRouteKey(
     routeMode,
     stops,
-    travelLegs,
+    connections,
     travelPosts,
     trackingGeometry,
   )
@@ -263,7 +263,7 @@ export function TripLeafletMap({
   trackingGeometryRef.current = trackingGeometry
   gpsPostCandidatesRef.current = gpsPostCandidates
   stopsRef.current = stops
-  travelLegsRef.current = travelLegs
+  connectionsRef.current = connections
 
   useEffect(() => {
     latestLocationSelectRef.current = onDraftMapPointSelect
@@ -413,18 +413,18 @@ export function TripLeafletMap({
       layer,
       routeMode,
       stopsRef.current,
-      travelLegsRef.current,
+      connectionsRef.current,
       travelPostsRef.current,
       trackingGeometryRef.current.openingRoute,
-      onAirportTransferSelect && routeMode === 'itinerary' ? (transfer) => latestTransferSelectRef.current?.(transfer.legId, transfer.side) : undefined,
+      onAirportTransferSelect && routeMode === 'itinerary' ? (transfer) => latestTransferSelectRef.current?.(transfer.connectionId, transfer.side) : undefined,
       offset,
     ))
 
     const routeEndpointLayer = routeEndpointLayerRef.current
     if (routeEndpointLayer) {
       routeEndpointLayer.render((layer, offset) => {
-        for (const leg of travelLegsRef.current) {
-          for (const [side, endpoint] of [['start', leg.from], ['end', leg.to]] as const) {
+        for (const connection of connectionsRef.current) {
+          for (const [side, endpoint] of [['start', connection.from], ['end', connection.to]] as const) {
             if (endpoint.type !== 'LOCATION') continue
             const anchor = resolveConnectionEndpoint(endpoint, stopsRef.current)
             if (!anchor) continue
@@ -449,8 +449,8 @@ export function TripLeafletMap({
     }
     const animationFrameId = window.requestAnimationFrame(() => {
       map.invalidateSize()
-      const outsideAnchors = travelLegsRef.current.flatMap((leg) =>
-        [leg.from, leg.to].filter((endpoint) => endpoint.type === 'LOCATION').map((endpoint) => {
+      const outsideAnchors = connectionsRef.current.flatMap((connection) =>
+        [connection.from, connection.to].filter((endpoint) => endpoint.type === 'LOCATION').map((endpoint) => {
           const anchor = resolveConnectionEndpoint(endpoint, stopsRef.current)
           return anchor ? [anchor.location.latitude, anchor.location.longitude] : null
         }),
@@ -461,12 +461,12 @@ export function TripLeafletMap({
           map,
           routeMode,
           stopsRef.current,
-          travelLegsRef.current,
+          connectionsRef.current,
           travelPostsRef.current,
           trackingGeometryRef.current.openingRoute,
           fitMode,
         )
-        if (getMapRouteSegments(routeMode, stopsRef.current, travelLegsRef.current,
+        if (getMapRouteSegments(routeMode, stopsRef.current, connectionsRef.current,
           travelPostsRef.current, trackingGeometryRef.current.openingRoute).length > 0) {
           fittedViewRef.current = viewKey
         }
@@ -481,7 +481,7 @@ export function TripLeafletMap({
     if (!map || fitMode !== 'route-selector') return
     const observer = new ResizeObserver(() => {
       map.invalidateSize({ animate: false })
-      fitRouteBounds(map, routeMode, stopsRef.current, travelLegsRef.current,
+      fitRouteBounds(map, routeMode, stopsRef.current, connectionsRef.current,
         travelPostsRef.current, trackingGeometryRef.current.openingRoute, fitMode)
     })
     observer.observe(map.getContainer())
@@ -499,7 +499,7 @@ export function TripLeafletMap({
         map,
         routeMode,
         stopsRef.current,
-        travelLegsRef.current,
+        connectionsRef.current,
         travelPostsRef.current,
         trackingGeometryRef.current.openingRoute,
         fitMode,
@@ -574,7 +574,7 @@ export function TripLeafletMap({
       map,
       routeMode,
       stopsRef.current,
-      travelLegsRef.current,
+      connectionsRef.current,
       travelPostsRef.current,
       trackingGeometryRef.current.openingRoute,
       fitMode,
@@ -595,7 +595,7 @@ function renderRouteLayer(
   routeLayer: L.LayerGroup,
   routeMode: MapRouteMode,
   stops: readonly MapStop[],
-  travelLegs: readonly MapTravelLeg[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
   onTransferSelect?: (transfer: AirportTransfer) => void,
@@ -604,7 +604,7 @@ function renderRouteLayer(
   const routeSegments = getMapRouteSegments(
     routeMode,
     stops,
-    travelLegs,
+    connections,
     travelPosts,
     openingRoute,
   )
@@ -802,7 +802,7 @@ function fitRouteBounds(
   map: L.Map,
   routeMode: MapRouteMode,
   stops: readonly MapStop[],
-  travelLegs: readonly MapTravelLeg[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
   fitMode: RouteFitMode,
@@ -811,7 +811,7 @@ function fitRouteBounds(
   const routeCoordinates = getRouteBoundsCoordinates(
     routeMode,
     stops,
-    travelLegs,
+    connections,
     travelPosts,
     openingRoute,
   )
@@ -1066,7 +1066,7 @@ function getCoordinateDistanceMeters(
 function createRouteKey(
   routeMode: MapRouteMode,
   stops: readonly MapStop[],
-  travelLegs: readonly MapTravelLeg[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   trackingGeometry: TripTrackingGeometry,
 ) {
@@ -1079,15 +1079,15 @@ function createRouteKey(
       ].join(':'),
     )
     .join('|')
-  const legKey = travelLegs
-    .map((leg) =>
+  const connectionKey = connections
+    .map((connection) =>
       [
-        leg.id,
-        JSON.stringify(leg.from),
-        JSON.stringify(leg.to),
-        leg.route.type,
-        createRouteGeometryKey(leg.route.geometry),
-        ...leg.segments.flatMap((segment) => [segment.intent.travel_mode, segment.route_state, segment.geometry ? createRouteGeometryKey(segment.geometry) : '', ...(segment.route_options || []).map((option) => createRouteGeometryKey(option.geometry))]),
+        connection.id,
+        JSON.stringify(connection.from),
+        JSON.stringify(connection.to),
+        connection.route.type,
+        createRouteGeometryKey(connection.route.geometry),
+        ...connection.segments.flatMap((segment) => [segment.intent.travel_mode, segment.route_state, segment.geometry ? createRouteGeometryKey(segment.geometry) : '', ...(segment.route_options || []).map((option) => createRouteGeometryKey(option.geometry))]),
       ].join(':'),
     )
     .join('|')
@@ -1135,7 +1135,7 @@ function createRouteKey(
   return [
     routeMode,
     stopKey,
-    legKey,
+    connectionKey,
     postKey,
     openingRouteKey,
   ].join('::')
@@ -1144,39 +1144,39 @@ function createRouteKey(
 function getMapRouteSegments(
   routeMode: MapRouteMode,
   stops: readonly MapStop[],
-  travelLegs: readonly MapTravelLeg[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
 ): RouteSegment[] {
   if (routeMode === 'travel-timeline') {
     return getTravelTimelineRouteSegments(
       stops,
-      travelLegs,
+      connections,
       travelPosts,
       openingRoute,
     )
   }
 
-  return getItineraryRouteSegments(stops, travelLegs)
+  return getItineraryRouteSegments(stops, connections)
 }
 
 function getItineraryRouteSegments(
   stops: readonly MapStop[],
-  travelLegs: readonly MapTravelLeg[],
+  connections: readonly MapConnection[],
 ): RouteSegment[] {
   const segments: RouteSegment[] = []
-  for (const leg of travelLegs) {
-    const fromStop = resolveConnectionEndpoint(leg.from, stops)
-    const toStop = resolveConnectionEndpoint(leg.to, stops)
+  for (const connection of connections) {
+    const fromStop = resolveConnectionEndpoint(connection.from, stops)
+    const toStop = resolveConnectionEndpoint(connection.to, stops)
     if (!fromStop || !toStop) continue
-    if (leg?.segments?.length) {
-      for (const transfer of getAirportTransfers(leg, fromStop, toStop)) {
+    if (connection?.segments?.length) {
+      for (const transfer of getAirportTransfers(connection, fromStop, toStop)) {
         segments.push({
           coordinates: createGeodesicRoute([[transfer.from.latitude, transfer.from.longitude], [transfer.to.latitude, transfer.to.longitude]]),
           kind: 'itinerary', routeType: 'SIMPLE', transfer,
         })
       }
-      for (const segment of leg.segments) {
+      for (const segment of connection.segments) {
         // Missing road calculations have no honest road geometry to draw.
         if (['CAR', 'BIKE', 'WALK'].includes(segment.intent.travel_mode) && segment.route_state !== 'READY') continue
         if (!segment.geometry) continue
@@ -1202,7 +1202,7 @@ function getItineraryRouteSegments(
 
 function getTravelTimelineRouteSegments(
   stops: readonly MapStop[],
-  travelLegs: readonly MapTravelLeg[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
 ): RouteSegment[] {
@@ -1227,7 +1227,7 @@ function getTravelTimelineRouteSegments(
     })
   }
 
-  segments.push(...getItineraryRouteSegments(stops, travelLegs))
+  segments.push(...getItineraryRouteSegments(stops, connections))
   return segments
 }
 
@@ -1319,20 +1319,20 @@ function getThemeColor(variable: string, fallback: string) {
 function getRouteBoundsCoordinates(
   routeMode: MapRouteMode,
   stops: readonly MapStop[],
-  travelLegs: readonly MapTravelLeg[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
 ) {
   const routeCoordinates = getMapRouteSegments(
     routeMode,
     stops,
-    travelLegs,
+    connections,
     travelPosts,
     openingRoute,
   ).flatMap((segment) => segment.coordinates)
 
-  for (const leg of travelLegs) {
-    for (const endpoint of [leg.from, leg.to]) {
+  for (const connection of connections) {
+    for (const endpoint of [connection.from, connection.to]) {
       if (routeMode !== 'itinerary' && endpoint.type !== 'LOCATION') continue
       const anchor = resolveConnectionEndpoint(endpoint, stops)
       if (anchor) routeCoordinates.push([anchor.location.latitude, anchor.location.longitude])

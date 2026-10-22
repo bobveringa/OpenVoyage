@@ -9,8 +9,8 @@ import { MapWorkspace } from '../../../src/pages/trip-detail/trip-map'
 import { MobileMapPointPicker } from '../../../src/pages/trip-detail/trip-sidebar'
 import { useMediaQuery } from '../../../src/pages/trip-detail/use-media-query'
 import { createOuterConnectionDraft } from '../../../src/pages/trip-detail/outer-connection'
-import { createItineraryTravelLeg, deleteItineraryTravelLeg, type ItineraryTravelReplacePayload } from '../../../src/api/client'
-import { EMPTY_TRACKING_GEOMETRY, type Stop, type TravelLeg } from '../../../src/pages/trip-detail/models'
+import { createItineraryConnection, deleteItineraryConnection, type ItineraryConnectionReplacePayload } from '../../../src/api/client'
+import { EMPTY_TRACKING_GEOMETRY, type Stop, type Connection } from '../../../src/pages/trip-detail/models'
 import type { DraftPostLocation } from '../../../src/pages/trip-detail/page-types'
 import '../../../src/index.css'
 
@@ -24,7 +24,7 @@ const stops: Stop[] = [
   created_by: { id: 'owner', first_name: null, last_name: null, username: null },
   location: { id: place.id, latitude: place.latitude, longitude: place.longitude, name: place.title, full_name: place.title, region: '', country_code: 'NL' },
 }))
-const interior: TravelLeg = {
+const interior: Connection = {
   ...createOuterConnectionDraft('DEPARTURE', stops[0]), id: 'interior', connection_type: 'BETWEEN_STOPS',
   from: { type: 'STOP', stop_id: 'first' }, to: { type: 'STOP', stop_id: 'last' },
   segments: [{ id: 'segment', input_version: 1, intent: { travel_mode: 'TRAIN', mode_selected: false, notes: '', route_option: 0 }, mode_source: 'USER', route_state: 'UNSUPPORTED', geometry: null, from_endpoint: null, to_endpoint: null }],
@@ -33,33 +33,33 @@ const interior: TravelLeg = {
 export function Preview() {
   const desktop = useMediaQuery('(min-width: 1024px)')
   const [host, setHost] = useState<HTMLDivElement | null>(null)
-  const [preview, setPreview] = useState<TravelLeg | null>(null)
-  const [legs, setLegs] = useState(() => {
+  const [preview, setPreview] = useState<Connection | null>(null)
+  const [connections, setConnections] = useState(() => {
     const side = new URLSearchParams(window.location.search).get('connection')
     if (side !== 'departure' && side !== 'return') return [interior]
     const outside = { type: 'LOCATION' as const, location: { ...stops[0].location, name: 'London', latitude: 51.5, longitude: -0.1 } }
-    const leg: TravelLeg = { ...interior, id: 'saved-' + side, connection_type: side === 'departure' ? 'DEPARTURE' : 'RETURN',
+    const connection: Connection = { ...interior, id: 'saved-' + side, connection_type: side === 'departure' ? 'DEPARTURE' : 'RETURN',
       from: side === 'departure' ? outside : { type: 'STOP', stop_id: 'last' },
       to: side === 'return' ? outside : { type: 'STOP', stop_id: 'first' } }
-    return [interior, leg]
+    return [interior, connection]
   })
   const [location, setLocation] = useState<DraftPostLocation | null>(null)
   const [active, setActive] = useState(false)
   const [picker, setPicker] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  async function create(payload: ItineraryTravelReplacePayload) {
+  async function create(payload: ItineraryConnectionReplacePayload) {
     setSaving(true); setError(null)
     try {
-      const result = await createItineraryTravelLeg({ tripId: 'trip', accessToken: 'fixture', itineraryRevision: 2, payload })
-      setLegs((previous) => [...previous, result.leg])
+      const result = await createItineraryConnection({ tripId: 'trip', accessToken: 'fixture', itineraryRevision: 2, payload })
+      setConnections((previous) => [...previous, result.connection])
     } catch (error) { setError(String(error)) } finally { setSaving(false) }
   }
-  async function remove(legId: string) {
+  async function remove(connectionId: string) {
     setSaving(true); setError(null)
     try {
-      const result = await deleteItineraryTravelLeg({ tripId: 'trip', legId, accessToken: 'fixture', itineraryRevision: 2, confirmTravelDeletion: true })
-      setLegs(result.legs)
+      const result = await deleteItineraryConnection({ tripId: 'trip', connectionId, accessToken: 'fixture', itineraryRevision: 2, confirmConnectionDeletion: true })
+      setConnections(result.connections)
     } catch (error) { setError(String(error)) } finally { setSaving(false) }
   }
   return <PlanningSessionContext value={{ accessToken: 'fixture', itineraryRevision: 2, panelHost: host, onPanelOpenChange: noop,
@@ -71,19 +71,19 @@ export function Preview() {
       <h1 className="mb-4 text-2xl font-semibold">A weekend in the Netherlands</h1>
       <div style={{ display: 'grid', height: 'calc(100dvh - 5rem)', gridTemplateColumns: desktop ? '25rem minmax(0, 1fr)' : '1fr', gap: 16 }}>
         <div className="overflow-auto rounded-2xl border border-border bg-card"><PlanningPanel canMutate isMutating={saving}
-          onAddStop={noop} onRefreshTravelLegRoute={noop} onStopChange={noop} onStopDelete={noop} onStopSave={noop}
-          onTravelLegSave={noop} onConnectionCreate={(payload) => void create(payload)} onConnectionDelete={(id) => void remove(id)}
-          pendingAction={null} stops={stops} tripStartDate="2026-11-18" travelLegs={legs} /></div>
+          onAddStop={noop} onRefreshConnectionRoute={noop} onStopChange={noop} onStopDelete={noop} onStopSave={noop}
+          onConnectionSave={noop} onConnectionCreate={(payload) => void create(payload)} onConnectionDelete={(id) => void remove(id)}
+          pendingAction={null} stops={stops} tripStartDate="2026-11-18" connections={connections} /></div>
         {desktop ? <MapWorkspace onPlanningPanelHostChange={setHost} planningPreview={preview}
           draftMapLocation={active ? location : null} focusedPostId={null} gpsPostCandidates={[]} isTripOngoing={false}
           mapPointEnabled={active} onDraftMapPointSelect={(coordinates) => setLocation({ coordinates, label: 'Selected connection location' })}
           onGpsPostCandidateSelect={noop} onPostMarkerSelect={noop} routeMode="itinerary" stops={stops}
-          trackingGeometry={EMPTY_TRACKING_GEOMETRY} travelLegs={legs} travelPosts={[]} /> : null}
+          trackingGeometry={EMPTY_TRACKING_GEOMETRY} connections={connections} travelPosts={[]} /> : null}
       </div>
     </main>
     <MobileMapPointPicker initialLocation={location} isTripOngoing={false} onCancel={() => setPicker(false)}
       onConfirm={(coordinates) => { setLocation({ coordinates, label: 'Selected connection location' }); setPicker(false) }}
-      open={picker} routeMode="itinerary" stops={stops} target="connection" trackingGeometry={EMPTY_TRACKING_GEOMETRY} travelLegs={legs} travelPosts={[]} />
+      open={picker} routeMode="itinerary" stops={stops} target="connection" trackingGeometry={EMPTY_TRACKING_GEOMETRY} connections={connections} travelPosts={[]} />
   </PlanningSessionContext>
 }
 createRoot(document.getElementById('root')!).render(<PublicSettingsContext value={{ settings: {}, refresh: async () => true }}>

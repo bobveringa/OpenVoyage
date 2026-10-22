@@ -1,5 +1,5 @@
 import type { PlanningPreview } from '@/api/client'
-import type { TravelLegEditDraft } from './page-types'
+import type { ConnectionEditDraft } from './page-types'
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical)
@@ -11,7 +11,7 @@ function canonical(value: unknown): unknown {
 }
 
 // Match the server's preview binding: notes and selecting an option don't change a route.
-export function planningPreviewKey(draft: TravelLegEditDraft) {
+export function planningPreviewKey(draft: ConnectionEditDraft) {
   return JSON.stringify(canonical({ from: draft.from, to: draft.to, segments: draft.segments.map((segment) => ({
     id: segment.id ?? null,
     travel_mode: segment.travel_mode,
@@ -35,7 +35,7 @@ export function planningPreviewKey(draft: TravelLegEditDraft) {
 export class PlanningPreviewCache {
   private entries = new Map<string, { revision: number; preview: PlanningPreview }>()
 
-  get(draft: TravelLegEditDraft, revision: number, now = Date.now()) {
+  get(draft: ConnectionEditDraft, revision: number, now = Date.now()) {
     const key = planningPreviewKey(draft)
     const cached = this.entries.get(key)
     if (!cached) return null
@@ -46,7 +46,7 @@ export class PlanningPreviewCache {
     return cached.preview
   }
 
-  put(draft: TravelLegEditDraft, revision: number, preview: PlanningPreview) {
+  put(draft: ConnectionEditDraft, revision: number, preview: PlanningPreview) {
     const key = planningPreviewKey(draft)
     this.entries.delete(key)
     this.entries.set(key, { revision, preview })

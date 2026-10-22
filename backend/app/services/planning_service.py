@@ -1,15 +1,9 @@
 """Server-owned travel intent, endpoint resolution and bounded explicit calculations."""
 
-import hashlib
-import json
-import math
-import threading
-import time
 import uuid
-from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from dataclasses import replace
+from datetime import timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -21,17 +15,14 @@ from models.api.planning import (
     ConnectionIntent,
     Endpoint,
     ExistingLocationInput,
-    FlightCandidate,
     FlightIntent,
     FlightLookup,
-    FlightLookupResponse,
     SegmentIntent,
     SegmentResponse,
+    PlanningWarning,
 )
 from models.api.locations import LocationPlaceInput
-from models.database.base import utcnow
 from models.database.itinerary import (
-    ItineraryPlanningArtifact,
     ItinerarySegmentFlight,
     ItinerarySegmentRoute,
     ItineraryTravelSegment,
@@ -39,148 +30,21 @@ from models.database.itinerary import (
 from models.database.locations import Location
 from models.database.places import Place
 from models.database.travel import TravelMode
+from services.planning_models import PreparedConnection, ResolvedSegment
+from services.planning_calculator import RouteCalculator
+from services.planning_artifacts import PlanningArtifactStore
+from services.planning_geometry import (
+    default_mode,
+    draft_hash,
+    fingerprint,
+    point_geometry,
+    route_values,
+    same_endpoint,
+    select_route,
+    validated_geometry,
+)
 from services.connection_endpoints import endpoint_location, endpoint_identity
 from services.flight_providers import DisabledFlightProvider, FlightProviderBase
-from services.route_providers.route_provider import (
-    RouteProviderError,
-    RouteProviderLimitError,
-)
-
-
-def fingerprint(value) -> str:
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, default=str, separators=(',', ':')).encode()
-    ).hexdigest()
-
-
-def draft_hash(intent: ConnectionIntent) -> str:
-    return fingerprint(
-        intent.model_dump(
-            mode='json',
-            by_alias=True,
-            exclude={
-                'preview_id': True,
-                'notes': True,
-                'segments': {'__all__': {'route_option', 'mode_selected', 'notes'}},
-            },
-        )
-    )
-
-
-def validated_geometry(value):
-    geometry = GeoJsonLineString.model_validate(value).model_dump(mode='json')
-    if any(
-        not math.isfinite(lon)
-        or not math.isfinite(lat)
-        or not -180 <= lon <= 180
-        or not -90 <= lat <= 90
-        for lon, lat in geometry['coordinates']
-    ):
-        raise ValueError('Route geometry coordinates are invalid')
-    return geometry
-
-
-def route_values(result):
-    values = {key: value for key, value in result.items() if key != 'alternatives'}
-    if isinstance(values.get('generated_at'), str):
-        values['generated_at'] = datetime.fromisoformat(values['generated_at'])
-    return values
-
-
-def default_mode(start, end, car_seconds=None, no_road=False) -> str:
-    lat1, lat2 = math.radians(start.latitude), math.radians(end.latitude)
-    dlat, dlon = lat2 - lat1, math.radians(end.longitude - start.longitude)
-    h = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    )
-    km = 6371.0088 * 2 * math.asin(math.sqrt(min(1, max(0, h))))
-    return (
-        'FLIGHT'
-        if km >= 1000 or (car_seconds is not None and car_seconds >= 43200) or no_road
-        else 'CAR'
-    )
-
-
-def same_endpoint(a: Endpoint | None, b: Endpoint | None) -> bool:
-    if a is None or b is None:
-        return False
-    if a.place_id and a.place_id == b.place_id:
-        return True
-    for code in ('icao_code', 'iata_code'):
-        left, right = getattr(a, code), getattr(b, code)
-        if left and right:
-            return left.upper() == right.upper()
-    if a.place_id and b.place_id and a.place_id != b.place_id:
-        return False
-    return (a.latitude, a.longitude) == (b.latitude, b.longitude)
-
-
-def point_geometry(a, b, via=None):
-    if a is None or b is None:
-        return None
-    return {
-        'type': 'LineString',
-        'coordinates': [
-            [p.longitude, p.latitude] for p in (a, via, b) if p is not None
-        ],
-    }
-
-
-@dataclass
-class ResolvedSegment:
-    intent: SegmentIntent
-    id: uuid.UUID
-    source: str
-    version: int
-    start: Endpoint | None
-    end: Endpoint | None
-    via: Endpoint | None
-    lookup: FlightLookup | None
-    lookup_owner: uuid.UUID | None
-    result: dict | None
-    input_hash: str = ''
-
-
-@dataclass(frozen=True)
-class PreparedConnection:
-    intent: ConnectionIntent
-    segments: list[ResolvedSegment]
-    warnings: list[str]
-    binding: str
-
-
-class CalculationGate:
-    """Bound per-process abuse and coalesce duplicate requests without retaining DB sessions."""
-
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.active = set()
-        self.recent = OrderedDict()
-
-    def enter(self, actor, trip, key):
-        now = time.monotonic()
-        scope = (actor, trip)
-        with self.lock:
-            for old in list(self.recent):
-                if now - self.recent[old][0] > 60:
-                    del self.recent[old]
-            entry = self.recent.get(scope, (now, 0))
-            if scope in self.active or entry[1] >= 20:
-                raise HTTPException(
-                    429, 'Calculation busy or limit reached. Try again later.'
-                )
-            self.active.add(scope)
-            self.recent[scope] = (entry[0], entry[1] + 1)
-            while len(self.recent) > 10000:
-                self.recent.popitem(last=False)
-
-    def leave(self, actor, trip):
-        with self.lock:
-            self.active.discard((actor, trip))
-
-
-calculation_gate = CalculationGate()
 
 
 class PlanningService:
@@ -193,7 +57,8 @@ class PlanningService:
     ):
         self.db = db
         self.locations = location_service
-        self.provider = route_provider
+        self.calculator = RouteCalculator(route_provider)
+        self.artifacts = PlanningArtifactStore(db)
         self.flights = (
             flight_provider if flight_provider is not None else DisabledFlightProvider()
         )
@@ -274,9 +139,9 @@ class PlanningService:
             raise HTTPException(422, 'Choose an airport place')
         return self.place_endpoint(place)
 
-    def saved_intent(self, leg):
+    def saved_intent(self, connection):
         items = []
-        for row in leg.segments:
+        for row in connection.segments:
             flight = None
             if row.flight:
                 flight = FlightIntent(
@@ -310,73 +175,48 @@ class PlanningService:
                     service_number=row.service_number,
                 )
             )
-        return ConnectionIntent(notes=leg.notes, segments=items)
+        return ConnectionIntent(notes=connection.notes, segments=items)
 
-    def artifact(self, artifact_id, kind, leg, actor, revision=None, binding=None):
-        row = self.db.get(ItineraryPlanningArtifact, artifact_id)
-        if (
-            row is None
-            or row.kind != kind
-            or row.trip_id != leg.trip_id
-            or row.leg_id != getattr(leg, 'artifact_leg_id', leg.id)
-            or row.created_by_user_id != actor
-            or row.expires_at <= utcnow()
-            or (revision is not None and row.itinerary_revision != revision)
-            or (
-                binding is not None
-                and row.input_hash != binding
-                and not (
-                    kind == 'PREVIEW'
-                    and row.payload.get('resolved_input_hash') == binding
-                )
-            )
-        ):
-            raise HTTPException(
-                409,
-                'LOOKUP_EXPIRED' if kind == 'FLIGHT_CANDIDATE' else 'PREVIEW_EXPIRED',
-            )
-        return row
-
-    def binding(self, leg, intent):
+    def binding(self, connection, intent):
         # Resolve outside inputs before hashing. Place and coordinate inputs for the
         # same anchor share both equality semantics and preview cache identity.
         travel = ConnectionIntent(
             notes=intent.notes,
-            segments=self.intent_segments(leg, intent),
+            segments=self.intent_segments(connection, intent),
         )
         return fingerprint(
             {
                 'travel': draft_hash(travel),
-                'from': endpoint_identity(leg, 'from'),
-                'to': endpoint_identity(leg, 'to'),
+                'from': endpoint_identity(connection, 'from'),
+                'to': endpoint_identity(connection, 'to'),
             }
         )
 
-    def intent_segments(self, leg, intent):
+    def intent_segments(self, connection, intent):
         if intent.segments is not None:
             return intent.segments
         return [
             SegmentIntent(
                 travel_mode=self.infer_mode(
-                    endpoint_location(leg, 'from'),
-                    endpoint_location(leg, 'to'),
-                    leg.trip_id,
+                    endpoint_location(connection, 'from'),
+                    endpoint_location(connection, 'to'),
+                    connection.trip_id,
                 )
             )
         ]
 
-    def build(self, leg, intent=None, actor=None):
+    def build(self, connection, intent=None, actor=None):
         is_proposed = intent is not None
         previous_hashes = (
-            {s.id: s.input_hash for s in self.build(leg)}
-            if is_proposed and leg.segments
+            {s.id: s.input_hash for s in self.build(connection)}
+            if is_proposed and connection.segments
             else {}
         )
-        intent = intent or self.saved_intent(leg)
-        old = {row.id: row for row in leg.segments}
+        intent = intent or self.saved_intent(connection)
+        old = {row.id: row for row in connection.segments}
         result = []
         inferred = intent.segments is None
-        for item in self.intent_segments(leg, intent):
+        for item in self.intent_segments(connection, intent):
             row = old.get(item.id)
             if item.id is not None and row is None:
                 raise HTTPException(422, 'Segment does not belong to this connection')
@@ -404,10 +244,10 @@ class PlanningService:
                             'departure_date': flight.departure_date,
                         }
                     )
-                    artifact = self.artifact(
+                    artifact = self.artifacts.get(
                         flight.candidate_id,
                         'FLIGHT_CANDIDATE',
-                        leg,
+                        connection,
                         actor,
                         binding=binding,
                     )
@@ -438,8 +278,8 @@ class PlanningService:
                     )
             else:
                 departure, arrival = (
-                    self.endpoint(item.from_, leg.trip_id),
-                    self.endpoint(item.to, leg.trip_id),
+                    self.endpoint(item.from_, connection.trip_id),
+                    self.endpoint(item.to, connection.trip_id),
                 )
             source = (
                 'AUTO'
@@ -482,15 +322,15 @@ class PlanningService:
                     row.input_version if row else 1,
                     departure,
                     arrival,
-                    self.endpoint(item.via, leg.trip_id),
+                    self.endpoint(item.via, connection.trip_id),
                     lookup,
                     owner,
                     saved_result,
                 )
             )
         anchors = (
-            self.location_endpoint(endpoint_location(leg, 'from')),
-            self.location_endpoint(endpoint_location(leg, 'to')),
+            self.location_endpoint(endpoint_location(connection, 'from')),
+            self.location_endpoint(endpoint_location(connection, 'to')),
         )
         for seg, key, anchor in (
             (result[0], 'start', anchors[0]),
@@ -524,12 +364,15 @@ class PlanningService:
                 'mode': segment.intent.travel_mode,
                 'flight': segment.intent.flight.model_dump(
                     mode='json', exclude={'candidate_id', 'airline_name'}
-                ) if segment.intent.travel_mode == 'FLIGHT' and segment.intent.flight
+                )
+                if segment.intent.travel_mode == 'FLIGHT' and segment.intent.flight
                 else None,
                 'schedule': [
                     segment.lookup.scheduled_departure,
                     segment.lookup.scheduled_arrival,
-                ] if segment.lookup else None,
+                ]
+                if segment.lookup
+                else None,
                 'points': [
                     (p.longitude, p.latitude) if p else None
                     for p in (segment.start, segment.via, segment.end)
@@ -568,7 +411,10 @@ class PlanningService:
         )
 
     def prepare_connection(
-        self, leg, intent: ConnectionIntent | None, segments: list[ResolvedSegment]
+        self,
+        connection,
+        intent: ConnectionIntent | None,
+        segments: list[ResolvedSegment],
     ) -> PreparedConnection:
         """Finalize automatic choices once for previewing, saving and refreshing.
 
@@ -576,7 +422,7 @@ class PlanningService:
         so the original request can still reuse its cached provider results.
         """
         infer_defaults = intent is None or intent.segments is None
-        existing = {row.id: row for row in leg.segments}
+        existing = {row.id: row for row in connection.segments}
         prepared, warnings = [], []
         for segment in segments:
             if infer_defaults and self.unavailable_auto_car(segment):
@@ -592,24 +438,31 @@ class PlanningService:
                     segment.version = max(
                         segment.version, existing[segment.id].input_version + 1
                     )
-                warnings.append('No car route is available; Other was selected.')
+                warnings.append(
+                    PlanningWarning(
+                        code='AUTO_CAR_UNAVAILABLE',
+                        message='No car route is available; Other was selected.',
+                        segment_id=segment.id,
+                    )
+                )
             prepared.append(segment)
         normalized_intent = ConnectionIntent(
-            notes=intent.notes if intent is not None else leg.notes,
+            notes=intent.notes if intent is not None else connection.notes,
             segments=[segment.intent for segment in prepared],
         )
         return PreparedConnection(
             intent=normalized_intent,
             segments=prepared,
             warnings=warnings,
-            binding=self.binding(leg, normalized_intent),
+            binding=self.binding(connection, normalized_intent),
         )
 
-    def connection(self, leg, segments=None, *, warnings=()):
-        segments = segments if segments is not None else self.build(leg)
+    def connection(self, connection, segments=None, *, warnings=()):
+        segments = segments if segments is not None else self.build(connection)
         responses, warnings, coordinates = [], list(warnings), []
         for index, seg in enumerate(segments):
-            route = seg.result or {}
+            options_route = seg.result or {}
+            route = select_route(seg.result, seg.intent.route_option, seg.id) or {}
             mode = seg.intent.travel_mode
             supported = mode in ROAD_MODES
             state = route.get(
@@ -622,8 +475,10 @@ class PlanningService:
             )
             if mode == 'FLIGHT' and geometry is None:
                 geometry = point_geometry(
-                    seg.start or self.location_endpoint(endpoint_location(leg, 'from')),
-                    seg.end or self.location_endpoint(endpoint_location(leg, 'to')),
+                    seg.start
+                    or self.location_endpoint(endpoint_location(connection, 'from')),
+                    seg.end
+                    or self.location_endpoint(endpoint_location(connection, 'to')),
                 )
             duration = (
                 seg.lookup.duration_seconds
@@ -659,7 +514,10 @@ class PlanningService:
                             'distance_meters': item.get('distance_meters'),
                             'duration_seconds': item.get('duration_seconds'),
                         }
-                        for item in [route, *route.get('alternatives', [])]
+                        for item in [
+                            options_route,
+                            *options_route.get('alternatives', []),
+                        ]
                         if item.get('status') == 'READY'
                     ],
                 )
@@ -667,41 +525,78 @@ class PlanningService:
             if geometry:
                 coordinates.extend(geometry['coordinates'])
             if seg.start is None or seg.end is None:
-                warnings.append(f'Segment {index + 1} has unresolved endpoints')
+                warnings.append(
+                    PlanningWarning(
+                        code='UNRESOLVED_ENDPOINTS',
+                        message=f'Segment {index + 1} has unresolved endpoints',
+                        segment_id=seg.id,
+                    )
+                )
             if route.get('error_code') == 'ROUTING_LIMIT_REACHED':
-                warnings.append('Routing limit reached. Try again later.')
+                warnings.append(
+                    PlanningWarning(
+                        code='ROUTING_LIMIT_REACHED',
+                        message='Routing limit reached. Try again later.',
+                        segment_id=seg.id,
+                    )
+                )
             if mode == 'FLIGHT' and seg.lookup and seg.lookup.duration_seconds is None:
-                warnings.append(f'Segment {index + 1} has no valid flight schedule')
+                warnings.append(
+                    PlanningWarning(
+                        code='INVALID_FLIGHT_SCHEDULE',
+                        message=f'Segment {index + 1} has no valid flight schedule',
+                        segment_id=seg.id,
+                    )
+                )
             if (
                 mode == 'FLIGHT'
                 and seg.intent.flight
                 and seg.intent.flight.departure_date
-                and leg.from_stop is not None
+                and connection.from_stop is not None
             ):
-                leave_date = leg.from_stop.planned_start_date + timedelta(
-                    days=leg.from_stop.planned_nights
+                leave_date = connection.from_stop.planned_start_date + timedelta(
+                    days=connection.from_stop.planned_nights
                 )
                 if seg.intent.flight.departure_date < leave_date:
                     warnings.append(
-                        f'Segment {index + 1} departs before the planned departure from the preceding stop'
+                        PlanningWarning(
+                            code='DEPARTURE_BEFORE_STOP_END',
+                            message=f'Segment {index + 1} departs before the planned departure from the preceding stop',
+                            segment_id=seg.id,
+                        )
                     )
             if (
                 mode == 'FLIGHT'
                 and seg.lookup
                 and seg.lookup.scheduled_arrival
-                and leg.to_stop is not None
+                and connection.to_stop is not None
             ):
-                local_arrival = seg.lookup.scheduled_arrival.date()
-                if local_arrival > leg.to_stop.planned_start_date:
+                arrival = seg.lookup.scheduled_arrival
+                airport_timezone = seg.lookup.arrival_airport.timezone
+                if airport_timezone:
+                    try:
+                        arrival = arrival.astimezone(ZoneInfo(airport_timezone))
+                    except ZoneInfoNotFoundError, ValueError:
+                        pass
+                local_arrival = arrival.date()
+                if local_arrival > connection.to_stop.planned_start_date:
                     warnings.append(
-                        f'Segment {index + 1} arrives after the destination stop date'
+                        PlanningWarning(
+                            code='ARRIVAL_AFTER_STOP_START',
+                            message=f'Segment {index + 1} arrives after the destination stop date',
+                            segment_id=seg.id,
+                        )
                     )
         resolved_junctions = True
         for left, right in zip(segments, segments[1:]):
             if not same_endpoint(left.end, right.start):
                 resolved_junctions = False
                 warnings.append(
-                    'Connection has an unresolved transfer or a change of airport'
+                    PlanningWarning(
+                        code='UNRESOLVED_TRANSFER',
+                        message='Connection has an unresolved transfer or a change of airport',
+                        segment_id=right.id,
+                    )
                 )
         all_flight = all(s.intent.travel_mode == 'FLIGHT' for s in segments)
         all_ground = all(s.intent.travel_mode != 'FLIGHT' for s in segments)
@@ -732,17 +627,22 @@ class PlanningService:
                     )
                     scope = 'FLIGHT_JOURNEY'
                 else:
-                    warnings.append('Connecting flight times overlap')
+                    warnings.append(
+                        PlanningWarning(
+                            code='OVERLAPPING_FLIGHTS',
+                            message='Connecting flight times overlap',
+                        )
+                    )
         coordinates = (
             coordinates
             or point_geometry(
-                self.location_endpoint(endpoint_location(leg, 'from')),
-                self.location_endpoint(endpoint_location(leg, 'to')),
+                self.location_endpoint(endpoint_location(connection, 'from')),
+                self.location_endpoint(endpoint_location(connection, 'to')),
             )['coordinates']
         )
         return {
             'segments': responses,
-            'warnings': list(dict.fromkeys(warnings)),
+            'warnings': warnings,
             'duration_seconds': duration,
             'duration_scope': scope,
             'route': {
@@ -757,21 +657,21 @@ class PlanningService:
             },
         }
 
-    def resolve_route_response(self, leg):
-        return self.connection(leg)
+    def resolve_route_response(self, connection):
+        return self.connection(connection)
 
-    def persist(self, leg, intent, actor, revision):
-        segments = self.build(leg, intent, actor)
+    def persist(self, connection, intent, actor, revision):
+        segments = self.build(connection, intent, actor)
         preview = None
         if intent.preview_id:
             try:
-                preview = self.artifact(
+                preview = self.artifacts.get(
                     intent.preview_id,
                     'PREVIEW',
-                    leg,
+                    connection,
                     actor,
                     revision,
-                    self.binding(leg, intent),
+                    self.binding(connection, intent),
                 )
             except HTTPException:
                 pass  # Expiry must not prevent saving user intent.
@@ -792,18 +692,16 @@ class PlanningService:
                     },
                 )
             if proposed and proposed['input_hash'] == seg.input_hash:
-                seg.result = proposed if not option else (
-                    proposed | proposed['alternatives'][option - 1]
-                )
-        prepared = self.prepare_connection(leg, intent, segments)
+                seg.result = select_route(proposed, option, seg.id)
+        prepared = self.prepare_connection(connection, intent, segments)
         segments = prepared.segments
-        old = {row.id: row for row in leg.segments}
+        old = {row.id: row for row in connection.segments}
         keep = []
         for index, seg in enumerate(segments):
             row = old.get(seg.id)
             if row is None:
                 row = ItineraryTravelSegment(
-                    id=seg.id, trip_id=leg.trip_id, leg_id=leg.id
+                    id=seg.id, trip_id=connection.trip_id, connection_id=connection.id
                 )
                 self.db.add(row)
             row.position, row.travel_mode, row.mode_source = (
@@ -830,7 +728,7 @@ class PlanningService:
                     existing_location = (
                         self.db.get(Location, existing_id) if existing_id else None
                     )
-                    resolved = self.endpoint(value, leg.trip_id)
+                    resolved = self.endpoint(value, connection.trip_id)
                     if (
                         existing_location
                         and existing_location.source_place_id == resolved.place_id
@@ -840,7 +738,7 @@ class PlanningService:
                         location_id = existing_id
                     else:
                         location_id = self.locations.create_location_for_trip(
-                            leg.trip_id, actor, value
+                            connection.trip_id, actor, value
                         ).id
                 else:
                     location_id = None
@@ -854,7 +752,7 @@ class PlanningService:
                 flight = seg.intent.flight or FlightIntent()
                 if row.flight is None:
                     row.flight = ItinerarySegmentFlight(
-                        segment_id=row.id, trip_id=leg.trip_id
+                        segment_id=row.id, trip_id=connection.trip_id
                     )
                 for key in (
                     'flight_number',
@@ -884,166 +782,18 @@ class PlanningService:
             if not keep_route and seg.result and row.travel_mode in ROAD_MODES:
                 row.route = ItinerarySegmentRoute(
                     segment_id=row.id,
-                    trip_id=leg.trip_id,
+                    trip_id=connection.trip_id,
                     input_version=row.input_version,
                     **route_values(seg.result),
                 )
             keep.append(row)
-        leg.segments = keep
-        leg.notes = prepared.intent.notes
+        connection.segments = keep
+        connection.notes = prepared.intent.notes
         self.db.flush()
-
-    def _calculate_one(self, seg, deadline):
-        base = {
-            'input_hash': seg.input_hash,
-            'status': 'FAILED',
-            'provider': None,
-            'geometry_geojson': None,
-            'distance_meters': None,
-            'duration_seconds': None,
-            'error_code': None,
-            'generated_at': utcnow().isoformat(),
-        }
-        if not self.provider or not self.provider.is_configured():
-            return base | {'error_code': 'NOT_CONFIGURED'}
-        if not self.provider.supports_travel_mode(seg.intent.travel_mode):
-            return base | {'status': 'UNSUPPORTED'}
-        try:
-            route = self.provider.get_route(
-                (seg.start.longitude, seg.start.latitude),
-                (seg.end.longitude, seg.end.latitude),
-                seg.intent.travel_mode,
-                via=(seg.via.longitude, seg.via.latitude) if seg.via else None,
-                timeout=min(10, max(0.01, deadline - time.monotonic())),
-            )
-            geometry = validated_geometry(route.geometry_geojson)
-            return base | {
-                'status': 'READY',
-                'provider': self.provider.name,
-                'geometry_geojson': geometry,
-                'distance_meters': route.distance_meters,
-                'duration_seconds': route.duration_seconds,
-                'alternatives': [
-                    {
-                        'status': 'READY',
-                        'geometry_geojson': validated_geometry(item.geometry_geojson),
-                        'distance_meters': item.distance_meters,
-                        'duration_seconds': item.duration_seconds,
-                    }
-                    for item in route.alternatives[:2]
-                ],
-            }
-        except RouteProviderLimitError:
-            return base | {'error_code': 'ROUTING_LIMIT_REACHED'}
-        except TimeoutError:
-            return base | {'error_code': 'TIMEOUT'}
-        except RouteProviderError, OSError, ValueError:
-            return base | {'error_code': 'ROUTE_UNAVAILABLE'}
 
     def calculate(
         self, segments, retry_failed=False, include_alternatives=False, *, force=False
     ):
-        deadline = time.monotonic() + 30
-        pending = [
-            s
-            for s in segments
-            if s.intent.travel_mode in ROAD_MODES
-            and s.start
-            and s.end
-            and (
-                force
-                or s.result is None
-                or (retry_failed and s.result['status'] == 'FAILED')
-                or (
-                    include_alternatives
-                    and s.result['status'] == 'READY'
-                    and 'alternatives' not in s.result
-                )
-            )
-        ]
-        # Submit only two calls at a time; no executor backlog survives the deadline.
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            for offset in range(0, len(pending), 2):
-                if time.monotonic() >= deadline:
-                    break
-                batch = pending[offset : offset + 2]
-                futures = [
-                    executor.submit(self._calculate_one, seg, deadline) for seg in batch
-                ]
-                for seg, future in zip(batch, futures, strict=True):
-                    calculated = future.result()
-                    if not force and seg.result and seg.result['status'] == 'READY':
-                        # Opening the chooser must preserve the saved route selection.
-                        options = []
-                        if calculated['status'] == 'READY':
-                            for item in [
-                                calculated,
-                                *calculated.get('alternatives', []),
-                            ]:
-                                if (
-                                    item['geometry_geojson']
-                                    != seg.result['geometry_geojson']
-                                ):
-                                    options.append(
-                                        {
-                                            key: value
-                                            for key, value in (
-                                                calculated | item
-                                            ).items()
-                                            if key != 'alternatives'
-                                        }
-                                    )
-                        seg.result = seg.result | {'alternatives': options[:2]}
-                    else:
-                        seg.result = calculated
-
-    def new_artifact(
-        self, kind, leg_id, trip_id, actor, payload, binding, revision=None
-    ):
-        row = ItineraryPlanningArtifact(
-            id=uuid.uuid4(),
-            kind=kind,
-            leg_id=leg_id,
-            trip_id=trip_id,
-            created_by_user_id=actor,
-            itinerary_revision=revision,
-            input_hash=binding,
-            payload=payload,
-            expires_at=utcnow() + (
-                timedelta(days=7) if kind == 'PREVIEW' else timedelta(minutes=10)
-            ),
+        self.calculator.calculate(
+            segments, retry_failed, include_alternatives, force=force
         )
-        self.db.add(row)
-        return row
-
-    def flight_lookup(self, leg, actor, intent):
-        binding = fingerprint(intent.model_dump(mode='json'))
-        cached = list(
-            self.db.scalars(
-                select(ItineraryPlanningArtifact).where(
-                    ItineraryPlanningArtifact.kind == 'FLIGHT_CANDIDATE',
-                    ItineraryPlanningArtifact.trip_id == leg.trip_id,
-                    ItineraryPlanningArtifact.leg_id
-                    == getattr(leg, 'artifact_leg_id', leg.id),
-                    ItineraryPlanningArtifact.created_by_user_id == actor,
-                    ItineraryPlanningArtifact.input_hash == binding,
-                    ItineraryPlanningArtifact.expires_at > utcnow(),
-                )
-            )
-        )
-        if cached:
-            return FlightLookupResponse(
-                status='MATCHES',
-                expires_at=min(r.expires_at for r in cached),
-                candidates=[
-                    FlightCandidate(
-                        candidate_id=r.id,
-                        lookup=r.payload,
-                        duration_seconds=FlightLookup.model_validate(
-                            r.payload
-                        ).duration_seconds,
-                    )
-                    for r in cached
-                ],
-            )
-        return None

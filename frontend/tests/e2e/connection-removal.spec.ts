@@ -12,13 +12,13 @@ for (const mobile of [false, true]) {
       await page.route('**/api/v1/trips/trip/itinerary/connections/saved-*?**', async (route) => {
         deletes += 1
         expect(route.request().method()).toBe('DELETE')
-        expect(new URL(route.request().url()).searchParams.get('confirm_travel_deletion')).toBe('true')
+        expect(new URL(route.request().url()).searchParams.get('confirm_connection_deletion')).toBe('true')
         if (deletes === 1) {
-          await route.fulfill({ status: 409, json: { detail: { code: 'TRAVEL_DELETION_REQUIRED', message: 'Could not remove connection' } } })
+          await route.fulfill({ status: 409, json: { detail: { code: 'CONNECTION_DELETION_REQUIRED', message: 'Could not remove connection' } } })
           return
         }
         await completed
-        await route.fulfill({ json: { trip_id: 'trip', itinerary_revision: 3, stops: [], legs: [{
+        await route.fulfill({ json: { trip_id: 'trip', itinerary_revision: 3, stops: [], connections: [{
           id: 'interior', trip_id: 'trip', connection_type: 'BETWEEN_STOPS', from: { type: 'STOP', stop_id: 'first' }, to: { type: 'STOP', stop_id: 'last' },
           notes: '', duration_seconds: null, duration_scope: null, warnings: [],
           segments: [{ id: 'segment', input_version: 1, mode_source: 'USER', intent: { travel_mode: 'TRAIN' },

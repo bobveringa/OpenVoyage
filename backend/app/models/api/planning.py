@@ -162,6 +162,17 @@ class RouteOption(BaseModel):
     duration_seconds: int | None = None
 
 
+class PlanningWarning(BaseModel):
+    code: Literal[
+        'AUTO_CAR_UNAVAILABLE', 'UNRESOLVED_ENDPOINTS', 'ROUTING_LIMIT_REACHED',
+        'INVALID_FLIGHT_SCHEDULE', 'DEPARTURE_BEFORE_STOP_END',
+        'ARRIVAL_AFTER_STOP_START', 'UNRESOLVED_TRANSFER',
+        'OVERLAPPING_FLIGHTS', 'CALCULATION_INCOMPLETE',
+    ]
+    message: str
+    segment_id: uuid.UUID | None = None
+
+
 class SegmentResponse(BaseModel):
     id: uuid.UUID
     intent: SegmentIntent

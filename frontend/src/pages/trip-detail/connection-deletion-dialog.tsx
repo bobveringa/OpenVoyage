@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { AlertTriangle } from 'lucide-react'
-import type { TravelDeletionConnection } from '@/api/client'
+import type { ConnectionDeletionSummary } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 
-export function TravelDeletionDialog({ connections, onCancel, onConfirm }: {
-  connections: TravelDeletionConnection[] | null
+export function ConnectionDeletionDialog({ connections, onCancel, onConfirm }: {
+  connections: ConnectionDeletionSummary[] | null
   onCancel: () => void
   onConfirm: () => void
 }) {

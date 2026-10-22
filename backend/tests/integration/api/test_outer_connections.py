@@ -1,6 +1,8 @@
 # ruff: noqa: F811
 """Outer journeys share itinerary topology, revision and access boundaries."""
 
+from planning_helpers import planning_body
+
 import uuid
 from datetime import timedelta
 from unittest.mock import Mock
@@ -17,7 +19,7 @@ from integration.services.test_itinerary_route_service import (
     enable_routes,
     matched_lookup,
 )
-from models.database.itinerary import ItineraryPlanningArtifact, ItineraryTravelLeg
+from models.database.itinerary import ItineraryPlanningArtifact, ItineraryConnection
 from models.database.locations import Location
 from models.database.trips import TripVisibility
 from services.route_providers import GraphHopperRouteProvider, RouteResponse
@@ -36,7 +38,7 @@ def outer_body(data, side='DEPARTURE', **travel):
     ) | travel
 
 
-def write_body(leg, **travel):
+def write_body(connection, **travel):
     def endpoint(value):
         return (
             value
@@ -49,7 +51,7 @@ def write_body(leg, **travel):
             }
         )
 
-    return {'from': endpoint(leg['from']), 'to': endpoint(leg['to']), **travel}
+    return {'from': endpoint(connection['from']), 'to': endpoint(connection['to']), **travel}
 
 
 @pytest.mark.parametrize('side', ['DEPARTURE', 'RETURN'])
@@ -81,7 +83,7 @@ def test_unsaved_outer_preview_uses_regular_default_mode_and_saves_it(
         base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert response.status_code == 200, response.text
-    preview = response.json()
+    preview = planning_body(response)
     segment = preview['connection']['segments'][0]
     assert segment['intent']['travel_mode'] == mode
     assert segment['mode_source'] == 'AUTO'
@@ -96,7 +98,7 @@ def test_unsaved_outer_preview_uses_regular_default_mode_and_saves_it(
         },
     )
     assert saved.status_code == 201, saved.text
-    assert saved.json()['segments'][0]['intent']['travel_mode'] == mode
+    assert planning_body(saved)['segments'][0]['intent']['travel_mode'] == mode
     assert route.call_count == (1 if mode == 'CAR' else 0)
 
 
@@ -120,14 +122,14 @@ def test_unsaved_outer_fallback_preview_can_be_saved(
         base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert preview.status_code == 200, preview.text
-    segment = preview.json()['connection']['segments'][0]
+    segment = planning_body(preview)['connection']['segments'][0]
     assert segment['intent']['travel_mode'] == 'OTHER'
     again = client.post(
         base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert again.status_code == 200, again.text
-    assert again.json()['preview_id'] == preview.json()['preview_id']
-    payload = body | {'preview_id': preview.json()['preview_id']}
+    assert planning_body(again)['preview_id'] == planning_body(preview)['preview_id']
+    payload = body | {'preview_id': planning_body(preview)['preview_id']}
     if echo_segments:
         payload['segments'] = [segment['intent']]
     # A normalized suggestion remains bound to the original outside endpoint.
@@ -152,7 +154,7 @@ def test_unsaved_outer_fallback_preview_can_be_saved(
         base + '/connections', headers=headers(user, revision), json=payload
     )
     assert saved.status_code == 201, saved.text
-    assert saved.json()['segments'][0]['intent']['travel_mode'] == 'OTHER'
+    assert planning_body(saved)['segments'][0]['intent']['travel_mode'] == 'OTHER'
     if route:
         route.assert_called_once()
 
@@ -172,41 +174,41 @@ def test_route_preview_is_reused_for_seven_days_then_cleaned_up(
         ),
     )
     now = utcnow()
-    monkeypatch.setattr('services.planning_service.utcnow', lambda: now)
+    monkeypatch.setattr('services.planning_artifacts.utcnow', lambda: now)
     body = outer_body(data, segments=[{'travel_mode': 'CAR'}])
     preview = client.post(
         base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert preview.status_code == 200, preview.text
-    preview_id = uuid.UUID(preview.json()['preview_id'])
+    preview_id = uuid.UUID(planning_body(preview)['preview_id'])
     artifact = db_session.get(ItineraryPlanningArtifact, preview_id)
     assert artifact.expires_at == now + timedelta(days=7)
 
     later = now + timedelta(days=6)
     monkeypatch.setattr('models.database.base.utcnow', lambda: later)
-    monkeypatch.setattr('services.planning_service.utcnow', lambda: later)
+    monkeypatch.setattr('services.planning_artifacts.utcnow', lambda: later)
     monkeypatch.setattr('jobs.handlers.utcnow', lambda: later)
     assert PlanningArtifactCleanupJob(db_session).run().summary == {'deleted': 0}
     again = client.post(
         base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert again.status_code == 200, again.text
-    assert again.json()['preview_id'] == str(preview_id)
+    assert planning_body(again)['preview_id'] == str(preview_id)
     saved = client.post(
         base + '/connections', headers=headers(user, revision),
         json=body | {'preview_id': str(preview_id)},
     )
     assert saved.status_code == 201, saved.text
-    assert saved.json()['segments'][0]['route_state'] == 'READY'
+    assert planning_body(saved)['segments'][0]['route_state'] == 'READY'
     route.assert_called_once()
 
     later = now + timedelta(days=7, seconds=1)
     assert PlanningArtifactCleanupJob(db_session).run().summary == {'deleted': 1}
     assert db_session.get(ItineraryPlanningArtifact, preview_id) is None
     # Cleanup of a temporary preview must keep the saved route.
-    read = client.get(base + '/connections/' + saved.json()['id'], headers=headers(user))
+    read = client.get(base + '/connections/' + planning_body(saved)['id'], headers=headers(user))
     assert read.status_code == 200, read.text
-    assert read.json()['segments'][0]['route_state'] == 'READY'
+    assert planning_body(read)['segments'][0]['route_state'] == 'READY'
 
 
 @pytest.mark.parametrize('side', ['DEPARTURE', 'RETURN'])
@@ -219,10 +221,10 @@ def test_outer_lifecycle_preview_defaults_and_noop(
     body = outer_body(data, side)
     created = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert created.status_code == 201, created.text
-    leg = created.json()
-    assert leg['connection_type'] == side
-    assert created.headers['location'].endswith('/connections/' + leg['id'])
-    endpoint = base + '/connections/' + leg['id']
+    connection = planning_body(created)
+    assert connection['connection_type'] == side
+    assert created.headers['location'].endswith('/connections/' + connection['id'])
+    endpoint = base + '/connections/' + connection['id']
     revision = created.headers['etag']
     count = db_session.scalar(select(func.count()).select_from(Location))
     same = client.put(endpoint, headers=headers(user, revision), json=body)
@@ -231,23 +233,23 @@ def test_outer_lifecycle_preview_defaults_and_noop(
     assert db_session.scalar(select(func.count()).select_from(Location)) == count
     duplicate = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert duplicate.status_code == 409
-    detail = client.get(
+    detail = planning_body(client.get(
         base + '/stops/' + body['to' if side == 'DEPARTURE' else 'from']['stop_id'],
         headers=headers(user),
-    ).json()
+    ))
     assert (
-        detail['incoming_leg' if side == 'DEPARTURE' else 'outgoing_leg']['id']
-        == leg['id']
+        detail['incoming_connection' if side == 'DEPARTURE' else 'outgoing_connection']['id']
+        == connection['id']
     )
-    snapshot = client.get(base, headers=headers(user)).json()
-    assert [item['id'] for item in snapshot['legs']] == (
-        [leg['id'], interior['id']]
+    snapshot = planning_body(client.get(base, headers=headers(user)))
+    assert [item['id'] for item in snapshot['connections']] == (
+        [connection['id'], interior['id']]
         if side == 'DEPARTURE'
-        else [interior['id'], leg['id']]
+        else [interior['id'], connection['id']]
     )
     route.assert_not_called()
     draft = write_body(
-        leg,
+        connection,
         notes='Train home',
         segments=[{'travel_mode': 'TRAIN', 'mode_selected': True}],
     )
@@ -257,14 +259,14 @@ def test_outer_lifecycle_preview_defaults_and_noop(
         endpoint + '/preview', headers=headers(user, revision), json=draft
     )
     assert preview.status_code == 200, preview.text
-    assert preview.json()['connection'][location_side]['location']['latitude'] == 50.85
-    assert preview.json()['connection']['route']['geometry']['coordinates'][
+    assert planning_body(preview)['connection'][location_side]['location']['latitude'] == 50.85
+    assert planning_body(preview)['connection']['route']['geometry']['coordinates'][
         0 if side == 'DEPARTURE' else -1
     ] == [4.35, 50.85]
     saved = client.put(
         endpoint,
         headers=headers(user, revision),
-        json=draft | {'preview_id': preview.json()['preview_id']},
+        json=draft | {'preview_id': planning_body(preview)['preview_id']},
     )
     assert saved.status_code == 200, saved.text
     revision = saved.headers['etag']
@@ -275,26 +277,26 @@ def test_outer_lifecycle_preview_defaults_and_noop(
     revision = refreshed.headers['etag']
     blocked = client.delete(endpoint, headers=headers(user, revision))
     assert blocked.status_code == 409
-    assert blocked.json()['detail']['connections'][0]['id'] == leg['id']
+    assert planning_body(blocked)['detail']['connections'][0]['id'] == connection['id']
     assert client.get(endpoint, headers=headers(user)).headers['etag'] == revision
     stale = client.delete(
-        endpoint + '?confirm_travel_deletion=true', headers=headers(user, '"0"')
+        endpoint + '?confirm_connection_deletion=true', headers=headers(user, '"0"')
     )
     assert stale.status_code == 412
     deleted = client.delete(
-        endpoint + '?confirm_travel_deletion=true', headers=headers(user, revision)
+        endpoint + '?confirm_connection_deletion=true', headers=headers(user, revision)
     )
     assert deleted.status_code == 200, deleted.text
-    assert [item['id'] for item in deleted.json()['legs']] == [interior['id']]
+    assert [item['id'] for item in planning_body(deleted)['connections']] == [interior['id']]
     assert client.get(endpoint, headers=headers(user)).status_code == 404
 
 
 def test_topology_and_creation_artifacts_cannot_be_forged(client, db_session, plan):  # noqa: F811
-    user, _, base, endpoint, revision, leg, data = plan
+    user, _, base, endpoint, revision, connection, data = plan
     body = outer_body(data)
     assert (
         client.post(
-            base + '/connections', headers=headers(user, revision), json=write_body(leg)
+            base + '/connections', headers=headers(user, revision), json=write_body(connection)
         ).status_code
         == 409
     )
@@ -327,7 +329,7 @@ def test_topology_and_creation_artifacts_cannot_be_forged(client, db_session, pl
     )
     for travel, status in (
         ({'preview_id': str(uuid.uuid4())}, 409),
-        ({'segments': [{'id': leg['segments'][0]['id'], 'travel_mode': 'CAR'}]}, 422),
+        ({'segments': [{'id': connection['segments'][0]['id'], 'travel_mode': 'CAR'}]}, 422),
         (
             {
                 'segments': [
@@ -375,13 +377,13 @@ def test_reanchor_is_atomic_preserves_id_and_outside_and_clears_artifacts(
         ),
     )
     assert created.status_code == 201, created.text
-    leg = created.json()
-    endpoint = base + '/connections/' + leg['id']
+    connection = planning_body(created)
+    endpoint = base + '/connections/' + connection['id']
     revision = created.headers['etag']
     preview = client.post(
         endpoint + '/preview',
         headers=headers(user, revision),
-        json=write_body(leg, segments=[{'travel_mode': 'TRAIN'}]),
+        json=write_body(connection, segments=[{'travel_mode': 'TRAIN'}]),
     )
     assert preview.status_code == 200, preview.text
     count = db_session.scalar(select(func.count()).select_from(Location))
@@ -398,42 +400,42 @@ def test_reanchor_is_atomic_preserves_id_and_outside_and_clears_artifacts(
         base + '/stops', headers=headers(user, revision), json=payload
     )
     assert rejected.status_code == 409, rejected.text
-    assert rejected.json()['detail']['connections'][0]['id'] == leg['id']
+    assert planning_body(rejected)['detail']['connections'][0]['id'] == connection['id']
     assert db_session.scalar(select(func.count()).select_from(Location)) == count
     unchanged = client.get(base, headers=headers(user))
     assert unchanged.headers['etag'] == revision
-    assert len(unchanged.json()['stops']) == 2
+    assert len(planning_body(unchanged)['stops']) == 2
     assert (
         db_session.get(
-            ItineraryPlanningArtifact, uuid.UUID(preview.json()['preview_id'])
+            ItineraryPlanningArtifact, uuid.UUID(planning_body(preview)['preview_id'])
         )
         is not None
     )
     inserted = client.post(
-        base + '/stops?confirm_travel_deletion=true',
+        base + '/stops?confirm_connection_deletion=true',
         headers=headers(user, revision),
         json=payload,
     )
     assert inserted.status_code == 201, inserted.text
-    new_leg = next(item for item in inserted.json()['legs'] if item['id'] == leg['id'])
+    new_connection = next(item for item in planning_body(inserted)['connections'] if item['id'] == connection['id'])
     outside_side = 'from' if side == 'DEPARTURE' else 'to'
-    assert new_leg[outside_side] == leg[outside_side]
-    assert new_leg['notes'] == ''
-    assert new_leg['segments'][0]['mode_source'] == 'AUTO'
-    assert new_leg['segments'][0]['intent']['flight'] is None
+    assert new_connection[outside_side] == connection[outside_side]
+    assert new_connection['notes'] == ''
+    assert new_connection['segments'][0]['mode_source'] == 'AUTO'
+    assert new_connection['segments'][0]['intent']['flight'] is None
     assert (
         db_session.get(
-            ItineraryPlanningArtifact, uuid.UUID(preview.json()['preview_id'])
+            ItineraryPlanningArtifact, uuid.UUID(planning_body(preview)['preview_id'])
         )
         is None
     )
-    stop_id = new_leg['to' if side == 'DEPARTURE' else 'from']['stop_id']
+    stop_id = new_connection['to' if side == 'DEPARTURE' else 'from']['stop_id']
     removed = client.delete(
         base + '/stops/' + stop_id, headers=headers(user, inserted.headers['etag'])
     )
     assert removed.status_code == 200, removed.text
-    assert any(item['id'] == leg['id'] for item in removed.json()['legs'])
-    assert db_session.get(ItineraryTravelLeg, uuid.UUID(leg['id'])).trip_id == trip.id
+    assert any(item['id'] == connection['id'] for item in planning_body(removed)['connections'])
+    assert db_session.get(ItineraryConnection, uuid.UUID(connection['id'])).trip_id == trip.id
 
 
 def test_one_stop_both_outer_connections_and_delete_final_stop(client, plan):  # noqa: F811
@@ -442,7 +444,7 @@ def test_one_stop_both_outer_connections_and_delete_final_stop(client, plan):  #
         base + '/stops/' + data['stops'][-1]['id'], headers=headers(user, revision)
     )
     assert removed.status_code == 200, removed.text
-    data, revision = removed.json(), removed.headers['etag']
+    data, revision = planning_body(removed), removed.headers['etag']
     for side, mode in [('DEPARTURE', 'FLIGHT'), ('RETURN', 'TRAIN')]:
         payload = outer_body(
             data,
@@ -458,20 +460,20 @@ def test_one_stop_both_outer_connections_and_delete_final_stop(client, plan):  #
         assert created.status_code == 201, created.text
         revision = created.headers['etag']
     stop_id = data['stops'][0]['id']
-    detail = client.get(base + '/stops/' + stop_id, headers=headers(user)).json()
-    assert detail['incoming_leg']['connection_type'] == 'DEPARTURE'
-    assert detail['outgoing_leg']['connection_type'] == 'RETURN'
+    detail = planning_body(client.get(base + '/stops/' + stop_id, headers=headers(user)))
+    assert detail['incoming_connection']['connection_type'] == 'DEPARTURE'
+    assert detail['outgoing_connection']['connection_type'] == 'RETURN'
     rejected = client.delete(
         base + '/stops/' + stop_id, headers=headers(user, revision)
     )
     assert rejected.status_code == 409
-    assert len(rejected.json()['detail']['connections']) == 2
+    assert len(planning_body(rejected)['detail']['connections']) == 2
     deleted = client.delete(
-        base + '/stops/' + stop_id + '?confirm_travel_deletion=true',
+        base + '/stops/' + stop_id + '?confirm_connection_deletion=true',
         headers=headers(user, revision),
     )
     assert deleted.status_code == 200, deleted.text
-    assert deleted.json()['legs'] == deleted.json()['stops'] == []
+    assert planning_body(deleted)['connections'] == planning_body(deleted)['stops'] == []
     assert (
         client.post(
             base + '/connections',
@@ -501,7 +503,7 @@ def test_outer_read_and_mutation_access_matrix(
         base + '/connections', headers=headers(member, revision), json=outer_body(data)
     )
     assert created.status_code == 201, created.text
-    endpoint = base + '/connections/' + created.json()['id']
+    endpoint = base + '/connections/' + planning_body(created)['id']
     revision = created.headers['etag']
     assert client.get(endpoint).status_code == anonymous
     assert client.get(endpoint, headers=headers(stranger)).status_code == outsider
@@ -509,8 +511,8 @@ def test_outer_read_and_mutation_access_matrix(
     assert client.get(endpoint, headers=headers(member)).status_code == 200
     overview = client.get(base + '/overview', headers=headers(viewer))
     assert overview.status_code == 200
-    assert created.json()['id'] in [leg['id'] for leg in overview.json()['legs']]
-    body = write_body(created.json())
+    assert planning_body(created)['id'] in [connection['id'] for connection in planning_body(overview)['connections']]
+    body = write_body(planning_body(created))
     for method, path, payload in [
         ('post', base + '/connections', outer_body(data, 'RETURN')),
         ('post', base + '/connections/preview', outer_body(data, 'RETURN')),
@@ -530,11 +532,11 @@ def test_outer_read_and_mutation_access_matrix(
             method, path, headers=headers(viewer, revision), json=payload
         )
         assert response.status_code == 403, response.text
-    link = client.post(
+    link = planning_body(client.post(
         f'/api/v1/trips/{trip.id}/share-links',
         headers=headers(user),
         json={'label': 'Outer'},
-    ).json()
+    ))
     shared = {'X-Trip-Share-Token': link['token']}
     assert client.get(endpoint, headers=shared).status_code == 403
     assert client.get(base + '/overview', headers=shared).status_code == 200
@@ -581,25 +583,25 @@ def test_unsaved_connection_preview_is_atomic_and_bound_to_inputs(
     body = outer_body(
         data, side, segments=[{'travel_mode': 'CAR', 'mode_selected': True}]
     )
-    legs_before = db_session.scalar(
-        select(func.count()).select_from(ItineraryTravelLeg)
+    connections_before = db_session.scalar(
+        select(func.count()).select_from(ItineraryConnection)
     )
     locations_before = db_session.scalar(select(func.count()).select_from(Location))
     preview = client.post(
         base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert preview.status_code == 200, preview.text
-    assert preview.json()['connection']['connection_type'] == side
+    assert planning_body(preview)['connection']['connection_type'] == side
     assert route.call_count == 1
     cached = client.post(
         base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert cached.status_code == 200, cached.text
-    assert cached.json()['preview_id'] == preview.json()['preview_id']
+    assert planning_body(cached)['preview_id'] == planning_body(preview)['preview_id']
     assert route.call_count == 1
     assert (
-        db_session.scalar(select(func.count()).select_from(ItineraryTravelLeg))
-        == legs_before
+        db_session.scalar(select(func.count()).select_from(ItineraryConnection))
+        == connections_before
     )
     assert (
         db_session.scalar(select(func.count()).select_from(Location))
@@ -607,7 +609,7 @@ def test_unsaved_connection_preview_is_atomic_and_bound_to_inputs(
     )
     assert client.get(base, headers=headers(user)).headers['etag'] == revision
     changed = outer_body(
-        data, side, segments=body['segments'], preview_id=preview.json()['preview_id']
+        data, side, segments=body['segments'], preview_id=planning_body(preview)['preview_id']
     )
     changed['from' if side == 'DEPARTURE' else 'to']['location']['latitude'] = 50
     rejected = client.post(
@@ -618,11 +620,11 @@ def test_unsaved_connection_preview_is_atomic_and_bound_to_inputs(
     saved = client.post(
         base + '/connections',
         headers=headers(user, revision),
-        json=body | {'preview_id': preview.json()['preview_id']},
+        json=body | {'preview_id': planning_body(preview)['preview_id']},
     )
     assert saved.status_code == 201, saved.text
-    assert saved.json()['segments'][0]['route_state'] == 'READY'
-    assert saved.json()['duration_seconds'] == (120 if route_option else 100)
+    assert planning_body(saved)['segments'][0]['route_state'] == 'READY'
+    assert planning_body(saved)['duration_seconds'] == (120 if route_option else 100)
     assert saved.headers['etag'] != revision
     assert route.call_count == 1
 
@@ -644,7 +646,7 @@ def test_unsaved_flight_artifacts_are_actor_trip_and_revision_scoped(
         },
     )
     assert found.status_code == 200, found.text
-    candidate = found.json()['candidates'][0]['candidate_id']
+    candidate = planning_body(found)['candidates'][0]['candidate_id']
     body = outer_body(
         data,
         segments=[
@@ -662,7 +664,7 @@ def test_unsaved_flight_artifacts_are_actor_trip_and_revision_scoped(
         base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert preview.status_code == 200, preview.text
-    body['preview_id'] = preview.json()['preview_id']
+    body['preview_id'] = planning_body(preview)['preview_id']
     assert (
         client.post(
             base + '/connections', headers=headers(member, revision), json=body
@@ -684,10 +686,10 @@ def test_unsaved_flight_artifacts_are_actor_trip_and_revision_scoped(
     )
     saved = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert saved.status_code == 201, saved.text
-    assert saved.json()['segments'][0]['lookup'] is not None
+    assert planning_body(saved)['segments'][0]['lookup'] is not None
     assert db_session.get(
         ItineraryPlanningArtifact, uuid.UUID(candidate)
-    ).leg_id == uuid.UUID(saved.json()['id'])
+    ).connection_id == uuid.UUID(planning_body(saved)['id'])
 
 
 def test_outer_flight_candidate_scope_and_warning_sides(
@@ -699,17 +701,17 @@ def test_outer_flight_candidate_scope_and_warning_sides(
         base + '/connections', headers=headers(user, revision), json=outer_body(data)
     )
     assert created.status_code == 201, created.text
-    leg, revision = created.json(), created.headers['etag']
-    endpoint = base + '/connections/' + leg['id']
+    connection, revision = planning_body(created), created.headers['etag']
+    endpoint = base + '/connections/' + connection['id']
     found = client.post(
         endpoint + '/flight-lookups',
         headers=headers(user, revision),
         json={'flight_number': 'KL597', 'departure_date': '2026-11-18'},
     )
     assert found.status_code == 200, found.text
-    candidate = found.json()['candidates'][0]['candidate_id']
+    candidate = planning_body(found)['candidates'][0]['candidate_id']
     body = write_body(
-        leg,
+        connection,
         segments=[
             {
                 'travel_mode': 'FLIGHT',
@@ -729,9 +731,9 @@ def test_outer_flight_candidate_scope_and_warning_sides(
     assert other.status_code == 409
     saved = client.put(endpoint, headers=headers(user, revision), json=body)
     assert saved.status_code == 200, saved.text
-    assert saved.json()['duration_scope'] == 'FLIGHT_JOURNEY'
-    assert not any('preceding stop' in warning for warning in saved.json()['warnings'])
-    assert saved.json()['segments'][0]['lookup'] is not None
+    assert planning_body(saved)['duration_scope'] == 'FLIGHT_JOURNEY'
+    assert not any('preceding stop' in warning['message'] for warning in planning_body(saved)['warnings'])
+    assert planning_body(saved)['segments'][0]['lookup'] is not None
 
 
 def test_outer_endpoint_changes_invalidate_preview_and_candidates(
@@ -741,8 +743,8 @@ def test_outer_endpoint_changes_invalidate_preview_and_candidates(
     created = client.post(
         base + '/connections', headers=headers(user, revision), json=outer_body(data)
     )
-    leg, revision = created.json(), created.headers['etag']
-    endpoint = base + '/connections/' + leg['id']
+    connection, revision = planning_body(created), created.headers['etag']
+    endpoint = base + '/connections/' + connection['id']
     route = enable_routes(
         db_session,
         monkeypatch,
@@ -755,23 +757,23 @@ def test_outer_endpoint_changes_invalidate_preview_and_candidates(
             duration_seconds=100,
         ),
     )
-    body = write_body(leg, segments=[{'travel_mode': 'CAR'}])
+    body = write_body(connection, segments=[{'travel_mode': 'CAR'}])
     preview = client.post(
         endpoint + '/preview', headers=headers(user, revision), json=body
     )
     assert preview.status_code == 200, preview.text
     artifact = db_session.get(
-        ItineraryPlanningArtifact, uuid.UUID(preview.json()['preview_id'])
+        ItineraryPlanningArtifact, uuid.UUID(planning_body(preview)['preview_id'])
     )
     artifact.expires_at += timedelta(minutes=1)
     db_session.commit()
     changed = body | {
         'from': {'type': 'LOCATION', 'location': {'latitude': 48, 'longitude': 2}},
-        'preview_id': preview.json()['preview_id'],
+        'preview_id': planning_body(preview)['preview_id'],
     }
     saved = client.put(endpoint, headers=headers(user, revision), json=changed)
     assert saved.status_code == 200, saved.text
-    assert saved.json()['segments'][0]['route_state'] == 'NOT_CALCULATED'
+    assert planning_body(saved)['segments'][0]['route_state'] == 'NOT_CALCULATED'
     assert db_session.get(ItineraryPlanningArtifact, artifact.id) is None
     route.assert_called_once()
 
@@ -806,7 +808,7 @@ def test_database_rejects_invalid_outer_endpoint_shapes(db_session, plan, shape)
     else:
         db_session.execute(
             text(
-                'INSERT INTO itinerary_travel_legs (id,trip_id,from_location_id,to_stop_id) VALUES (:id,:trip_id,:from_location_id,:to_stop_id)'
+                'INSERT INTO itinerary_connections (id,trip_id,from_location_id,to_stop_id) VALUES (:id,:trip_id,:from_location_id,:to_stop_id)'
             ),
             values,
         )
@@ -814,7 +816,7 @@ def test_database_rejects_invalid_outer_endpoint_shapes(db_session, plan, shape)
     with pytest.raises(IntegrityError):
         db_session.execute(
             text(
-                'INSERT INTO itinerary_travel_legs (id,trip_id,from_stop_id,to_stop_id,from_location_id,to_location_id) VALUES (:id,:trip_id,:from_stop_id,:to_stop_id,:from_location_id,:to_location_id)'
+                'INSERT INTO itinerary_connections (id,trip_id,from_stop_id,to_stop_id,from_location_id,to_location_id) VALUES (:id,:trip_id,:from_stop_id,:to_stop_id,:from_location_id,:to_location_id)'
             ),
             values,
         )

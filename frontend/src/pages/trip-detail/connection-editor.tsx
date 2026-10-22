@@ -3,7 +3,7 @@ import { TripLeafletMap } from './trip-map'
 import { EMPTY_TRACKING_GEOMETRY } from './models'
 import { useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Check, ChevronDown, Loader2, MapPin, Plus, Trash2 } from 'lucide-react'
-import { getErrorMessage, lookupFlight, previewTravel, type FlightLookupResult, type PlanningPreview, type PlanningSegment } from '@/api/client'
+import { getErrorMessage, lookupFlight, previewConnection, type FlightLookupResult, type PlanningPreview, type PlanningSegment } from '@/api/client'
 import { PlaceSearchDropdown } from '@/components/places/place-search-dropdown'
 import { Button } from '@/components/ui/button'
 import { DatePicker } from '@/components/ui/date-time-picker'
@@ -12,9 +12,9 @@ import { RouteChooserShell } from './route-chooser-shell'
 import { useMediaQuery } from './use-media-query'
 import { Textarea } from '@/components/ui/textarea'
 import { usePlaceSearch } from '@/hooks/use-place-search'
-import type { Stop, TravelLeg, TravelMode } from './models'
-import type { TravelLegEditDraft } from './page-types'
-import { connectionWritePayload, createTravelLegEditDraft, formatDuration, getStayLeaveDateValue, getTravelModeIcon, travelModeOptions } from './planning-utils'
+import type { Stop, Connection, TravelMode } from './models'
+import type { ConnectionEditDraft } from './page-types'
+import { connectionWritePayload, createConnectionEditDraft, formatDuration, getStayLeaveDateValue, getTravelModeIcon, travelModeOptions } from './planning-utils'
 import { connectionWithOptions, routeDistance, routeTime } from './route-choice-utils'
 import { PlanningPreviewCache, planningPreviewKey } from './planning-preview-cache'
 import { PlanningSessionContext } from './planning-session'
@@ -68,9 +68,9 @@ export function EndpointPicker({ label, value, airport = false, placeholder, onC
   )
 }
 
-export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, saving, toStop, creating = false, outsideLocation, onOutsideLocationChange, onDelete }: {
-  fromStop: Stop | null; leg: TravelLeg | null; onClose: () => void
-  onRefreshRoute: (legId: string) => void; onSave: (id: string, draft: TravelLegEditDraft) => void
+export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, open, saving, toStop, creating = false, outsideLocation, onOutsideLocationChange, onDelete }: {
+  fromStop: Stop | null; connection: Connection | null; onClose: () => void
+  onRefreshRoute: (connectionId: string) => void; onSave: (id: string, draft: ConnectionEditDraft) => void
   open: boolean; pendingAction: string | null; saving: boolean; toStop: Stop | null
   creating?: boolean
   outsideLocation?: ConnectionLocation | null
@@ -82,7 +82,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
   const [details, setDetails] = useState<number | null>(null)
   const [transferSide, setTransferSide] = useState<AirportTransferSide | null>(null)
   const handledTransferRequest = useRef(0)
-  const [draft, setDraft] = useState<TravelLegEditDraft>(() => createTravelLegEditDraft(leg))
+  const [draft, setDraft] = useState<ConnectionEditDraft>(() => createConnectionEditDraft(connection))
   const [dirty, setDirty] = useState(false)
   const [preview, setPreview] = useState<PlanningPreview | null>(null)
   const [lookups, setLookups] = useState<Record<number, FlightLookupResult>>({})
@@ -90,28 +90,28 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
   const [error, setError] = useState<string | null>(null)
   const previews = useRef(new PlanningPreviewCache())
   const modeDrafts = useRef(new Map<string, PlanningSegment>())
-  const submittedLeg = useRef<TravelLeg | null>(null)
+  const submittedConnection = useRef<Connection | null>(null)
   const closeAfterSave = useEffectEvent(onClose)
   const version = useRef(0)
   const request = useRef<AbortController | null>(null)
   const inferNewConnectionMode = useRef(creating)
   const appliedOutsideLocation = useRef(outsideLocation)
-  const defaultFlightDate = leg?.connection_type === 'DEPARTURE' ? toStop?.planned_start_date
+  const defaultFlightDate = connection?.connection_type === 'DEPARTURE' ? toStop?.planned_start_date
     : fromStop ? getStayLeaveDateValue(fromStop.planned_start_date, fromStop.planned_nights) : undefined
-  const initializeOutsideLocation = useEffectEvent((next: TravelLegEditDraft) => {
+  const initializeOutsideLocation = useEffectEvent((next: ConnectionEditDraft) => {
     appliedOutsideLocation.current = outsideLocation
-    if (leg && onOutsideLocationChange) next[leg.connection_type === 'DEPARTURE' ? 'from' : 'to'] = outsideLocation
+    if (connection && onOutsideLocationChange) next[connection.connection_type === 'DEPARTURE' ? 'from' : 'to'] = outsideLocation
       ? { type: 'LOCATION', location: outsideLocation.input } : undefined
   })
   const showPreview = session.onPreview
-  const calculateOnOpen = useEffectEvent((payload: TravelLegEditDraft) => { void calculate(false, payload) })
+  const calculateOnOpen = useEffectEvent((payload: ConnectionEditDraft) => { void calculate(false, payload) })
   useEffect(() => {
     version.current += 1
     request.current?.abort()
     previews.current.clear(); modeDrafts.current.clear()
     inferNewConnectionMode.current = creating
-    const next = createTravelLegEditDraft(creating ? null : leg)
-    if (leg && creating) { next.from = connectionEndpointInput(leg.from); next.to = connectionEndpointInput(leg.to) }
+    const next = createConnectionEditDraft(creating ? null : connection)
+    if (connection && creating) { next.from = connectionEndpointInput(connection.from); next.to = connectionEndpointInput(connection.to) }
     initializeOutsideLocation(next)
     next.segments = next.segments.map((segment) => withFlightDepartureDate(segment, defaultFlightDate))
     next.segments.forEach((segment, index) => modeDrafts.current.set((segment.id || index) + ':' + segment.travel_mode, segment))
@@ -120,59 +120,59 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     setTransferSide(null)
     setDirty(false); setPreview(null); setLookups({}); setError(null); setBusy(null)
     showPreview(null)
-    if (submittedLeg.current && open && leg !== submittedLeg.current) {
-      submittedLeg.current = null; closeAfterSave(); return
+    if (submittedConnection.current && open && connection !== submittedConnection.current) {
+      submittedConnection.current = null; closeAfterSave(); return
     }
-    if (!open) submittedLeg.current = null
-    if (open && leg && !creating && next.segments.some((segment) => roadModes.includes(segment.travel_mode))) calculateOnOpen(next)
+    if (!open) submittedConnection.current = null
+    if (open && connection && !creating && next.segments.some((segment) => roadModes.includes(segment.travel_mode))) calculateOnOpen(next)
     return () => { version.current += 1; request.current?.abort(); showPreview(null) }
-  }, [leg, open, showPreview, fromStop, creating, defaultFlightDate])
+  }, [connection, open, showPreview, fromStop, creating, defaultFlightDate])
   const endpointReady = !onOutsideLocationChange || Boolean(outsideLocation)
   const applyOutsideLocation = useEffectEvent(() => {
-    if (!leg || !onOutsideLocationChange) return
+    if (!connection || !onOutsideLocationChange) return
     if (appliedOutsideLocation.current === outsideLocation) return
     appliedOutsideLocation.current = outsideLocation
-    const side = leg.connection_type === 'DEPARTURE' ? 'from' : 'to'
+    const side = connection.connection_type === 'DEPARTURE' ? 'from' : 'to'
     const endpoint = outsideLocation ? { type: 'LOCATION' as const, location: outsideLocation.input } : undefined
     if (JSON.stringify(draft[side]) !== JSON.stringify(endpoint)) {
       const next = update({ ...draft, [side]: endpoint }, true)
       if (open && next.from && next.to) void calculate(false, next)
     }
   })
-  useEffect(() => { applyOutsideLocation() }, [outsideLocation, leg])
+  useEffect(() => { applyOutsideLocation() }, [outsideLocation, connection])
   useEffect(() => {
     const transfer = session.airportTransferRequest
-    if (open && transfer && transfer.legId === leg?.id && transfer.sequence !== handledTransferRequest.current) {
+    if (open && transfer && transfer.connectionId === connection?.id && transfer.sequence !== handledTransferRequest.current) {
       handledTransferRequest.current = transfer.sequence
       setTransferSide(transfer.side)
     }
-  }, [open, leg?.id, session.airportTransferRequest])
-  const currentConnection = useMemo<TravelLeg | null>(() => {
+  }, [open, connection?.id, session.airportTransferRequest])
+  const currentConnection = useMemo<Connection | null>(() => {
     if (preview) return connectionWithOptions(preview.connection, draft)
-    if (!leg || !dirty) return leg
+    if (!connection || !dirty) return connection
     const outside = outsideLocation ? { type: 'LOCATION' as const, location: { ...outsideLocation.anchor.location, id: 'draft-location', full_name: outsideLocation.anchor.title, country_code: '', region: '' } } : null
-    const endpointsUnchanged = JSON.stringify([draft.from, draft.to]) === JSON.stringify([connectionEndpointInput(leg.from), connectionEndpointInput(leg.to)])
-    const from = outside && leg.connection_type === 'DEPARTURE' ? outside : leg.from
-    const to = outside && leg.connection_type === 'RETURN' ? outside : leg.to
+    const endpointsUnchanged = JSON.stringify([draft.from, draft.to]) === JSON.stringify([connectionEndpointInput(connection.from), connectionEndpointInput(connection.to)])
+    const from = outside && connection.connection_type === 'DEPARTURE' ? outside : connection.from
+    const to = outside && connection.connection_type === 'RETURN' ? outside : connection.to
     const anchors = [from, to].map((endpoint) => resolveConnectionEndpoint(endpoint, [fromStop, toStop].filter((stop): stop is Stop => stop !== null)))
-    return { ...leg, from, to, segments: draft.segments.map((intent, index) => {
-      const saved = leg.segments.find((segment) => segment.id === intent.id)
+    return { ...connection, from, to, segments: draft.segments.map((intent, index) => {
+      const saved = connection.segments.find((segment) => segment.id === intent.id)
       const unchanged = endpointsUnchanged && saved && planningPreviewKey({ notes: '', segments: [saved.intent] }) === planningPreviewKey({ notes: '', segments: [intent] })
-      return { ...(saved || leg.segments[0]), input_version: saved?.input_version ?? 1, mode_source: saved?.mode_source ?? 'USER', id: intent.id || 'draft-' + index, intent,
+      return { ...(saved || connection.segments[0]), input_version: saved?.input_version ?? 1, mode_source: saved?.mode_source ?? 'USER', id: intent.id || 'draft-' + index, intent,
         geometry: unchanged ? saved.geometry : null,
         from_endpoint: unchanged ? saved.from_endpoint : null, to_endpoint: unchanged ? saved.to_endpoint : null,
         lookup: unchanged ? saved.lookup : null,
         route_state: unchanged ? saved.route_state : 'NOT_CALCULATED' as const, route_options: [],
         duration_seconds: unchanged ? saved.duration_seconds : null, distance_meters: unchanged ? saved.distance_meters : null }
-    }), duration_seconds: null, warnings: [], route: { ...leg.route, type: 'SIMPLE' as const,
+    }), duration_seconds: null, warnings: [], route: { ...connection.route, type: 'SIMPLE' as const,
       geometry: { type: 'LineString' as const, coordinates: anchors.flatMap((anchor) => anchor ? [[anchor.location.longitude, anchor.location.latitude] as [number, number]] : []) } } }
-  }, [preview, draft, leg, dirty, outsideLocation, fromStop, toStop])
+  }, [preview, draft, connection, dirty, outsideLocation, fromStop, toStop])
   useEffect(() => { if (open) showPreview(endpointReady ? currentConnection : null) }, [currentConnection, open, showPreview, endpointReady])
   const endpointStops = [fromStop, toStop].filter((stop): stop is Stop => stop !== null)
-  const fromAnchor = leg ? outsideLocation && leg.connection_type === 'DEPARTURE' ? outsideLocation.anchor : resolveConnectionEndpoint((preview?.connection || leg).from, endpointStops) : null
-  const toAnchor = leg ? outsideLocation && leg.connection_type === 'RETURN' ? outsideLocation.anchor : resolveConnectionEndpoint((preview?.connection || leg).to, endpointStops) : null
-  if (!leg || !fromAnchor || !toAnchor) return null
-  const currentLeg = leg
+  const fromAnchor = connection ? outsideLocation && connection.connection_type === 'DEPARTURE' ? outsideLocation.anchor : resolveConnectionEndpoint((preview?.connection || connection).from, endpointStops) : null
+  const toAnchor = connection ? outsideLocation && connection.connection_type === 'RETURN' ? outsideLocation.anchor : resolveConnectionEndpoint((preview?.connection || connection).to, endpointStops) : null
+  if (!connection || !fromAnchor || !toAnchor) return null
+  const savedConnection = connection
   const disabled = saving || busy !== null || !endpointReady
   const transfers = currentConnection ? getAirportTransfers(currentConnection, fromAnchor, toAnchor) : []
   const activeTransfer = transfers.find((transfer) => transfer.side === transferSide)
@@ -199,14 +199,14 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     // Selecting a mode is the explicit request to calculate its route.
     void calculate(false, next)
   }
-  function update(next: TravelLegEditDraft, preserveDefaultMode = false) {
+  function update(next: ConnectionEditDraft, preserveDefaultMode = false) {
     if (!preserveDefaultMode) inferNewConnectionMode.current = false
     if (next.segments.length !== draft.segments.length || next.segments.some((segment, index) => segment.id !== draft.segments[index]?.id)) {
       previews.current.clear(); modeDrafts.current.clear()
     }
     version.current += 1
     request.current?.abort()
-    const withoutNotes = (value: TravelLegEditDraft) => JSON.stringify({ ...value, notes: '', preview_id: undefined,
+    const withoutNotes = (value: ConnectionEditDraft) => JSON.stringify({ ...value, notes: '', preview_id: undefined,
       segments: value.segments.map((segment) => ({ ...segment, notes: '' })) })
     const notesOnly = withoutNotes(next) === withoutNotes(draft)
     setDirty(true); setBusy(null); setError(null)
@@ -233,7 +233,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     const inferMode = creating && inferNewConnectionMode.current
     setBusy('Calculating route'); setError(null)
     try {
-      const result = await previewTravel({ tripId: leg!.trip_id, legId: creating ? undefined : leg!.id,
+      const result = await previewConnection({ tripId: connection!.trip_id, connectionId: creating ? undefined : connection!.id,
         accessToken: session.accessToken, itineraryRevision: session.itineraryRevision,
         payload: { ...connectionWritePayload(payload), ...(inferMode ? { preview_id: undefined, segments: undefined } : {}) },
         retryFailed, signal: controller.signal })
@@ -261,7 +261,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
     request.current = controller
     setBusy('Looking up flight'); setError(null)
     try {
-      const result = await lookupFlight({ tripId: currentLeg.trip_id, legId: creating ? undefined : currentLeg.id,
+      const result = await lookupFlight({ tripId: savedConnection.trip_id, connectionId: creating ? undefined : savedConnection.id,
         accessToken: session.accessToken, itineraryRevision: session.itineraryRevision,
         payload: { flight_number: flight.flight_number, departure_date: flight.departure_date },
         signal: controller.signal })
@@ -270,7 +270,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
       if (version.current === activeVersion) setError(getErrorMessage(failure))
     } finally { if (version.current === activeVersion) setBusy(null) }
   }
-  function draftForMode(index: number, mode: TravelMode, optionIndex = 0): TravelLegEditDraft {
+  function draftForMode(index: number, mode: TravelMode, optionIndex = 0): ConnectionEditDraft {
     const segment = draft.segments[index]
     const remembered = modeDrafts.current.get((segment.id || index) + ':' + mode)
     const target = mode === segment.travel_mode ? segment : remembered || {
@@ -308,11 +308,11 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
         {error || session.saveError ? <p role="alert" className="w-full text-sm text-destructive">{error || session.saveError}</p> : null}
         <p className="text-sm text-muted-foreground">{!endpointReady ? 'Choose a location to continue.' : busy ? <span role="status" className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{busy}…</span> : currentConnection?.duration_seconds != null ? routeTime(currentConnection.duration_seconds) + (currentConnection.duration_scope === 'FLIGHT_JOURNEY' ? ' flight journey · airport transfers not included' : ' estimated travel time') : 'Select a route to preview it on the map'}</p>
         <div className="flex min-w-0 flex-wrap gap-2"><Button disabled={saving} type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        <Button disabled={disabled || Boolean(activeTransfer)} type="button" onClick={() => { submittedLeg.current = leg; onSave(leg.id, draft) }}>{saving ? 'Saving…' : creating ? leg.connection_type === 'DEPARTURE' ? 'Add departure' : 'Add return' : 'Select this route'}</Button></div>
+        <Button disabled={disabled || Boolean(activeTransfer)} type="button" onClick={() => { submittedConnection.current = connection; onSave(connection.id, draft) }}>{saving ? 'Saving…' : creating ? connection.connection_type === 'DEPARTURE' ? 'Add departure' : 'Add return' : 'Select this route'}</Button></div>
       </div>}>
       <div className="grid min-h-full min-w-0 grid-cols-1">
       <div className="order-2 grid min-w-0 grid-cols-1 content-start gap-4 p-4 lg:order-1 lg:p-5">
-          {onOutsideLocationChange ? !desktop ? <ConnectionLocationPicker label={leg.connection_type === 'DEPARTURE' ? 'Departure location' : 'Return location'}
+          {onOutsideLocationChange ? !desktop ? <ConnectionLocationPicker label={connection.connection_type === 'DEPARTURE' ? 'Departure location' : 'Return location'}
             value={outsideLocation ?? null} onChange={onOutsideLocationChange} onRemove={onDelete} disabled={saving || busy !== null} /> : null : (['from', 'to'] as const).map((side) => {
             const endpoint = draft[side]
             return endpoint?.type === 'LOCATION' ? <EndpointPicker key={side} label={side === 'from' ? 'Departure location' : 'Return location'}
@@ -321,7 +321,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
               }} /> : null
           })}
 
-        {!endpointReady ? <p role="status" className="text-sm text-muted-foreground">Choose a {leg.connection_type === 'DEPARTURE' ? 'departure' : 'return'} location to enable travel options.</p> : null}
+        {!endpointReady ? <p role="status" className="text-sm text-muted-foreground">Choose a {connection.connection_type === 'DEPARTURE' ? 'departure' : 'return'} location to enable travel options.</p> : null}
 
         {activeTransfer ? <section aria-label="Choose airport transfer" className="grid min-w-0 gap-3">
           <h3 className="font-semibold">Airport transfer</h3>
@@ -339,7 +339,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
         {draft.segments.map((segment, index) => {
           const labels = transitLabels[segment.travel_mode]
           const flight = segment.flight || {}
-          const saved = leg.segments.find((s) => s.id === segment.id)
+          const saved = connection.segments.find((s) => s.id === segment.id)
           const estimate = currentConnection?.segments[index]
           const currentLookup = lookups[index]?.candidates?.find((candidate) => candidate.candidate_id === flight.candidate_id)?.lookup ||
             (saved && saved.lookup?.flight_number === flight.flight_number && saved?.lookup?.departure_date === flight.departure_date && (saved.intent.flight?.departure_airport_place_id ?? null) === (flight.departure_airport_place_id ?? null) && (saved.intent.flight?.arrival_airport_place_id ?? null) === (flight.arrival_airport_place_id ?? null) ? saved?.lookup : null)
@@ -444,7 +444,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
         <details className="rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm font-medium">Journey notes</summary><Textarea className="mt-3" aria-label="Connection notes" disabled={disabled} value={draft.notes || ''} onChange={(event) => update({ ...draft, notes: event.target.value })} /></details>
         {currentConnection ? <div className="grid gap-2 rounded-xl bg-muted p-3" aria-live="polite">
           <p>{currentConnection.duration_seconds != null ? formatDuration(currentConnection.duration_seconds) + ' · ' + (currentConnection.duration_scope === 'FLIGHT_JOURNEY' ? 'Flight journey; airport transfers excluded' : 'Estimated travel time; waits excluded') : 'No combined duration estimate. Available segment times are shown above.'}</p>
-          {currentConnection.warnings.map((warning) => <p key={warning} className="text-sm">{warning}</p>)}
+          {currentConnection.warnings.map((warning) => <p key={warning.code + (warning.segment_id ?? '')} className="text-sm">{warning.message}</p>)}
         </div> : null}
         <p className="text-xs text-muted-foreground">Flight information from <a href="https://aerodatabox.com/" target="_blank" rel="noopener" className="underline">AeroDataBox</a>. Flight lines are approximate.</p>
         <div className="flex flex-wrap justify-end gap-2">
@@ -456,7 +456,7 @@ export function TravelLegEditDialog({ fromStop, leg, onClose, onSave, open, savi
       </div>
       {!desktop ? <section aria-label="Connection map preview" className="order-1 sticky top-0 z-10 h-64 overflow-hidden border-b border-border bg-muted lg:order-2 lg:sticky lg:top-0 lg:h-[calc(100dvh-15rem)] lg:min-h-[30rem] lg:max-h-[41rem] lg:border-b-0 lg:border-l">
         {currentConnection && endpointReady ? <TripLeafletMap fitMode="route-preview" draftMapLocation={null} mapPointEnabled={false} onDraftMapPointSelect={() => {}}
-          resetNonce={0} stops={endpointStops} travelLegs={[currentConnection]}
+          resetNonce={0} stops={endpointStops} connections={[currentConnection]}
           travelPosts={[]} trackingGeometry={EMPTY_TRACKING_GEOMETRY} /> : null}
         <div className="pointer-events-none absolute bottom-3 left-3 right-12 z-[400] rounded-xl border border-border bg-card/95 p-3 text-xs shadow-sm">
           <div className="flex items-center gap-2 font-medium"><MapPin className="size-4 text-primary" />{fromAnchor.title} → {toAnchor.title}</div>

@@ -1600,6 +1600,18 @@ export interface components {
             /** File */
             file: string;
         };
+        /** ConnectionDeletionSummary */
+        ConnectionDeletionSummary: {
+            /** From */
+            from: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** To */
+            to: string;
+        };
         /** ConnectionIntent */
         ConnectionIntent: {
             /**
@@ -1611,6 +1623,12 @@ export interface components {
             preview_id?: string | null;
             /** Segments */
             segments: components["schemas"]["SegmentIntent"][];
+        };
+        /** ConnectionMutationResponse */
+        ConnectionMutationResponse: {
+            connection: components["schemas"]["ItineraryConnectionResponse"];
+            /** Itinerary Revision */
+            itinerary_revision: number;
         };
         /** CurrentUserResponse */
         CurrentUserResponse: {
@@ -1920,6 +1938,77 @@ export interface components {
              */
             asset_id: string;
         };
+        /** ItineraryConnectionReplaceRequest */
+        ItineraryConnectionReplaceRequest: {
+            /** From */
+            from: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointInput"];
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /** Preview Id */
+            preview_id?: string | null;
+            /**
+             * Segments
+             * @description Omit to choose transport automatically. Provide one or more segments to choose transport explicitly. An empty list or null is not accepted.
+             */
+            segments?: components["schemas"]["SegmentIntent"][];
+            /** To */
+            to: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointInput"];
+        };
+        /** ItineraryConnectionResponse */
+        ItineraryConnectionResponse: {
+            /**
+             * Connection Type
+             * @enum {string}
+             */
+            connection_type: "BETWEEN_STOPS" | "DEPARTURE" | "RETURN";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Duration Scope */
+            duration_scope: ("JOURNEY" | "FLIGHT_JOURNEY") | null;
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            /** From */
+            from: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointResponse"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Notes */
+            notes: string;
+            route: components["schemas"]["ItineraryConnectionRouteResponse"];
+            /** Segments */
+            segments: components["schemas"]["SegmentResponse"][];
+            /** To */
+            to: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointResponse"];
+            /**
+             * Trip Id
+             * Format: uuid
+             */
+            trip_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Warnings */
+            warnings: components["schemas"]["PlanningWarning"][];
+        };
+        /** ItineraryConnectionRouteResponse */
+        ItineraryConnectionRouteResponse: {
+            /** Distance Meters */
+            distance_meters: number | null;
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            geometry: components["schemas"]["GeoJsonLineString"];
+            type: components["schemas"]["ItineraryRouteType"];
+        };
         /** ItineraryPlacement */
         ItineraryPlacement: {
             /** After Stop Id */
@@ -1932,10 +2021,10 @@ export interface components {
         };
         /** ItineraryResponse */
         ItineraryResponse: {
+            /** Connections */
+            connections: components["schemas"]["ItineraryConnectionResponse"][];
             /** Itinerary Revision */
             itinerary_revision: number;
-            /** Legs */
-            legs: components["schemas"]["ItineraryTravelLegResponse"][];
             /** Stops */
             stops: components["schemas"]["ItineraryStopResponse"][];
             /**
@@ -1951,7 +2040,7 @@ export interface components {
         ItineraryRouteType: "PROVIDER_BACKED" | "SIMPLE";
         /** ItineraryStopCreateRequest */
         ItineraryStopCreateRequest: {
-            incoming_travel?: components["schemas"]["ConnectionIntent"] | null;
+            incoming_connection?: components["schemas"]["ConnectionIntent"] | null;
             /** Location */
             location: components["schemas"]["LocationPlaceInput"] | components["schemas"]["LocationCoordinatesInput"];
             /**
@@ -1959,7 +2048,7 @@ export interface components {
              * @default
              */
             notes: string;
-            outgoing_travel?: components["schemas"]["ConnectionIntent"] | null;
+            outgoing_connection?: components["schemas"]["ConnectionIntent"] | null;
             placement: components["schemas"]["ItineraryPlacement"];
             /** Planned Nights */
             planned_nights: number;
@@ -1968,8 +2057,8 @@ export interface components {
         };
         /** ItineraryStopDetailResponse */
         ItineraryStopDetailResponse: {
-            incoming_leg: components["schemas"]["ItineraryTravelLegResponse"] | null;
-            outgoing_leg: components["schemas"]["ItineraryTravelLegResponse"] | null;
+            incoming_connection: components["schemas"]["ItineraryConnectionResponse"] | null;
+            outgoing_connection: components["schemas"]["ItineraryConnectionResponse"] | null;
             stop: components["schemas"]["ItineraryStopResponse"];
         };
         /** ItineraryStopResponse */
@@ -2014,88 +2103,17 @@ export interface components {
         };
         /** ItineraryStopUpdateRequest */
         ItineraryStopUpdateRequest: {
-            incoming_travel?: components["schemas"]["ConnectionIntent"] | null;
+            incoming_connection?: components["schemas"]["ConnectionIntent"] | null;
             /** Location */
             location?: components["schemas"]["LocationPlaceInput"] | components["schemas"]["LocationCoordinatesInput"] | null;
             /** Notes */
             notes?: string | null;
-            outgoing_travel?: components["schemas"]["ConnectionIntent"] | null;
+            outgoing_connection?: components["schemas"]["ConnectionIntent"] | null;
             placement?: components["schemas"]["ItineraryPlacement"] | null;
             /** Planned Nights */
             planned_nights?: number | null;
             /** Title */
             title?: string | null;
-        };
-        /** ItineraryTravelLegResponse */
-        ItineraryTravelLegResponse: {
-            /**
-             * Connection Type
-             * @enum {string}
-             */
-            connection_type: "BETWEEN_STOPS" | "DEPARTURE" | "RETURN";
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Duration Scope */
-            duration_scope: ("JOURNEY" | "FLIGHT_JOURNEY") | null;
-            /** Duration Seconds */
-            duration_seconds: number | null;
-            /** From */
-            from: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointResponse"];
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Notes */
-            notes: string;
-            route: components["schemas"]["ItineraryTravelRouteResponse"];
-            /** Segments */
-            segments: components["schemas"]["SegmentResponse"][];
-            /** To */
-            to: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointResponse"];
-            /**
-             * Trip Id
-             * Format: uuid
-             */
-            trip_id: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-            /** Warnings */
-            warnings: string[];
-        };
-        /** ItineraryTravelReplaceRequest */
-        ItineraryTravelReplaceRequest: {
-            /** From */
-            from: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointInput"];
-            /**
-             * Notes
-             * @default
-             */
-            notes: string;
-            /** Preview Id */
-            preview_id?: string | null;
-            /**
-             * Segments
-             * @description Omit to choose transport automatically. Provide one or more segments to choose transport explicitly. An empty list or null is not accepted.
-             */
-            segments?: components["schemas"]["SegmentIntent"][];
-            /** To */
-            to: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointInput"];
-        };
-        /** ItineraryTravelRouteResponse */
-        ItineraryTravelRouteResponse: {
-            /** Distance Meters */
-            distance_meters: number | null;
-            /** Duration Seconds */
-            duration_seconds: number | null;
-            geometry: components["schemas"]["GeoJsonLineString"];
-            type: components["schemas"]["ItineraryRouteType"];
         };
         /** JobAuditResponse */
         JobAuditResponse: {
@@ -2390,6 +2408,44 @@ export interface components {
             /** Timezone */
             timezone?: string | null;
         };
+        /** PlanningErrorDetail */
+        PlanningErrorDetail: {
+            /** Code */
+            code: string;
+            /** Connections */
+            connections?: components["schemas"]["ConnectionDeletionSummary"][];
+            /** Message */
+            message: string;
+            /** Segment Id */
+            segment_id?: string | null;
+            /** Validation Errors */
+            validation_errors?: components["schemas"]["PlanningValidationIssue"][];
+        };
+        /** PlanningErrorResponse */
+        PlanningErrorResponse: {
+            detail: components["schemas"]["PlanningErrorDetail"];
+        };
+        /** PlanningValidationIssue */
+        PlanningValidationIssue: {
+            /** Location */
+            location: (string | number)[];
+            /** Message */
+            message: string;
+            /** Type */
+            type: string;
+        };
+        /** PlanningWarning */
+        PlanningWarning: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "AUTO_CAR_UNAVAILABLE" | "UNRESOLVED_ENDPOINTS" | "ROUTING_LIMIT_REACHED" | "INVALID_FLIGHT_SCHEDULE" | "DEPARTURE_BEFORE_STOP_END" | "ARRIVAL_AFTER_STOP_START" | "UNRESOLVED_TRANSFER" | "OVERLAPPING_FLIGHTS" | "CALCULATION_INCOMPLETE";
+            /** Message */
+            message: string;
+            /** Segment Id */
+            segment_id?: string | null;
+        };
         /**
          * PlatformPermission
          * @description Permissions that apply to the platform rather than a specific trip.
@@ -2611,7 +2667,7 @@ export interface components {
         };
         /** PreviewResponse */
         PreviewResponse: {
-            connection: components["schemas"]["ItineraryTravelLegResponse"];
+            connection: components["schemas"]["ItineraryConnectionResponse"];
             /**
              * Expires At
              * Format: date-time
@@ -2651,13 +2707,8 @@ export interface components {
             duration_seconds?: number | null;
             geometry: components["schemas"]["GeoJsonLineString"];
         };
-        /** RouteOverviewGeometryResponse */
-        RouteOverviewGeometryResponse: {
-            geometry: components["schemas"]["GeoJsonLineString"];
-            type: components["schemas"]["ItineraryRouteType"];
-        };
-        /** RouteOverviewLegResponse */
-        RouteOverviewLegResponse: {
+        /** RouteOverviewConnectionResponse */
+        RouteOverviewConnectionResponse: {
             /** From */
             from: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointResponse"];
             /**
@@ -2671,6 +2722,11 @@ export interface components {
             /** To */
             to: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointResponse"];
         };
+        /** RouteOverviewGeometryResponse */
+        RouteOverviewGeometryResponse: {
+            geometry: components["schemas"]["GeoJsonLineString"];
+            type: components["schemas"]["ItineraryRouteType"];
+        };
         /** RouteOverviewPointResponse */
         RouteOverviewPointResponse: {
             /** Latitude */
@@ -2682,8 +2738,8 @@ export interface components {
         };
         /** RouteOverviewResponse */
         RouteOverviewResponse: {
-            /** Legs */
-            legs: components["schemas"]["RouteOverviewLegResponse"][];
+            /** Connections */
+            connections: components["schemas"]["RouteOverviewConnectionResponse"][];
             /** Stops */
             stops: components["schemas"]["RouteOverviewStopResponse"][];
             /**
@@ -4807,13 +4863,76 @@ export interface operations {
                     "application/json": components["schemas"]["ItineraryResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -4831,7 +4950,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ItineraryTravelReplaceRequest"];
+                "application/json": components["schemas"]["ItineraryConnectionReplaceRequest"];
             };
         };
         responses: {
@@ -4841,16 +4960,79 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ItineraryTravelLegResponse"];
+                    "application/json": components["schemas"]["ConnectionMutationResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -4881,13 +5063,76 @@ export interface operations {
                     "application/json": components["schemas"]["FlightLookupResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -4907,7 +5152,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ItineraryTravelReplaceRequest"];
+                "application/json": components["schemas"]["ItineraryConnectionReplaceRequest"];
             };
         };
         responses: {
@@ -4920,13 +5165,76 @@ export interface operations {
                     "application/json": components["schemas"]["PreviewResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -4951,16 +5259,79 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ItineraryTravelLegResponse"];
+                    "application/json": components["schemas"]["ItineraryConnectionResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -4979,7 +5350,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ItineraryTravelReplaceRequest"];
+                "application/json": components["schemas"]["ItineraryConnectionReplaceRequest"];
             };
         };
         responses: {
@@ -4989,16 +5360,79 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ItineraryTravelLegResponse"];
+                    "application/json": components["schemas"]["ConnectionMutationResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -5006,7 +5440,7 @@ export interface operations {
     delete_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__delete: {
         parameters: {
             query?: {
-                confirm_travel_deletion?: boolean;
+                confirm_connection_deletion?: boolean;
             };
             header?: {
                 "If-Match"?: string | null;
@@ -5028,13 +5462,76 @@ export interface operations {
                     "application/json": components["schemas"]["ItineraryResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -5066,13 +5563,76 @@ export interface operations {
                     "application/json": components["schemas"]["FlightLookupResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -5093,7 +5653,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ItineraryTravelReplaceRequest"];
+                "application/json": components["schemas"]["ItineraryConnectionReplaceRequest"];
             };
         };
         responses: {
@@ -5106,13 +5666,76 @@ export interface operations {
                     "application/json": components["schemas"]["PreviewResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -5137,16 +5760,79 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ItineraryTravelLegResponse"];
+                    "application/json": components["schemas"]["ConnectionMutationResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -5173,13 +5859,76 @@ export interface operations {
                     "application/json": components["schemas"]["RouteOverviewResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -5187,7 +5936,7 @@ export interface operations {
     create_stop_api_v1_trips__trip_id__itinerary_stops_post: {
         parameters: {
             query?: {
-                confirm_travel_deletion?: boolean;
+                confirm_connection_deletion?: boolean;
             };
             header?: {
                 "If-Match"?: string | null;
@@ -5212,13 +5961,76 @@ export interface operations {
                     "application/json": components["schemas"]["ItineraryResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -5246,13 +6058,76 @@ export interface operations {
                     "application/json": components["schemas"]["ItineraryStopDetailResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -5260,7 +6135,7 @@ export interface operations {
     delete_stop_api_v1_trips__trip_id__itinerary_stops__stop_id__delete: {
         parameters: {
             query?: {
-                confirm_travel_deletion?: boolean;
+                confirm_connection_deletion?: boolean;
             };
             header?: {
                 "If-Match"?: string | null;
@@ -5282,13 +6157,76 @@ export interface operations {
                     "application/json": components["schemas"]["ItineraryResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };
@@ -5296,7 +6234,7 @@ export interface operations {
     update_stop_api_v1_trips__trip_id__itinerary_stops__stop_id__patch: {
         parameters: {
             query?: {
-                confirm_travel_deletion?: boolean;
+                confirm_connection_deletion?: boolean;
             };
             header?: {
                 "If-Match"?: string | null;
@@ -5322,13 +6260,76 @@ export interface operations {
                     "application/json": components["schemas"]["ItineraryResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Planning conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Itinerary changed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Revision required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
+                };
+            };
+            /** @description Calculation limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningErrorResponse"];
                 };
             };
         };

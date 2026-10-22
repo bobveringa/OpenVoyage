@@ -340,7 +340,6 @@ def get_flight_provider(
 
 def get_itinerary_route_service(
     session: SessionDep,
-    background_tasks: BackgroundTasks,
     route_provider: Annotated[RouteProviderBase | None, Depends(get_route_provider)],
     flight_provider: Annotated[FlightProviderBase | None, Depends(get_flight_provider)],
 ):

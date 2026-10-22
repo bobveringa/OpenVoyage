@@ -9,12 +9,13 @@ from models.api.planning import FlightLookupRequest, FlightLookupResponse
 from models.api.route_overview import RouteOverviewResponse
 from api.deps import CurrentUser, ItineraryServiceDep, OptionalCurrentUser, ShareToken
 from models.api.itinerary import (
+    ConnectionMutationResponse,
     ItineraryResponse,
     ItineraryStopCreateRequest,
     ItineraryStopDetailResponse,
     ItineraryStopUpdateRequest,
-    ItineraryTravelLegResponse,
-    ItineraryTravelReplaceRequest,
+    ItineraryConnectionResponse,
+    ItineraryConnectionReplaceRequest,
     PreviewResponse,
 )
 from services.itinerary_service import (
@@ -22,13 +23,18 @@ from services.itinerary_service import (
     ItineraryPlacementError,
     ItineraryRevisionMismatchError,
     ItineraryStopNotFoundError,
-    ItineraryTravelLegNotFoundError,
-    ItineraryTravelValidationError,
+    ItineraryConnectionNotFoundError,
+    ItineraryConnectionValidationError,
 )
 from services.trip_errors import TripNotFoundError
 from services.location_service import LocationNotFoundError
 
-router = APIRouter(prefix='/trips/{trip_id}/itinerary', tags=['itinerary'])
+from api.planning_route import PlanningRoute, PLANNING_ERROR_RESPONSES
+
+router = APIRouter(
+    prefix='/trips/{trip_id}/itinerary', tags=['itinerary'],
+    route_class=PlanningRoute, responses=PLANNING_ERROR_RESPONSES,
+)
 
 _IF_MATCH_RE = re.compile(r'^"([0-9]+)"$')
 
@@ -58,7 +64,7 @@ def _raise_http_error(exc: Exception) -> None:
         (
             TripNotFoundError,
             ItineraryStopNotFoundError,
-            ItineraryTravelLegNotFoundError,
+            ItineraryConnectionNotFoundError,
             LocationNotFoundError,
         ),
     ):
@@ -77,7 +83,7 @@ def _raise_http_error(exc: Exception) -> None:
                 ),
             },
         )
-    if isinstance(exc, (ItineraryPlacementError, ItineraryTravelValidationError)):
+    if isinstance(exc, (ItineraryPlacementError, ItineraryConnectionValidationError)):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
@@ -133,7 +139,7 @@ def get_itinerary(
         trip_id=snapshot.trip_id,
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
-        legs=snapshot.legs,
+        connections=snapshot.connections,
         route_resolver=itinerary_service.route_service.resolve_route_response,
     )
 
@@ -149,10 +155,10 @@ def create_stop(
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
-    confirm_travel_deletion: bool = False,
+    confirm_connection_deletion: bool = False,
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ) -> ItineraryResponse:
-    itinerary_service.confirm_travel_deletion = confirm_travel_deletion
+    itinerary_service.confirm_connection_deletion = confirm_connection_deletion
     try:
         snapshot = itinerary_service.create_stop(
             trip_id=trip_id,
@@ -168,7 +174,7 @@ def create_stop(
         trip_id=snapshot.trip_id,
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
-        legs=snapshot.legs,
+        connections=snapshot.connections,
         route_resolver=itinerary_service.route_service.resolve_route_response,
     )
 
@@ -199,8 +205,8 @@ def get_stop(
     response.headers['Cache-Control'] = 'private, no-store'
     return ItineraryStopDetailResponse.from_parts(
         stop=detail.stop,
-        incoming_leg=detail.incoming_leg,
-        outgoing_leg=detail.outgoing_leg,
+        incoming_connection=detail.incoming_connection,
+        outgoing_connection=detail.outgoing_connection,
         route_resolver=itinerary_service.route_service.resolve_route_response,
     )
 
@@ -216,10 +222,10 @@ def update_stop(
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
-    confirm_travel_deletion: bool = False,
+    confirm_connection_deletion: bool = False,
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ) -> ItineraryResponse:
-    itinerary_service.confirm_travel_deletion = confirm_travel_deletion
+    itinerary_service.confirm_connection_deletion = confirm_connection_deletion
     try:
         snapshot = itinerary_service.update_stop(
             trip_id=trip_id,
@@ -236,7 +242,7 @@ def update_stop(
         trip_id=snapshot.trip_id,
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
-        legs=snapshot.legs,
+        connections=snapshot.connections,
         route_resolver=itinerary_service.route_service.resolve_route_response,
     )
 
@@ -251,10 +257,10 @@ def delete_stop(
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
-    confirm_travel_deletion: bool = False,
+    confirm_connection_deletion: bool = False,
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ) -> ItineraryResponse:
-    itinerary_service.confirm_travel_deletion = confirm_travel_deletion
+    itinerary_service.confirm_connection_deletion = confirm_connection_deletion
     try:
         snapshot = itinerary_service.delete_stop(
             trip_id=trip_id,
@@ -270,7 +276,7 @@ def delete_stop(
         trip_id=snapshot.trip_id,
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
-        legs=snapshot.legs,
+        connections=snapshot.connections,
         route_resolver=itinerary_service.route_service.resolve_route_response,
     )
 
@@ -278,11 +284,11 @@ def delete_stop(
 @router.post(
     '/connections',
     status_code=status.HTTP_201_CREATED,
-    response_model=ItineraryTravelLegResponse,
+    response_model=ConnectionMutationResponse,
 )
 def create_connection(
     trip_id: uuid.UUID,
-    payload: ItineraryTravelReplaceRequest,
+    payload: ItineraryConnectionReplaceRequest,
     response: Response,
     request: Request,
     itinerary_service: ItineraryServiceDep,
@@ -290,7 +296,7 @@ def create_connection(
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ):
     try:
-        detail = itinerary_service.create_travel_leg(
+        detail = itinerary_service.create_connection(
             trip_id,
             payload,
             user.id,
@@ -299,10 +305,13 @@ def create_connection(
     except Exception as exc:
         _raise_http_error(exc)
     response.headers['ETag'] = _etag(detail.itinerary_revision)
-    response.headers['Location'] = f'{request.url.path}/{detail.leg.id}'
-    return ItineraryTravelLegResponse.from_model(
-        detail.leg,
-        route=itinerary_service.route_service.resolve_route_response(detail.leg),
+    response.headers['Location'] = f'{request.url.path}/{detail.connection.id}'
+    return ConnectionMutationResponse(
+        itinerary_revision=detail.itinerary_revision,
+        connection=ItineraryConnectionResponse.from_model(
+            detail.connection,
+            route=itinerary_service.route_service.resolve_route_response(detail.connection),
+        ),
     )
 
 
@@ -313,12 +322,12 @@ def delete_connection(
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
-    confirm_travel_deletion: bool = False,
+    confirm_connection_deletion: bool = False,
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ):
-    itinerary_service.confirm_travel_deletion = confirm_travel_deletion
+    itinerary_service.confirm_connection_deletion = confirm_connection_deletion
     try:
-        snapshot = itinerary_service.delete_travel_leg(
+        snapshot = itinerary_service.delete_connection(
             trip_id,
             connection_id,
             user.id,
@@ -331,14 +340,14 @@ def delete_connection(
         trip_id=snapshot.trip_id,
         itinerary_revision=snapshot.itinerary_revision,
         stops=snapshot.stops,
-        legs=snapshot.legs,
+        connections=snapshot.connections,
         route_resolver=itinerary_service.route_service.resolve_route_response,
     )
 
 
 @router.get(
     '/connections/{connection_id}',
-    response_model=ItineraryTravelLegResponse,
+    response_model=ItineraryConnectionResponse,
 )
 def get_connection(
     trip_id: uuid.UUID,
@@ -347,11 +356,11 @@ def get_connection(
     itinerary_service: ItineraryServiceDep,
     user: OptionalCurrentUser,
     share_token: ShareToken = None,
-) -> ItineraryTravelLegResponse:
+) -> ItineraryConnectionResponse:
     try:
-        detail = itinerary_service.get_travel_leg(
+        detail = itinerary_service.get_connection(
             trip_id=trip_id,
-            leg_id=connection_id,
+            connection_id=connection_id,
             current_user_id=user.id if user else None,
             share_token=share_token,
         )
@@ -360,29 +369,29 @@ def get_connection(
 
     response.headers['ETag'] = _etag(detail.itinerary_revision)
     response.headers['Cache-Control'] = 'private, no-store'
-    return ItineraryTravelLegResponse.from_model(
-        detail.leg,
-        route=itinerary_service.route_service.resolve_route_response(detail.leg),
+    return ItineraryConnectionResponse.from_model(
+        detail.connection,
+        route=itinerary_service.route_service.resolve_route_response(detail.connection),
     )
 
 
 @router.put(
     '/connections/{connection_id}',
-    response_model=ItineraryTravelLegResponse,
+    response_model=ConnectionMutationResponse,
 )
 def replace_connection(
     trip_id: uuid.UUID,
     connection_id: uuid.UUID,
-    payload: ItineraryTravelReplaceRequest,
+    payload: ItineraryConnectionReplaceRequest,
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
-) -> ItineraryTravelLegResponse:
+) -> ConnectionMutationResponse:
     try:
-        detail = itinerary_service.replace_travel_leg(
+        detail = itinerary_service.replace_connection(
             trip_id=trip_id,
-            leg_id=connection_id,
+            connection_id=connection_id,
             payload=payload,
             current_user_id=user.id,
             expected_revision=_parse_if_match(if_match),
@@ -391,15 +400,18 @@ def replace_connection(
         _raise_http_error(exc)
 
     response.headers['ETag'] = _etag(detail.itinerary_revision)
-    return ItineraryTravelLegResponse.from_model(
-        detail.leg,
-        route=itinerary_service.route_service.resolve_route_response(detail.leg),
+    return ConnectionMutationResponse(
+        itinerary_revision=detail.itinerary_revision,
+        connection=ItineraryConnectionResponse.from_model(
+            detail.connection,
+            route=itinerary_service.route_service.resolve_route_response(detail.connection),
+        ),
     )
 
 
 @router.post(
     '/connections/{connection_id}/route-refresh',
-    response_model=ItineraryTravelLegResponse,
+    response_model=ConnectionMutationResponse,
 )
 def refresh_connection_route(
     trip_id: uuid.UUID,
@@ -408,11 +420,11 @@ def refresh_connection_route(
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
-) -> ItineraryTravelLegResponse:
+) -> ConnectionMutationResponse:
     try:
         detail = itinerary_service.calculate_saved_routes(
             trip_id=trip_id,
-            leg_id=connection_id,
+            connection_id=connection_id,
             current_user_id=user.id,
             expected_revision=_parse_if_match(if_match),
         )
@@ -420,23 +432,26 @@ def refresh_connection_route(
         _raise_http_error(exc)
 
     response.headers['ETag'] = _etag(detail.itinerary_revision)
-    return ItineraryTravelLegResponse.from_model(
-        detail.leg,
-        route=itinerary_service.route_service.resolve_route_response(detail.leg),
+    return ConnectionMutationResponse(
+        itinerary_revision=detail.itinerary_revision,
+        connection=ItineraryConnectionResponse.from_model(
+            detail.connection,
+            route=itinerary_service.route_service.resolve_route_response(detail.connection),
+        ),
     )
 
 
 @router.post('/connections/preview', response_model=PreviewResponse)
 def preview_new_connection(
     trip_id: uuid.UUID,
-    payload: ItineraryTravelReplaceRequest,
+    payload: ItineraryConnectionReplaceRequest,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
     retry_failed: bool = False,
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ):
     try:
-        return itinerary_service.preview_travel(
+        return itinerary_service.preview_connection(
             trip_id, None, payload, user.id, _parse_if_match(if_match), retry_failed
         )
     except Exception as exc:
@@ -463,14 +478,14 @@ def lookup_new_connection_flight(
 def preview_connection(
     trip_id: uuid.UUID,
     connection_id: uuid.UUID,
-    payload: ItineraryTravelReplaceRequest,
+    payload: ItineraryConnectionReplaceRequest,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
     retry_failed: bool = False,
     if_match: Annotated[str | None, Header(alias='If-Match')] = None,
 ):
     try:
-        return itinerary_service.preview_travel(
+        return itinerary_service.preview_connection(
             trip_id, connection_id, payload, user.id, _parse_if_match(if_match), retry_failed
         )
     except Exception as exc:

@@ -72,7 +72,7 @@ DRIVE_BREAK_THRESHOLD = timedelta(hours=4)
 MAX_SAMPLES_PER_BATCH = 1000
 
 # The free GraphHopper tier limits requests per minute, and the backend
-# spends the same key on itinerary leg geometry while this script runs.
+# spends the same key on itinerary connection geometry while this script runs.
 ROUTE_ATTEMPTS = 5
 
 # Keeps the in-progress drive genuinely in progress no matter when the script
@@ -504,7 +504,7 @@ POSTS: tuple[PostSpec, ...] = (
     ),
 )
 
-# Local departure times for the driven legs, keyed by the stop being left.
+# Local departure times for the driven connections, keyed by the stop being left.
 DEPARTURE_TIMES: dict[str, time] = {
     'lisbon': time(9, 0),
     'porto': time(8, 30),
@@ -724,7 +724,7 @@ class GraphHopper:
     """Routing client that survives the free tier's minutely request limit.
 
     Routes are cached on disk between runs. The backend spends the same key
-    generating itinerary leg geometry, so a re-run that had to fetch every
+    generating itinerary connection geometry, so a re-run that had to fetch every
     route again would trip the limit before it finished.
     """
 
@@ -1045,7 +1045,7 @@ def build_drive_session(
     rng: random.Random,
     not_after: datetime | None = None,
 ) -> GpsSession:
-    """One driven leg, with a rest stop inserted on the long ones."""
+    """One driven connection, with a rest stop inserted on the long ones."""
     moving_seconds = routed.duration_seconds
     takes_a_break = timedelta(seconds=moving_seconds) >= DRIVE_BREAK_THRESHOLD
     break_seconds = DRIVE_BREAK_MINUTES * 60 if takes_a_break else 0.0
@@ -1194,7 +1194,7 @@ def create_itinerary(
             },
         }
         if previous_stop_id is not None:
-            payload['incoming_travel'] = {
+            payload['incoming_connection'] = {
                 'travel_mode': 'CAR',
                 'notes': '',
                 'operator': None,
@@ -1279,7 +1279,7 @@ def create_posts(
 
 
 def drive_total_seconds(routed: RoutedPath) -> float:
-    """Wall-clock length of a driven leg, rest stop included."""
+    """Wall-clock length of a driven connection, rest stop included."""
     moving = routed.duration_seconds
     if timedelta(seconds=moving) >= DRIVE_BREAK_THRESHOLD:
         return moving + DRIVE_BREAK_MINUTES * 60

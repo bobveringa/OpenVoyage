@@ -1,4 +1,4 @@
-import type { Itinerary, ItineraryTravelLeg, RouteOverview } from '@/api/client'
+import type { Itinerary, ItineraryConnection, RouteOverview } from '@/api/client'
 import { seedAuthTokens } from './helpers/auth'
 import { expect, test, type Page, type Route } from '@playwright/test'
 
@@ -21,8 +21,8 @@ test('one-stop departure flight and independent return render, edit, and confirm
   await mockTileServers(page)
   const itinerary = createItinerary() as Itinerary
   itinerary.stops = itinerary.stops.slice(0, 1)
-  const template = itinerary.legs[0]
-  const departure: ItineraryTravelLeg = {
+  const template = itinerary.connections[0]
+  const departure: ItineraryConnection = {
     ...template, id: 'departure', connection_type: 'DEPARTURE', notes: 'Outbound flight',
     from: { type: 'LOCATION', location: createLocation('outside-a', 'London', 51.5, -0.1) },
     to: { type: 'STOP', stop_id: firstStopId },
@@ -33,12 +33,12 @@ test('one-stop departure flight and independent return render, edit, and confirm
       geometry: { type: 'LineString', coordinates: [[-0.45, 51.47], [4.76, 52.31]] },
     }],
   }
-  const returning: ItineraryTravelLeg = {
+  const returning: ItineraryConnection = {
     ...template, id: 'return', connection_type: 'RETURN',
     from: { type: 'STOP', stop_id: firstStopId },
     to: { type: 'LOCATION', location: createLocation('outside-b', 'Brussels home', 50.85, 4.35) },
   }
-  itinerary.legs = [departure, returning]
+  itinerary.connections = [departure, returning]
   let returnDeletes = 0
   await page.route(`**/api/v1/trips/${tripId}/itinerary`, route => fulfillJson(route, itinerary))
   await page.route(`**/api/v1/trips/${tripId}/itinerary/connections/departure`, async route => {
@@ -46,21 +46,21 @@ test('one-stop departure flight and independent return render, edit, and confirm
     const payload = route.request().postDataJSON()
     expect(payload.from).toEqual({ type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } })
     expect(payload.to).toEqual({ type: 'STOP', stop_id: firstStopId })
-    await route.fulfill({ json: departure, headers: { ETag: '"2"' } })
+    await route.fulfill({ json: { itinerary_revision: 2, connection: departure }, headers: { ETag: '"2"' } })
   })
   await page.route(`**/api/v1/trips/${tripId}/itinerary/connections/return**`, async route => {
     if (route.request().method() !== 'DELETE') return route.fallback()
     returnDeletes += 1
-    const confirmed = new URL(route.request().url()).searchParams.get('confirm_travel_deletion') === 'true'
+    const confirmed = new URL(route.request().url()).searchParams.get('confirm_connection_deletion') === 'true'
     expect(confirmed).toBe(true)
-    itinerary.legs = [departure]
+    itinerary.connections = [departure]
     itinerary.itinerary_revision += 1
     await fulfillJson(route, itinerary)
   })
   await page.route(`**/api/v1/trips/${tripId}/itinerary/stops/${firstStopId}**`, async route => {
-    const confirmed = new URL(route.request().url()).searchParams.get('confirm_travel_deletion') === 'true'
-    if (!confirmed) return fulfillJson(route, { detail: { code: 'TRAVEL_DELETION_REQUIRED', connections: [{ id: departure.id, from: 'London', to: 'Amsterdam' }] } }, 409)
-    itinerary.stops = []; itinerary.legs = []; itinerary.itinerary_revision += 1
+    const confirmed = new URL(route.request().url()).searchParams.get('confirm_connection_deletion') === 'true'
+    if (!confirmed) return fulfillJson(route, { detail: { code: 'CONNECTION_DELETION_REQUIRED', connections: [{ id: departure.id, from: 'London', to: 'Amsterdam' }] } }, 409)
+    itinerary.stops = []; itinerary.connections = []; itinerary.itinerary_revision += 1
     await fulfillJson(route, itinerary)
   })
   await page.goto(`/trips/${tripId}`)
@@ -110,18 +110,18 @@ test('opens departure travel immediately and saves location and transport togeth
     const payload = route.request().postDataJSON()
     expect(payload.segments).toBeUndefined()
     await fulfillJson(route, { preview_id: 'draft-preview', expires_at: '2099-01-01T00:00:00Z', connection: {
-      ...itinerary.legs[0], id: '00000000-0000-0000-0000-000000000000', connection_type: 'DEPARTURE',
+      ...itinerary.connections[0], id: '00000000-0000-0000-0000-000000000000', connection_type: 'DEPARTURE',
       from: { type: 'LOCATION', location: createLocation('outside-a', 'London', 51.5, -0.1) }, to: payload.to,
-      segments: [{ ...itinerary.legs[0].segments[0], intent: { travel_mode: 'CAR', mode_selected: false, notes: '', route_option: 0 }, route_state: 'READY' }],
+      segments: [{ ...itinerary.connections[0].segments[0], intent: { travel_mode: 'CAR', mode_selected: false, notes: '', route_option: 0 }, route_state: 'READY' }],
     } })
   })
   await page.route(`**/api/v1/trips/${tripId}/itinerary/connections`, async route => {
     const payload = route.request().postDataJSON()
     expect(payload).toMatchObject({ from: { type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } }, to: { type: 'STOP', stop_id: firstStopId }, notes: '', segments: [{ travel_mode: 'CAR' }] })
-    await route.fulfill({ status: 201, headers: { ETag: '"2"' }, json: {
-      ...itinerary.legs[0], id: 'saved-departure', connection_type: 'DEPARTURE',
+    await route.fulfill({ status: 201, headers: { ETag: '"2"' }, json: { itinerary_revision: 2, connection: {
+      ...itinerary.connections[0], id: 'saved-departure', connection_type: 'DEPARTURE',
       from: { type: 'LOCATION', location: createLocation('outside-a', 'London', 51.5, -0.1) }, to: payload.to,
-    } })
+    } } })
   })
   await page.goto(`/trips/${tripId}`)
   await page.getByRole('button', { name: 'Add departure', exact: true }).click()
@@ -775,7 +775,7 @@ function createItinerary() {
 
   return {
     itinerary_revision: 1,
-    legs: [
+    connections: [
       {
         created_at: timestamp,
         connection_type: 'BETWEEN_STOPS',
@@ -996,7 +996,7 @@ test('planning: keyless flight draft remains saveable without automatic provider
   await mockTileServers(page)
   let lookupCount = 0
   let previewCount = 0
-  const leg = createItinerary().legs[0]
+  const connection = createItinerary().connections[0]
   await page.route('**/itinerary/connections/*/flight-lookups', async route => {
     lookupCount += 1
     await fulfillJson(route, { status: 'UNAVAILABLE', candidates: [], reason: 'Flight lookup is not configured' })
@@ -1005,12 +1005,12 @@ test('planning: keyless flight draft remains saveable without automatic provider
     previewCount += 1
     await fulfillJson(route, { detail: 'Unexpected preview' }, 500)
   })
-  await page.route('**/itinerary/connections/' + leg.id, async route => {
+  await page.route('**/itinerary/connections/' + connection.id, async route => {
     const payload = route.request().postDataJSON()
     expect(payload.segments[0].flight.flight_number).toBe('KL597')
     expect(payload.segments[0].flight.departure_date).toBe('2026-11-18')
     await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: '"2"' },
-      body: JSON.stringify({ ...leg, ...payload, segments: payload.segments.map((intent: object) => ({ ...leg.segments[0], intent })) }) })
+      body: JSON.stringify({ itinerary_revision: 2, connection: { ...connection, ...payload, segments: payload.segments.map((intent: object) => ({ ...connection.segments[0], intent })) } }) })
   })
   await page.goto('/trips/' + tripId)
   await page.getByRole('button', { name: 'Plan', exact: true }).click()
@@ -1035,10 +1035,10 @@ for (const mobile of [false, true]) {
     await seedBrowserAuth(page)
     const release = await mockTripApi(page, 'OWNER'); release()
     await mockTileServers(page)
-    const leg = createItinerary().legs[0]
+    const connection = createItinerary().connections[0]
     let saves = 0
     const message = "This trip's plan changed while you were editing. Reload the page and try again. Your unsaved changes will be lost when you reload."
-    await page.route('**/itinerary/connections/' + leg.id, async route => {
+    await page.route('**/itinerary/connections/' + connection.id, async route => {
       expect(route.request().method()).toBe('PUT')
       saves += 1
       await fulfillJson(route, { detail: { code: 'ITINERARY_CHANGED', message } }, 412)
@@ -1059,15 +1059,15 @@ test('planning: preview is explicit and Cancel leaves the saved connection uncha
   await seedBrowserAuth(page)
   const release = await mockTripApi(page, 'OWNER'); release()
   await mockTileServers(page)
-  const leg = createItinerary().legs[0]
+  const connection = createItinerary().connections[0]
   let previews = 0
   let writes = 0
   await page.route('**/itinerary/connections/*/preview**', async route => {
     previews += 1
     const payload = route.request().postDataJSON()
     await fulfillJson(route, { preview_id: '99999999-9999-4999-8999-999999999999',
-      expires_at: '2030-01-01T00:00:00Z', connection: { ...leg, ...payload,
-        segments: payload.segments.map((intent: object) => ({ ...leg.segments[0], intent, route_state: 'FAILED', error_code: 'NOT_CONFIGURED' })) } })
+      expires_at: '2030-01-01T00:00:00Z', connection: { ...connection, ...payload,
+        segments: payload.segments.map((intent: object) => ({ ...connection.segments[0], intent, route_state: 'FAILED', error_code: 'NOT_CONFIGURED' })) } })
   })
   page.on('request', request => { if (request.method() === 'PUT' && request.url().includes('/itinerary/connections/')) writes += 1 })
   await page.goto('/trips/' + tripId)
@@ -1111,7 +1111,7 @@ for (const mobile of [false, true]) {
     await seedBrowserAuth(page)
     const release = await mockTripApi(page, 'OWNER'); release()
     await mockTileServers(page)
-    const leg = createItinerary().legs[0]
+    const connection = createItinerary().connections[0]
     const geometries = [
       { type: 'LineString', coordinates: [[4.8952, 52.3702], [4.6, 51.9], [4.3517, 50.8503]] },
       { type: 'LineString', coordinates: [[4.8952, 52.3702], [5.2, 51.6], [4.3517, 50.8503]] },
@@ -1121,19 +1121,19 @@ for (const mobile of [false, true]) {
     await page.route('**/itinerary/connections/*/preview**', async route => {
       previews += 1
       const payload = route.request().postDataJSON()
-      const segment = { ...leg.segments[0], intent: payload.segments[0], geometry: geometries[0], route_state: 'READY',
+      const segment = { ...connection.segments[0], intent: payload.segments[0], geometry: geometries[0], route_state: 'READY',
         distance_meters: 210000, duration_seconds: 7200, error_code: null,
         route_options: geometries.map((geometry, i) => ({ geometry, distance_meters: 210000 + i * 5000, duration_seconds: 7200 + i * 600 })) }
       await fulfillJson(route, { preview_id: '99999999-9999-4999-8999-999999999999', expires_at: '2030-01-01T00:00:00Z',
-        connection: { ...leg, segments: [segment], duration_seconds: 7200, duration_scope: 'JOURNEY', route: { ...leg.route, type: 'PROVIDER_BACKED', geometry: geometries[0] } } })
+        connection: { ...connection, segments: [segment], duration_seconds: 7200, duration_scope: 'JOURNEY', route: { ...connection.route, type: 'PROVIDER_BACKED', geometry: geometries[0] } } })
     })
-    await page.route('**/itinerary/connections/' + leg.id, async route => {
+    await page.route('**/itinerary/connections/' + connection.id, async route => {
       writes += 1
       const payload = route.request().postDataJSON()
       expect(payload.segments[0].route_option).toBe(1)
       expect(payload.preview_id).toBe('99999999-9999-4999-8999-999999999999')
       await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: '"2"' },
-        body: JSON.stringify({ ...leg, segments: [{ ...leg.segments[0], intent: payload.segments[0], geometry: geometries[1], route_state: 'READY' }], route: { ...leg.route, type: 'PROVIDER_BACKED', geometry: geometries[1] } }) })
+        body: JSON.stringify({ itinerary_revision: 2, connection: { ...connection, segments: [{ ...connection.segments[0], intent: payload.segments[0], geometry: geometries[1], route_state: 'READY' }], route: { ...connection.route, type: 'PROVIDER_BACKED', geometry: geometries[1] } } }) })
     })
     await page.goto('/trips/' + tripId)
     await page.getByRole('button', { name: 'Plan', exact: true }).click()
@@ -1182,11 +1182,11 @@ test('planning: unavailable road routing is explicit and draws no fake road', as
   await seedBrowserAuth(page)
   const release = await mockTripApi(page, 'OWNER'); release()
   await mockTileServers(page)
-  const leg = createItinerary().legs[0]
+  const connection = createItinerary().connections[0]
   await page.route('**/itinerary/connections/*/preview**', async route => {
     const payload = route.request().postDataJSON()
     await fulfillJson(route, { preview_id: '99999999-9999-4999-8999-999999999999', expires_at: '2030-01-01T00:00:00Z',
-      connection: { ...leg, segments: [{ ...leg.segments[0], intent: payload.segments[0], route_state: 'FAILED', error_code: 'NOT_CONFIGURED', route_options: [] }] } })
+      connection: { ...connection, segments: [{ ...connection.segments[0], intent: payload.segments[0], route_state: 'FAILED', error_code: 'NOT_CONFIGURED', route_options: [] }] } })
   })
   await page.goto('/trips/' + tripId)
   await page.getByRole('button', { name: 'Plan', exact: true }).click()
@@ -1289,17 +1289,17 @@ test('planning: cached alternatives expire and changed via points require a fres
   await seedBrowserAuth(page)
   const release = await mockTripApi(page, 'OWNER'); release()
   await mockTileServers(page)
-  const leg = createItinerary().legs[0]
+  const connection = createItinerary().connections[0]
   let previews = 0
   const payloads: Array<{ segments: Array<{ via?: unknown }> }> = []
   await page.route('**/itinerary/connections/*/preview**', async route => {
     previews += 1
     const payload = route.request().postDataJSON()
     payloads.push(payload)
-    const geometry = leg.segments[0].geometry
+    const geometry = connection.segments[0].geometry
     await fulfillJson(route, { preview_id: '99999999-9999-4999-8999-999999999999',
       expires_at: new Date(initialTime.getTime() + (previews === 1 ? 10 : 30) * 60000).toISOString(),
-      connection: { ...leg, segments: [{ ...leg.segments[0], intent: payload.segments[0], route_state: 'READY',
+      connection: { ...connection, segments: [{ ...connection.segments[0], intent: payload.segments[0], route_state: 'READY',
         route_options: [
           { geometry, duration_seconds: 7200, distance_meters: 210000 },
           { geometry, duration_seconds: 7800, distance_meters: 215000 },
@@ -1421,8 +1421,8 @@ for (const width of [1024, 1440]) {
 
 function airportTransferItinerary(): Itinerary {
   const itinerary = createItinerary() as unknown as Itinerary
-  const leg = itinerary.legs[0]
-  const flight = leg.segments[0]
+  const connection = itinerary.connections[0]
+  const flight = connection.segments[0]
   flight.intent = { ...flight.intent, travel_mode: 'FLIGHT', flight: {
     flight_number: 'KL1401', departure_date: '2026-10-24',
     departure_airport_place_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
@@ -1432,10 +1432,10 @@ function airportTransferItinerary(): Itinerary {
   flight.to_endpoint = { latitude: 50.9, longitude: 4.48, name: 'Brussels Airport', iata_code: 'BRU' }
   flight.geometry = { type: 'LineString', coordinates: [[4.76, 52.31], [4.48, 50.9]] }
   flight.duration_seconds = 4500
-  leg.duration_seconds = 4500
-  leg.duration_scope = 'FLIGHT_JOURNEY'
-  leg.route.geometry = flight.geometry
-  leg.route.duration_seconds = 4500
+  connection.duration_seconds = 4500
+  connection.duration_scope = 'FLIGHT_JOURNEY'
+  connection.route.geometry = flight.geometry
+  connection.route.duration_seconds = 4500
   return itinerary
 }
 
@@ -1446,13 +1446,13 @@ for (const mobile of [false, true]) {
     const release = await mockTripApi(page, 'OWNER'); release()
     await mockTileServers(page)
     const itinerary = airportTransferItinerary()
-    let saved = itinerary.legs[0]
+    let saved = itinerary.connections[0]
     const flight = saved.segments[0]
     let previews = 0
     let writes = 0
     let flightLookups = 0
     await page.route('**/itinerary/connections/*/flight-lookups', route => { flightLookups += 1; return fulfillJson(route, { status: 'UNAVAILABLE', candidates: [], reason: 'NOT_CONFIGURED' }) })
-    await page.route('**/api/v1/trips/' + tripId + '/itinerary', route => fulfillJson(route, { ...itinerary, legs: [saved] }))
+    await page.route('**/api/v1/trips/' + tripId + '/itinerary', route => fulfillJson(route, { ...itinerary, connections: [saved] }))
     await page.route('**/itinerary/connections/*/preview**', async route => {
       previews += 1
       const payload = route.request().postDataJSON()
@@ -1460,7 +1460,7 @@ for (const mobile of [false, true]) {
       expect(payload.segments[1].id).toBe(flight.id)
       expect(payload.segments[1].flight).toEqual(flight.intent.flight)
       const city = itinerary.stops[0].location
-      const connection: ItineraryTravelLeg = { ...saved, duration_seconds: null, duration_scope: null, segments: [
+      const connection: ItineraryConnection = { ...saved, duration_seconds: null, duration_scope: null, segments: [
         { ...flight, id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', intent: payload.segments[0], lookup: null,
           from_endpoint: { latitude: city.latitude, longitude: city.longitude, name: city.name }, to_endpoint: flight.from_endpoint,
           geometry: { type: 'LineString', coordinates: [[city.longitude, city.latitude], [4.8, 52.34], [4.76, 52.31]] },
@@ -1480,7 +1480,7 @@ for (const mobile of [false, true]) {
           geometry: { type: 'LineString', coordinates: [[4.9041, 52.3676], [4.8, 52.34], [4.76, 52.31]] }, duration_seconds: 1200 },
         { ...flight, intent: payload.segments[1] },
       ] }
-      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: '"2"' }, body: JSON.stringify(saved) })
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: '"2"' }, body: JSON.stringify({ itinerary_revision: 2, connection: saved }) })
     })
     await page.goto('/trips/' + tripId + '?tab=plan')
     const departureName = 'Airport transfer: Amsterdam → Schiphol'
@@ -1541,10 +1541,10 @@ function createOverview(itinerary: Itinerary): RouteOverview {
   return {
     trip_id: itinerary.trip_id,
     stops: itinerary.stops.map(({ id, location, visited }) => ({ id, location, visited, title: location.name })),
-    legs: itinerary.legs.map((leg) => ({
-      id: leg.id, from: leg.from, to: leg.to,
-      route: { type: leg.route.type, geometry: leg.route.geometry },
-      segments: leg.segments.map((segment) => ({
+    connections: itinerary.connections.map((connection) => ({
+      id: connection.id, from: connection.from, to: connection.to,
+      route: { type: connection.route.type, geometry: connection.route.geometry },
+      segments: connection.segments.map((segment) => ({
         intent: { travel_mode: segment.intent.travel_mode },
         from_endpoint: segment.from_endpoint, to_endpoint: segment.to_endpoint,
         geometry: segment.geometry, route_state: segment.route_state,
@@ -1565,8 +1565,8 @@ for (const mobile of [false, true]) {
       itinerary.stops[0].visited = true
       itinerary.stops[1].notes = 'PRIVATE STOP NOTE'
       itinerary.stops[1].title = 'PRIVATE PLANNING TITLE'
-      const template = itinerary.legs[0]
-      itinerary.legs = [
+      const template = itinerary.connections[0]
+      itinerary.connections = [
         { ...template, id: 'departure', connection_type: 'DEPARTURE',
           from: { type: 'LOCATION', location: createLocation('start', 'London', 51.5, -0.1) },
           to: { type: 'STOP', stop_id: firstStopId } },

@@ -20,13 +20,13 @@ import {
   parseDateOnly,
   toDateOnlyTime,
 } from '@/pages/trip-detail/date-utils'
-import type { Stop, TravelLeg, TravelMode } from '@/pages/trip-detail/models'
+import type { Stop, Connection, TravelMode } from '@/pages/trip-detail/models'
 import type {
   DraftPostLocation,
   MapPointTarget,
   StopEditDraft,
   StopInsertionPoint,
-  TravelLegEditDraft,
+  ConnectionEditDraft,
 } from '@/pages/trip-detail/page-types'
 
 export function createDraftMapPointLocation(
@@ -158,13 +158,13 @@ export function createStopEditDraft(stop: Stop | null): StopEditDraft {
   }
 }
 
-export function createTravelLegEditDraft(
-  leg: TravelLeg | null,
-): TravelLegEditDraft {
+export function createConnectionEditDraft(
+  connection: Connection | null,
+): ConnectionEditDraft {
   return {
-    ...(leg ? { from: connectionEndpointInput(leg.from), to: connectionEndpointInput(leg.to) } : {}),
-    notes: leg?.notes ?? '',
-    segments: leg?.segments.map((segment) => ({ ...segment.intent, id: segment.id, mode_selected: false })) ?? [{ travel_mode: 'CAR', mode_selected: false, route_option: 0, notes: '' }],
+    ...(connection ? { from: connectionEndpointInput(connection.from), to: connectionEndpointInput(connection.to) } : {}),
+    notes: connection?.notes ?? '',
+    segments: connection?.segments.map((segment) => ({ ...segment.intent, id: segment.id, mode_selected: false })) ?? [{ travel_mode: 'CAR', mode_selected: false, route_option: 0, notes: '' }],
   }
 }
 
@@ -197,7 +197,7 @@ function formatMonthDayLabel(date: Date) {
 }
 
 
-export function connectionWritePayload(draft: TravelLegEditDraft): import('@/api/client').ItineraryTravelReplacePayload {
+export function connectionWritePayload(draft: ConnectionEditDraft): import('@/api/client').ItineraryConnectionReplacePayload {
   if (!draft.from || !draft.to) throw new Error('Select both connection endpoints')
   return { ...draft, from: draft.from, to: draft.to }
 }

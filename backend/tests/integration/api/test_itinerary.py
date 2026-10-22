@@ -1,3 +1,5 @@
+
+from planning_helpers import planning_body
 import uuid
 from datetime import date, timedelta
 import pytest
@@ -26,8 +28,8 @@ def _stop_payload(
     planned_start_date: str = '2026-08-14',
     planned_nights: int = 0,
     after_stop_id: str | None = None,
-    incoming_travel: dict | None = None,
-    outgoing_travel: dict | None = None,
+    incoming_connection: dict | None = None,
+    outgoing_connection: dict | None = None,
 ) -> dict:
     return {
         'location': _place_location(place),
@@ -38,8 +40,8 @@ def _stop_payload(
             'planned_start_date': planned_start_date,
             'after_stop_id': after_stop_id,
         },
-        'incoming_travel': incoming_travel,
-        'outgoing_travel': outgoing_travel,
+        'incoming_connection': incoming_connection,
+        'outgoing_connection': outgoing_connection,
     }
 
 
@@ -78,7 +80,7 @@ def test_itinerary_stop_visited_is_derived_from_departure_date(
     assert current_response.status_code == 201
     assert next_response.status_code == 201
     assert [
-        (stop['title'], stop['visited']) for stop in next_response.json()['stops']
+        (stop['title'], stop['visited']) for stop in planning_body(next_response)['stops']
     ] == [
         ('Current stop', True),
         ('Next stop', False),
@@ -122,8 +124,11 @@ def test_itinerary_mutations_require_current_quoted_revision(
     assert create_response.status_code == 201
     assert create_response.headers['etag'] == '"1"'
     assert stale_response.status_code == 412
-    assert stale_response.json()['detail'] == {
+    assert planning_body(stale_response)['detail'] == {
         'code': 'ITINERARY_CHANGED',
+        'connections': [],
+        'segment_id': None,
+        'validation_errors': [],
         'message': (
             'This trip\'s plan changed while you were editing. '
             'Reload the page and try again. '
@@ -137,7 +142,7 @@ def test_itinerary_mutations_require_current_quoted_revision(
     )
     assert get_response.status_code == 200
     assert get_response.headers['etag'] == '"1"'
-    assert [stop['title'] for stop in get_response.json()['stops']] == ['Kyoto']
+    assert [stop['title'] for stop in planning_body(get_response)['stops']] == ['Kyoto']
 
 
 @pytest.mark.integration
@@ -199,7 +204,7 @@ def test_share_link_can_read_only_private_trip_route_overview(
         headers=owner_headers,
         json={'label': 'Itinerary'},
     )
-    share_headers = {'X-Trip-Share-Token': link_response.json()['token']}
+    share_headers = {'X-Trip-Share-Token': planning_body(link_response)['token']}
 
     read_response = client.get(
         f'{api_prefix}/trips/{trip.id}/itinerary',
@@ -218,7 +223,7 @@ def test_share_link_can_read_only_private_trip_route_overview(
         f'{api_prefix}/trips/{trip.id}/itinerary/overview', headers=share_headers,
     )
     assert overview.status_code == 200
-    assert [stop['title'] for stop in overview.json()['stops']] == ['Utrecht']
+    assert [stop['title'] for stop in planning_body(overview)['stops']] == ['Utrecht']
     assert mutate_response.status_code == 401
 
 

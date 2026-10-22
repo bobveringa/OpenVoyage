@@ -61,7 +61,7 @@ import {
 import type {
   PostMedia,
   MapStop,
-  MapTravelLeg,
+  MapConnection,
   TravelMode,
   TravelPost,
   TravelPostRoute,
@@ -104,7 +104,7 @@ export function MobileTravelMap({
   onPostMarkerSelect,
   stops,
   trackingGeometry,
-  travelLegs,
+  connections,
   travelPosts,
 }: {
   onOpenGps?: () => void
@@ -119,7 +119,7 @@ export function MobileTravelMap({
   onPostMarkerSelect: (postId: string) => void
   stops: readonly MapStop[]
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly MapTravelLeg[]
+  connections: readonly MapConnection[]
   travelPosts: readonly TravelPost[]
 }) {
   const [resetNonce, setResetNonce] = useState(0)
@@ -190,7 +190,7 @@ export function MobileTravelMap({
         routeMode="travel-timeline"
         focusedPostId={focusedPostId}
         stops={stops}
-        travelLegs={travelLegs}
+        connections={connections}
         trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
@@ -286,7 +286,7 @@ export function TravelingPanel({
   shareToken,
   stops,
   trackingGeometry,
-  travelLegs,
+  connections,
   travelPosts,
   tripId,
 }: {
@@ -313,7 +313,7 @@ export function TravelingPanel({
   shareToken?: string | null
   stops: readonly MapStop[]
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly MapTravelLeg[]
+  connections: readonly MapConnection[]
   travelPosts: readonly TravelPost[]
   tripId: string
 }) {
@@ -586,7 +586,7 @@ export function TravelingPanel({
                 }}
                 onPostMarkerSelect={onPostMarkerSelect}
                 stops={stops}
-                travelLegs={travelLegs}
+                connections={connections}
                 trackingGeometry={trackingGeometry}
                 travelPosts={travelPosts}
               />

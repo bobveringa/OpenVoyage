@@ -10,17 +10,16 @@ class ItineraryRouteService(PlanningService):
         *,
         db,
         route_provider=None,
-        background_tasks=None,
         flight_provider: FlightProviderBase | None = None,
     ):
         super().__init__(
             db, LocationService(db, PlaceService(db)), route_provider, flight_provider
         )
 
-    def invalidate(self, leg):
+    def invalidate(self, connection):
         # Reads independently check effective-input hashes, including inherited endpoints.
-        for resolved in self.build(leg):
-            row = next(s for s in leg.segments if s.id == resolved.id)
+        for resolved in self.build(connection):
+            row = next(s for s in connection.segments if s.id == resolved.id)
             if row.route and row.route.input_hash != resolved.input_hash:
                 row.input_version += 1
                 row.route = None

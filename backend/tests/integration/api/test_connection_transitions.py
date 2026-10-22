@@ -1,5 +1,7 @@
 # ruff: noqa: F811
-"""Reordering, normalization and migration boundaries for the shared leg model."""
+"""Reordering, normalization and migration boundaries for the shared connection model."""
+
+from planning_helpers import planning_body
 
 import uuid
 from pathlib import Path
@@ -49,7 +51,7 @@ def test_reorder_confirms_the_complete_graph_and_keeps_outer_ids(
         )
         assert created.status_code == 201, created.text
         revision = created.headers['etag']
-        outer.append(created.json())
+        outer.append(planning_body(created))
     moving = data['stops'][moving_index]
     other = data['stops'][1 - moving_index]
     url = base + '/stops/' + moving['id']
@@ -61,33 +63,33 @@ def test_reorder_confirms_the_complete_graph_and_keeps_outer_ids(
     }
     blocked = client.patch(url, headers=headers(user, revision), json=payload)
     assert blocked.status_code == 409, blocked.text
-    assert {item['id'] for item in blocked.json()['detail']['connections']} == {
+    assert {item['id'] for item in planning_body(blocked)['detail']['connections']} == {
         interior['id'],
         *[item['id'] for item in outer],
     }
     before = client.get(base, headers=headers(user))
     assert before.headers['etag'] == revision
-    assert [stop['id'] for stop in before.json()['stops']] == [
+    assert [stop['id'] for stop in planning_body(before)['stops']] == [
         stop['id'] for stop in data['stops']
     ]
     confirmed = client.patch(
-        url + '?confirm_travel_deletion=true',
+        url + '?confirm_connection_deletion=true',
         headers=headers(user, revision),
         json=payload,
     )
     assert confirmed.status_code == 200, confirmed.text
-    assert [stop['id'] for stop in confirmed.json()['stops']] == [
+    assert [stop['id'] for stop in planning_body(confirmed)['stops']] == [
         data['stops'][1]['id'],
         data['stops'][0]['id'],
     ]
-    legs = confirmed.json()['legs']
-    assert legs[0]['id'] == outer[0]['id']
-    assert legs[-1]['id'] == outer[1]['id']
-    assert legs[0]['from'] == outer[0]['from']
-    assert legs[-1]['to'] == outer[1]['to']
-    assert all(leg['notes'] == '' for leg in legs)
-    assert all(leg['segments'][0]['mode_source'] == 'AUTO' for leg in legs)
-    assert interior['id'] not in {leg['id'] for leg in legs}
+    connections = planning_body(confirmed)['connections']
+    assert connections[0]['id'] == outer[0]['id']
+    assert connections[-1]['id'] == outer[1]['id']
+    assert connections[0]['from'] == outer[0]['from']
+    assert connections[-1]['to'] == outer[1]['to']
+    assert all(connection['notes'] == '' for connection in connections)
+    assert all(connection['segments'][0]['mode_source'] == 'AUTO' for connection in connections)
+    assert interior['id'] not in {connection['id'] for connection in connections}
 
 
 def test_place_and_coordinate_inputs_share_noop_and_preview_identity(
@@ -99,13 +101,13 @@ def test_place_and_coordinate_inputs_share_noop_and_preview_identity(
     body['from']['location'] = {'place_id': str(place.id)}
     created = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert created.status_code == 201, created.text
-    leg, revision = created.json(), created.headers['etag']
-    endpoint = base + '/connections/' + leg['id']
+    connection, revision = planning_body(created), created.headers['etag']
+    endpoint = base + '/connections/' + connection['id']
     location_count = len(list(db_session.scalars(select(Location))))
-    same = client.put(endpoint, headers=headers(user, revision), json=write_body(leg))
+    same = client.put(endpoint, headers=headers(user, revision), json=write_body(connection))
     assert same.status_code == 200, same.text
     assert same.headers['etag'] == revision
-    assert same.json()['from'] == leg['from']
+    assert planning_body(same)['from'] == connection['from']
     assert len(list(db_session.scalars(select(Location)))) == location_count
     travel = {'segments': [{'travel_mode': 'TRAIN'}]}
     one = client.post(
@@ -114,10 +116,10 @@ def test_place_and_coordinate_inputs_share_noop_and_preview_identity(
     two = client.post(
         endpoint + '/preview',
         headers=headers(user, revision),
-        json=write_body(leg, **travel),
+        json=write_body(connection, **travel),
     )
     assert one.status_code == two.status_code == 200
-    assert one.json()['preview_id'] == two.json()['preview_id']
+    assert planning_body(one)['preview_id'] == planning_body(two)['preview_id']
 
 
 def test_inferred_flight_remains_uncustomized_and_reset_is_full_replacement(
@@ -128,9 +130,9 @@ def test_inferred_flight_remains_uncustomized_and_reset_is_full_replacement(
     body['from']['location'] = {'latitude': -33.92, 'longitude': 18.42}
     created = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert created.status_code == 201, created.text
-    leg, revision = created.json(), created.headers['etag']
-    assert leg['segments'][0]['intent']['travel_mode'] == 'FLIGHT'
-    endpoint = base + '/connections/' + leg['id']
+    connection, revision = planning_body(created), created.headers['etag']
+    assert connection['segments'][0]['intent']['travel_mode'] == 'FLIGHT'
+    endpoint = base + '/connections/' + connection['id']
     custom = client.put(
         endpoint,
         headers=headers(user, revision),
@@ -145,9 +147,9 @@ def test_inferred_flight_remains_uncustomized_and_reset_is_full_replacement(
         endpoint, headers=headers(user, custom.headers['etag']), json=body
     )
     assert reset.status_code == 200, reset.text
-    assert reset.json()['notes'] == ''
-    assert reset.json()['segments'][0]['mode_source'] == 'AUTO'
-    assert reset.json()['segments'][0]['intent']['travel_mode'] == 'FLIGHT'
+    assert planning_body(reset)['notes'] == ''
+    assert planning_body(reset)['segments'][0]['mode_source'] == 'AUTO'
+    assert planning_body(reset)['segments'][0]['intent']['travel_mode'] == 'FLIGHT'
     deleted = client.delete(endpoint, headers=headers(user, reset.headers['etag']))
     assert deleted.status_code == 200, deleted.text
 
@@ -160,8 +162,8 @@ def test_migration_downgrade_requires_explicit_outer_removal_and_preserves_child
         base + '/connections', headers=headers(user, revision), json=outer_body(data)
     )
     assert created.status_code == 201, created.text
-    leg, revision = created.json(), created.headers['etag']
-    segment_id = uuid.UUID(leg['segments'][0]['id'])
+    connection, revision = planning_body(created), created.headers['etag']
+    segment_id = uuid.UUID(connection['segments'][0]['id'])
     root = Path(__file__).resolve().parents[3]
     config = Config(str(root / 'alembic.ini'))
     config.set_main_option('script_location', str(root / 'app/alembic'))
@@ -173,7 +175,7 @@ def test_migration_downgrade_requires_explicit_outer_removal_and_preserves_child
         command.downgrade(config, 'c7e9f1a3b502')
     assert db_session.get(ItineraryTravelSegment, segment_id) is not None
     deleted = client.delete(
-        base + '/connections/' + leg['id'], headers=headers(user, revision)
+        base + '/connections/' + connection['id'], headers=headers(user, revision)
     )
     assert deleted.status_code == 200, deleted.text
     assert db_session.get(ItineraryTravelSegment, segment_id) is None
@@ -195,7 +197,7 @@ def test_preview_rechecks_resolved_outside_place_after_provider_work(
     body['from']['location'] = {'place_id': str(place_id)}
     created = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert created.status_code == 201, created.text
-    leg, revision = created.json(), created.headers['etag']
+    connection, revision = planning_body(created), created.headers['etag']
 
     def update_place_during_calculation(*args, **kwargs):
         with Session(engine) as other:
@@ -212,7 +214,7 @@ def test_preview_rechecks_resolved_outside_place_after_provider_work(
 
     enable_routes(db_session, monkeypatch, update_place_during_calculation)
     preview = client.post(
-        base + '/connections/' + leg['id'] + '/preview',
+        base + '/connections/' + connection['id'] + '/preview',
         headers=headers(user, revision),
         json=body | {'segments': [{'travel_mode': 'CAR'}]},
     )

@@ -3,6 +3,8 @@
 Run RUN_LIVE_FLIGHT_TESTS=1 with this module. Production reads the encrypted admin setting.
 """
 
+from planning_helpers import planning_body
+
 import os
 from pathlib import Path
 
@@ -18,13 +20,13 @@ from integration.services.test_itinerary_route_service import plan, headers  # n
     os.getenv('RUN_LIVE_FLIGHT_TESTS') != '1', reason='Explicit live API test only'
 )
 def test_configured_and_unconfigured_flight_api(client, db_session, plan):  # noqa: F811
-    user, _, _, endpoint, revision, leg, _ = plan
+    user, _, _, endpoint, revision, connection, _ = plan
     payload = {'flight_number': 'KL597', 'departure_date': '2026-11-18'}
     unconfigured = client.post(
         endpoint + '/flight-lookups', headers=headers(user, revision), json=payload
     )
     assert unconfigured.status_code == 200
-    assert unconfigured.json()['status'] == 'UNAVAILABLE'
+    assert planning_body(unconfigured)['status'] == 'UNAVAILABLE'
     test_key = dotenv_values(Path(__file__).resolve().parents[4] / '.env').get(
         'RAPIDAPI_API_KEY'
     )
@@ -36,14 +38,14 @@ def test_configured_and_unconfigured_flight_api(client, db_session, plan):  # no
         endpoint + '/flight-lookups', headers=headers(user, revision), json=payload
     )
     assert configured.status_code == 200
-    assert configured.json()['status'] == 'MATCHES', configured.json().get('reason')
-    candidate = configured.json()['candidates'][0]
+    assert planning_body(configured)['status'] == 'MATCHES', planning_body(configured).get('reason')
+    candidate = planning_body(configured)['candidates'][0]
     saved = client.put(
         endpoint,
         headers=headers(user, revision),
         json={
-            'from': leg['from'],
-            'to': leg['to'],
+            'from': connection['from'],
+            'to': connection['to'],
             'segments': [
                 {
                     'travel_mode': 'FLIGHT',
@@ -54,9 +56,9 @@ def test_configured_and_unconfigured_flight_api(client, db_session, plan):  # no
     )
     assert saved.status_code == 200
     assert (
-        saved.json()['segments'][0]['lookup']['departure_airport']['iata_code'] == 'AMS'
+        planning_body(saved)['segments'][0]['lookup']['departure_airport']['iata_code'] == 'AMS'
     )
-    assert saved.json()['segments'][0]['duration_seconds'] is not None
+    assert planning_body(saved)['segments'][0]['duration_seconds'] is not None
     service.reset_setting(FLIGHTS_RAPIDAPI_API_KEY)
     another_day = client.post(
         endpoint + '/flight-lookups',
@@ -64,7 +66,7 @@ def test_configured_and_unconfigured_flight_api(client, db_session, plan):  # no
         json=payload | {'departure_date': '2026-11-19'},
     )
     assert another_day.status_code == 200
-    assert another_day.json()['status'] == 'UNAVAILABLE'
+    assert planning_body(another_day)['status'] == 'UNAVAILABLE'
     # Disabling lookup does not remove the trip's already saved schedule.
     read = client.get(endpoint, headers=headers(user))
-    assert read.json()['segments'][0]['lookup'] is not None
+    assert planning_body(read)['segments'][0]['lookup'] is not None

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import type { Itinerary, ItineraryStop, ItineraryTravelLeg } from '../../src/api/client'
+import type { Itinerary, ItineraryStop, ItineraryConnection } from '../../src/api/client'
 import { seedAuthTokens } from './helpers/auth'
 
 const timestamp = '2026-10-20T12:00:00Z'
@@ -14,7 +14,7 @@ function stop(id: string, name: string, latitude: number, longitude: number): It
   }
 }
 
-function connection(from: ItineraryStop, to: ItineraryStop, ready: boolean): ItineraryTravelLeg {
+function makeConnection(from: ItineraryStop, to: ItineraryStop, ready: boolean): ItineraryConnection {
   const geometry = { type: 'LineString' as const, coordinates: [
     [from.location.longitude, from.location.latitude],
     [to.location.longitude, to.location.latitude],
@@ -35,6 +35,53 @@ function connection(from: ItineraryStop, to: ItineraryStop, ready: boolean): Iti
 }
 
 for (const mobile of [false, true]) {
+  test(`${mobile ? 'mobile' : 'desktop'} recalculates the bridge after deleting a stop`, async ({ page }) => {
+    await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 960 })
+    const token = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url')
+    await seedAuthTokens(page, { access_token: `test.${token}.sig`, id_token: 'id', refresh_token: 'refresh', token_type: 'bearer' })
+    const [a, b, c] = [stop('a', 'Amsterdam', 52.37, 4.9), stop('b', 'Utrecht', 52.09, 5.12), stop('c', 'Eindhoven', 51.44, 5.48)]
+    const itinerary: Itinerary = { trip_id: 'trip', itinerary_revision: 3, stops: [a, b, c], connections: [makeConnection(a, b, true), makeConnection(b, c, true)] }
+    const calculations: string[] = []
+    await page.route('**/api/v1/**', async route => {
+      const request = route.request()
+      const path = new URL(request.url()).pathname
+      const json = (body: unknown) => route.fulfill({ json: body })
+      if (path.endsWith('/admin/setup')) return json({ setup_required: false })
+      if (path.endsWith('/settings/public')) return json({ settings: {}, updated_at: timestamp })
+      if (path.endsWith('/users/me')) return json({ id: 'owner', password_change_required: false, permissions: ['trip:create'], profile: null, role: 'USER' })
+      if (path.endsWith('/trips/trip')) return json({ id: 'trip', name: 'Deletion route test', start_date: '2027-05-10', end_date: '2027-05-12', description: '', cover_media: null, visibility: 'PRIVATE' })
+      if (path.endsWith('/members')) return json([{ role: 'OWNER', user_id: 'owner', user: creator, trip_id: 'trip' }])
+      if (path.endsWith('/posts/timeline')) return json({ entries: [], opening_route: null })
+      if (path.endsWith('/viewers') || path.endsWith('/share-links')) return json([])
+      if (path.endsWith('/itinerary') || path.endsWith('/itinerary/overview')) return json(itinerary)
+      if (path.endsWith('/itinerary/stops/b') && request.method() === 'DELETE') {
+        expect(request.headers()['if-match']).toBe('"3"')
+        itinerary.stops = [a, c]
+        itinerary.connections = [makeConnection(a, c, false)]
+        itinerary.itinerary_revision = 4
+        return json(itinerary)
+      }
+      if (path.endsWith('/connections/a-c/route-refresh')) {
+        expect(request.headers()['if-match']).toBe('"4"')
+        calculations.push('a-c')
+        itinerary.connections = [makeConnection(a, c, true)]
+        itinerary.itinerary_revision = 5
+        return json({ itinerary_revision: 5, connection: itinerary.connections[0] })
+      }
+      return route.fulfill({ status: 404, json: { detail: `Unhandled ${path}` } })
+    })
+    await page.route('https://tile.openstreetmap.org/**', route => route.abort())
+    await page.goto('/trips/trip?tab=plan')
+    await page.getByRole('button', { name: 'Delete Utrecht', exact: true }).click()
+    await expect.poll(() => calculations).toEqual(['a-c'])
+    const bridge = page.getByRole('button', { name: mobile ? /^Car 10 min/ : /Car Amsterdam to Eindhoven/ })
+    await expect(bridge).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Delete Utrecht', exact: true })).toHaveCount(0)
+    await page.reload()
+    await expect(bridge).toBeVisible()
+    expect(calculations).toEqual(['a-c'])
+  })
+
   for (const inserting of [false, true]) {
     test(`${mobile ? 'mobile' : 'desktop'} automatically calculates car routes after ${inserting ? 'inserting' : 'appending'} a stop`, async ({ page }) => {
       await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 960 })
@@ -47,7 +94,7 @@ for (const mobile of [false, true]) {
       const b = stop('b', 'Utrecht', 52.09, 5.12)
       const c = stop('c', 'Eindhoven', 51.44, 5.48)
       const added = stop('new', 'New stop', 52.2, 5)
-      const itinerary: Itinerary = { trip_id: 'trip', itinerary_revision: 3, stops: [a, b, c], legs: [connection(a, b, true), connection(b, c, true)] }
+      const itinerary: Itinerary = { trip_id: 'trip', itinerary_revision: 3, stops: [a, b, c], connections: [makeConnection(a, b, true), makeConnection(b, c, true)] }
       const refreshed: string[] = []
       let creates = 0
       await page.route('**/api/v1/**', async route => {
@@ -64,18 +111,18 @@ for (const mobile of [false, true]) {
         if (path.endsWith('/places/geocode')) return json([added.location])
         if (path.endsWith('/itinerary') || path.endsWith('/itinerary/overview')) return json(itinerary)
         if (path.endsWith('/itinerary/stops') && request.method() === 'POST') {
-          if (inserting && new URL(request.url()).searchParams.get('confirm_travel_deletion') !== 'true') {
+          if (inserting && new URL(request.url()).searchParams.get('confirm_connection_deletion') !== 'true') {
             return route.fulfill({ status: 409, json: { detail: {
-              code: 'TRAVEL_DELETION_REQUIRED', connections: [{ from: 'Amsterdam', to: 'Utrecht' }],
+              code: 'CONNECTION_DELETION_REQUIRED', connections: [{ from: 'Amsterdam', to: 'Utrecht' }],
             } } })
           }
           creates += 1
           expect(request.headers()['if-match']).toBe('"3"')
           expect(request.postDataJSON().placement.after_stop_id).toBe(inserting ? 'a' : 'c')
           itinerary.stops = inserting ? [a, added, b, c] : [a, b, c, added]
-          itinerary.legs = inserting
-            ? [connection(a, added, false), connection(added, b, false), itinerary.legs[1]]
-            : [...itinerary.legs, connection(c, added, false)]
+          itinerary.connections = inserting
+            ? [makeConnection(a, added, false), makeConnection(added, b, false), itinerary.connections[1]]
+            : [...itinerary.connections, makeConnection(c, added, false)]
           itinerary.itinerary_revision += 1
           return route.fulfill({ status: 201, json: itinerary })
         }
@@ -85,13 +132,13 @@ for (const mobile of [false, true]) {
           expect(request.headers()['if-match']).toBe(`"${itinerary.itinerary_revision}"`)
           expect(request.headers()['authorization']).toContain('Bearer ')
           refreshed.push(id)
-          const index = itinerary.legs.findIndex(leg => leg.id === id)
-          const leg = itinerary.legs[index]
-          const from = itinerary.stops.find(stop => leg.from.type === 'STOP' && stop.id === leg.from.stop_id)!
-          const to = itinerary.stops.find(stop => leg.to.type === 'STOP' && stop.id === leg.to.stop_id)!
-          itinerary.legs[index] = connection(from, to, true)
+          const index = itinerary.connections.findIndex(connection => connection.id === id)
+          const connection = itinerary.connections[index]
+          const from = itinerary.stops.find(stop => connection.from.type === 'STOP' && stop.id === connection.from.stop_id)!
+          const to = itinerary.stops.find(stop => connection.to.type === 'STOP' && stop.id === connection.to.stop_id)!
+          itinerary.connections[index] = makeConnection(from, to, true)
           itinerary.itinerary_revision += 1
-          return route.fulfill({ json: itinerary.legs[index], headers: { ETag: `"${itinerary.itinerary_revision}"` } })
+          return route.fulfill({ json: { itinerary_revision: itinerary.itinerary_revision, connection: itinerary.connections[index] }, headers: { ETag: `"${itinerary.itinerary_revision}"` } })
         }
         return route.fulfill({ status: 404, json: { detail: `Unhandled ${path}` } })
       })

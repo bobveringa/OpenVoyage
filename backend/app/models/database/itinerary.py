@@ -134,8 +134,8 @@ class ItineraryStop(Base):
     creator: Mapped['User'] = relationship('User')
 
 
-class ItineraryTravelLeg(Base):
-    __tablename__ = 'itinerary_travel_legs'
+class ItineraryConnection(Base):
+    __tablename__ = 'itinerary_connections'
     __table_args__ = (
         UniqueConstraint('trip_id', 'id'),
         ForeignKeyConstraint(
@@ -149,43 +149,43 @@ class ItineraryTravelLeg(Base):
             ondelete='CASCADE',
         ),
         UniqueConstraint(
-            'trip_id', 'from_stop_id', name='uq_itinerary_travel_legs_trip_from_stop_id'
+            'trip_id', 'from_stop_id', name='uq_itinerary_connections_trip_from_stop_id'
         ),
         UniqueConstraint(
-            'trip_id', 'to_stop_id', name='uq_itinerary_travel_legs_trip_to_stop_id'
+            'trip_id', 'to_stop_id', name='uq_itinerary_connections_trip_to_stop_id'
         ),
         CheckConstraint(
             'from_stop_id IS NULL OR to_stop_id IS NULL OR from_stop_id <> to_stop_id',
-            name='ck_itinerary_travel_legs_distinct_stops',
+            name='ck_itinerary_connections_distinct_stops',
         ),
         CheckConstraint(
             '(from_stop_id IS NOT NULL) <> (from_location_id IS NOT NULL)',
-            name='ck_itinerary_legs_from_endpoint',
+            name='ck_itinerary_connections_from_endpoint',
         ),
         CheckConstraint(
             '(to_stop_id IS NOT NULL) <> (to_location_id IS NOT NULL)',
-            name='ck_itinerary_legs_to_endpoint',
+            name='ck_itinerary_connections_to_endpoint',
         ),
         CheckConstraint(
             'from_stop_id IS NOT NULL OR to_stop_id IS NOT NULL',
-            name='ck_itinerary_legs_stop_endpoint',
+            name='ck_itinerary_connections_stop_endpoint',
         ),
         *(
             ForeignKeyConstraint(
                 ['trip_id', key],
                 ['locations.trip_id', 'locations.id'],
-                name=f'fk_itinerary_legs_trip_{key}',
+                name=f'fk_itinerary_connections_trip_{key}',
             )
             for key in ('from_location_id', 'to_location_id')
         ),
         Index(
-            'uq_itinerary_legs_departure',
+            'uq_itinerary_connections_departure',
             'trip_id',
             unique=True,
             postgresql_where=text('from_stop_id IS NULL'),
         ),
         Index(
-            'uq_itinerary_legs_return',
+            'uq_itinerary_connections_return',
             'trip_id',
             unique=True,
             postgresql_where=text('to_stop_id IS NULL'),
@@ -210,23 +210,23 @@ class ItineraryTravelLeg(Base):
         server_default=func.now(),
     )
     from_stop: Mapped['ItineraryStop | None'] = relationship(
-        primaryjoin='and_(ItineraryTravelLeg.trip_id == ItineraryStop.trip_id, ItineraryTravelLeg.from_stop_id == ItineraryStop.id)',
-        foreign_keys='[ItineraryTravelLeg.trip_id, ItineraryTravelLeg.from_stop_id]',
+        primaryjoin='and_(ItineraryConnection.trip_id == ItineraryStop.trip_id, ItineraryConnection.from_stop_id == ItineraryStop.id)',
+        foreign_keys='[ItineraryConnection.trip_id, ItineraryConnection.from_stop_id]',
         viewonly=True,
     )
     to_stop: Mapped['ItineraryStop | None'] = relationship(
-        primaryjoin='and_(ItineraryTravelLeg.trip_id == ItineraryStop.trip_id, ItineraryTravelLeg.to_stop_id == ItineraryStop.id)',
-        foreign_keys='[ItineraryTravelLeg.trip_id, ItineraryTravelLeg.to_stop_id]',
+        primaryjoin='and_(ItineraryConnection.trip_id == ItineraryStop.trip_id, ItineraryConnection.to_stop_id == ItineraryStop.id)',
+        foreign_keys='[ItineraryConnection.trip_id, ItineraryConnection.to_stop_id]',
         viewonly=True,
     )
     from_location: Mapped['Location | None'] = relationship(
-        primaryjoin='and_(ItineraryTravelLeg.trip_id == Location.trip_id, ItineraryTravelLeg.from_location_id == Location.id)',
-        foreign_keys='[ItineraryTravelLeg.trip_id, ItineraryTravelLeg.from_location_id]',
+        primaryjoin='and_(ItineraryConnection.trip_id == Location.trip_id, ItineraryConnection.from_location_id == Location.id)',
+        foreign_keys='[ItineraryConnection.trip_id, ItineraryConnection.from_location_id]',
         viewonly=True,
     )
     to_location: Mapped['Location | None'] = relationship(
-        primaryjoin='and_(ItineraryTravelLeg.trip_id == Location.trip_id, ItineraryTravelLeg.to_location_id == Location.id)',
-        foreign_keys='[ItineraryTravelLeg.trip_id, ItineraryTravelLeg.to_location_id]',
+        primaryjoin='and_(ItineraryConnection.trip_id == Location.trip_id, ItineraryConnection.to_location_id == Location.id)',
+        foreign_keys='[ItineraryConnection.trip_id, ItineraryConnection.to_location_id]',
         viewonly=True,
     )
 
@@ -242,7 +242,7 @@ class ItineraryTravelLeg(Base):
         cascade='all, delete-orphan',
         passive_deletes=True,
         order_by='ItineraryTravelSegment.position',
-        foreign_keys='[ItineraryTravelSegment.trip_id, ItineraryTravelSegment.leg_id]',
+        foreign_keys='[ItineraryTravelSegment.trip_id, ItineraryTravelSegment.connection_id]',
     )
 
 
@@ -250,10 +250,10 @@ class ItineraryTravelSegment(Base):
     __tablename__ = 'itinerary_travel_segments'
     __table_args__ = (
         UniqueConstraint('trip_id', 'id'),
-        UniqueConstraint('leg_id', 'position', deferrable=True, initially='DEFERRED'),
+        UniqueConstraint('connection_id', 'position', deferrable=True, initially='DEFERRED'),
         ForeignKeyConstraint(
-            ['trip_id', 'leg_id'],
-            ['itinerary_travel_legs.trip_id', 'itinerary_travel_legs.id'],
+            ['trip_id', 'connection_id'],
+            ['itinerary_connections.trip_id', 'itinerary_connections.id'],
             ondelete='CASCADE',
         ),
         *(
@@ -272,7 +272,7 @@ class ItineraryTravelSegment(Base):
     trip_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey('trips.id', ondelete='CASCADE')
     )
-    leg_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    connection_id: Mapped[uuid.UUID] = mapped_column(index=True)
     position: Mapped[int]
     travel_mode: Mapped[str] = mapped_column(String(32))
     mode_source: Mapped[str] = mapped_column(String(8), default='USER')
@@ -367,8 +367,8 @@ class ItineraryPlanningArtifact(Base):
     __tablename__ = 'itinerary_planning_artifacts'
     __table_args__ = (
         ForeignKeyConstraint(
-            ['trip_id', 'leg_id'],
-            ['itinerary_travel_legs.trip_id', 'itinerary_travel_legs.id'],
+            ['trip_id', 'connection_id'],
+            ['itinerary_connections.trip_id', 'itinerary_connections.id'],
             ondelete='CASCADE',
         ),
         CheckConstraint("kind IN ('FLIGHT_CANDIDATE', 'PREVIEW')"),
@@ -377,7 +377,7 @@ class ItineraryPlanningArtifact(Base):
             'ix_planning_artifacts_scope',
             'trip_id',
             'created_by_user_id',
-            'leg_id',
+            'connection_id',
             'kind',
             'input_hash',
         ),
@@ -387,7 +387,7 @@ class ItineraryPlanningArtifact(Base):
     trip_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey('trips.id', ondelete='CASCADE')
     )
-    leg_id: Mapped[uuid.UUID | None]
+    connection_id: Mapped[uuid.UUID | None]
     created_by_user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey('users.id', ondelete='CASCADE')
     )

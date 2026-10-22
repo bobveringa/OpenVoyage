@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { PlanningPreview } from '@/api/client'
-import type { TravelLegEditDraft } from './page-types'
+import type { ConnectionEditDraft } from './page-types'
 import { PlanningPreviewCache, planningPreviewKey } from './planning-preview-cache'
 
 const now = Date.parse('2026-10-19T12:00:00Z')
-const draft: TravelLegEditDraft = { notes: '', segments: [{ id: 'segment', travel_mode: 'CAR', mode_selected: false, notes: '', route_option: 0 }] }
+const draft: ConnectionEditDraft = { notes: '', segments: [{ id: 'segment', travel_mode: 'CAR', mode_selected: false, notes: '', route_option: 0 }] }
 const preview = { preview_id: 'preview', expires_at: '2026-10-19T12:10:00Z', connection: {} } as PlanningPreview
 
 describe('planning preview reuse', () => {

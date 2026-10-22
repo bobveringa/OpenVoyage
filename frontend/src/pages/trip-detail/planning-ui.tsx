@@ -1,5 +1,5 @@
 import { resolveConnectionEndpoint, type ConnectionAnchor } from './connection-endpoints'
-import { TravelLegEditDialog } from './travel-leg-editor'
+import { ConnectionEditDialog } from './connection-editor'
 import { ConnectionLocationPicker } from './connection-location-picker'
 import {
   ArrowLeft,
@@ -27,14 +27,14 @@ import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import type { Stop, TravelLeg } from '@/pages/trip-detail/models'
+import type { Stop, Connection } from '@/pages/trip-detail/models'
 import type {
   CreateStopDraft,
   DraftPostLocation,
   MapPointTarget,
   StopEditDraft,
   StopInsertionPoint,
-  TravelLegEditDraft,
+  ConnectionEditDraft,
 } from '@/pages/trip-detail/page-types'
 import {
   createFirstStopInsertionPoint,
@@ -66,98 +66,98 @@ export function PlanningPanel({
   canMutate,
   isMutating,
   onAddStop,
-  onRefreshTravelLegRoute,
+  onRefreshConnectionRoute,
   onStopChange,
   onStopDelete,
   onStopSave,
-  onTravelLegSave,
+  onConnectionSave,
   onConnectionCreate,
   onConnectionDelete,
   pendingAction,
   stops,
   tripStartDate,
-  travelLegs,
+  connections,
 }: {
   canMutate: boolean
   isMutating: boolean
   onAddStop: (insertionPoint: StopInsertionPoint) => void
-  onRefreshTravelLegRoute: (legId: string) => void
+  onRefreshConnectionRoute: (connectionId: string) => void
   onStopChange: (stopId: string, updates: Partial<Stop>) => void
   onStopDelete: (stopId: string) => void
   onStopSave: (stopId: string, draft: StopEditDraft) => void
-  onTravelLegSave: (legId: string, draft: TravelLegEditDraft) => void
-  onConnectionCreate: (payload: import('@/api/client').ItineraryTravelReplacePayload) => void
-  onConnectionDelete: (legId: string) => void
+  onConnectionSave: (connectionId: string, draft: ConnectionEditDraft) => void
+  onConnectionCreate: (payload: import('@/api/client').ItineraryConnectionReplacePayload) => void
+  onConnectionDelete: (connectionId: string) => void
   pendingAction: string | null
   stops: readonly Stop[]
   tripStartDate: string
-  travelLegs: readonly TravelLeg[]
+  connections: readonly Connection[]
 }) {
   const [editingStopId, setEditingStopId] = useState<string | null>(null)
-  const [editingLegId, setEditingLegId] = useState<string | null>(null)
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null)
   const { airportTransferRequest, connectionMap, saveError } = useContext(PlanningSessionContext)
   const desktop = useMediaQuery('(min-width: 1024px)')
   const [outerEditor, setOuterEditor] = useState<{
-    side: OuterConnectionSide; leg: TravelLeg; creating: boolean; location: ConnectionLocation | null
+    side: OuterConnectionSide; connection: Connection; creating: boolean; location: ConnectionLocation | null
   } | null>(null)
-  const [removingLegId, setRemovingLegId] = useState<string | null>(null)
+  const [removingConnectionId, setRemovingConnectionId] = useState<string | null>(null)
   const [removalSubmitted, setRemovalSubmitted] = useState(false)
-  const removingLeg = travelLegs.find((leg) => leg.id === removingLegId) ?? null
+  const removingConnection = connections.find((connection) => connection.id === removingConnectionId) ?? null
   function requestRemoval(id: string) {
     if (!canMutate || isMutating) return
     setRemovalSubmitted(false)
-    setRemovingLegId(id)
+    setRemovingConnectionId(id)
   }
   useEffect(() => {
-    if (!removingLeg) { setRemovingLegId(null); setRemovalSubmitted(false) }
-  }, [removingLeg])
+    if (!removingConnection) { setRemovingConnectionId(null); setRemovalSubmitted(false) }
+  }, [removingConnection])
   function closeConnectionEditor() {
-    if (removingLegId) return
-    setEditingLegId(null)
+    if (removingConnectionId) return
+    setEditingConnectionId(null)
     setOuterEditor(null)
     connectionMap?.stop()
   }
   function openOuterEditor(side: OuterConnectionSide) {
-    const leg = travelLegs.find((item) => item.connection_type === side)
-    const endpoint = leg?.[side === 'DEPARTURE' ? 'from' : 'to']
+    const connection = connections.find((item) => item.connection_type === side)
+    const endpoint = connection?.[side === 'DEPARTURE' ? 'from' : 'to']
     const location = endpoint?.type === 'LOCATION' ? {
       input: { latitude: endpoint.location.latitude, longitude: endpoint.location.longitude },
       anchor: { title: endpoint.location.name, location: endpoint.location },
     } : null
     connectionMap?.stop()
-    setEditingLegId(leg?.id ?? null)
-    setOuterEditor({ side, leg: leg ?? createOuterConnectionDraft(side, side === 'DEPARTURE' ? stops[0] : stops[stops.length - 1]), creating: !leg, location })
+    setEditingConnectionId(connection?.id ?? null)
+    setOuterEditor({ side, connection: connection ?? createOuterConnectionDraft(side, side === 'DEPARTURE' ? stops[0] : stops[stops.length - 1]), creating: !connection, location })
   }
   function editConnection(id: string) {
-    const leg = travelLegs.find((item) => item.id === id)
-    if (leg?.connection_type === 'DEPARTURE' || leg?.connection_type === 'RETURN') openOuterEditor(leg.connection_type)
-    else { connectionMap?.stop(); setOuterEditor(null); setEditingLegId(id) }
+    const connection = connections.find((item) => item.id === id)
+    if (connection?.connection_type === 'DEPARTURE' || connection?.connection_type === 'RETURN') openOuterEditor(connection.connection_type)
+    else { connectionMap?.stop(); setOuterEditor(null); setEditingConnectionId(id) }
   }
   useEffect(() => {
     if (outerEditor && (outerEditor.creating
-      ? travelLegs.some((leg) => leg.connection_type === outerEditor.side)
-      : !travelLegs.some((leg) => leg.id === outerEditor.leg.id))) {
+      ? connections.some((connection) => connection.connection_type === outerEditor.side)
+      : !connections.some((connection) => connection.id === outerEditor.connection.id))) {
       setOuterEditor(null)
-      setEditingLegId(null)
+      setEditingConnectionId(null)
       connectionMap?.stop()
     }
-  }, [travelLegs, outerEditor, connectionMap])
+  }, [connections, outerEditor, connectionMap])
   const openRequestedConnection = useEffectEvent(editConnection)
   useEffect(() => {
     if (canMutate && airportTransferRequest) {
-      openRequestedConnection(airportTransferRequest.legId)
+      openRequestedConnection(airportTransferRequest.connectionId)
     }
   }, [airportTransferRequest, canMutate])
   const addStopDisabled = !canMutate || isMutating
   const editingStop = stops.find((stop) => stop.id === editingStopId) ?? null
-  const editingLeg = travelLegs.find((leg) => leg.id === editingLegId) ?? outerEditor?.leg ?? null
-  const editingLegFromStop =
-    editingLeg
-      ? stops.find((stop) => editingLeg.from.type === 'STOP' && stop.id === editingLeg.from.stop_id) ?? null
+  const editingConnection = connections.find((connection) => connection.id === editingConnectionId) ?? outerEditor?.connection ?? null
+  const editingConnectionFromStop =
+    editingConnection
+      ? stops.find((stop) => editingConnection.from.type === 'STOP' && stop.id === editingConnection.from.stop_id) ?? null
       : null
-  const editingLegToStop =
-    editingLeg
-      ? stops.find((stop) => editingLeg.to.type === 'STOP' && stop.id === editingLeg.to.stop_id) ?? null
+  const editingConnectionToStop =
+    editingConnection
+      ? stops.find((stop) => editingConnection.to.type === 'STOP' && stop.id === editingConnection.to.stop_id) ?? null
       : null
 
   return (
@@ -172,10 +172,10 @@ export function PlanningPanel({
             <p className="text-sm text-muted-foreground">{outerEditor.side === 'DEPARTURE' ? 'Choose a starting place for travel to ' + stops[0].title + '.' : 'Choose a destination after ' + stops[stops.length - 1].title + '.'}</p>
           </div>
         </div>
-        <ConnectionLocationPicker key={outerEditor.side + outerEditor.leg.id}
+        <ConnectionLocationPicker key={outerEditor.side + outerEditor.connection.id}
           label={outerEditor.side === 'DEPARTURE' ? 'Departure location' : 'Return location'}
           value={outerEditor.location} disabled={isMutating}
-          onRemove={!outerEditor.creating ? () => requestRemoval(outerEditor.leg.id) : undefined}
+          onRemove={!outerEditor.creating ? () => requestRemoval(outerEditor.connection.id) : undefined}
           onChange={(location) => setOuterEditor((editor) => editor ? { ...editor, location } : null)} />
         <Button variant="outline" disabled={isMutating} onClick={closeConnectionEditor} type="button">Cancel</Button>
       </> : <>
@@ -197,15 +197,15 @@ export function PlanningPanel({
           />
         ) : null}
 
-        {stops.length > 0 ? <OuterConnectionControl side="DEPARTURE" stops={stops} travelLegs={travelLegs}
+        {stops.length > 0 ? <OuterConnectionControl side="DEPARTURE" stops={stops} connections={connections}
           disabled={addStopDisabled} canMutate={canMutate} onEdit={() => openOuterEditor('DEPARTURE')} onRemove={requestRemoval} /> : null}
         {stops.map((stop, index) => {
           const nextStop = stops[index + 1]
-          const leg = nextStop
-            ? travelLegs.find(
-                (travelLeg) =>
-                  travelLeg.from.type === 'STOP' && travelLeg.from.stop_id === stop.id &&
-                  travelLeg.to.type === 'STOP' && travelLeg.to.stop_id === nextStop.id,
+          const connection = nextStop
+            ? connections.find(
+                (connection) =>
+                  connection.from.type === 'STOP' && connection.from.stop_id === stop.id &&
+                  connection.to.type === 'STOP' && connection.to.stop_id === nextStop.id,
               )
             : undefined
 
@@ -219,10 +219,10 @@ export function PlanningPanel({
                 onDetails={setEditingStopId}
                 stop={stop}
               />
-              {nextStop && leg ? (
-                <TravelLegCard
+              {nextStop && connection ? (
+                <ConnectionCard
                   fromStop={stop}
-                  leg={leg}
+                  connection={connection}
                   disabled={!canMutate || isMutating}
                   onEdit={editConnection}
                   toStop={nextStop}
@@ -236,11 +236,11 @@ export function PlanningPanel({
             </Fragment>
           )
         })}
-        {stops.length > 0 ? <OuterConnectionControl side="RETURN" stops={stops} travelLegs={travelLegs}
+        {stops.length > 0 ? <OuterConnectionControl side="RETURN" stops={stops} connections={connections}
           disabled={addStopDisabled} canMutate={canMutate} onEdit={() => openOuterEditor('RETURN')} onRemove={requestRemoval} /> : null}
       </div>
 
-      {travelLegs.some((leg) => leg.segments.some((segment) => segment.lookup)) ? (
+      {connections.some((connection) => connection.segments.some((segment) => segment.lookup)) ? (
         <p className="text-xs text-muted-foreground">Flight information from <a href="https://aerodatabox.com/" target="_blank" rel="noopener" className="underline">AeroDataBox</a>.</p>
       ) : null}
       </>}
@@ -251,48 +251,48 @@ export function PlanningPanel({
         saving={isMutating}
         stop={editingStop}
       />
-      <TravelLegEditDialog
-        fromStop={editingLegFromStop}
-        leg={editingLeg}
+      <ConnectionEditDialog
+        fromStop={editingConnectionFromStop}
+        connection={editingConnection}
         onClose={closeConnectionEditor}
-        onRefreshRoute={onRefreshTravelLegRoute}
-        onSave={(id, draft) => outerEditor?.creating ? onConnectionCreate(connectionWritePayload(draft)) : onTravelLegSave(id, draft)}
+        onRefreshRoute={onRefreshConnectionRoute}
+        onSave={(id, draft) => outerEditor?.creating ? onConnectionCreate(connectionWritePayload(draft)) : onConnectionSave(id, draft)}
         creating={outerEditor?.creating}
         outsideLocation={outerEditor?.location}
         onOutsideLocationChange={outerEditor ? (location) => setOuterEditor((editor) => editor ? { ...editor, location } : null) : undefined}
-        onDelete={outerEditor && !outerEditor.creating ? () => requestRemoval(outerEditor.leg.id) : undefined}
-        open={Boolean(editingLeg)}
+        onDelete={outerEditor && !outerEditor.creating ? () => requestRemoval(outerEditor.connection.id) : undefined}
+        open={Boolean(editingConnection)}
         pendingAction={pendingAction}
         saving={isMutating}
-        toStop={editingLegToStop}
+        toStop={editingConnectionToStop}
       />
-      <ConnectionRemovalDialog leg={removingLeg} stops={stops} removing={isMutating}
+      <ConnectionRemovalDialog connection={removingConnection} stops={stops} removing={isMutating}
         error={removalSubmitted ? saveError ?? null : null}
-        onCancel={() => { if (!isMutating) setRemovingLegId(null) }}
+        onCancel={() => { if (!isMutating) setRemovingConnectionId(null) }}
         onConfirm={() => {
-          if (!removingLeg || !canMutate || isMutating) return
+          if (!removingConnection || !canMutate || isMutating) return
           setRemovalSubmitted(true)
-          onConnectionDelete(removingLeg.id)
+          onConnectionDelete(removingConnection.id)
         }} />
     </div>
   )
 }
 
-function OuterConnectionControl({ side, stops, travelLegs, disabled, canMutate, onEdit, onRemove }: {
-  side: OuterConnectionSide; stops: readonly Stop[]; travelLegs: readonly TravelLeg[]
+function OuterConnectionControl({ side, stops, connections, disabled, canMutate, onEdit, onRemove }: {
+  side: OuterConnectionSide; stops: readonly Stop[]; connections: readonly Connection[]
   disabled: boolean; canMutate: boolean; onEdit: () => void
   onRemove: (id: string) => void
 }) {
-  const leg = travelLegs.find((item) => item.connection_type === side)
+  const connection = connections.find((item) => item.connection_type === side)
   const label = side === 'DEPARTURE' ? 'departure' : 'return'
-  if (!canMutate && !leg) return null
-  const from = leg ? resolveConnectionEndpoint(leg.from, stops) : null
-  const to = leg ? resolveConnectionEndpoint(leg.to, stops) : null
-  return <div className="space-y-2" aria-label={leg ? label + ' connection' : undefined}>
-    {leg && from && to ? <>
+  if (!canMutate && !connection) return null
+  const from = connection ? resolveConnectionEndpoint(connection.from, stops) : null
+  const to = connection ? resolveConnectionEndpoint(connection.to, stops) : null
+  return <div className="space-y-2" aria-label={connection ? label + ' connection' : undefined}>
+    {connection && from && to ? <>
       <p className="pl-[4.25rem] text-xs font-semibold uppercase text-muted-foreground">{label}</p>
-      <TravelLegCard disabled={disabled} fromStop={from} toStop={to} leg={leg} onEdit={onEdit}
-        onRemove={canMutate ? () => onRemove(leg.id) : undefined} />
+      <ConnectionCard disabled={disabled} fromStop={from} toStop={to} connection={connection} onEdit={onEdit}
+        onRemove={canMutate ? () => onRemove(connection.id) : undefined} />
     </> : <StopInsertButton disabled={disabled} label={'Add ' + label} onClick={onEdit} />}
 
   </div>
@@ -728,10 +728,10 @@ function StopCard({
   )
 }
 
-function TravelLegCard({
+function ConnectionCard({
   disabled,
   fromStop,
-  leg,
+  connection,
   onEdit,
   toStop,
   active = false,
@@ -740,21 +740,21 @@ function TravelLegCard({
   active?: boolean
   disabled: boolean
   fromStop: ConnectionAnchor
-  leg: TravelLeg
-  onEdit: (legId: string) => void
+  connection: Connection
+  onEdit: (connectionId: string) => void
   toStop: ConnectionAnchor
   onRemove?: () => void
 }) {
-  const ModeIcon = getTravelModeIcon(leg.segments[0]?.intent.travel_mode ?? 'CAR')
-  const legDetail = leg.segments.map((s) => s.intent.flight?.flight_number || s.intent.service_number).filter(Boolean).join(' · ')
+  const ModeIcon = getTravelModeIcon(connection.segments[0]?.intent.travel_mode ?? 'CAR')
+  const connectionDetail = connection.segments.map((s) => s.intent.flight?.flight_number || s.intent.service_number).filter(Boolean).join(' · ')
   const routeDistanceLabel =
-    leg.route.type === 'PROVIDER_BACKED' &&
-    typeof leg.route.distance_meters === 'number'
-      ? formatDistance(leg.route.distance_meters)
+    connection.route.type === 'PROVIDER_BACKED' &&
+    typeof connection.route.distance_meters === 'number'
+      ? formatDistance(connection.route.distance_meters)
       : null
   const routeDurationLabel =
-    typeof leg.duration_seconds === 'number'
-      ? `${formatDuration(leg.duration_seconds)}${leg.duration_scope === 'FLIGHT_JOURNEY' ? ' flight journey' : ''}`
+    typeof connection.duration_seconds === 'number'
+      ? `${formatDuration(connection.duration_seconds)}${connection.duration_scope === 'FLIGHT_JOURNEY' ? ' flight journey' : ''}`
       : null
   const hasRouteMetrics = Boolean(routeDistanceLabel || routeDurationLabel)
 
@@ -776,11 +776,11 @@ function TravelLegCard({
           aria-pressed={active}
           className={cn("flex min-h-10 w-full items-center gap-2 rounded-[1.1rem] border border-border bg-card/85 px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-muted", active && "border-primary bg-primary/5")}
           disabled={disabled}
-          onClick={() => onEdit(leg.id)}
+          onClick={() => onEdit(connection.id)}
           type="button"
         >
           <span className="shrink-0 font-semibold text-primary">
-            {leg.segments.map((s) => getTravelModeLabel(s.intent.travel_mode)).join(' → ')}
+            {connection.segments.map((s) => getTravelModeLabel(s.intent.travel_mode)).join(' → ')}
           </span>
           <span
             className={cn(
@@ -806,24 +806,24 @@ function TravelLegCard({
               ) : null}
             </span>
           ) : null}
-          {legDetail ? (
+          {connectionDetail ? (
             <span className="hidden max-w-36 shrink-0 truncate text-xs text-muted-foreground md:block">
-              {legDetail}
+              {connectionDetail}
             </span>
           ) : null}
           <Badge
             className="hidden shrink-0 lg:inline-flex"
-            variant={leg.route.type === 'PROVIDER_BACKED' ? 'default' : 'outline'}
+            variant={connection.route.type === 'PROVIDER_BACKED' ? 'default' : 'outline'}
           >
-            {leg.segments.some((s) => s.route_state === 'FAILED') ? 'Route unavailable' : leg.route.type === 'PROVIDER_BACKED' ? 'Route ready' : 'Approximate connection'}
+            {connection.segments.some((s) => s.route_state === 'FAILED') ? 'Route unavailable' : connection.route.type === 'PROVIDER_BACKED' ? 'Route ready' : 'Approximate connection'}
           </Badge>
           <PenLine
             className="size-3.5 shrink-0 text-muted-foreground"
             aria-hidden="true"
           />
         </button>
-        {onRemove ? <Button aria-label={'Remove ' + (leg.connection_type === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
-          title={'Remove ' + (leg.connection_type === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
+        {onRemove ? <Button aria-label={'Remove ' + (connection.connection_type === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
+          title={'Remove ' + (connection.connection_type === 'DEPARTURE' ? 'departure' : 'return') + ' connection'}
           className="size-8 shrink-0 rounded-xl text-destructive hover:bg-destructive/10" disabled={disabled}
           size="icon" type="button" variant="ghost" onClick={onRemove}><Trash2 className="size-3.5" aria-hidden="true" /></Button> : null}
         </div>

@@ -11,12 +11,13 @@ from models.api.planning import (
     SegmentIntent,
     SegmentResponse,
     StrictInput,
+    PlanningWarning,
 )
 
 from models.api.geojson import GeoJsonLineString
 from models.api.locations import LocationInput, LocationResponse
 from models.api.users import UserSummaryResponse
-from models.database.itinerary import ItineraryStop, ItineraryTravelLeg
+from models.database.itinerary import ItineraryStop, ItineraryConnection
 
 
 class ItineraryRouteType(str, enum.Enum):
@@ -24,14 +25,14 @@ class ItineraryRouteType(str, enum.Enum):
     SIMPLE = 'SIMPLE'
 
 
-class ItineraryTravelRouteResponse(BaseModel):
+class ItineraryConnectionRouteResponse(BaseModel):
     type: ItineraryRouteType
     geometry: GeoJsonLineString
     distance_meters: int | None
     duration_seconds: int | None
 
 
-RouteResolver: TypeAlias = Callable[[ItineraryTravelLeg], ItineraryTravelRouteResponse]
+RouteResolver: TypeAlias = Callable[[ItineraryConnection], dict]
 
 
 def is_itinerary_stop_visited(
@@ -76,17 +77,17 @@ ConnectionEndpointResponse = Annotated[
 ]
 
 
-def connection_endpoint(leg, side):
-    stop_id = getattr(leg, f'{side}_stop_id')
+def connection_endpoint(connection, side):
+    stop_id = getattr(connection, f'{side}_stop_id')
     if stop_id is not None:
         return StopConnectionEndpoint(type='STOP', stop_id=stop_id)
     return LocationConnectionEndpointResponse(
         type='LOCATION',
-        location=LocationResponse.from_model(getattr(leg, f'{side}_location')),
+        location=LocationResponse.from_model(getattr(connection, f'{side}_location')),
     )
 
 
-class ItineraryTravelReplaceRequest(ConnectionIntent):
+class ItineraryConnectionReplaceRequest(ConnectionIntent):
     from_: ConnectionEndpointInput = Field(alias='from')
     to: ConnectionEndpointInput
     # Omission uses an internal sentinel; explicit null still fails list validation.
@@ -120,8 +121,8 @@ class ItineraryStopCreateRequest(BaseModel):
     notes: str = ''
     planned_nights: int = Field(ge=0)
     placement: ItineraryPlacement
-    incoming_travel: ConnectionIntent | None = None
-    outgoing_travel: ConnectionIntent | None = None
+    incoming_connection: ConnectionIntent | None = None
+    outgoing_connection: ConnectionIntent | None = None
 
 
 class ItineraryStopUpdateRequest(BaseModel):
@@ -132,8 +133,8 @@ class ItineraryStopUpdateRequest(BaseModel):
     notes: str | None = None
     planned_nights: int | None = Field(default=None, ge=0)
     placement: ItineraryPlacement | None = None
-    incoming_travel: ConnectionIntent | None = None
-    outgoing_travel: ConnectionIntent | None = None
+    incoming_connection: ConnectionIntent | None = None
+    outgoing_connection: ConnectionIntent | None = None
 
     @model_validator(mode='after')
     def reject_null_nonnullable_fields(self) -> Self:
@@ -152,7 +153,7 @@ class ItineraryStopUpdateRequest(BaseModel):
         return self
 
 
-class ItineraryTravelLegResponse(BaseModel):
+class ItineraryConnectionResponse(BaseModel):
     id: uuid.UUID
     trip_id: uuid.UUID
     connection_type: Literal['BETWEEN_STOPS', 'DEPARTURE', 'RETURN']
@@ -162,32 +163,37 @@ class ItineraryTravelLegResponse(BaseModel):
     segments: list[SegmentResponse]
     duration_seconds: int | None
     duration_scope: Literal['JOURNEY', 'FLIGHT_JOURNEY'] | None
-    warnings: list[str]
-    route: ItineraryTravelRouteResponse
+    warnings: list[PlanningWarning]
+    route: ItineraryConnectionRouteResponse
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_model(cls, leg: ItineraryTravelLeg, *, route: dict) -> Self:
+    def from_model(cls, connection: ItineraryConnection, *, route: dict) -> Self:
         return cls(
-            id=leg.id,
-            trip_id=leg.trip_id,
+            id=connection.id,
+            trip_id=connection.trip_id,
             connection_type=(
                 'DEPARTURE'
-                if leg.from_stop_id is None
+                if connection.from_stop_id is None
                 else 'RETURN'
-                if leg.to_stop_id is None
+                if connection.to_stop_id is None
                 else 'BETWEEN_STOPS'
             ),
             **{
-                'from': connection_endpoint(leg, 'from'),
-                'to': connection_endpoint(leg, 'to'),
+                'from': connection_endpoint(connection, 'from'),
+                'to': connection_endpoint(connection, 'to'),
             },
-            notes=leg.notes,
-            created_at=leg.created_at,
-            updated_at=leg.updated_at,
+            notes=connection.notes,
+            created_at=connection.created_at,
+            updated_at=connection.updated_at,
             **route,
         )
+
+
+class ConnectionMutationResponse(BaseModel):
+    itinerary_revision: int
+    connection: ItineraryConnectionResponse
 
 
 class ItineraryStopResponse(BaseModel):
@@ -230,7 +236,7 @@ class ItineraryResponse(BaseModel):
     trip_id: uuid.UUID
     itinerary_revision: int
     stops: list[ItineraryStopResponse]
-    legs: list[ItineraryTravelLegResponse]
+    connections: list[ItineraryConnectionResponse]
 
     @classmethod
     def from_parts(
@@ -239,7 +245,7 @@ class ItineraryResponse(BaseModel):
         trip_id: uuid.UUID,
         itinerary_revision: int,
         stops: list[ItineraryStop],
-        legs: list[ItineraryTravelLeg],
+        connections: list[ItineraryConnection],
         route_resolver: RouteResolver,
         today: date | None = None,
     ) -> Self:
@@ -251,48 +257,48 @@ class ItineraryResponse(BaseModel):
                 ItineraryStopResponse.from_model(stop, today=response_date)
                 for stop in stops
             ],
-            legs=[
-                ItineraryTravelLegResponse.from_model(
-                    leg,
-                    route=route_resolver(leg),
+            connections=[
+                ItineraryConnectionResponse.from_model(
+                    connection,
+                    route=route_resolver(connection),
                 )
-                for leg in legs
+                for connection in connections
             ],
         )
 
 
 class ItineraryStopDetailResponse(BaseModel):
     stop: ItineraryStopResponse
-    incoming_leg: ItineraryTravelLegResponse | None
-    outgoing_leg: ItineraryTravelLegResponse | None
+    incoming_connection: ItineraryConnectionResponse | None
+    outgoing_connection: ItineraryConnectionResponse | None
 
     @classmethod
     def from_parts(
         cls,
         *,
         stop: ItineraryStop,
-        incoming_leg: ItineraryTravelLeg | None,
-        outgoing_leg: ItineraryTravelLeg | None,
+        incoming_connection: ItineraryConnection | None,
+        outgoing_connection: ItineraryConnection | None,
         route_resolver: RouteResolver,
         today: date | None = None,
     ) -> Self:
         response_date = today or date.today()
         return cls(
             stop=ItineraryStopResponse.from_model(stop, today=response_date),
-            incoming_leg=(
-                ItineraryTravelLegResponse.from_model(
-                    incoming_leg,
-                    route=route_resolver(incoming_leg),
+            incoming_connection=(
+                ItineraryConnectionResponse.from_model(
+                    incoming_connection,
+                    route=route_resolver(incoming_connection),
                 )
-                if incoming_leg
+                if incoming_connection
                 else None
             ),
-            outgoing_leg=(
-                ItineraryTravelLegResponse.from_model(
-                    outgoing_leg,
-                    route=route_resolver(outgoing_leg),
+            outgoing_connection=(
+                ItineraryConnectionResponse.from_model(
+                    outgoing_connection,
+                    route=route_resolver(outgoing_connection),
                 )
-                if outgoing_leg
+                if outgoing_connection
                 else None
             ),
         )
@@ -301,4 +307,4 @@ class ItineraryStopDetailResponse(BaseModel):
 class PreviewResponse(BaseModel):
     preview_id: uuid.UUID
     expires_at: AwareDatetime
-    connection: ItineraryTravelLegResponse
+    connection: ItineraryConnectionResponse
