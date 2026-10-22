@@ -59,7 +59,7 @@ export function getTravelModeLabel(travelMode: TravelMode) {
   )
 }
 
-export function getStopCoordinates(stop: Stop): L.LatLngTuple {
+export function getStopCoordinates(stop: Pick<Stop, 'location'>): L.LatLngTuple {
   return [stop.location.latitude, stop.location.longitude]
 }
 

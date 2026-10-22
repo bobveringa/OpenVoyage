@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, Response
 from starlette import status
 
 from models.api.planning import FlightLookupRequest, FlightLookupResponse
+from models.api.route_overview import RouteOverviewResponse
 from api.deps import CurrentUser, ItineraryServiceDep, OptionalCurrentUser, ShareToken
 from models.api.itinerary import (
     ItineraryResponse,
@@ -77,6 +78,28 @@ def _raise_http_error(exc: Exception) -> None:
     raise exc
 
 
+@router.get('/overview', response_model=RouteOverviewResponse)
+def get_route_overview(
+    trip_id: uuid.UUID,
+    response: Response,
+    itinerary_service: ItineraryServiceDep,
+    user: OptionalCurrentUser,
+    share_token: ShareToken = None,
+) -> RouteOverviewResponse:
+    try:
+        snapshot = itinerary_service.get_route_overview(
+            trip_id=trip_id,
+            current_user_id=user.id if user else None,
+            share_token=share_token,
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return RouteOverviewResponse.from_snapshot(
+        snapshot, itinerary_service.route_service.resolve_route_response,
+    )
+
+
 @router.get(
     '',
     response_model=ItineraryResponse,
@@ -98,6 +121,7 @@ def get_itinerary(
         _raise_http_error(exc)
 
     response.headers['ETag'] = _etag(snapshot.itinerary_revision)
+    response.headers['Cache-Control'] = 'private, no-store'
     return ItineraryResponse.from_parts(
         trip_id=snapshot.trip_id,
         itinerary_revision=snapshot.itinerary_revision,
@@ -165,6 +189,7 @@ def get_stop(
         _raise_http_error(exc)
 
     response.headers['ETag'] = _etag(detail.itinerary_revision)
+    response.headers['Cache-Control'] = 'private, no-store'
     return ItineraryStopDetailResponse.from_parts(
         stop=detail.stop,
         incoming_leg=detail.incoming_leg,
@@ -327,6 +352,7 @@ def get_leg(
         _raise_http_error(exc)
 
     response.headers['ETag'] = _etag(detail.itinerary_revision)
+    response.headers['Cache-Control'] = 'private, no-store'
     return ItineraryTravelLegResponse.from_model(
         detail.leg,
         route=itinerary_service.route_service.resolve_route_response(detail.leg),

@@ -1,4 +1,4 @@
-import type { Itinerary, ItineraryTravelLeg } from '@/api/client'
+import type { Itinerary, ItineraryTravelLeg, RouteOverview } from '@/api/client'
 import { seedAuthTokens } from './helpers/auth'
 import { expect, test, type Page, type Route } from '@playwright/test'
 
@@ -635,7 +635,7 @@ async function seedBrowserAuth(page: Page) {
   })
 }
 
-async function mockTripApi(page: Page, role: 'MEMBER' | 'OWNER' = 'MEMBER') {
+async function mockTripApi(page: Page, role: 'MEMBER' | 'OWNER' | 'VIEWER' = 'MEMBER') {
   let releaseTileProviderSetting = () => {}
   const tileProviderSettingGate = new Promise<void>((resolve) => {
     releaseTileProviderSetting = resolve
@@ -684,6 +684,11 @@ async function mockTripApi(page: Page, role: 'MEMBER' | 'OWNER' = 'MEMBER') {
       return
     }
 
+    if (url.pathname.endsWith(`/trips/${tripId}/itinerary/overview`)) {
+      await fulfillJson(route, createOverview(createItinerary() as Itinerary))
+      return
+    }
+
     if (url.pathname.endsWith(`/trips/${tripId}/itinerary`)) {
       await fulfillJson(route, createItinerary())
       return
@@ -697,7 +702,7 @@ async function mockTripApi(page: Page, role: 'MEMBER' | 'OWNER' = 'MEMBER') {
     if (url.pathname.endsWith(`/trips/${tripId}/members`)) {
       await fulfillJson(route, [
         {
-          role,
+          role: role === 'VIEWER' ? 'OWNER' : role,
           trip_id: tripId,
           user: {
             first_name: 'Map',
@@ -705,7 +710,7 @@ async function mockTripApi(page: Page, role: 'MEMBER' | 'OWNER' = 'MEMBER') {
             last_name: 'Tester',
             username: 'map-tester',
           },
-          user_id: userId,
+          user_id: role === 'VIEWER' ? 'owner-user' : userId,
         },
       ])
       return
@@ -1504,4 +1509,76 @@ for (const mobile of [false, true]) {
     expect(previews).toBeGreaterThanOrEqual(1)
     expect(flightLookups).toBe(0)
   })
+}
+
+function createOverview(itinerary: Itinerary): RouteOverview {
+  return {
+    trip_id: itinerary.trip_id,
+    stops: itinerary.stops.map(({ id, location, visited }) => ({ id, location, visited, title: location.name })),
+    legs: itinerary.legs.map((leg) => ({
+      id: leg.id, from: leg.from, to: leg.to,
+      route: { type: leg.route.type, geometry: leg.route.geometry },
+      segments: leg.segments.map((segment) => ({
+        intent: { travel_mode: segment.intent.travel_mode },
+        from_endpoint: segment.from_endpoint, to_endpoint: segment.to_endpoint,
+        geometry: segment.geometry, route_state: segment.route_state,
+      })),
+    })),
+  }
+}
+
+for (const mobile of [false, true]) {
+  for (const audience of ['member', 'viewer', 'anonymous'] as const) {
+    test(`${mobile ? 'mobile' : 'desktop'} ${audience} travel uses the safe overview and displays outer endpoint markers`, async ({ page }) => {
+      await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 960 })
+      if (audience !== 'anonymous') await seedBrowserAuth(page)
+      const release = await mockTripApi(page, audience === 'member' ? 'MEMBER' : 'VIEWER')
+      release()
+      await mockTileServers(page)
+      const itinerary = createItinerary() as Itinerary
+      itinerary.stops[0].visited = true
+      itinerary.stops[1].notes = 'PRIVATE STOP NOTE'
+      itinerary.stops[1].title = 'PRIVATE PLANNING TITLE'
+      const template = itinerary.legs[0]
+      itinerary.legs = [
+        { ...template, id: 'departure', connection_type: 'DEPARTURE',
+          from: { type: 'LOCATION', location: createLocation('start', 'London', 51.5, -0.1) },
+          to: { type: 'STOP', stop_id: firstStopId } },
+        { ...template, id: 'return', connection_type: 'RETURN',
+          from: { type: 'STOP', stop_id: secondStopId },
+          to: { type: 'LOCATION', location: createLocation('end', 'Paris', 48.85, 2.35) } },
+      ]
+      let privateReads = 0
+      let overviewReads = 0
+      await page.route(`**/api/v1/trips/${tripId}/itinerary`, async route => {
+        privateReads += 1
+        return fulfillJson(route, audience === 'member' ? itinerary : { detail: 'Forbidden' }, audience === 'member' ? 200 : 403)
+      })
+      await page.route(`**/api/v1/trips/${tripId}/itinerary/overview`, async route => {
+        overviewReads += 1
+        return fulfillJson(route, createOverview(itinerary))
+      })
+      await page.goto(`/trips/${tripId}?tab=travel`)
+      const map = page.getByLabel('Interactive trip route map')
+      await expect(map).toBeVisible()
+      await expect(map.locator('.trip-map-connection-endpoint[aria-label="Trip start: London"]').first()).toBeVisible()
+      await expect(map.locator('.trip-map-connection-endpoint[aria-label="Trip end: Paris"]').first()).toBeVisible()
+      // The elapsed stop remains filtered, just as before this change.
+      await expect(map.locator('.trip-map-place-marker')).toHaveCount(1)
+      if (!mobile) {
+        await map.locator('.trip-map-place-marker').click()
+        await expect(map.locator('.leaflet-popup-content')).toHaveText('Brussels')
+      }
+      expect(privateReads).toBe(0)
+      expect(overviewReads).toBeGreaterThan(0)
+      await expect(page.getByText('PRIVATE STOP NOTE', { exact: true })).toHaveCount(0)
+      if (audience === 'member') {
+        await page.getByRole('button', { name: 'Plan', exact: true }).click()
+        await expect(page.getByText('PRIVATE PLANNING TITLE', { exact: true })).toBeVisible()
+        expect(privateReads).toBe(1)
+      } else {
+        await expect(page.getByRole('button', { name: 'Plan', exact: true })).toHaveCount(0)
+      }
+    })
+  }
 }

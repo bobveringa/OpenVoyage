@@ -66,6 +66,7 @@ export type TripStatusFilter = components['schemas']['TripStatusFilter']
 export type TripVisibility = components['schemas']['TripVisibility']
 export type GeoJsonLineString = components['schemas']['GeoJsonLineString']
 export type Itinerary = components['schemas']['ItineraryResponse']
+export type RouteOverview = components['schemas']['RouteOverviewResponse']
 export type TravelDeletionConnection = { from: string; to: string }
 export type TravelDeletionConfirmation = (connections: TravelDeletionConnection[]) => Promise<boolean>
 export class ItineraryMutationCancelledError extends Error {}
@@ -1150,6 +1151,17 @@ export async function updateShareLinkDisplayName(options: {
       shareToken: options.shareToken,
       json: { display_name: options.displayName },
     },
+  )
+}
+
+export async function getRouteOverview(options: {
+  tripId: string
+  accessToken?: string | null
+  shareToken?: string | null
+}): Promise<RouteOverview> {
+  return requestJson<RouteOverview>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/overview`,
+    { accessToken: options.accessToken, shareToken: options.shareToken },
   )
 }
 

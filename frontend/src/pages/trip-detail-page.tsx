@@ -30,6 +30,7 @@ import {
   deleteItineraryTravelLeg,
   getErrorMessage,
   getItinerary,
+  getRouteOverview,
   getPost,
   listGpsPostCandidates,
   getPostTimeline,
@@ -54,6 +55,7 @@ import {
   type CurrentUser,
   type GpsPostCandidate,
   type Itinerary,
+  type RouteOverview,
   type TravelDeletionConnection,
   type ItineraryStopCreatePayload,
   type ItineraryStopUpdatePayload,
@@ -196,6 +198,8 @@ export function TripDetailPage({
     { error: null, status: 'loading' },
   )
   const [itineraryRevision, setItineraryRevision] = useState(0)
+  const [routeOverview, setRouteOverview] = useState<RouteOverview>({ trip_id: tripId ?? '', stops: [], legs: [] })
+  const [planningLoadKey, setPlanningLoadKey] = useState<string | null>(null)
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [travelDeletionConnections, setTravelDeletionConnections] = useState<TravelDeletionConnection[] | null>(null)
   const travelDeletionResolver = useRef<((confirmed: boolean) => void) | null>(null)
@@ -392,14 +396,14 @@ export function TripDetailPage({
       try {
         const [
           loadedTrip,
-          loadedItinerary,
+          loadedOverview,
           loadedTimeline,
           loadedMembers,
           loadedGpsPostCandidates,
         ] =
           await Promise.all([
             getTrip({ accessToken, shareToken, tripId }),
-            getItinerary({ accessToken, shareToken, tripId }),
+            getRouteOverview({ accessToken, shareToken, tripId }),
             fetchTravelTimeline(),
             listTripMembers({ accessToken, shareToken, tripId }),
             fetchGpsPostCandidates(),
@@ -459,7 +463,11 @@ export function TripDetailPage({
         }
 
         setTrip(toTripViewModel(loadedTrip))
-        applyItinerary(loadedItinerary)
+        setRouteOverview(loadedOverview)
+        setPlanningLoadKey(null)
+        setPlannedStops([])
+        setTravelLegs([])
+        setItineraryRevision(0)
         setTripMembers(loadedTripMembers)
         setTravelPosts(loadedPosts)
         setTrackingGeometry(loadedTrackingGeometry)
@@ -491,7 +499,6 @@ export function TripDetailPage({
     },
     [
       accessToken,
-      applyItinerary,
       currentUserId,
       fetchGpsPostCandidates,
       fetchTravelTimeline,
@@ -515,6 +522,36 @@ export function TripDetailPage({
       isCurrent = false
     }
   }, [authStatus, loadTripDetail])
+
+  // Travel only needs the public map projection, even for participants.
+  // Load private planning data when an authorized participant opens planning.
+  useEffect(() => {
+    if (!tripId || !accessToken || !canMutate || mode !== 'planning' || loadState.status !== 'success') return
+    const key = `${tripId}:${currentUserId}`
+    if (planningLoadKey === key) return
+    let current = true
+    void getItinerary({ tripId, accessToken }).then((itinerary) => {
+      if (!current) return
+      applyItinerary(itinerary)
+      setPlanningLoadKey(key)
+    }).catch((error) => {
+      if (current) setMutationError(getErrorMessage(error))
+    })
+    return () => { current = false }
+  }, [tripId, accessToken, currentUserId, canMutate, mode, loadState.status, planningLoadKey, applyItinerary])
+
+  // Every successful planning mutation advances the revision. Refresh the
+  // projection so switching back to travel reflects the saved route.
+  useEffect(() => {
+    if (!tripId || !accessToken || !canMutate || itineraryRevision === 0) return
+    let current = true
+    void getRouteOverview({ tripId, accessToken }).then((overview) => {
+      if (current) setRouteOverview(overview)
+    }).catch((error) => {
+      if (current) setMutationError(getErrorMessage(error))
+    })
+    return () => { current = false }
+  }, [tripId, accessToken, canMutate, itineraryRevision])
 
   const runMutation = useCallback(
     async (label: string, action: () => Promise<void>) => {
@@ -1540,7 +1577,7 @@ export function TripDetailPage({
         ? draftStopLocation
         : mobileMapPickerTarget === 'connection' ? draftConnectionLocation : null
   const visibleMode: TripMode = canSwitchModes ? mode : 'traveling'
-  const upcomingStops = getUpcomingStops(plannedStops)
+  const upcomingStops = getUpcomingStops(routeOverview.stops)
   const mapRouteMode: MapRouteMode =
     visibleMode === 'traveling' ? 'travel-timeline' : 'itinerary'
   const visibleStops =
@@ -1654,9 +1691,11 @@ export function TripDetailPage({
               newPostIds={newPostIds}
               editingPostId={editingPostId}
               planningView={planningView}
+              planningReady={planningLoadKey === `${tripId}:${currentUserId}`}
               reserveMobileModeSwitchSpace={canSwitchModes}
               showMobileTravelMap={shouldUseMobileMapPicker}
-              stops={visibleStops}
+              routeOverview={routeOverview}
+              stops={plannedStops}
               trip={trip}
               travelLegs={travelLegs}
               trackingGeometry={trackingGeometry}
@@ -1679,7 +1718,7 @@ export function TripDetailPage({
               onPostMarkerSelect={handleMapPostSelect}
               routeMode={mapRouteMode}
               stops={visibleStops}
-              travelLegs={planningPreview ? travelLegs.some((leg) => leg.id === planningPreview.id)
+              travelLegs={visibleMode === 'traveling' ? routeOverview.legs : planningPreview ? travelLegs.some((leg) => leg.id === planningPreview.id)
                 ? travelLegs.map((leg) => leg.id === planningPreview.id ? planningPreview : leg)
                 : [...travelLegs, planningPreview] : travelLegs}
               trackingGeometry={trackingGeometry}
@@ -1759,7 +1798,7 @@ export function TripDetailPage({
         routeMode={mobileMapPickerRouteMode}
         stops={mobileMapPickerStops}
         target={mobileMapPickerTarget}
-        travelLegs={travelLegs}
+        travelLegs={mobileMapPickerTarget === 'post' ? routeOverview.legs : travelLegs}
         trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />

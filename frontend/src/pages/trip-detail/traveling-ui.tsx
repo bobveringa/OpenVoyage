@@ -60,8 +60,8 @@ import {
 } from '@/pages/trip-detail/trip-selectors'
 import type {
   PostMedia,
-  Stop,
-  TravelLeg,
+  MapStop,
+  MapTravelLeg,
   TravelMode,
   TravelPost,
   TravelPostRoute,
@@ -117,9 +117,9 @@ export function MobileTravelMap({
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onPostOpen?: (postId: string) => void
   onPostMarkerSelect: (postId: string) => void
-  stops: readonly Stop[]
+  stops: readonly MapStop[]
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly TravelLeg[]
+  travelLegs: readonly MapTravelLeg[]
   travelPosts: readonly TravelPost[]
 }) {
   const [resetNonce, setResetNonce] = useState(0)
@@ -311,9 +311,9 @@ export function TravelingPanel({
   scrollRequest: PostScrollRequest | null
   showMobileMap: boolean
   shareToken?: string | null
-  stops: readonly Stop[]
+  stops: readonly MapStop[]
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly TravelLeg[]
+  travelLegs: readonly MapTravelLeg[]
   travelPosts: readonly TravelPost[]
   tripId: string
 }) {

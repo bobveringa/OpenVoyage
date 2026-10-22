@@ -30,7 +30,7 @@ from services.connection_endpoints import (
 )
 from services.itinerary_routes import ItineraryRouteService
 from services.location_service import LocationService
-from services.trip_access import get_membership, get_trip_read_access
+from services.trip_access import TripReadAccess, get_membership, get_trip_read_access
 from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
 
@@ -110,6 +110,17 @@ class ItineraryService:
             share_token=share_token,
         )
         return self._load_itinerary_snapshot(trip=trip)
+
+    def get_route_overview(
+        self,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
+    ) -> ItinerarySnapshot:
+        access = self._get_trip_read_access_or_raise(
+            trip_id, current_user_id, share_token
+        )
+        return self._load_itinerary_snapshot(trip=access.trip)
 
     def create_stop(
         self,
@@ -586,6 +597,21 @@ class ItineraryService:
         current_user_id: uuid.UUID | None,
         share_token: str | None = None,
     ) -> Trip:
+        access = self._get_trip_read_access_or_raise(
+            trip_id, current_user_id, share_token
+        )
+        if access.membership is None or not role_has_permission(
+            access.membership.role, TripPermission.GET_ITINERARY
+        ):
+            raise ItineraryPermissionError('Only trip participants can read planning details')
+        return access.trip
+
+    def _get_trip_read_access_or_raise(
+        self,
+        trip_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
+    ) -> TripReadAccess:
         access = get_trip_read_access(
             self.db,
             trip_id=trip_id,
@@ -594,7 +620,7 @@ class ItineraryService:
         )
         if access is None:
             raise TripNotFoundError(f'Trip not found: {trip_id}')
-        return access.trip
+        return access
 
     def preview_travel(
         self, trip_id, leg_id, payload, actor, revision, retry_failed=False

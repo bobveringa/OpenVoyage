@@ -651,6 +651,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/itinerary/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Route Overview */
+        get: operations["get_route_overview_api_v1_trips__trip_id__itinerary_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/itinerary/stops": {
         parameters: {
             query?: never;
@@ -2630,6 +2647,76 @@ export interface components {
             /** Duration Seconds */
             duration_seconds?: number | null;
             geometry: components["schemas"]["GeoJsonLineString"];
+        };
+        /** RouteOverviewGeometryResponse */
+        RouteOverviewGeometryResponse: {
+            geometry: components["schemas"]["GeoJsonLineString"];
+            type: components["schemas"]["ItineraryRouteType"];
+        };
+        /** RouteOverviewLegResponse */
+        RouteOverviewLegResponse: {
+            /** From */
+            from: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointResponse"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            route: components["schemas"]["RouteOverviewGeometryResponse"];
+            /** Segments */
+            segments: components["schemas"]["RouteOverviewSegmentResponse"][];
+            /** To */
+            to: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointResponse"];
+        };
+        /** RouteOverviewPointResponse */
+        RouteOverviewPointResponse: {
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Name */
+            name: string;
+        };
+        /** RouteOverviewResponse */
+        RouteOverviewResponse: {
+            /** Legs */
+            legs: components["schemas"]["RouteOverviewLegResponse"][];
+            /** Stops */
+            stops: components["schemas"]["RouteOverviewStopResponse"][];
+            /**
+             * Trip Id
+             * Format: uuid
+             */
+            trip_id: string;
+        };
+        /** RouteOverviewSegmentResponse */
+        RouteOverviewSegmentResponse: {
+            from_endpoint: components["schemas"]["RouteOverviewPointResponse"] | null;
+            geometry: components["schemas"]["GeoJsonLineString"] | null;
+            intent: components["schemas"]["RouteOverviewTransportResponse"];
+            /**
+             * Route State
+             * @enum {string}
+             */
+            route_state: "NOT_CALCULATED" | "READY" | "FAILED" | "UNSUPPORTED";
+            to_endpoint: components["schemas"]["RouteOverviewPointResponse"] | null;
+        };
+        /** RouteOverviewStopResponse */
+        RouteOverviewStopResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            location: components["schemas"]["LocationResponse"];
+            /** Title */
+            title: string;
+            /** Visited */
+            visited: boolean;
+        };
+        /** RouteOverviewTransportResponse */
+        RouteOverviewTransportResponse: {
+            travel_mode: components["schemas"]["TravelMode"];
         };
         /** ScheduledJobResponse */
         ScheduledJobResponse: {
@@ -5048,6 +5135,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ItineraryTravelLegResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_route_overview_api_v1_trips__trip_id__itinerary_overview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteOverviewResponse"];
                 };
             };
             /** @description Validation Error */

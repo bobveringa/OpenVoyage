@@ -168,11 +168,11 @@ def test_itinerary_permissions_follow_trip_roles(
 
     assert viewer_response.status_code == 403
     assert non_member_response.status_code == 404
-    assert read_response.status_code == 200
+    assert read_response.status_code == 403
 
 
 @pytest.mark.integration
-def test_share_link_can_read_private_trip_itinerary(
+def test_share_link_can_read_only_private_trip_route_overview(
     client,
     db_session,
     api_prefix,
@@ -205,8 +205,12 @@ def test_share_link_can_read_private_trip_itinerary(
 
     assert create_stop_response.status_code == 201
     assert link_response.status_code == 201
-    assert read_response.status_code == 200
-    assert [stop['title'] for stop in read_response.json()['stops']] == ['Shared stop']
+    assert read_response.status_code == 403
+    overview = client.get(
+        f'{api_prefix}/trips/{trip.id}/itinerary/overview', headers=share_headers,
+    )
+    assert overview.status_code == 200
+    assert [stop['title'] for stop in overview.json()['stops']] == ['Utrecht']
     assert mutate_response.status_code == 401
 
 

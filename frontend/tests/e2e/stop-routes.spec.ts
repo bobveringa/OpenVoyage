@@ -62,7 +62,7 @@ for (const mobile of [false, true]) {
         if (path.endsWith('/posts/timeline')) return json({ entries: [], opening_route: null })
         if (path.endsWith('/viewers') || path.endsWith('/share-links')) return json([])
         if (path.endsWith('/places/geocode')) return json([added.location])
-        if (path.endsWith('/itinerary')) return json(itinerary)
+        if (path.endsWith('/itinerary') || path.endsWith('/itinerary/overview')) return json(itinerary)
         if (path.endsWith('/itinerary/stops') && request.method() === 'POST') {
           if (inserting && new URL(request.url()).searchParams.get('confirm_travel_deletion') !== 'true') {
             return route.fulfill({ status: 409, json: { detail: {

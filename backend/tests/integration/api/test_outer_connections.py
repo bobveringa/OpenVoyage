@@ -375,7 +375,7 @@ def test_one_stop_both_outer_connections_and_delete_final_stop(client, plan):  #
 
 @pytest.mark.parametrize(
     'visibility,anonymous,outsider',
-    [('PRIVATE', 404, 404), ('PUBLIC', 200, 200), ('PLATFORM_PUBLIC', 404, 200)],
+    [('PRIVATE', 404, 404), ('PUBLIC', 403, 403), ('PLATFORM_PUBLIC', 404, 403)],
 )
 def test_outer_read_and_mutation_access_matrix(
     client, db_session, plan, visibility, anonymous, outsider
@@ -396,7 +396,11 @@ def test_outer_read_and_mutation_access_matrix(
     revision = created.headers['etag']
     assert client.get(endpoint).status_code == anonymous
     assert client.get(endpoint, headers=headers(stranger)).status_code == outsider
-    assert client.get(endpoint, headers=headers(viewer)).status_code == 200
+    assert client.get(endpoint, headers=headers(viewer)).status_code == 403
+    assert client.get(endpoint, headers=headers(member)).status_code == 200
+    overview = client.get(base + '/overview', headers=headers(viewer))
+    assert overview.status_code == 200
+    assert created.json()['id'] in [leg['id'] for leg in overview.json()['legs']]
     body = write_body(created.json())
     for method, path, payload in [
         ('post', base + '/legs', outer_body(data, 'RETURN')),
@@ -423,7 +427,8 @@ def test_outer_read_and_mutation_access_matrix(
         json={'label': 'Outer'},
     ).json()
     shared = {'X-Trip-Share-Token': link['token']}
-    assert client.get(endpoint, headers=shared).status_code == 200
+    assert client.get(endpoint, headers=shared).status_code == 403
+    assert client.get(base + '/overview', headers=shared).status_code == 200
     assert (
         client.get(endpoint, headers={'X-Trip-Share-Token': 'invalid'}).status_code
         == anonymous

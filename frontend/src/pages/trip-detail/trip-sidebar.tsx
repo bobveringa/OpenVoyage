@@ -15,8 +15,9 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 
-import type { GpsPostCandidate } from '@/api/client'
+import type { GpsPostCandidate, RouteOverview } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
+import { LoadingState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { usePublicSetting } from '@/settings/public-settings'
@@ -24,6 +25,8 @@ import { getMapFocusedPostId } from '@/pages/trip-detail/trip-selectors'
 import { TripSidebarHeader } from '@/pages/trip-detail/management-ui'
 import type {
   Stop,
+  MapStop,
+  MapTravelLeg,
   TravelLeg,
   TravelPost,
   TripMemberViewModel,
@@ -78,10 +81,10 @@ export function MobileMapPointPicker({
   onConfirm: (coordinates: L.LatLngTuple) => void
   open: boolean
   routeMode: MapRouteMode
-  stops: readonly Stop[]
+  stops: readonly MapStop[]
   target: MapPointTarget | null
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly TravelLeg[]
+  travelLegs: readonly MapTravelLeg[]
   travelPosts: readonly TravelPost[]
 }) {
   const [pendingLocation, setPendingLocation] =
@@ -220,10 +223,12 @@ export function TripSidebar({
   onTravelingViewChange,
   pendingAction,
   planningView,
+  planningReady,
   postScrollRequest,
   postConflict,
   reserveMobileModeSwitchSpace,
   showMobileTravelMap,
+  routeOverview,
   stops,
   trip,
   trackingGeometry,
@@ -274,6 +279,7 @@ export function TripSidebar({
   onTravelingViewChange: (view: TravelingView) => void
   pendingAction: string | null
   planningView: PlanningView
+  planningReady: boolean
   postScrollRequest: PostScrollRequest | null
   postConflict: {
     canRetry: boolean
@@ -282,6 +288,7 @@ export function TripSidebar({
   } | null
   reserveMobileModeSwitchSpace: boolean
   showMobileTravelMap: boolean
+  routeOverview: RouteOverview
   stops: readonly Stop[]
   trip: TripViewModel
   trackingGeometry: TripTrackingGeometry
@@ -361,7 +368,9 @@ export function TripSidebar({
         )}
         ref={sidebarScrollRef}
       >
-        {mode === 'planning' && planningView === 'create-stop' && canMutate ? (
+        {mode === 'planning' && !planningReady ? (
+          <LoadingState label="Loading planning" />
+        ) : mode === 'planning' && planningView === 'create-stop' && canMutate ? (
           <CreateStopPanel
             draftLocation={draftStopLocation}
             isSubmitting={isMutating}
@@ -454,8 +463,8 @@ export function TripSidebar({
             showMobileMap={showMobileTravelMap}
             shareToken={shareToken}
             tripId={trip.id}
-            stops={stops}
-            travelLegs={travelLegs}
+            stops={routeOverview.stops.filter((stop) => !stop.visited)}
+            travelLegs={routeOverview.legs}
             trackingGeometry={trackingGeometry}
             travelPosts={travelPosts}
           />
