@@ -3,12 +3,11 @@ import type * as L from 'leaflet'
 import type { Media, UserSearchResult } from '@/api/client'
 import type {
   PostMedia,
-  TravelMode,
   TripRole,
   TripVisibility,
 } from './models'
 
-export type MapPointTarget = 'post' | 'stop'
+export type MapPointTarget = 'post' | 'stop' | 'connection'
 
 export type DraftMediaUploadStatus =
   | 'existing'
@@ -67,11 +66,10 @@ export type StopEditDraft = {
   title: string
 }
 
-export type TravelLegEditDraft = {
-  notes: string
-  operator: string | null
-  reference: string | null
-  travelMode: TravelMode
+export type ConnectionEditDraft = Omit<import('@/api/client').ItineraryConnectionReplacePayload, 'segments' | 'from' | 'to'> & {
+  segments: import('@/api/client').PlanningSegment[]
+  from?: import('@/api/client').ItineraryConnectionReplacePayload['from']
+  to?: import('@/api/client').ItineraryConnectionReplacePayload['to']
 }
 
 export type PostSubmitDraft = {

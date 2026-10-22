@@ -1,6 +1,6 @@
-import type { Stop, TravelPost } from './models'
+import type { TravelPost } from './models'
 
-export function getUpcomingStops(stops: readonly Stop[]) {
+export function getUpcomingStops<T extends { visited: boolean }>(stops: readonly T[]) {
   return stops.filter((stop) => !stop.visited)
 }
 

@@ -66,18 +66,27 @@ export type TripStatusFilter = components['schemas']['TripStatusFilter']
 export type TripVisibility = components['schemas']['TripVisibility']
 export type GeoJsonLineString = components['schemas']['GeoJsonLineString']
 export type Itinerary = components['schemas']['ItineraryResponse']
+export type RouteOverview = components['schemas']['RouteOverviewResponse']
+export type ConnectionDeletionSummary = { from: string; to: string }
+export type ConnectionDeletionConfirmation = (connections: ConnectionDeletionSummary[]) => Promise<boolean>
+export class ItineraryMutationCancelledError extends Error {}
 export type ItineraryStop = components['schemas']['ItineraryStopResponse']
-export type ItineraryTravelLeg =
-  components['schemas']['ItineraryTravelLegResponse']
-export type ItineraryTravelRoute =
-  components['schemas']['ItineraryTravelRouteResponse']
+export type PlanningSegment = components['schemas']['SegmentIntent']
+export type PlanningPreview = components['schemas']['PreviewResponse']
+export type FlightLookupResult = components['schemas']['FlightLookupResponse']
+export type FlightLookupPayload = components['schemas']['FlightLookupRequest']
+export type PlanningEndpoint = components['schemas']['Endpoint']
+export type ItineraryConnection =
+  components['schemas']['ItineraryConnectionResponse']
+export type ItineraryConnectionRoute =
+  components['schemas']['ItineraryConnectionRouteResponse']
 export type ItineraryRouteType = components['schemas']['ItineraryRouteType']
 export type ItineraryStopCreatePayload =
   components['schemas']['ItineraryStopCreateRequest']
 export type ItineraryStopUpdatePayload =
   components['schemas']['ItineraryStopUpdateRequest']
-export type ItineraryTravelReplacePayload =
-  components['schemas']['ItineraryTravelReplaceRequest']
+export type ItineraryConnectionReplacePayload =
+  components['schemas']['ItineraryConnectionReplaceRequest']
 export type Media = components['schemas']['MediaResponse']
 export type MediaUploadResponse = components['schemas']['MediaUploadResponse']
 export type MediaUploadProgress = {
@@ -666,12 +675,14 @@ export async function resetAdminSetting(options: {
 }
 
 export async function geocodePlaces(options: {
+  type?: 'AIRPORT'
   countryCode?: string | null
   limit?: number
   query: string
 }): Promise<Place[]> {
   return requestJson<Place[]>(`${API_V1_PREFIX}/places/geocode`, {
     query: {
+      type: options.type,
       country_code: options.countryCode,
       limit: options.limit ?? 10,
       query: options.query,
@@ -1143,6 +1154,17 @@ export async function updateShareLinkDisplayName(options: {
   )
 }
 
+export async function getRouteOverview(options: {
+  tripId: string
+  accessToken?: string | null
+  shareToken?: string | null
+}): Promise<RouteOverview> {
+  return requestJson<RouteOverview>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/overview`,
+    { accessToken: options.accessToken, shareToken: options.shareToken },
+  )
+}
+
 export async function getItinerary(options: {
   tripId: string
   accessToken?: string | null
@@ -1162,8 +1184,9 @@ export async function createItineraryStop(options: {
   payload: ItineraryStopCreatePayload
   accessToken: string
   itineraryRevision: number
+  onConfirmConnectionDeletion?: ConnectionDeletionConfirmation
 }): Promise<Itinerary> {
-  return requestJson<Itinerary>(
+  return requestItineraryMutation(
     `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/stops`,
     {
       method: 'POST',
@@ -1171,6 +1194,7 @@ export async function createItineraryStop(options: {
       ifMatchRevision: options.itineraryRevision,
       json: options.payload,
     },
+    options.onConfirmConnectionDeletion,
   )
 }
 
@@ -1180,11 +1204,12 @@ export async function updateItineraryStop(options: {
   payload: ItineraryStopUpdatePayload
   accessToken: string
   itineraryRevision: number
+  onConfirmConnectionDeletion?: ConnectionDeletionConfirmation
 }): Promise<Itinerary> {
   const tripId = encodeURIComponent(options.tripId)
   const stopId = encodeURIComponent(options.stopId)
 
-  return requestJson<Itinerary>(
+  return requestItineraryMutation(
     `${API_V1_PREFIX}/trips/${tripId}/itinerary/stops/${stopId}`,
     {
       method: 'PATCH',
@@ -1192,6 +1217,7 @@ export async function updateItineraryStop(options: {
       ifMatchRevision: options.itineraryRevision,
       json: options.payload,
     },
+    options.onConfirmConnectionDeletion,
   )
 }
 
@@ -1200,32 +1226,58 @@ export async function deleteItineraryStop(options: {
   stopId: string
   accessToken: string
   itineraryRevision: number
+  onConfirmConnectionDeletion?: ConnectionDeletionConfirmation
 }): Promise<Itinerary> {
   const tripId = encodeURIComponent(options.tripId)
   const stopId = encodeURIComponent(options.stopId)
 
-  return requestJson<Itinerary>(
+  return requestItineraryMutation(
     `${API_V1_PREFIX}/trips/${tripId}/itinerary/stops/${stopId}`,
     {
       method: 'DELETE',
       accessToken: options.accessToken,
       ifMatchRevision: options.itineraryRevision,
     },
+    options.onConfirmConnectionDeletion,
   )
 }
 
-export async function replaceItineraryTravelLeg(options: {
+export async function createItineraryConnection(options: {
+  tripId: string; payload: ItineraryConnectionReplacePayload; accessToken: string; itineraryRevision: number
+}): Promise<{ itineraryRevision: number; connection: ItineraryConnection }> {
+  const result = await requestJson<components['schemas']['ConnectionMutationResponse']>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/connections`,
+    { method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision, json: options.payload },
+  )
+  return { itineraryRevision: result.itinerary_revision, connection: result.connection }
+}
+
+export async function deleteItineraryConnection(options: {
+  tripId: string; connectionId: string; accessToken: string; itineraryRevision: number
+  confirmConnectionDeletion?: boolean
+  onConfirmConnectionDeletion?: ConnectionDeletionConfirmation
+}): Promise<Itinerary> {
+  const url = `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/connections/${encodeURIComponent(options.connectionId)}`
+  const request: ApiRequestOptions = { method: 'DELETE', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
+    query: options.confirmConnectionDeletion ? { confirm_connection_deletion: true } : undefined }
+  if (options.confirmConnectionDeletion) return requestJson<Itinerary>(url, request)
+  return requestItineraryMutation(
+    url, request, options.onConfirmConnectionDeletion,
+  )
+}
+
+export async function replaceItineraryConnection(options: {
   tripId: string
-  legId: string
-  payload: ItineraryTravelReplacePayload
+  connectionId: string
+  payload: ItineraryConnectionReplacePayload
   accessToken: string
   itineraryRevision: number
-}): Promise<{ itineraryRevision: number | null; leg: ItineraryTravelLeg }> {
+}): Promise<{ itineraryRevision: number; connection: ItineraryConnection }> {
   const tripId = encodeURIComponent(options.tripId)
-  const legId = encodeURIComponent(options.legId)
+  const connectionId = encodeURIComponent(options.connectionId)
 
-  const result = await requestJsonResponse<ItineraryTravelLeg>(
-    `${API_V1_PREFIX}/trips/${tripId}/itinerary/legs/${legId}`,
+  const result = await requestJson<components['schemas']['ConnectionMutationResponse']>(
+    `${API_V1_PREFIX}/trips/${tripId}/itinerary/connections/${connectionId}`,
     {
       method: 'PUT',
       accessToken: options.accessToken,
@@ -1235,30 +1287,33 @@ export async function replaceItineraryTravelLeg(options: {
   )
 
   return {
-    itineraryRevision: readEtagRevision(result.response),
-    leg: result.data,
+    itineraryRevision: result.itinerary_revision,
+    connection: result.connection,
   }
 }
 
-export async function refreshItineraryTravelLegRoute(options: {
+export async function refreshItineraryConnectionRoute(options: {
   tripId: string
-  legId: string
+  connectionId: string
+  itineraryRevision: number
   accessToken: string
-}): Promise<{ itineraryRevision: number | null; leg: ItineraryTravelLeg }> {
+}): Promise<{ itineraryRevision: number; connection: ItineraryConnection }> {
   const tripId = encodeURIComponent(options.tripId)
-  const legId = encodeURIComponent(options.legId)
+  const connectionId = encodeURIComponent(options.connectionId)
 
-  const result = await requestJsonResponse<ItineraryTravelLeg>(
-    `${API_V1_PREFIX}/trips/${tripId}/itinerary/legs/${legId}/route-refresh`,
+  const result = await requestJson<components['schemas']['ConnectionMutationResponse']>(
+    `${API_V1_PREFIX}/trips/${tripId}/itinerary/connections/${connectionId}/route-refresh`,
     {
       method: 'POST',
+      ifMatchRevision: options.itineraryRevision,
+      timeoutMs: 35_000,
       accessToken: options.accessToken,
     },
   )
 
   return {
-    itineraryRevision: readEtagRevision(result.response),
-    leg: result.data,
+    itineraryRevision: result.itinerary_revision,
+    connection: result.connection,
   }
 }
 
@@ -2070,8 +2125,34 @@ function createAbortError(): Error {
   return error
 }
 
-function readEtagRevision(response: Response) {
-  const etag = response.headers.get('ETag')
-  const match = /^"([0-9]+)"$/.exec(etag ?? '')
-  return match ? Number(match[1]) : null
+async function requestItineraryMutation(url: string, options: ApiRequestOptions, confirm?: ConnectionDeletionConfirmation): Promise<Itinerary> {
+  try {
+    return await requestJson<Itinerary>(url, options)
+  } catch (error) {
+    const body = error instanceof ApiError ? error.detail : null
+    const responseDetail = body && typeof body === 'object' && 'detail' in body ? body.detail : body
+    if (error instanceof ApiError && error.status === 409 && responseDetail && typeof responseDetail === 'object' && 'code' in responseDetail && responseDetail.code === 'CONNECTION_DELETION_REQUIRED') {
+      const detail = responseDetail as { connections?: ConnectionDeletionSummary[] }
+      if (!confirm) throw error
+      if (await confirm(detail.connections ?? [])) {
+        return requestJson<Itinerary>(url, { ...options, query: { ...options.query, confirm_connection_deletion: true } })
+      }
+      throw new ItineraryMutationCancelledError()
+    }
+    throw error
+  }
+}
+
+export async function previewConnection(options: { tripId: string; connectionId?: string; accessToken: string; itineraryRevision: number; payload: ItineraryConnectionReplacePayload; retryFailed?: boolean; signal?: AbortSignal }): Promise<PlanningPreview> {
+  return requestJson<PlanningPreview>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/connections${options.connectionId ? '/' + encodeURIComponent(options.connectionId) : ''}/preview`, {
+    method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
+    json: options.payload, query: { retry_failed: options.retryFailed ?? false }, timeoutMs: 35_000, signal: options.signal,
+  })
+}
+
+export async function lookupFlight(options: { tripId: string; connectionId?: string; accessToken: string; itineraryRevision: number; payload: FlightLookupPayload; signal?: AbortSignal }): Promise<FlightLookupResult> {
+  return requestJson<FlightLookupResult>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/connections${options.connectionId ? '/' + encodeURIComponent(options.connectionId) : ''}/flight-lookups`, {
+    method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
+    json: options.payload, timeoutMs: 35_000, signal: options.signal,
+  })
 }

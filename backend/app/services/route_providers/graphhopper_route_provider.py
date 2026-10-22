@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from json import JSONDecodeError
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -11,6 +12,7 @@ from services.route_providers.route_provider import (
     RouteProviderBase,
     RouteProviderConfigurationError,
     RouteProviderError,
+    RouteProviderLimitError,
     RouteProviderResponseError,
     RouteResponse,
 )
@@ -42,6 +44,17 @@ def _parse_geometry(geometry: object) -> dict:
             raise RouteProviderResponseError(
                 'GraphHopper route coordinates must be numeric'
             )
+        if (
+            isinstance(longitude, bool)
+            or isinstance(latitude, bool)
+            or not math.isfinite(longitude)
+            or not math.isfinite(latitude)
+            or not -180 <= longitude <= 180
+            or not -90 <= latitude <= 90
+        ):
+            raise RouteProviderResponseError(
+                'GraphHopper coordinates are out of bounds'
+            )
         normalized_coordinates.append([float(longitude), float(latitude)])
 
     return {'type': 'LineString', 'coordinates': normalized_coordinates}
@@ -54,7 +67,12 @@ def _parse_optional_nonnegative_int(
 ) -> int | None:
     if value is None:
         return None
-    if not isinstance(value, int | float) or value < 0:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+        or value < 0
+    ):
         raise RouteProviderResponseError(
             f'GraphHopper route {field_name} must be nonnegative'
         )
@@ -83,19 +101,28 @@ def _parse_route_response(payload: object) -> RouteResponse:
     if not isinstance(paths, list) or not paths:
         raise RouteProviderResponseError('GraphHopper response did not include paths')
 
-    path = paths[0]
-    if not isinstance(path, dict):
-        raise RouteProviderResponseError('GraphHopper path must be an object')
-
+    routes = []
+    for path in paths[:3]:
+        if not isinstance(path, dict):
+            raise RouteProviderResponseError('GraphHopper path must be an object')
+        route = RouteResponse(
+            geometry_geojson=_parse_geometry(path.get('points')),
+            distance_meters=_parse_optional_meters(path.get('distance')),
+            duration_seconds=_parse_optional_seconds(path.get('time')),
+        )
+        if not any(r.geometry_geojson == route.geometry_geojson for r in routes):
+            routes.append(route)
+    first = routes[0]
     return RouteResponse(
-        geometry_geojson=_parse_geometry(path.get('points')),
-        distance_meters=_parse_optional_meters(path.get('distance')),
-        duration_seconds=_parse_optional_seconds(path.get('time')),
+        geometry_geojson=first.geometry_geojson,
+        distance_meters=first.distance_meters,
+        duration_seconds=first.duration_seconds,
+        alternatives=tuple(routes[1:]),
     )
 
 
 def _http_error_message(exc: HTTPError) -> str:
-    body = exc.read().decode('utf-8', errors='replace')
+    body = exc.read(65536).decode('utf-8', errors='replace')
     if not body:
         return f'GraphHopper request failed with HTTP {exc.code}'
 
@@ -122,12 +149,22 @@ def _build_route_url(
     profile: str,
     api_key: str,
     base_url: str,
+    via: tuple[float, float] | None = None,
 ) -> str:
     query = urlencode(
         [
             ('point', _graphhopper_point(coordinates_from)),
+            *([('point', _graphhopper_point(via))] if via else []),
             ('point', _graphhopper_point(coordinates_to)),
-            ('vehicle', profile),
+            ('profile', profile),
+            *(
+                []
+                if via
+                else [
+                    ('algorithm', 'alternative_route'),
+                    ('alternative_route.max_paths', '3'),
+                ]
+            ),
             ('points_encoded', 'false'),
             ('key', api_key),
         ]
@@ -136,7 +173,7 @@ def _build_route_url(
 
 
 class GraphHopperRouteProvider(RouteProviderBase):
-    timeout_seconds = 15
+    timeout_seconds = 10
     supported_travel_modes = frozenset(
         {
             TravelMode.WALK,
@@ -168,6 +205,9 @@ class GraphHopperRouteProvider(RouteProviderBase):
         coordinates_from: tuple[float, float],
         coordinates_to: tuple[float, float],
         travel_mode: TravelMode,
+        *,
+        via: tuple[float, float] | None = None,
+        timeout: float = 10,
     ) -> RouteResponse:
         travel_mode = TravelMode(travel_mode)
         profile = self.travel_mode_profiles.get(travel_mode)
@@ -187,16 +227,28 @@ class GraphHopperRouteProvider(RouteProviderBase):
                 profile=profile,
                 api_key=api_key,
                 base_url=self.base_url,
+                via=via,
             ),
             headers={'User-Agent': 'openvoyage-backend'},
         )
 
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                payload = json.loads(response.read().decode('utf-8'))
+            with urlopen(
+                request, timeout=min(self.timeout_seconds, timeout)
+            ) as response:
+                body = response.read(10_000_001)
+                if len(body) > 10_000_000:
+                    raise RouteProviderResponseError(
+                        'GraphHopper response is too large'
+                    )
+                payload = json.loads(body.decode('utf-8'))
         except HTTPError as exc:
+            if exc.code == 429:
+                raise RouteProviderLimitError('Routing limit reached') from None
             raise RouteProviderError(_http_error_message(exc)) from exc
         except URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise TimeoutError from None
             raise RouteProviderError(
                 f'GraphHopper request failed: {exc.reason}'
             ) from exc

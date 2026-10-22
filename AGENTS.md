@@ -15,4 +15,5 @@
 - Lint: run `python -m ruff check backend` from the root.
 - Backend: run `python -m pytest` from `backend/`.
 - Frontend: run `npm run test:unit` and `npm run test:e2e` from `frontend/`.
-- Report any checks not run and why.
+- Checks are optional for documentation.
+

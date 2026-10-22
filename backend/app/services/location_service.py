@@ -58,6 +58,7 @@ class LocationService:
             region=resolved_location.region,
             full_name=resolved_location.full_name,
             created_by=created_by,
+            source_place_id=location_input.place_id if isinstance(location_input, LocationPlaceInput) else None,
         )
         self.db.add(location)
         self.db.flush()

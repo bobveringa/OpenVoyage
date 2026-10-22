@@ -567,6 +567,8 @@ class TripService:
                 TripImmichAlbum.connection_user_id == target_user_id,
             )
         )
+        from services.planning_cleanup import revoke_planning_artifacts
+        revoke_planning_artifacts(self.db, trip_id, target_user_id)
         self.db.delete(membership)
         self.db.commit()
 

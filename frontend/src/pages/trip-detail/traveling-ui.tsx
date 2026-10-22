@@ -60,8 +60,8 @@ import {
 } from '@/pages/trip-detail/trip-selectors'
 import type {
   PostMedia,
-  Stop,
-  TravelLeg,
+  MapStop,
+  MapConnection,
   TravelMode,
   TravelPost,
   TravelPostRoute,
@@ -104,7 +104,7 @@ export function MobileTravelMap({
   onPostMarkerSelect,
   stops,
   trackingGeometry,
-  travelLegs,
+  connections,
   travelPosts,
 }: {
   onOpenGps?: () => void
@@ -117,9 +117,9 @@ export function MobileTravelMap({
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onPostOpen?: (postId: string) => void
   onPostMarkerSelect: (postId: string) => void
-  stops: readonly Stop[]
+  stops: readonly MapStop[]
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly TravelLeg[]
+  connections: readonly MapConnection[]
   travelPosts: readonly TravelPost[]
 }) {
   const [resetNonce, setResetNonce] = useState(0)
@@ -190,7 +190,7 @@ export function MobileTravelMap({
         routeMode="travel-timeline"
         focusedPostId={focusedPostId}
         stops={stops}
-        travelLegs={travelLegs}
+        connections={connections}
         trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
@@ -286,7 +286,7 @@ export function TravelingPanel({
   shareToken,
   stops,
   trackingGeometry,
-  travelLegs,
+  connections,
   travelPosts,
   tripId,
 }: {
@@ -311,9 +311,9 @@ export function TravelingPanel({
   scrollRequest: PostScrollRequest | null
   showMobileMap: boolean
   shareToken?: string | null
-  stops: readonly Stop[]
+  stops: readonly MapStop[]
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly TravelLeg[]
+  connections: readonly MapConnection[]
   travelPosts: readonly TravelPost[]
   tripId: string
 }) {
@@ -586,7 +586,7 @@ export function TravelingPanel({
                 }}
                 onPostMarkerSelect={onPostMarkerSelect}
                 stops={stops}
-                travelLegs={travelLegs}
+                connections={connections}
                 trackingGeometry={trackingGeometry}
                 travelPosts={travelPosts}
               />

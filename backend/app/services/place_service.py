@@ -1,4 +1,5 @@
 import enum
+import math
 import tempfile
 import uuid
 import zipfile
@@ -8,12 +9,24 @@ from pathlib import Path
 from shutil import copyfileobj
 from urllib.request import urlopen
 
-from sqlalchemy import and_, case, delete, func, or_, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import String, all_, and_, case, cast, delete, func, or_, select, update
+from functools import lru_cache
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from sqlalchemy.dialects.postgresql import ARRAY, insert
 from sqlalchemy.orm import Session
 
 from core.config import settings
 from models.database.places import Place, PlaceFeatureClass
+
+
+@lru_cache(maxsize=2048)
+def valid_timezone(value: str) -> str | None:
+    try:
+        ZoneInfo(value)
+        return value
+    except ZoneInfoNotFoundError, ValueError:
+        return None
+
 
 GEONAMES_SOURCE = 'geonames'
 GEONAMES_COLUMNS = 19
@@ -286,6 +299,7 @@ class PlaceService:
         query: str,
         limit: int,
         country_code: str | None = None,
+        place_type: str | None = None,
     ) -> list[Place]:
         """Find places whose name or full name matches a text query.
 
@@ -293,6 +307,36 @@ class PlaceService:
         For example, ``Paris, France`` searches for places named ``Paris`` and
         requires ``France`` to match the country, region, or full display name.
         """
+        if place_type == 'AIRPORT':
+            text = query.strip().lower()
+            code = query.strip().upper()
+            filters = [
+                Place.feature_class == 'S',
+                Place.feature_code == 'AIRP',
+                or_(
+                    Place.iata_code == code,
+                    Place.icao_code == code,
+                    func.lower(Place.full_name).like(
+                        f'%{_escape_like(text)}%', escape='\\'
+                    ),
+                ),
+            ]
+            if country_code:
+                filters.append(Place.country_code == country_code.upper())
+            return list(
+                self.db.scalars(
+                    select(Place)
+                    .where(*filters)
+                    .order_by(
+                        case(
+                            (or_(Place.iata_code == code, Place.icao_code == code), 0),
+                            else_=1,
+                        ),
+                        Place.name,
+                    )
+                    .limit(limit)
+                )
+            )
         parsed_query = _parse_geocode_query(query)
         if parsed_query is None:
             return []
@@ -324,7 +368,10 @@ class PlaceService:
                 )
             )
 
-        filters = [or_(*base_match_filters)]
+        filters = [
+            or_(*base_match_filters),
+            or_(Place.feature_code.is_(None), Place.feature_code != 'AIRP'),
+        ]
         for qualifier in parsed_query.qualifiers:
             escaped_qualifier = _escape_like(qualifier)
             contains_qualifier = f'%{escaped_qualifier}%'
@@ -382,9 +429,13 @@ class PlaceService:
             longitude=longitude,
         )
 
-        statement = select(Place, distance_km.label('distance_km')).order_by(
-            distance_km.asc(),
-            Place.name.asc(),
+        statement = (
+            select(Place, distance_km.label('distance_km'))
+            .where(or_(Place.feature_code.is_(None), Place.feature_code != 'AIRP'))
+            .order_by(
+                distance_km.asc(),
+                Place.name.asc(),
+            )
         )
         if max_distance_km is not None:
             statement = statement.where(distance_km <= max_distance_km)
@@ -450,11 +501,7 @@ class PlaceService:
             Summary containing the selected dataset and processed row count.
         """
         deleted = 0
-        if replace_existing:
-            result = self.db.execute(
-                delete(Place).where(Place.external_source == GEONAMES_SOURCE)
-            )
-            deleted = result.rowcount or 0
+        seen_ids = set()
         processed = 0
         batch: list[dict[str, object]] = []
         for row in _iter_geonames_rows(path=path):
@@ -465,6 +512,7 @@ class PlaceService:
             if place_values is None:
                 continue
 
+            seen_ids.add(place_values['external_id'])
             batch.append(place_values)
             processed += 1
             if len(batch) >= IMPORT_BATCH_SIZE:
@@ -478,6 +526,32 @@ class PlaceService:
         try:
             if batch:
                 self._upsert_places(batch)
+            if replace_existing:
+                from models.database.itinerary import ItinerarySegmentFlight
+                from models.database.locations import Location
+
+                referenced = select(Location.source_place_id).where(
+                    Location.source_place_id.is_not(None)
+                )
+                airport_refs = select(
+                    ItinerarySegmentFlight.departure_airport_place_id
+                ).where(ItinerarySegmentFlight.departure_airport_place_id.is_not(None))
+                arrival_refs = select(
+                    ItinerarySegmentFlight.arrival_airport_place_id
+                ).where(ItinerarySegmentFlight.arrival_airport_place_id.is_not(None))
+                result = self.db.execute(
+                    delete(Place).where(
+                        Place.external_source == GEONAMES_SOURCE,
+                        # Bind the IDs as one array: expanding NOT IN exceeds
+                        # PostgreSQL's 65,535-parameter limit for city dumps.
+                        Place.external_id != all_(cast(list(seen_ids), ARRAY(String(64)))),
+                        or_(Place.feature_code.is_(None), Place.feature_code != 'AIRP'),
+                        Place.id.not_in(referenced),
+                        Place.id.not_in(airport_refs),
+                        Place.id.not_in(arrival_refs),
+                    )
+                )
+                deleted = result.rowcount or 0
             self.db.commit()
         except Exception:
             self.db.rollback()
@@ -505,6 +579,14 @@ class PlaceService:
             latitude = float(row[4])
             longitude = float(row[5])
         except ValueError:
+            return None
+
+        if (
+            not math.isfinite(latitude)
+            or not math.isfinite(longitude)
+            or not -90 <= latitude <= 90
+            or not -180 <= longitude <= 180
+        ):
             return None
 
         geoname_id = row[0].strip()
@@ -542,6 +624,8 @@ class PlaceService:
             'full_name': full_name,
             'feature_class': feature_class,
             'population': _parse_geonames_population(row[14]),
+            'feature_code': row[7].strip() or None,
+            'timezone': valid_timezone(row[17].strip()) if row[17].strip() else None,
         }
 
     def _upsert_places(self, values: list[dict[str, object]]) -> None:
@@ -561,6 +645,8 @@ class PlaceService:
             'full_name': excluded.full_name,
             'feature_class': excluded.feature_class,
             'population': excluded.population,
+            'feature_code': excluded.feature_code,
+            'timezone': excluded.timezone,
             'updated_at': func.now(),
         }
         self.db.execute(
@@ -569,3 +655,127 @@ class PlaceService:
                 set_=update_values,
             )
         )
+
+    def import_airport_reference_data(self, *, dump_path=None, aliases_path=None):
+        """Import only airports and backfill zones on existing GeoNames rows, preserving IDs."""
+        from sqlalchemy import bindparam
+
+        owned_paths = []
+        if dump_path is None:
+            dump_path = _download_geonames_zip(GeoNamesDataset.ALL_COUNTRIES)
+            owned_paths.append(dump_path)
+        if aliases_path is None:
+            aliases_path = _download_geonames_url(
+                f'{settings.GEONAMES_DOWNLOAD_BASE_URL.rstrip("/")}/alternateNamesV2.zip',
+                '.zip',
+            )
+            owned_paths.append(aliases_path)
+        existing = dict(
+            self.db.execute(
+                select(Place.external_id, Place.id).where(
+                    Place.external_source == GEONAMES_SOURCE,
+                )
+            ).all()
+        )
+        airports, zones, processed, backfilled = [], [], 0, 0
+        try:
+            for row in _iter_geonames_rows(dump_path):
+                values = self._place_values_from_geonames_row(row)
+                if values is None:
+                    continue
+                if values['external_id'] in existing:
+                    zones.append(
+                        {
+                            'zone_id': existing[values['external_id']],
+                            'new_zone': values['timezone'],
+                        }
+                    )
+                if row[6] == 'S' and row[7] == 'AIRP':
+                    airports.append(values)
+                    processed += 1
+                if len(airports) >= IMPORT_BATCH_SIZE:
+                    self._upsert_places(airports)
+                    airports = []
+                if len(zones) >= IMPORT_BATCH_SIZE:
+                    self.db.connection().execute(
+                        update(Place.__table__)
+                        .where(Place.id == bindparam('zone_id'))
+                        .values(timezone=bindparam('new_zone')),
+                        zones,
+                    )
+                    backfilled += len(zones)
+                    zones = []
+            if airports:
+                self._upsert_places(airports)
+            if zones:
+                self.db.connection().execute(
+                    update(Place.__table__)
+                    .where(Place.id == bindparam('zone_id'))
+                    .values(timezone=bindparam('new_zone')),
+                    zones,
+                )
+                backfilled += len(zones)
+            airport_ids = dict(
+                self.db.execute(
+                    select(Place.external_id, Place.id).where(
+                        Place.external_source == GEONAMES_SOURCE,
+                        Place.feature_code == 'AIRP',
+                    )
+                ).all()
+            )
+            # Ignore historical aliases and ambiguous codes instead of breaking the import.
+            codes = {'iata': {}, 'icao': {}}
+            with zipfile.ZipFile(aliases_path) as archive:
+                member = next(
+                    (
+                        name
+                        for name in archive.namelist()
+                        if Path(name).name == 'alternateNamesV2.txt'
+                    ),
+                    None,
+                )
+                if member is None:
+                    raise ValueError('GeoNames archive is missing alternateNamesV2.txt')
+                with archive.open(member) as source:
+                    for line in source:
+                        fields = line.decode('utf-8').rstrip('\n').split('\t')
+                        if (
+                            len(fields) < 8
+                            or fields[1] not in airport_ids
+                            or fields[2] not in codes
+                            or fields[7] == '1'
+                        ):
+                            continue
+                        code = fields[3].upper().strip()
+                        if (
+                            len(code) != (3 if fields[2] == 'iata' else 4)
+                            or not code.isalnum()
+                        ):
+                            continue
+                        codes[fields[2]].setdefault(code, set()).add(
+                            airport_ids[fields[1]]
+                        )
+            self.db.execute(
+                update(Place)
+                .where(Place.id.in_(airport_ids.values()))
+                .values(iata_code=None, icao_code=None)
+            )
+            for code_type, code_map in codes.items():
+                selected = {}
+                for code, ids in sorted(code_map.items()):
+                    if len(ids) == 1:
+                        selected.setdefault(next(iter(ids)), code)
+                for place_id, code in selected.items():
+                    self.db.execute(
+                        update(Place)
+                        .where(Place.id == place_id)
+                        .values({f'{code_type}_code': code})
+                    )
+            self.db.commit()
+            return {'airports': processed, 'timezones_backfilled': backfilled}
+        except Exception:
+            self.db.rollback()
+            raise
+        finally:
+            for path in owned_paths:
+                path.unlink(missing_ok=True)

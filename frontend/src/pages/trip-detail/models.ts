@@ -1,6 +1,6 @@
 import type * as L from 'leaflet'
 
-import type { ItineraryTravelRoute, Media } from '@/api/client'
+import type { ItineraryConnection, Media, RouteOverview } from '@/api/client'
 
 export type TripVisibility = 'PLATFORM_PUBLIC' | 'PRIVATE' | 'PUBLIC'
 export type TripRole = 'MEMBER' | 'OWNER'
@@ -87,18 +87,15 @@ export type Stop = {
   visited: boolean
 }
 
-export type TravelLeg = {
-  created_at: string
-  from_stop_id: string
-  id: string
-  notes: string
-  operator: string | null
-  reference: string | null
-  route: ItineraryTravelRoute
-  to_stop_id: string
-  travel_mode: TravelMode
-  trip_id: string
-  updated_at: string
+export type Connection = ItineraryConnection
+
+// Map rendering accepts only the fields available to trip viewers. Planning
+// models are structurally compatible and may supply editor-only decorations.
+export type MapStop = Pick<Stop, 'id' | 'title' | 'location'> & { notes?: string }
+export type MapConnection = Omit<RouteOverview['connections'][number], 'segments'> & {
+  segments: (RouteOverview['connections'][number]['segments'][number] & {
+    route_options?: { geometry: ItineraryConnection['route']['geometry'] }[]
+  })[]
 }
 
 export type PostMedia = {

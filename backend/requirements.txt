@@ -11,3 +11,5 @@ puremagic==2.2.0
 pillow==12.2.0
 APScheduler==3.11.3
 Alembic[tz]==1.18.4
+
+tzdata==2025.3

@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   configureAuthTokenRefresh,
+  deleteItineraryConnection,
+  createItineraryConnection,
+  replaceItineraryConnection,
+  refreshItineraryConnectionRoute,
+  ItineraryMutationCancelledError,
   deleteTripShareLink,
   restoreTripShareLink,
   revokeTripShareLink,
@@ -75,6 +80,24 @@ describe('share-link lifecycle API calls', () => {
   })
 })
 
+describe('connection mutation revisions', () => {
+  it.each(['create', 'replace', 'refresh'] as const)('reads the %s revision from the body without an ETag', async action => {
+    configureAuthTokenRefresh(null)
+    const connection = { id: 'connection' }
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      itinerary_revision: 9, connection,
+    }), { headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const options = { tripId: 'trip', connectionId: 'connection', accessToken: 'token', itineraryRevision: 7 }
+    const payload = { notes: '', from: { type: 'STOP' as const, stop_id: 'a' }, to: { type: 'STOP' as const, stop_id: 'b' } }
+    const result = action === 'create' ? await createItineraryConnection({ ...options, payload })
+      : action === 'replace' ? await replaceItineraryConnection({ ...options, payload })
+      : await refreshItineraryConnectionRoute(options)
+    expect(result).toEqual({ itineraryRevision: 9, connection })
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('If-Match')).toBe('"7"')
+  })
+})
+
 describe('background upload authorization', () => {
   const body = {
     upload_token: 'scoped-token', token_type: 'bearer', trip_id: 'trip', session_id: 'session',
@@ -116,5 +139,49 @@ describe('background upload authorization', () => {
     expect(refresh).toHaveBeenCalled()
     expect(new Headers(fetchMock.mock.calls[0][1].headers).get('Authorization')).toBe('Bearer fresh-access')
     configureAuthTokenRefresh(null)
+  })
+})
+
+
+describe('outer connection deletion confirmation', () => {
+  it.each([200, 409])('never prompts again after in-app confirmation, including response %s', async (status) => {
+    configureAuthTokenRefresh(null)
+    const confirmation = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const snapshot = { trip_id: 'trip', itinerary_revision: 8, stops: [], connections: [] }
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(status === 200 ? snapshot : {
+      detail: { code: 'CONNECTION_DELETION_REQUIRED', message: 'Could not remove connection', connections: [{ from: 'London', to: 'Amsterdam' }] },
+    }), { status, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const result = deleteItineraryConnection({ tripId: 'trip', connectionId: 'connection', accessToken: 'token', itineraryRevision: 7, confirmConnectionDeletion: true })
+      if (status === 200) expect(await result).toEqual(snapshot)
+      else await expect(result).rejects.toThrow('Could not remove connection')
+      expect(fetchMock).toHaveBeenCalledOnce()
+      expect(String(fetchMock.mock.calls[0][0])).toContain('/itinerary/connections/connection?confirm_connection_deletion=true')
+      expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('If-Match')).toBe('"7"')
+      expect(confirmation).not.toHaveBeenCalled()
+    } finally { confirmation.mockRestore() }
+  })
+  it.each([false, true])('keeps the current revision and handles confirmation %s', async (confirm) => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetchMock)
+    const confirmation = vi.fn().mockResolvedValue(confirm)
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ detail: {
+      code: 'CONNECTION_DELETION_REQUIRED', connections: [{ from: 'Schiphol', to: 'Paris' }, { from: 'Paris', to: 'Brussels' }],
+    } }), { status: 409, headers: { 'Content-Type': 'application/json' } }))
+    const snapshot = { trip_id: 'trip', itinerary_revision: confirm ? 8 : 7, stops: [], connections: [] }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(snapshot), { headers: { 'Content-Type': 'application/json' } }))
+    const result = deleteItineraryConnection({ tripId: 'trip', connectionId: 'connection', accessToken: 'token', itineraryRevision: 7, onConfirmConnectionDeletion: confirmation })
+    if (confirm) expect(await result).toEqual(snapshot)
+    else await expect(result).rejects.toBeInstanceOf(ItineraryMutationCancelledError)
+    expect(confirmation).toHaveBeenCalledWith([{ from: 'Schiphol', to: 'Paris' }, { from: 'Paris', to: 'Brussels' }])
+    if (confirm) {
+      const [url, options] = fetchMock.mock.calls[1]
+      expect(String(url)).toContain('/itinerary/connections/connection?confirm_connection_deletion=true')
+      expect(options?.method).toBe('DELETE')
+      expect(new Headers(options?.headers).get('If-Match')).toBe('"7"')
+    } else {
+      expect(fetchMock).toHaveBeenCalledOnce()
+    }
   })
 })

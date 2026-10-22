@@ -55,7 +55,7 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     await page.goto(`/trips/${trip.id}`)
 
     await expect(page.getByRole('heading', { name: /E2E API trip/ })).toBeVisible()
-    await page.getByRole('button', { name: 'Plan' }).click()
+    await page.getByRole('button', { name: 'Plan', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Planning' })).toBeVisible()
     await expectMapTilesRequested(page)
 
@@ -86,22 +86,32 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     })
     await expect(page.getByText('E2E Porto', { exact: true })).toBeVisible()
 
+    if (!expectsProviderBackedRoutes()) {
+      // Automatic planning falls back to Other when routing is not configured.
+      const connection = page.getByRole('button', { name: /Other E2E Coimbra to E2E Porto/ })
+      await expect(connection).toContainText('Approximate connection')
+    }
+
     await page
       .getByRole('button', { name: /E2E Coimbra to E2E Porto/ })
       .click()
-    await page.getByRole('button', { name: 'Mode' }).click()
-    await page.getByRole('option', { name: 'Car' }).click()
-    await page.getByRole('button', { name: 'Save leg' }).click()
+    const chooser = page.getByRole('region', { name: 'Select your route', exact: true })
+    if (!expectsProviderBackedRoutes()) {
+      await expect(chooser.getByRole('radio', { name: 'Other', exact: true })).toBeChecked()
+      // An explicit Car choice stays Car and reports the failed calculation.
+      await chooser.getByRole('radio', { name: 'Car', exact: true }).click()
+    }
+    await expect(chooser.getByRole('button', { name: 'Select this route' })).toBeEnabled()
+    await chooser.getByRole('button', { name: 'Select this route' }).click()
 
     if (expectsProviderBackedRoutes()) {
-      await expect(page.getByText('Provider route').first()).toBeVisible({
+      await expect(page.getByText('Route ready').first()).toBeVisible({
         timeout: 12000,
       })
     } else {
-      await expect(page.getByText('Simple route').first()).toBeVisible()
+      await expect(page.getByText('Route unavailable').first()).toBeVisible()
     }
 
-    await page.getByRole('button', { name: 'Cancel' }).click()
     await page.getByRole('button', { name: 'Travel' }).click()
     await page.getByRole('button', { name: 'New post' }).click()
     await expectReverseGeocodeForExactMapPoint(page)
@@ -231,7 +241,7 @@ test('creates nested comment replies and deletes reply subtrees', async ({
 
   try {
     await seedBrowserAuth(page, tokens)
-    await page.goto(`/trips/${trip.id}`)
+    await page.goto(`/trips/${trip.id}?tab=travel`)
     await expect(page.getByText(postTitle, { exact: true })).toBeVisible()
 
     await page.getByRole('button', { name: '0 comments' }).click()

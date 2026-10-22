@@ -1,9 +1,9 @@
-import enum
 import typing
 import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Date,
     DateTime,
@@ -15,23 +15,17 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, utcnow
-from .travel import TravelMode
 
 if typing.TYPE_CHECKING:
     from .locations import Location
     from .trips import Trip
     from .user import User
-
-
-class ItineraryTravelRouteStatus(str, enum.Enum):
-    READY = 'READY'
-    PENDING = 'PENDING'
-    FAILED = 'FAILED'
 
 
 class ItineraryStop(Base):
@@ -140,204 +134,267 @@ class ItineraryStop(Base):
     creator: Mapped['User'] = relationship('User')
 
 
-class ItineraryTravelLeg(Base):
-    __tablename__ = 'itinerary_travel_legs'
+class ItineraryConnection(Base):
+    __tablename__ = 'itinerary_connections'
     __table_args__ = (
+        UniqueConstraint('trip_id', 'id'),
         ForeignKeyConstraint(
             ['trip_id', 'from_stop_id'],
             ['itinerary_stops.trip_id', 'itinerary_stops.id'],
-            name='fk_itinerary_travel_legs_trip_from_stop_id',
             ondelete='CASCADE',
         ),
         ForeignKeyConstraint(
             ['trip_id', 'to_stop_id'],
             ['itinerary_stops.trip_id', 'itinerary_stops.id'],
-            name='fk_itinerary_travel_legs_trip_to_stop_id',
             ondelete='CASCADE',
         ),
         UniqueConstraint(
-            'trip_id',
-            'from_stop_id',
-            name='uq_itinerary_travel_legs_trip_from_stop_id',
+            'trip_id', 'from_stop_id', name='uq_itinerary_connections_trip_from_stop_id'
         ),
         UniqueConstraint(
-            'trip_id',
-            'to_stop_id',
-            name='uq_itinerary_travel_legs_trip_to_stop_id',
+            'trip_id', 'to_stop_id', name='uq_itinerary_connections_trip_to_stop_id'
         ),
         CheckConstraint(
-            'from_stop_id <> to_stop_id',
-            name='ck_itinerary_travel_legs_distinct_stops',
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True,
-        default=uuid.uuid4,
-    )
-    trip_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey(
-            'trips.id',
-            ondelete='CASCADE',
-            name='fk_itinerary_travel_legs_trip_id',
-        ),
-        nullable=False,
-    )
-    from_stop_id: Mapped[uuid.UUID] = mapped_column(
-        nullable=False,
-    )
-    to_stop_id: Mapped[uuid.UUID] = mapped_column(
-        nullable=False,
-    )
-    travel_mode: Mapped[TravelMode] = mapped_column(
-        String(32),
-        nullable=False,
-        default=TravelMode.UNKNOWN,
-        server_default=TravelMode.UNKNOWN.value,
-    )
-    notes: Mapped[str] = mapped_column(
-        Text,
-        nullable=False,
-        default='',
-        server_default='',
-    )
-    operator: Mapped[str | None] = mapped_column(
-        String(255),
-        nullable=True,
-    )
-    reference: Mapped[str | None] = mapped_column(
-        String(255),
-        nullable=True,
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utcnow,
-        server_default=func.now(),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utcnow,
-        onupdate=utcnow,
-        server_default=func.now(),
-    )
-
-    trip: Mapped['Trip'] = relationship('Trip')
-    from_stop: Mapped['ItineraryStop'] = relationship(
-        'ItineraryStop',
-        primaryjoin=(
-            'and_(ItineraryTravelLeg.trip_id == ItineraryStop.trip_id, '
-            'ItineraryTravelLeg.from_stop_id == ItineraryStop.id)'
-        ),
-        foreign_keys=('[ItineraryTravelLeg.trip_id, ItineraryTravelLeg.from_stop_id]'),
-        viewonly=True,
-    )
-    to_stop: Mapped['ItineraryStop'] = relationship(
-        'ItineraryStop',
-        primaryjoin=(
-            'and_(ItineraryTravelLeg.trip_id == ItineraryStop.trip_id, '
-            'ItineraryTravelLeg.to_stop_id == ItineraryStop.id)'
-        ),
-        foreign_keys='[ItineraryTravelLeg.trip_id, ItineraryTravelLeg.to_stop_id]',
-        viewonly=True,
-    )
-    route: Mapped['ItineraryTravelLegRoute | None'] = relationship(
-        'ItineraryTravelLegRoute',
-        back_populates='leg',
-        cascade='all, delete-orphan',
-        passive_deletes=True,
-        uselist=False,
-    )
-
-
-class ItineraryTravelLegRoute(Base):
-    __tablename__ = 'itinerary_travel_leg_routes'
-    __table_args__ = (
-        CheckConstraint(
-            "status IN ('READY', 'PENDING', 'FAILED')",
-            name='ck_itinerary_travel_leg_routes_status',
+            'from_stop_id IS NULL OR to_stop_id IS NULL OR from_stop_id <> to_stop_id',
+            name='ck_itinerary_connections_distinct_stops',
         ),
         CheckConstraint(
-            "status <> 'READY' OR geometry_geojson IS NOT NULL",
-            name='ck_itinerary_travel_leg_routes_ready_geometry',
+            '(from_stop_id IS NOT NULL) <> (from_location_id IS NOT NULL)',
+            name='ck_itinerary_connections_from_endpoint',
         ),
         CheckConstraint(
-            'attempt_count >= 0',
-            name='ck_itinerary_travel_leg_routes_attempt_count_nonnegative',
+            '(to_stop_id IS NOT NULL) <> (to_location_id IS NOT NULL)',
+            name='ck_itinerary_connections_to_endpoint',
         ),
         CheckConstraint(
-            'distance_meters IS NULL OR distance_meters >= 0',
-            name='ck_itinerary_travel_leg_routes_distance_nonnegative',
+            'from_stop_id IS NOT NULL OR to_stop_id IS NOT NULL',
+            name='ck_itinerary_connections_stop_endpoint',
         ),
-        CheckConstraint(
-            'duration_seconds IS NULL OR duration_seconds >= 0',
-            name='ck_itinerary_travel_leg_routes_duration_nonnegative',
+        *(
+            ForeignKeyConstraint(
+                ['trip_id', key],
+                ['locations.trip_id', 'locations.id'],
+                name=f'fk_itinerary_connections_trip_{key}',
+            )
+            for key in ('from_location_id', 'to_location_id')
         ),
         Index(
-            'ix_itinerary_travel_leg_routes_retry',
-            'status',
-            'next_retry_at',
+            'uq_itinerary_connections_departure',
+            'trip_id',
+            unique=True,
+            postgresql_where=text('from_stop_id IS NULL'),
+        ),
+        Index(
+            'uq_itinerary_connections_return',
+            'trip_id',
+            unique=True,
+            postgresql_where=text('to_stop_id IS NULL'),
         ),
     )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey(
-            'itinerary_travel_legs.id',
-            ondelete='CASCADE',
-            name='fk_itinerary_travel_leg_routes_id',
-        ),
-        primary_key=True,
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    trip_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey('trips.id', ondelete='CASCADE')
     )
-    status: Mapped[ItineraryTravelRouteStatus] = mapped_column(
-        String(32),
-        nullable=False,
-    )
-    geometry_geojson: Mapped[dict | None] = mapped_column(
-        JSONB,
-        nullable=True,
-    )
-    provider: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-    )
-    distance_meters: Mapped[int | None] = mapped_column(
-        Integer,
-        nullable=True,
-    )
-    duration_seconds: Mapped[int | None] = mapped_column(
-        Integer,
-        nullable=True,
-    )
-    attempt_count: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=0,
-        server_default='0',
-    )
-    next_retry_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-    )
-    error_code: Mapped[str | None] = mapped_column(
-        String(64),
-        nullable=True,
-    )
+    from_stop_id: Mapped[uuid.UUID | None]
+    to_stop_id: Mapped[uuid.UUID | None]
+    from_location_id: Mapped[uuid.UUID | None]
+    to_location_id: Mapped[uuid.UUID | None]
+    notes: Mapped[str] = mapped_column(Text, default='', server_default='')
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=utcnow,
-        server_default=func.now(),
+        DateTime(timezone=True), default=utcnow, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        nullable=False,
         default=utcnow,
         onupdate=utcnow,
         server_default=func.now(),
     )
+    from_stop: Mapped['ItineraryStop | None'] = relationship(
+        primaryjoin='and_(ItineraryConnection.trip_id == ItineraryStop.trip_id, ItineraryConnection.from_stop_id == ItineraryStop.id)',
+        foreign_keys='[ItineraryConnection.trip_id, ItineraryConnection.from_stop_id]',
+        viewonly=True,
+    )
+    to_stop: Mapped['ItineraryStop | None'] = relationship(
+        primaryjoin='and_(ItineraryConnection.trip_id == ItineraryStop.trip_id, ItineraryConnection.to_stop_id == ItineraryStop.id)',
+        foreign_keys='[ItineraryConnection.trip_id, ItineraryConnection.to_stop_id]',
+        viewonly=True,
+    )
+    from_location: Mapped['Location | None'] = relationship(
+        primaryjoin='and_(ItineraryConnection.trip_id == Location.trip_id, ItineraryConnection.from_location_id == Location.id)',
+        foreign_keys='[ItineraryConnection.trip_id, ItineraryConnection.from_location_id]',
+        viewonly=True,
+    )
+    to_location: Mapped['Location | None'] = relationship(
+        primaryjoin='and_(ItineraryConnection.trip_id == Location.trip_id, ItineraryConnection.to_location_id == Location.id)',
+        foreign_keys='[ItineraryConnection.trip_id, ItineraryConnection.to_location_id]',
+        viewonly=True,
+    )
 
-    leg: Mapped[ItineraryTravelLeg] = relationship(
-        'ItineraryTravelLeg',
-        back_populates='route',
+    @property
+    def connection_type(self):
+        if self.from_stop_id is None:
+            return 'DEPARTURE'
+        if self.to_stop_id is None:
+            return 'RETURN'
+        return 'BETWEEN_STOPS'
+
+    segments: Mapped[list['ItineraryTravelSegment']] = relationship(
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+        order_by='ItineraryTravelSegment.position',
+        foreign_keys='[ItineraryTravelSegment.trip_id, ItineraryTravelSegment.connection_id]',
+    )
+
+
+class ItineraryTravelSegment(Base):
+    __tablename__ = 'itinerary_travel_segments'
+    __table_args__ = (
+        UniqueConstraint('trip_id', 'id'),
+        UniqueConstraint('connection_id', 'position', deferrable=True, initially='DEFERRED'),
+        ForeignKeyConstraint(
+            ['trip_id', 'connection_id'],
+            ['itinerary_connections.trip_id', 'itinerary_connections.id'],
+            ondelete='CASCADE',
+        ),
+        *(
+            ForeignKeyConstraint(
+                ['trip_id', key], ['locations.trip_id', 'locations.id']
+            )
+            for key in ('from_location_id', 'to_location_id', 'via_location_id')
+        ),
+        CheckConstraint('position >= 0 AND input_version >= 1'),
+        CheckConstraint("mode_source IN ('AUTO', 'USER')"),
+        CheckConstraint(
+            "via_location_id IS NULL OR travel_mode IN ('CAR', 'BIKE', 'WALK')"
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    trip_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey('trips.id', ondelete='CASCADE')
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    position: Mapped[int]
+    travel_mode: Mapped[str] = mapped_column(String(32))
+    mode_source: Mapped[str] = mapped_column(String(8), default='USER')
+    notes: Mapped[str] = mapped_column(Text, default='')
+    service_company: Mapped[str | None] = mapped_column(String(255))
+    service_number: Mapped[str | None] = mapped_column(String(255))
+    from_location_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    to_location_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    via_location_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    input_version: Mapped[int] = mapped_column(
+        BigInteger, default=1, server_default='1'
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=func.now(),
+    )
+    flight: Mapped['ItinerarySegmentFlight | None'] = relationship(
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+        foreign_keys='[ItinerarySegmentFlight.trip_id, ItinerarySegmentFlight.segment_id]',
+    )
+    route: Mapped['ItinerarySegmentRoute | None'] = relationship(
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+        foreign_keys='[ItinerarySegmentRoute.trip_id, ItinerarySegmentRoute.segment_id]',
+    )
+
+
+class ItinerarySegmentFlight(Base):
+    __tablename__ = 'itinerary_segment_flights'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['trip_id', 'segment_id'],
+            ['itinerary_travel_segments.trip_id', 'itinerary_travel_segments.id'],
+            ondelete='CASCADE',
+        ),
+        CheckConstraint('(lookup IS NULL) = (lookup_owner_user_id IS NULL)'),
+    )
+    segment_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    trip_id: Mapped[uuid.UUID]
+    flight_number: Mapped[str | None] = mapped_column(String(16))
+    departure_date: Mapped[date | None] = mapped_column(Date)
+    departure_airport_place_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey('places.id', ondelete='RESTRICT'), index=True
+    )
+    arrival_airport_place_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey('places.id', ondelete='RESTRICT'), index=True
+    )
+    airline_name: Mapped[str | None] = mapped_column(String(255))
+    lookup_owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey('users.id', ondelete='RESTRICT'), index=True
+    )
+    lookup: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
+
+
+class ItinerarySegmentRoute(Base):
+    __tablename__ = 'itinerary_segment_routes'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['trip_id', 'segment_id'],
+            ['itinerary_travel_segments.trip_id', 'itinerary_travel_segments.id'],
+            ondelete='CASCADE',
+        ),
+        CheckConstraint("status IN ('READY', 'FAILED', 'UNSUPPORTED')"),
+        CheckConstraint(
+            "status <> 'READY' OR (geometry_geojson IS NOT NULL AND provider IS NOT NULL)"
+        ),
+        CheckConstraint('distance_meters IS NULL OR distance_meters >= 0'),
+        CheckConstraint('duration_seconds IS NULL OR duration_seconds >= 0'),
+    )
+    segment_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    trip_id: Mapped[uuid.UUID]
+    input_version: Mapped[int] = mapped_column(BigInteger)
+    input_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32))
+    provider: Mapped[str | None] = mapped_column(String(64))
+    geometry_geojson: Mapped[dict | None] = mapped_column(JSONB)
+    distance_meters: Mapped[int | None]
+    duration_seconds: Mapped[int | None]
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now()
+    )
+
+
+class ItineraryPlanningArtifact(Base):
+    __tablename__ = 'itinerary_planning_artifacts'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['trip_id', 'connection_id'],
+            ['itinerary_connections.trip_id', 'itinerary_connections.id'],
+            ondelete='CASCADE',
+        ),
+        CheckConstraint("kind IN ('FLIGHT_CANDIDATE', 'PREVIEW')"),
+        CheckConstraint("(kind = 'PREVIEW') = (itinerary_revision IS NOT NULL)"),
+        Index(
+            'ix_planning_artifacts_scope',
+            'trip_id',
+            'created_by_user_id',
+            'connection_id',
+            'kind',
+            'input_hash',
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(32))
+    trip_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey('trips.id', ondelete='CASCADE')
+    )
+    connection_id: Mapped[uuid.UUID | None]
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey('users.id', ondelete='CASCADE')
+    )
+    itinerary_revision: Mapped[int | None] = mapped_column(BigInteger)
+    input_hash: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSONB)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now()
     )

@@ -27,6 +27,18 @@ const defaultThemePalette = {
 }
 
 const initialSettings: MockSetting[] = [
+  { key: 'flights.provider', value: 'none', default_value: 'none', value_type: 'enum',
+    description: 'Flight lookup provider', is_configured: false, runtime_safe: true,
+    updated_at: null, validation: { allowed_values: ['none', 'aerodatabox'] }, visibility: 'admin' },
+  { key: 'flights.aerodatabox_base_url', value: 'https://aerodatabox.p.rapidapi.com', default_value: 'https://aerodatabox.p.rapidapi.com', value_type: 'string',
+    description: 'Flight API endpoint', is_configured: false, runtime_safe: true,
+    updated_at: null, validation: null, visibility: 'admin' },
+  { key: 'flights.aerodatabox_rapidapi_host', value: 'aerodatabox.p.rapidapi.com', default_value: 'aerodatabox.p.rapidapi.com', value_type: 'string',
+    description: 'RapidAPI host', is_configured: false, runtime_safe: true,
+    updated_at: null, validation: null, visibility: 'admin' },
+  { key: 'flights.rapidapi_api_key', value: null, default_value: null, value_type: 'secret',
+    description: 'Optional AeroDataBox RapidAPI key', is_configured: false, runtime_safe: true,
+    updated_at: null, validation: { min_length: 1, max_length: 2048 }, visibility: 'admin' },
   {
     default_value: false,
     description: 'Show visitors a dismissible notice that the site uses cookies.',
@@ -593,3 +605,84 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
     status,
   })
 }
+
+
+async function enableFlightLookup(page: Page) {
+  const selection = page.getByLabel('Flight provider', { exact: true })
+  const form = page.locator('form').filter({ has: selection })
+  await selection.click()
+  await page.getByRole('option', { name: 'AeroDataBox', exact: true }).click()
+  await form.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByLabel('AeroDataBox base URL', { exact: true })).toBeVisible()
+}
+
+test('defaults to disabled flight lookup and groups settings below each selected provider', async ({ page }) => {
+  const api = await mockAdminApi(page)
+  await page.goto('/admin#routing')
+  const headings = page.getByRole('tabpanel').getByRole('heading', { level: 3 })
+  const selection = page.getByLabel('Flight provider', { exact: true })
+  await expect(selection).toHaveText('Flight lookup disabled')
+  await expect(page.getByLabel('AeroDataBox base URL', { exact: true })).toHaveCount(0)
+  await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider'])
+
+  await enableFlightLookup(page)
+  await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider', 'AeroDataBox'])
+  expect(api.updates).toContainEqual({ key: 'flights.provider', value: 'aerodatabox' })
+
+  await page.reload()
+  await expect(selection).toHaveText('AeroDataBox')
+  await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider', 'AeroDataBox'])
+
+  const form = page.locator('form').filter({ has: selection })
+  await form.getByRole('button', { name: 'Reset', exact: true }).click()
+  await expect(selection).toHaveText('Flight lookup disabled')
+  await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider'])
+  expect(api.resets).toContain('flights.provider')
+})
+
+test('configures the optional flight key through the same write-only admin controls', async ({ page }) => {
+  const api = await mockAdminApi(page)
+  await page.goto('/admin#routing')
+  await enableFlightLookup(page)
+  const input = page.getByLabel('AeroDataBox RapidAPI key', { exact: true })
+  const form = page.locator('form').filter({ has: input })
+  await expect(input).toHaveAttribute('type', 'password')
+  await expect(input).toHaveValue('')
+  await input.fill('synthetic-flight-key')
+  await form.getByRole('button', { name: 'Replace key', exact: true }).click()
+  await expect(form.getByText('API key replaced.')).toBeVisible()
+  await expect(input).toHaveValue('')
+  expect(api.updates).toContainEqual({ key: 'flights.rapidapi_api_key', value: 'synthetic-flight-key' })
+  await form.getByRole('button', { name: 'Clear key', exact: true }).click()
+  await form.getByRole('button', { name: 'Confirm clear', exact: true }).click()
+  await expect(form.getByText('Not configured', { exact: true })).toBeVisible()
+  expect(api.resets).toContain('flights.rapidapi_api_key')
+})
+
+test('configures flight endpoints and disables lookup independently of routing', async ({ page }) => {
+  const api = await mockAdminApi(page)
+  await page.goto('/admin#routing')
+  await enableFlightLookup(page)
+  const endpoint = page.getByLabel('AeroDataBox base URL', { exact: true })
+  const endpointForm = page.locator('form').filter({ has: endpoint })
+  await endpoint.fill('https://proxy.example.test/flights-api')
+  await endpointForm.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(endpointForm.getByText('Setting saved.')).toBeVisible()
+  expect(api.updates).toContainEqual({ key: 'flights.aerodatabox_base_url', value: 'https://proxy.example.test/flights-api' })
+
+  const host = page.getByLabel('AeroDataBox RapidAPI host', { exact: true })
+  const hostForm = page.locator('form').filter({ has: host })
+  await host.fill('custom.example.test')
+  await hostForm.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(hostForm.getByText('Setting saved.')).toBeVisible()
+  expect(api.updates).toContainEqual({ key: 'flights.aerodatabox_rapidapi_host', value: 'custom.example.test' })
+
+  const selection = page.getByLabel('Flight provider', { exact: true })
+  const selectionForm = page.locator('form').filter({ has: selection })
+  await selection.click()
+  await page.getByRole('option', { name: 'Flight lookup disabled', exact: true }).click()
+  await selectionForm.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(endpoint).toHaveCount(0)
+  expect(api.updates).toContainEqual({ key: 'flights.provider', value: 'none' })
+  await expect(page.getByLabel('GraphHopper base URL')).toBeVisible()
+})

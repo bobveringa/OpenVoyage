@@ -15,8 +15,9 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 
-import type { GpsPostCandidate } from '@/api/client'
+import type { GpsPostCandidate, RouteOverview } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
+import { LoadingState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { usePublicSetting } from '@/settings/public-settings'
@@ -24,7 +25,9 @@ import { getMapFocusedPostId } from '@/pages/trip-detail/trip-selectors'
 import { TripSidebarHeader } from '@/pages/trip-detail/management-ui'
 import type {
   Stop,
-  TravelLeg,
+  MapStop,
+  MapConnection,
+  Connection,
   TravelPost,
   TripMemberViewModel,
   TripTrackingGeometry,
@@ -38,7 +41,7 @@ import type {
   PostSubmitDraft,
   StopEditDraft,
   StopInsertionPoint,
-  TravelLegEditDraft,
+  ConnectionEditDraft,
 } from '@/pages/trip-detail/page-types'
 import {
   CreateStopPanel,
@@ -69,7 +72,7 @@ export function MobileMapPointPicker({
   stops,
   target,
   trackingGeometry,
-  travelLegs,
+  connections,
   travelPosts,
 }: {
   initialLocation: DraftPostLocation | null
@@ -78,10 +81,10 @@ export function MobileMapPointPicker({
   onConfirm: (coordinates: L.LatLngTuple) => void
   open: boolean
   routeMode: MapRouteMode
-  stops: readonly Stop[]
+  stops: readonly MapStop[]
   target: MapPointTarget | null
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly TravelLeg[]
+  connections: readonly MapConnection[]
   travelPosts: readonly TravelPost[]
 }) {
   const [pendingLocation, setPendingLocation] =
@@ -115,7 +118,7 @@ export function MobileMapPointPicker({
         resetNonce={0}
         routeMode={routeMode}
         stops={stops}
-        travelLegs={travelLegs}
+        connections={connections}
         trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
@@ -127,7 +130,7 @@ export function MobileMapPointPicker({
             Back
           </Button>
           <Badge variant="secondary">
-            {target === 'stop' ? 'Planning stop' : 'Post location'}
+            {target === 'stop' ? 'Planning stop' : target === 'connection' ? 'Connection location' : 'Post location'}
           </Badge>
         </div>
       </div>
@@ -210,23 +213,27 @@ export function TripSidebar({
   onPostPublish,
   onPostSubmit,
   onPlanningViewChange,
-  onRefreshTravelLegRoute,
+  onRefreshConnectionRoute,
   onStopSave,
   onStopChange,
   onStopDelete,
-  onTravelLegSave,
+  onConnectionSave,
+  onConnectionCreate,
+  onConnectionDelete,
   onTravelingViewChange,
   pendingAction,
   planningView,
+  planningReady,
   postScrollRequest,
   postConflict,
   reserveMobileModeSwitchSpace,
   showMobileTravelMap,
+  routeOverview,
   stops,
   trip,
   trackingGeometry,
   tripMembers,
-  travelLegs,
+  connections,
   travelPosts,
   travelingView,
 }: {
@@ -262,14 +269,17 @@ export function TripSidebar({
   onPostPublish: (postId: string) => void
   onPostSubmit: (postId: string | null, draft: PostSubmitDraft) => void
   onPlanningViewChange: (view: PlanningView) => void
-  onRefreshTravelLegRoute: (legId: string) => void
+  onRefreshConnectionRoute: (connectionId: string) => void
   onStopSave: (stopId: string, draft: StopEditDraft) => void
   onStopChange: (stopId: string, updates: Partial<Stop>) => void
   onStopDelete: (stopId: string) => void
-  onTravelLegSave: (legId: string, draft: TravelLegEditDraft) => void
+  onConnectionSave: (connectionId: string, draft: ConnectionEditDraft) => void
+  onConnectionCreate: (payload: import('@/api/client').ItineraryConnectionReplacePayload) => void
+  onConnectionDelete: (connectionId: string) => void
   onTravelingViewChange: (view: TravelingView) => void
   pendingAction: string | null
   planningView: PlanningView
+  planningReady: boolean
   postScrollRequest: PostScrollRequest | null
   postConflict: {
     canRetry: boolean
@@ -278,11 +288,12 @@ export function TripSidebar({
   } | null
   reserveMobileModeSwitchSpace: boolean
   showMobileTravelMap: boolean
+  routeOverview: RouteOverview
   stops: readonly Stop[]
   trip: TripViewModel
   trackingGeometry: TripTrackingGeometry
   tripMembers: readonly TripMemberViewModel[]
-  travelLegs: readonly TravelLeg[]
+  connections: readonly Connection[]
   travelPosts: readonly TravelPost[]
   travelingView: TravelingView
 }) {
@@ -357,7 +368,9 @@ export function TripSidebar({
         )}
         ref={sidebarScrollRef}
       >
-        {mode === 'planning' && planningView === 'create-stop' && canMutate ? (
+        {mode === 'planning' && !planningReady ? (
+          <LoadingState label="Loading planning" />
+        ) : mode === 'planning' && planningView === 'create-stop' && canMutate ? (
           <CreateStopPanel
             draftLocation={draftStopLocation}
             isSubmitting={isMutating}
@@ -375,15 +388,17 @@ export function TripSidebar({
             onAddStop={openCreateStop}
             canMutate={canMutate}
             isMutating={isMutating}
-            onRefreshTravelLegRoute={onRefreshTravelLegRoute}
+            onRefreshConnectionRoute={onRefreshConnectionRoute}
             onStopChange={onStopChange}
             onStopDelete={onStopDelete}
             onStopSave={onStopSave}
-            onTravelLegSave={onTravelLegSave}
+            onConnectionSave={onConnectionSave}
+            onConnectionCreate={onConnectionCreate}
+            onConnectionDelete={onConnectionDelete}
             pendingAction={pendingAction}
             stops={stops}
             tripStartDate={trip.startDate}
-            travelLegs={travelLegs}
+            connections={connections}
           />
         ) : travelingView === 'create-post' && canMutate ? (
           <PostFormPanel
@@ -448,8 +463,8 @@ export function TripSidebar({
             showMobileMap={showMobileTravelMap}
             shareToken={shareToken}
             tripId={trip.id}
-            stops={stops}
-            travelLegs={travelLegs}
+            stops={routeOverview.stops.filter((stop) => !stop.visited)}
+            connections={routeOverview.connections}
             trackingGeometry={trackingGeometry}
             travelPosts={travelPosts}
           />

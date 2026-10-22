@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 
@@ -13,12 +13,14 @@ def geocode_places(
     place_service: PlaceServiceDep,
     query: Annotated[str, Query(min_length=1, max_length=255)],
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
+    type: Literal['AIRPORT'] | None = None,
     country_code: Annotated[str | None, Query(min_length=2, max_length=2)] = None,
 ) -> list[PlaceResponse]:
     places = place_service.geocode(
         query=query,
         limit=limit,
         country_code=country_code,
+        place_type=type,
     )
     return [PlaceResponse.from_model(place) for place in places]
 

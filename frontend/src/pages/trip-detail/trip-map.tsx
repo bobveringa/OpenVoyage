@@ -1,13 +1,22 @@
+import { resolveConnectionEndpoint } from './connection-endpoints'
 import 'leaflet/dist/leaflet.css'
 
 import * as L from 'leaflet'
+import {
+  RepeatedWorldLayer,
+  nearestWorldCoordinate,
+  normalizeWorldCoordinate,
+  shiftWorldCoordinate,
+  shiftWorldRoute,
+} from '@/lib/map-world-copies'
 import { Compass } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { PlanningSessionContext } from './planning-session'
+import { airportTransferLabel, getAirportTransfers, type AirportTransfer } from './airport-transfers'
 
 import {
   type GpsPostCandidate,
   type ItineraryRouteType,
-  type ItineraryTravelRoute,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { getTravelPostsInRouteOrder } from '@/pages/trip-detail/trip-selectors'
@@ -24,8 +33,9 @@ import {
   getTravelModeLabel,
 } from '@/pages/trip-detail/shared-utils'
 import type {
-  Stop,
-  TravelLeg,
+  MapStop,
+  MapConnection,
+  Connection,
   TravelMode,
   TravelPost,
   TravelPostRoute,
@@ -34,15 +44,13 @@ import type {
 import {
   createRouteGeometryKey,
   createGeodesicRoute,
-  createStopPairKey,
   getCentralAngle,
   getGeoJsonLineStringCoordinates,
-  getSimpleRouteCoordinates,
 } from '@/pages/trip-detail/route-geometry'
 import { usePublicSetting } from '@/settings/public-settings'
 import { useTheme } from '@/theme'
 
-type RouteFitMode = 'mobile-picker' | 'mobile-travel' | 'mobile-fullscreen' | 'workspace'
+type RouteFitMode = 'route-selector' | 'route-preview' | 'mobile-picker' | 'mobile-travel' | 'mobile-fullscreen' | 'workspace'
 
 type RouteEndpoint = {
   coordinates: L.LatLngTuple
@@ -63,6 +71,8 @@ type RouteSegment = {
   routeType: ItineraryRouteType
   travelMode?: TravelMode
   visibleToMembersOnly?: boolean
+  alternative?: boolean
+  transfer?: AirportTransfer
 }
 
 type FocusedPostNeighbor = {
@@ -108,6 +118,8 @@ const routeOverviewAnimationOptions = {
 } satisfies L.ZoomPanOptions
 
 export function MapWorkspace({
+  onPlanningPanelHostChange,
+  planningPreview = null,
   draftMapLocation,
   focusedPostId,
   gpsPostCandidates,
@@ -119,9 +131,11 @@ export function MapWorkspace({
   routeMode,
   stops,
   trackingGeometry,
-  travelLegs,
+  connections,
   travelPosts,
 }: {
+  onPlanningPanelHostChange?: (host: HTMLDivElement | null) => void
+  planningPreview?: Connection | null
   draftMapLocation: DraftPostLocation | null
   focusedPostId: string | null
   gpsPostCandidates: readonly GpsPostCandidate[]
@@ -131,16 +145,17 @@ export function MapWorkspace({
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
   onPostMarkerSelect: (postId: string) => void
   routeMode: MapRouteMode
-  stops: readonly Stop[]
+  stops: readonly MapStop[]
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly TravelLeg[]
+  connections: readonly MapConnection[]
   travelPosts: readonly TravelPost[]
 }) {
   const [resetNonce, setResetNonce] = useState(0)
 
   return (
-    <section className="relative min-h-0 min-w-0 overflow-hidden rounded-[2rem] border border-border bg-card shadow-sm lg:h-full">
+    <section aria-label={planningPreview ? 'Connection map preview' : 'Trip map'} className="relative min-h-0 min-w-0 overflow-hidden rounded-[2rem] border border-border bg-card shadow-sm lg:h-full">
       <TripLeafletMap
+        fitMode={planningPreview ? 'route-selector' : 'workspace'}
         draftMapLocation={draftMapLocation}
         focusedPostId={focusedPostId}
         gpsPostCandidates={gpsPostCandidates}
@@ -151,12 +166,13 @@ export function MapWorkspace({
         onPostMarkerSelect={onPostMarkerSelect}
         resetNonce={resetNonce}
         routeMode={routeMode}
-        stops={stops}
-        travelLegs={travelLegs}
+        stops={planningPreview ? stops.filter((stop) => (planningPreview.from.type === 'STOP' && stop.id === planningPreview.from.stop_id) || (planningPreview.to.type === 'STOP' && stop.id === planningPreview.to.stop_id)) : stops}
+        connections={planningPreview ? [planningPreview] : connections}
         trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
 
+      <div ref={onPlanningPanelHostChange} className="pointer-events-none absolute inset-y-3 left-3 z-[600] hidden w-[min(22rem,50%)] min-w-64 lg:block [&>*]:pointer-events-auto" />
       <div className="pointer-events-none absolute right-4 top-4 z-[500] lg:right-5">
         <div className="pointer-events-auto flex flex-wrap justify-end gap-2">
           <Button
@@ -187,7 +203,7 @@ export function TripLeafletMap({
   routeMode = 'itinerary',
   stops,
   trackingGeometry,
-  travelLegs,
+  connections,
   travelPosts,
 }: {
   draftMapLocation: DraftPostLocation | null
@@ -201,9 +217,9 @@ export function TripLeafletMap({
   onPostMarkerSelect?: (postId: string) => void
   resetNonce: number
   routeMode?: MapRouteMode
-  stops: readonly Stop[]
+  stops: readonly MapStop[]
   trackingGeometry: TripTrackingGeometry
-  travelLegs: readonly TravelLeg[]
+  connections: readonly MapConnection[]
   travelPosts: readonly TravelPost[]
 }) {
   const { mode: themeMode, palette: themePalette } = useTheme()
@@ -213,28 +229,31 @@ export function TripLeafletMap({
     [tileProviderSetting],
   )
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
-  const draftMarkerRef = useRef<L.Marker | null>(null)
+  const draftMarkerRef = useRef<RepeatedWorldLayer | null>(null)
   const latestLocationSelectRef = useRef(onDraftMapPointSelect)
   const latestGpsPostCandidateSelectRef = useRef(onGpsPostCandidateSelect)
   const latestPostMarkerSelectRef = useRef(onPostMarkerSelect)
+  const { onAirportTransferSelect } = useContext(PlanningSessionContext)
+  const latestTransferSelectRef = useRef(onAirportTransferSelect)
+  latestTransferSelectRef.current = onAirportTransferSelect
   const mapPointEnabledRef = useRef(mapPointEnabled)
   const mapRef = useRef<L.Map | null>(null)
-  const postMarkerLayerRef = useRef<L.LayerGroup | null>(null)
-  const gpsPostCandidateLayerRef = useRef<L.LayerGroup | null>(null)
-  const routeLayerRef = useRef<L.LayerGroup | null>(null)
+  const postMarkerLayerRef = useRef<RepeatedWorldLayer | null>(null)
+  const gpsPostCandidateLayerRef = useRef<RepeatedWorldLayer | null>(null)
+  const routeLayerRef = useRef<RepeatedWorldLayer | null>(null)
   const tileLayerRef = useRef<L.TileLayer | null>(null)
   const focusedPostIdRef = useRef<string | null>(focusedPostId)
   const travelPostsRef = useRef(travelPosts)
   const stopsRef = useRef(stops)
-  const travelLegsRef = useRef(travelLegs)
+  const connectionsRef = useRef(connections)
   const trackingGeometryRef = useRef(trackingGeometry)
   const gpsPostCandidatesRef = useRef(gpsPostCandidates)
-  const routeEndpointLayerRef = useRef<L.LayerGroup | null>(null)
+  const routeEndpointLayerRef = useRef<RepeatedWorldLayer | null>(null)
   const fittedViewRef = useRef<string | null>(null)
   const routeKey = createRouteKey(
     routeMode,
     stops,
-    travelLegs,
+    connections,
     travelPosts,
     trackingGeometry,
   )
@@ -244,7 +263,7 @@ export function TripLeafletMap({
   trackingGeometryRef.current = trackingGeometry
   gpsPostCandidatesRef.current = gpsPostCandidates
   stopsRef.current = stops
-  travelLegsRef.current = travelLegs
+  connectionsRef.current = connections
 
   useEffect(() => {
     latestLocationSelectRef.current = onDraftMapPointSelect
@@ -267,6 +286,7 @@ export function TripLeafletMap({
     )
   }, [mapPointEnabled])
 
+  const showZoomControls = fitMode !== 'mobile-travel'
   useEffect(() => {
     const container = mapContainerRef.current
     if (!container) {
@@ -282,7 +302,7 @@ export function TripLeafletMap({
       zoomControl: false,
     })
 
-    if (fitMode !== 'mobile-travel') {
+    if (showZoomControls) {
       L.control.zoom({ position: 'bottomright' }).addTo(map)
     }
 
@@ -291,9 +311,10 @@ export function TripLeafletMap({
         return
       }
 
+      const coordinate = normalizeWorldCoordinate([event.latlng.lat, event.latlng.lng])
       latestLocationSelectRef.current([
-        Number(event.latlng.lat.toFixed(4)),
-        Number(event.latlng.lng.toFixed(4)),
+        Number(coordinate[0].toFixed(4)),
+        Number(coordinate[1].toFixed(4)),
       ])
     }
 
@@ -301,10 +322,10 @@ export function TripLeafletMap({
     mapRef.current = map
     fittedViewRef.current = null
 
-    routeLayerRef.current = L.layerGroup().addTo(map)
-    postMarkerLayerRef.current = L.layerGroup().addTo(map)
-    gpsPostCandidateLayerRef.current = L.layerGroup().addTo(map)
-    routeEndpointLayerRef.current = L.layerGroup().addTo(map)
+    routeLayerRef.current = new RepeatedWorldLayer(map)
+    postMarkerLayerRef.current = new RepeatedWorldLayer(map)
+    gpsPostCandidateLayerRef.current = new RepeatedWorldLayer(map)
+    routeEndpointLayerRef.current = new RepeatedWorldLayer(map)
 
     const resizeObserver = new ResizeObserver(() => map.invalidateSize({ animate: false }))
     resizeObserver.observe(container)
@@ -314,6 +335,10 @@ export function TripLeafletMap({
       resizeObserver.disconnect()
       window.cancelAnimationFrame(initialFrame)
       map.off('click', handleMapClick)
+      map.stop()
+      // Leaflet 1.x leaves a zoom fallback timer queued after remove().
+      // Clear its guard before destroying panes so resizing cannot access a removed map.
+      ;(map as L.Map & { _animatingZoom?: boolean })._animatingZoom = false
       map.remove()
       draftMarkerRef.current = null
       mapRef.current = null
@@ -323,7 +348,7 @@ export function TripLeafletMap({
       routeLayerRef.current = null
       tileLayerRef.current = null
     }
-  }, [fitMode])
+  }, [showZoomControls])
 
   useEffect(() => {
     const map = mapRef.current
@@ -340,7 +365,7 @@ export function TripLeafletMap({
         tileLayerRef.current = null
       }
     }
-  }, [fitMode, tileProvider])
+  }, [showZoomControls, tileProvider])
 
   useEffect(() => {
     const postMarkerLayer = postMarkerLayerRef.current
@@ -348,15 +373,16 @@ export function TripLeafletMap({
       return
     }
 
-    postMarkerLayer.clearLayers()
-    if (routeMode === 'travel-timeline') {
+    postMarkerLayer.render((layer, offset) => {
+      if (routeMode !== 'travel-timeline') return
       renderPostMarkerLayer(
-        postMarkerLayer,
+        layer,
         travelPostsRef.current,
         focusedPostId,
         (postId) => latestPostMarkerSelectRef.current?.(postId),
+        offset,
       )
-    }
+    })
   }, [focusedPostId, routeMode, routeKey])
 
   useEffect(() => {
@@ -365,16 +391,15 @@ export function TripLeafletMap({
       return
     }
 
-    candidateLayer.clearLayers()
-    if (routeMode !== 'travel-timeline') {
-      return
-    }
-
-    renderGpsPostCandidateLayer(
-      candidateLayer,
-      gpsPostCandidatesRef.current,
-      (candidate) => latestGpsPostCandidateSelectRef.current?.(candidate),
-    )
+    candidateLayer.render((layer, offset) => {
+      if (routeMode !== 'travel-timeline') return
+      renderGpsPostCandidateLayer(
+        layer,
+        gpsPostCandidatesRef.current,
+        (candidate) => latestGpsPostCandidateSelectRef.current?.(candidate),
+        offset,
+      )
+    })
   }, [gpsPostCandidates, routeMode])
 
   useEffect(() => {
@@ -384,43 +409,64 @@ export function TripLeafletMap({
       return
     }
 
-    routeLayer.clearLayers()
-    renderRouteLayer(
-      routeLayer,
+    routeLayer.render((layer, offset) => renderRouteLayer(
+      layer,
       routeMode,
       stopsRef.current,
-      travelLegsRef.current,
+      connectionsRef.current,
       travelPostsRef.current,
       trackingGeometryRef.current.openingRoute,
-    )
+      onAirportTransferSelect && routeMode === 'itinerary' ? (transfer) => latestTransferSelectRef.current?.(transfer.connectionId, transfer.side) : undefined,
+      offset,
+    ))
 
     const routeEndpointLayer = routeEndpointLayerRef.current
     if (routeEndpointLayer) {
-      routeEndpointLayer.clearLayers()
-      if (routeMode === 'travel-timeline' && isTripOngoing) {
-        renderRouteEndpointMarker(
-          routeEndpointLayer,
-          getTravelTimelineRouteEndpoint(
-            travelPostsRef.current,
-            trackingGeometryRef.current.openingRoute,
-          ),
-        )
-      }
+      routeEndpointLayer.render((layer, offset) => {
+        for (const connection of connectionsRef.current) {
+          for (const [side, endpoint] of [['start', connection.from], ['end', connection.to]] as const) {
+            if (endpoint.type !== 'LOCATION') continue
+            const anchor = resolveConnectionEndpoint(endpoint, stopsRef.current)
+            if (!anchor) continue
+            const marker = L.circleMarker(shiftWorldCoordinate([anchor.location.latitude, anchor.location.longitude], offset), {
+              className: 'trip-map-connection-endpoint', radius: 6,
+              color: getThemeColor('--primary', '#0F766E'), fillOpacity: 1,
+            }).bindTooltip(escapeHtml(anchor.title)).addTo(layer)
+            marker.getElement()?.setAttribute('aria-label', `Trip ${side}: ${anchor.title}`)
+          }
+        }
+        if (routeMode === 'travel-timeline' && isTripOngoing) {
+          renderRouteEndpointMarker(
+            layer,
+            getTravelTimelineRouteEndpoint(
+              travelPostsRef.current,
+              trackingGeometryRef.current.openingRoute,
+            ),
+            offset,
+          )
+        }
+      })
     }
     const animationFrameId = window.requestAnimationFrame(() => {
       map.invalidateSize()
-      const viewKey = `${routeMode}:${fitMode}`
+      const outsideAnchors = connectionsRef.current.flatMap((connection) =>
+        [connection.from, connection.to].filter((endpoint) => endpoint.type === 'LOCATION').map((endpoint) => {
+          const anchor = resolveConnectionEndpoint(endpoint, stopsRef.current)
+          return anchor ? [anchor.location.latitude, anchor.location.longitude] : null
+        }),
+      )
+      const viewKey = `${routeMode}:${fitMode}:${JSON.stringify(outsideAnchors)}:${fitMode === 'route-preview' || fitMode === 'route-selector' ? routeKey : ''}`
       if (!focusedPostIdRef.current && fittedViewRef.current !== viewKey) {
         fitRouteBounds(
           map,
           routeMode,
           stopsRef.current,
-          travelLegsRef.current,
+          connectionsRef.current,
           travelPostsRef.current,
           trackingGeometryRef.current.openingRoute,
           fitMode,
         )
-        if (getMapRouteSegments(routeMode, stopsRef.current, travelLegsRef.current,
+        if (getMapRouteSegments(routeMode, stopsRef.current, connectionsRef.current,
           travelPostsRef.current, trackingGeometryRef.current.openingRoute).length > 0) {
           fittedViewRef.current = viewKey
         }
@@ -428,7 +474,19 @@ export function TripLeafletMap({
     })
 
     return () => window.cancelAnimationFrame(animationFrameId)
-  }, [fitMode, isTripOngoing, routeKey, routeMode, themeMode, themePalette])
+  }, [fitMode, isTripOngoing, routeKey, routeMode, themeMode, themePalette, onAirportTransferSelect])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || fitMode !== 'route-selector') return
+    const observer = new ResizeObserver(() => {
+      map.invalidateSize({ animate: false })
+      fitRouteBounds(map, routeMode, stopsRef.current, connectionsRef.current,
+        travelPostsRef.current, trackingGeometryRef.current.openingRoute, fitMode)
+    })
+    observer.observe(map.getContainer())
+    return () => observer.disconnect()
+  }, [fitMode, routeMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -441,7 +499,7 @@ export function TripLeafletMap({
         map,
         routeMode,
         stopsRef.current,
-        travelLegsRef.current,
+        connectionsRef.current,
         travelPostsRef.current,
         trackingGeometryRef.current.openingRoute,
         fitMode,
@@ -491,15 +549,19 @@ export function TripLeafletMap({
       return
     }
 
-    draftMarkerRef.current = L.marker(draftMapLocation.coordinates, {
-      icon: L.divIcon({
-        className: 'trip-map-div-icon',
-        html: createDraftPostMarkerHtml(),
-        iconAnchor: [18, 18],
-        iconSize: [36, 36],
-      }),
-      zIndexOffset: 700,
-    }).addTo(map)
+    const draftLayer = new RepeatedWorldLayer(map)
+    draftMarkerRef.current = draftLayer
+    draftLayer.render((layer, offset) => {
+      L.marker(shiftWorldCoordinate(draftMapLocation.coordinates, offset), {
+        icon: L.divIcon({
+          className: 'trip-map-div-icon',
+          html: createDraftPostMarkerHtml(),
+          iconAnchor: [18, 18],
+          iconSize: [36, 36],
+        }),
+        zIndexOffset: 700,
+      }).addTo(layer)
+    })
   }, [draftMapLocation])
 
   useEffect(() => {
@@ -512,7 +574,7 @@ export function TripLeafletMap({
       map,
       routeMode,
       stopsRef.current,
-      travelLegsRef.current,
+      connectionsRef.current,
       travelPostsRef.current,
       trackingGeometryRef.current.openingRoute,
       fitMode,
@@ -523,7 +585,7 @@ export function TripLeafletMap({
   return (
     <div
       aria-label="Interactive trip route map"
-      className="trip-leaflet-map absolute inset-0"
+      className={'trip-leaflet-map absolute inset-0' + (fitMode === 'route-preview' ? ' min-h-0' : '')}
       ref={mapContainerRef}
     />
   )
@@ -532,15 +594,17 @@ export function TripLeafletMap({
 function renderRouteLayer(
   routeLayer: L.LayerGroup,
   routeMode: MapRouteMode,
-  stops: readonly Stop[],
-  travelLegs: readonly TravelLeg[],
+  stops: readonly MapStop[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
+  onTransferSelect?: (transfer: AirportTransfer) => void,
+  longitudeOffset = 0,
 ) {
   const routeSegments = getMapRouteSegments(
     routeMode,
     stops,
-    travelLegs,
+    connections,
     travelPosts,
     openingRoute,
   )
@@ -549,10 +613,30 @@ function renderRouteLayer(
       continue
     }
 
-    L.polyline(
-      segment.coordinates,
+    const coordinates = shiftWorldRoute(segment.coordinates, longitudeOffset)
+    const line = L.polyline(
+      coordinates,
       getRouteSegmentPathOptions(segment, routeMode),
     ).addTo(routeLayer)
+
+    if (segment.transfer) {
+      const transfer = segment.transfer
+      const label = airportTransferLabel(transfer)
+      line.bindTooltip(escapeHtml(label) + '<br>Transport not chosen · Approximate connection')
+      const element = line.getElement()
+      element?.setAttribute('aria-label', label)
+      if (onTransferSelect) {
+        line.on('click', () => onTransferSelect(transfer))
+        element?.setAttribute('role', 'button')
+        element?.setAttribute('tabindex', '0')
+        element?.addEventListener('keydown', (event) => {
+          if ((event as KeyboardEvent).key === 'Enter' || (event as KeyboardEvent).key === ' ') {
+            event.preventDefault()
+            onTransferSelect(transfer)
+          }
+        })
+      }
+    }
 
     if (
       routeMode === 'itinerary' ||
@@ -562,7 +646,7 @@ function renderRouteLayer(
       continue
     }
 
-    L.polyline(segment.coordinates, {
+    L.polyline(coordinates, {
       color: getThemeColor('--card', '#FFFFFF'),
       dashArray: '2 10',
       lineCap: 'round',
@@ -576,7 +660,7 @@ function renderRouteLayer(
   const stopMarkerSize = showStopOrder ? 22 : 14
 
   for (const [stopIndex, stop] of stops.entries()) {
-    L.marker(getStopCoordinates(stop), {
+    L.marker(shiftWorldCoordinate(getStopCoordinates(stop), longitudeOffset), {
       icon: L.divIcon({
         className: 'trip-map-div-icon',
         html: createPlaceMarkerHtml(showStopOrder ? stopIndex + 1 : null),
@@ -585,19 +669,20 @@ function renderRouteLayer(
       }),
     })
       .addTo(routeLayer)
-      .bindPopup(`<strong>${escapeHtml(stop.title)}</strong><br>${escapeHtml(stop.notes)}`)
+      .bindPopup(`<strong>${escapeHtml(stop.title)}</strong><br>${escapeHtml(routeMode === 'itinerary' ? stop.notes ?? '' : '')}`)
   }
 }
 
 function renderRouteEndpointMarker(
   layer: L.LayerGroup,
   endpoint: RouteEndpoint | null,
+  longitudeOffset = 0,
 ) {
   if (!endpoint) {
     return
   }
 
-  L.marker(endpoint.coordinates, {
+  L.marker(shiftWorldCoordinate(endpoint.coordinates, longitudeOffset), {
     icon: L.divIcon({
       className: 'trip-map-div-icon',
       html: createRouteEndpointBubbleHtml(endpoint.travelMode),
@@ -658,6 +743,7 @@ function renderPostMarkerLayer(
   travelPosts: readonly TravelPost[],
   focusedPostId: string | null,
   onPostMarkerSelect: (postId: string) => void,
+  longitudeOffset = 0,
 ) {
   const orderedPosts = [
     ...travelPosts.filter((post) => post.id !== focusedPostId),
@@ -667,7 +753,7 @@ function renderPostMarkerLayer(
   for (const post of orderedPosts) {
     const isFocused = post.id === focusedPostId
 
-    const marker = L.marker(post.coordinates, {
+    const marker = L.marker(shiftWorldCoordinate(post.coordinates, longitudeOffset), {
       icon: L.divIcon({
         className: 'trip-map-div-icon',
         html: createPostBubbleHtml(post, isFocused),
@@ -685,10 +771,11 @@ function renderGpsPostCandidateLayer(
   layer: L.LayerGroup,
   candidates: readonly GpsPostCandidate[],
   onSelect: (candidate: GpsPostCandidate) => void,
+  longitudeOffset = 0,
 ) {
   for (const candidate of candidates) {
     const coordinates: L.LatLngTuple = [candidate.latitude, candidate.longitude]
-    const marker = L.marker(coordinates, {
+    const marker = L.marker(shiftWorldCoordinate(coordinates, longitudeOffset), {
       icon: L.divIcon({
         className: 'trip-map-div-icon',
         html: createGpsPostCandidateHtml(),
@@ -714,8 +801,8 @@ function renderGpsPostCandidateLayer(
 function fitRouteBounds(
   map: L.Map,
   routeMode: MapRouteMode,
-  stops: readonly Stop[],
-  travelLegs: readonly TravelLeg[],
+  stops: readonly MapStop[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
   fitMode: RouteFitMode,
@@ -724,7 +811,7 @@ function fitRouteBounds(
   const routeCoordinates = getRouteBoundsCoordinates(
     routeMode,
     stops,
-    travelLegs,
+    connections,
     travelPosts,
     openingRoute,
   )
@@ -736,7 +823,9 @@ function fitRouteBounds(
   }
 
   const routeBounds = L.latLngBounds(routeCoordinates)
-  const routeFitOptions = getRouteFitOptions(fitMode)
+  const routeFitOptions = fitMode === 'route-selector'
+    ? { paddingTopLeft: [Math.min(352, Math.max(256, map.getSize().x / 2)) + 24, 48] as L.PointTuple, paddingBottomRight: [40, 48] as L.PointTuple, maxZoom: 12, animate: false }
+    : getRouteFitOptions(fitMode)
   if (options.animate) {
     map.flyToBounds(routeBounds, {
       ...routeFitOptions,
@@ -749,6 +838,7 @@ function fitRouteBounds(
 }
 
 function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
+  if (fitMode === 'route-preview') return { paddingTopLeft: [28, 28], paddingBottomRight: [48, 88], maxZoom: 12, animate: false }
   if (fitMode === 'mobile-fullscreen') {
     return { maxZoom: 8, paddingTopLeft: [32, 112], paddingBottomRight: [64, 48] }
   }
@@ -788,17 +878,20 @@ function getFocusedPostViewPlan(
   const selectedNeighbors = selectFocusedPostZoomNeighbors(
     focusedPostContext.neighbors,
   )
+  const focusedCoordinate = nearestWorldCoordinate(
+    focusedPostContext.focusedPost.coordinates, map.getCenter().lng,
+  )
   if (selectedNeighbors.length === 0) {
     return {
-      coordinates: focusedPostContext.focusedPost.coordinates,
+      coordinates: focusedCoordinate,
       kind: 'center',
       zoom: getSingleFocusedPostZoom(fitMode),
     }
   }
 
   const selectedCoordinates = [
-    focusedPostContext.focusedPost.coordinates,
-    ...selectedNeighbors.map((neighbor) => neighbor.post.coordinates),
+    focusedCoordinate,
+    ...selectedNeighbors.map((neighbor) => nearestWorldCoordinate(neighbor.post.coordinates, focusedCoordinate[1])),
   ]
   const bounds = L.latLngBounds(selectedCoordinates)
   const boundsZoom = map.getBoundsZoom(
@@ -972,8 +1065,8 @@ function getCoordinateDistanceMeters(
 
 function createRouteKey(
   routeMode: MapRouteMode,
-  stops: readonly Stop[],
-  travelLegs: readonly TravelLeg[],
+  stops: readonly MapStop[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   trackingGeometry: TripTrackingGeometry,
 ) {
@@ -986,14 +1079,15 @@ function createRouteKey(
       ].join(':'),
     )
     .join('|')
-  const legKey = travelLegs
-    .map((leg) =>
+  const connectionKey = connections
+    .map((connection) =>
       [
-        leg.id,
-        leg.from_stop_id,
-        leg.to_stop_id,
-        leg.route.type,
-        createRouteGeometryKey(leg.route.geometry),
+        connection.id,
+        JSON.stringify(connection.from),
+        JSON.stringify(connection.to),
+        connection.route.type,
+        createRouteGeometryKey(connection.route.geometry),
+        ...connection.segments.flatMap((segment) => [segment.intent.travel_mode, segment.route_state, segment.geometry ? createRouteGeometryKey(segment.geometry) : '', ...(segment.route_options || []).map((option) => createRouteGeometryKey(option.geometry))]),
       ].join(':'),
     )
     .join('|')
@@ -1041,7 +1135,7 @@ function createRouteKey(
   return [
     routeMode,
     stopKey,
-    legKey,
+    connectionKey,
     postKey,
     openingRouteKey,
   ].join('::')
@@ -1049,62 +1143,66 @@ function createRouteKey(
 
 function getMapRouteSegments(
   routeMode: MapRouteMode,
-  stops: readonly Stop[],
-  travelLegs: readonly TravelLeg[],
+  stops: readonly MapStop[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
 ): RouteSegment[] {
   if (routeMode === 'travel-timeline') {
     return getTravelTimelineRouteSegments(
       stops,
-      travelLegs,
+      connections,
       travelPosts,
       openingRoute,
     )
   }
 
-  return getItineraryRouteSegments(stops, travelLegs)
+  return getItineraryRouteSegments(stops, connections)
 }
 
 function getItineraryRouteSegments(
-  stops: readonly Stop[],
-  travelLegs: readonly TravelLeg[],
+  stops: readonly MapStop[],
+  connections: readonly MapConnection[],
 ): RouteSegment[] {
-  const legsByPair = new Map<string, TravelLeg>(
-    travelLegs.map((leg): [string, TravelLeg] => [
-      createStopPairKey(leg.from_stop_id, leg.to_stop_id),
-      leg,
-    ]),
-  )
   const segments: RouteSegment[] = []
-
-  for (let index = 0; index < stops.length - 1; index += 1) {
-    const fromStop = stops[index]
-    const toStop = stops[index + 1]
-    if (!fromStop || !toStop) {
-      continue
+  for (const connection of connections) {
+    const fromStop = resolveConnectionEndpoint(connection.from, stops)
+    const toStop = resolveConnectionEndpoint(connection.to, stops)
+    if (!fromStop || !toStop) continue
+    if (connection?.segments?.length) {
+      for (const transfer of getAirportTransfers(connection, fromStop, toStop)) {
+        segments.push({
+          coordinates: createGeodesicRoute([[transfer.from.latitude, transfer.from.longitude], [transfer.to.latitude, transfer.to.longitude]]),
+          kind: 'itinerary', routeType: 'SIMPLE', transfer,
+        })
+      }
+      for (const segment of connection.segments) {
+        // Missing road calculations have no honest road geometry to draw.
+        if (['CAR', 'BIKE', 'WALK'].includes(segment.intent.travel_mode) && segment.route_state !== 'READY') continue
+        if (!segment.geometry) continue
+        const coordinates = getGeoJsonLineStringCoordinates(segment.geometry)
+        if (!coordinates) continue
+        for (const option of segment.route_options || []) {
+          if (createRouteGeometryKey(option.geometry) === createRouteGeometryKey(segment.geometry)) continue
+          const alternative = getGeoJsonLineStringCoordinates(option.geometry)
+          if (alternative) segments.push({ coordinates: alternative, kind: 'itinerary', routeType: 'PROVIDER_BACKED', alternative: true })
+        }
+        segments.push({
+          coordinates: segment.route_state === 'READY' ? coordinates : createGeodesicRoute(coordinates),
+          kind: 'itinerary',
+          routeType: segment.route_state === 'READY' ? 'PROVIDER_BACKED' : 'SIMPLE',
+          travelMode: segment.intent.travel_mode,
+        })
+      }
     }
-
-    const leg = legsByPair.get(createStopPairKey(fromStop.id, toStop.id))
-    const routeCoordinates = leg
-      ? getRouteCoordinates(leg.route)
-      : getSimpleRouteCoordinates(fromStop, toStop)
-    const coordinates =
-      routeCoordinates ?? getSimpleRouteCoordinates(fromStop, toStop)
-
-    segments.push({
-      coordinates,
-      kind: 'itinerary',
-      routeType: leg?.route.type ?? 'SIMPLE',
-    })
   }
 
   return segments
 }
 
 function getTravelTimelineRouteSegments(
-  stops: readonly Stop[],
-  travelLegs: readonly TravelLeg[],
+  stops: readonly MapStop[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
 ): RouteSegment[] {
@@ -1129,7 +1227,7 @@ function getTravelTimelineRouteSegments(
     })
   }
 
-  segments.push(...getItineraryRouteSegments(stops, travelLegs))
+  segments.push(...getItineraryRouteSegments(stops, connections))
   return segments
 }
 
@@ -1178,8 +1276,12 @@ function getRouteSegmentPathOptions(
     }
   }
 
+  if (segment.alternative) return { color: '#64748b', weight: 4, opacity: 0.5, interactive: false }
+
   if (routeMode === 'itinerary') {
     return {
+      className: segment.transfer ? 'trip-map-airport-transfer' : undefined,
+      dashArray: segment.routeType === 'SIMPLE' ? '7 9' : undefined,
       color: getThemeColor('--primary', '#0F766E'),
       lineCap: 'round',
       lineJoin: 'round',
@@ -1189,6 +1291,7 @@ function getRouteSegmentPathOptions(
   }
 
   return {
+    className: segment.transfer ? 'trip-map-airport-transfer' : undefined,
     color: getThemeColor('--primary', '#0F766E'),
     dashArray: segment.routeType === 'SIMPLE' ? '10 10' : undefined,
     lineCap: 'round',
@@ -1215,19 +1318,26 @@ function getThemeColor(variable: string, fallback: string) {
 
 function getRouteBoundsCoordinates(
   routeMode: MapRouteMode,
-  stops: readonly Stop[],
-  travelLegs: readonly TravelLeg[],
+  stops: readonly MapStop[],
+  connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
 ) {
   const routeCoordinates = getMapRouteSegments(
     routeMode,
     stops,
-    travelLegs,
+    connections,
     travelPosts,
     openingRoute,
   ).flatMap((segment) => segment.coordinates)
 
+  for (const connection of connections) {
+    for (const endpoint of [connection.from, connection.to]) {
+      if (routeMode !== 'itinerary' && endpoint.type !== 'LOCATION') continue
+      const anchor = resolveConnectionEndpoint(endpoint, stops)
+      if (anchor) routeCoordinates.push([anchor.location.latitude, anchor.location.longitude])
+    }
+  }
   if (routeCoordinates.length > 0) {
     return routeCoordinates
   }
@@ -1251,18 +1361,6 @@ function getPointToPointRouteCoordinates(
   return [fromCoordinates, toCoordinates]
 }
 
-function getRouteCoordinates(
-  route: ItineraryTravelRoute,
-): L.LatLngTuple[] | null {
-  const coordinates = getGeoJsonLineStringCoordinates(route.geometry)
-  if (!coordinates) {
-    return null
-  }
-
-  return route.type === 'SIMPLE'
-    ? createGeodesicRoute(coordinates)
-    : coordinates
-}
 
 function createPlaceMarkerHtml(stopOrder: number | null) {
   const className =

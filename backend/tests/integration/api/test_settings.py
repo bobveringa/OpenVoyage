@@ -7,6 +7,7 @@ from core.app_settings import (
     COOKIE_BANNER_ENABLED_KEY,
     DEFAULT_MAP_TILE_PROVIDER_URL,
     DEFAULT_THEME_PALETTE,
+    FLIGHTS_PROVIDER_KEY,
     MAP_TILE_PROVIDER_KEY,
     IMMICH_ALLOWED_SERVERS_KEY,
     IMMICH_ALLOW_ANY_SERVER_KEY,
@@ -97,6 +98,10 @@ def test_admin_list_includes_redacted_secret_metadata(
         'routing.provider',
         'routing.graphhopper_base_url',
         'routing.graphhopper_api_key',
+        'flights.rapidapi_api_key',
+        'flights.provider',
+        'flights.aerodatabox_base_url',
+        'flights.aerodatabox_rapidapi_host',
         'media.max_upload_size_mb',
         'places.geonames_dataset',
         'media.orphan_retention_days',
@@ -109,6 +114,33 @@ def test_admin_list_includes_redacted_secret_metadata(
     assert secret['default_value'] is None
     assert secret['is_configured'] is True
     assert 'unreadable' not in str(payload)
+
+
+@pytest.mark.integration
+def test_flight_provider_defaults_to_disabled_and_reset_restores_default(
+    client, db_session, api_prefix
+) -> None:
+    admin = _admin(db_session)
+    headers = _auth_headers(admin)
+    endpoint = f'{api_prefix}/admin/settings/{FLIGHTS_PROVIDER_KEY}'
+
+    response = client.get(f'{api_prefix}/admin/settings', headers=headers)
+    assert response.status_code == 200
+    provider = next(
+        record for record in response.json()['settings']
+        if record['key'] == FLIGHTS_PROVIDER_KEY
+    )
+    assert provider['value'] == 'none'
+    assert provider['default_value'] == 'none'
+
+    selected = client.patch(endpoint, headers=headers, json={'value': 'aerodatabox'})
+    assert selected.status_code == 200
+    assert selected.json()['value'] == 'aerodatabox'
+
+    reset = client.post(f'{endpoint}/reset', headers=headers)
+    assert reset.status_code == 200
+    assert reset.json()['value'] == 'none'
+    assert reset.json()['default_value'] == 'none'
 
 
 @pytest.mark.integration
@@ -155,6 +187,9 @@ def test_admin_can_update_normal_and_secret_settings(
     [
         (MAP_TILE_PROVIDER_KEY, 'ftp://tiles.example.test/{z}/{x}/{y}.png'),
         (ROUTING_PROVIDER_KEY, 'unknown'),
+        ('flights.provider', 'unknown'),
+        ('flights.aerodatabox_base_url', 'ftp://example.test'),
+        ('flights.aerodatabox_rapidapi_host', 'https://example.test'),
         ('routing.graphhopper_base_url', 'ftp://example.test'),
         (MEDIA_MAX_UPLOAD_SIZE_MB_KEY, True),
         (MEDIA_MAX_UPLOAD_SIZE_MB_KEY, 0),

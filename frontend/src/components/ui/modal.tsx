@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useId, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ type ModalProps = {
   children: ReactNode
   bottomSheetOnMobile?: boolean
   className?: string
+  overlayClassName?: string
   contentClassName?: string
   description?: string
   dismissible?: boolean
@@ -19,12 +20,14 @@ type ModalProps = {
   open: boolean
   title: ReactNode
   toolbar?: ReactNode
+  headerActions?: ReactNode
 }
 
 export function Modal({
   bottomSheetOnMobile = false,
   children,
   className,
+  overlayClassName,
   contentClassName,
   description,
   dismissible = true,
@@ -34,7 +37,9 @@ export function Modal({
   open,
   title,
   toolbar,
+  headerActions,
 }: ModalProps) {
+  const titleId = useId()
   useEffect(() => {
     if (!open || !dismissible) {
       return undefined
@@ -57,6 +62,7 @@ export function Modal({
   return createPortal(
     <div
       aria-modal="true"
+      aria-labelledby={titleId}
       className={cn(
         'fixed inset-0 z-50 grid place-items-center bg-foreground/35 backdrop-blur-md',
         bottomSheetOnMobile
@@ -64,6 +70,7 @@ export function Modal({
           : fullscreenOnMobile
             ? 'p-0 sm:p-4'
             : 'p-4',
+          overlayClassName,
       )}
       role="dialog"
     >
@@ -94,24 +101,27 @@ export function Modal({
           )}
         >
           <div className="space-y-1">
-            <h2 className="text-xl font-semibold tracking-normal text-popover-foreground">
+            <h2 id={titleId} className="text-xl font-semibold tracking-normal text-popover-foreground">
               {title}
             </h2>
             {description ? (
               <p className="text-sm text-muted-foreground">{description}</p>
             ) : null}
           </div>
-          {dismissible ? (
-            <Button
-              aria-label="Close"
-              onClick={onClose}
-              size="icon"
-              type="button"
-              variant="ghost"
-            >
-              <X className="size-4" aria-hidden="true" />
-            </Button>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-1">
+            {headerActions}
+            {dismissible ? (
+              <Button
+                aria-label="Close"
+                onClick={onClose}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <X className="size-4" aria-hidden="true" />
+              </Button>
+            ) : null}
+          </div>
         </div>
         {toolbar ? (
           <div className="border-b border-border bg-card px-5 py-3 shadow-sm">

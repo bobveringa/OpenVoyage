@@ -9,6 +9,10 @@ from core.app_settings import (
     COOKIE_BANNER_ENABLED_KEY,
     DEFAULT_MAP_TILE_PROVIDER_URL,
     DEFAULT_THEME_PALETTE,
+    FLIGHTS_PROVIDER_KEY,
+    FLIGHTS_AERODATABOX_BASE_URL_KEY,
+    FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY,
+    FLIGHTS_RAPIDAPI_API_KEY,
     IMMICH_ALLOWED_SERVERS_KEY,
     MAP_TILE_PROVIDER_KEY,
     ROUTING_GRAPHHOPPER_BASE_URL_KEY,
@@ -23,6 +27,41 @@ from core.app_settings_encryption import (
     AppSettingsEncryption,
     AppSettingsEncryptionError,
 )
+
+
+def test_flight_settings_are_admin_only_and_keep_existing_key():
+    for key in (
+        FLIGHTS_PROVIDER_KEY,
+        FLIGHTS_AERODATABOX_BASE_URL_KEY,
+        FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY,
+        FLIGHTS_RAPIDAPI_API_KEY,
+    ):
+        definition = app_settings_registry.require(key)
+        assert definition.visibility == SettingVisibility.ADMIN
+        assert definition.runtime_safe
+    assert (
+        app_settings_registry.require(FLIGHTS_PROVIDER_KEY).default_value
+        == 'none'
+    )
+    assert app_settings_registry.require(FLIGHTS_RAPIDAPI_API_KEY).sensitive
+
+
+@pytest.mark.parametrize(
+    'key,value',
+    [
+        (FLIGHTS_PROVIDER_KEY, 'unknown'),
+        (FLIGHTS_AERODATABOX_BASE_URL_KEY, 'ftp://example.test'),
+        (FLIGHTS_AERODATABOX_BASE_URL_KEY, 'https://user:secret@example.test'),
+        (FLIGHTS_AERODATABOX_BASE_URL_KEY, 'https://example.test?key=secret'),
+        (FLIGHTS_AERODATABOX_BASE_URL_KEY, 'https://example.test/#fragment'),
+        (FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY, 'https://example.test'),
+        (FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY, 'example.test/path'),
+        (FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY, 'example.test\r\nInjected: header'),
+    ],
+)
+def test_invalid_flight_settings_are_rejected(key, value):
+    with pytest.raises(AppSettingValidationError):
+        app_settings_registry.validate_value(app_settings_registry.require(key), value)
 
 
 def test_registry_contains_validated_defaults() -> None:

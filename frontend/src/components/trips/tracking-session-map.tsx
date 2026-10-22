@@ -15,6 +15,13 @@ import {
   MIN_EDIT_RADIUS_METERS,
 } from '@/tracking/edit-geometry'
 import { coordinates } from '@/tracking/session-points'
+import {
+  RepeatedWorldLayer,
+  nearestWorldCoordinate,
+  normalizeWorldCoordinate,
+  shiftWorldCoordinate,
+  shiftWorldRoute,
+} from '@/lib/map-world-copies'
 
 type Props = {
   editablePoints?: readonly TrackSample[]
@@ -131,7 +138,7 @@ export function TrackingSessionMap(props: Props) {
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    const group = L.layerGroup().addTo(map)
+    const repeated = new RepeatedWorldLayer(map)
     const primary = themeColor('--primary', '#246b49')
     const background = themeColor('--background', '#f7fbf7')
     const card = themeColor('--card', '#ffffff')
@@ -143,107 +150,109 @@ export function TrackingSessionMap(props: Props) {
         Number(a.id === props.selectedSessionId) -
         Number(b.id === props.selectedSessionId),
     )
-    for (const path of paths) {
-      const selected = path.id === props.selectedSessionId
-      const points = path.points.map(coordinates)
-      if (selected) {
-        L.polyline(points, {
-          color: background,
-          className: 'tracking-path-halo',
-          weight: 9,
-          interactive: false,
-        }).addTo(group)
-        const editablePoints = props.editablePoints ?? path.points
-        const slices = rangeSlices(path.points, editablePoints)
-        for (const slice of slices.muted) {
-          if (slice.length < 2) continue
-          L.polyline(slice.map(coordinates), {
-            color: muted,
-            className: 'tracking-path-muted',
-            weight: 5,
-            opacity: 0.8,
+    repeated.render((group, offset) => {
+      const displayPoint = (point: TrackSample) => shiftWorldCoordinate(coordinates(point), offset)
+      for (const path of paths) {
+        const selected = path.id === props.selectedSessionId
+        const points = shiftWorldRoute(path.points.map(coordinates), offset)
+        if (selected) {
+          L.polyline(points, {
+            color: background,
+            className: 'tracking-path-halo',
+            weight: 9,
             interactive: false,
           }).addTo(group)
-        }
-        if (slices.active.length >= 2)
-          L.polyline(slices.active.map(coordinates), {
-            color: primary,
-            className: 'tracking-path-active',
-            weight: 5,
-            interactive: false,
-          }).addTo(group)
+          const editablePoints = props.editablePoints ?? path.points
+          const slices = rangeSlices(path.points, editablePoints)
+          for (const slice of slices.muted) {
+            if (slice.length < 2) continue
+            L.polyline(shiftWorldRoute(slice.map(coordinates), offset), {
+              color: muted,
+              className: 'tracking-path-muted',
+              weight: 5,
+              opacity: 0.8,
+              interactive: false,
+            }).addTo(group)
+          }
+          if (slices.active.length >= 2)
+            L.polyline(shiftWorldRoute(slices.active.map(coordinates), offset), {
+              color: primary,
+              className: 'tracking-path-active',
+              weight: 5,
+              interactive: false,
+            }).addTo(group)
 
-        // Keep long recordings responsive. Every point remains selectable by
-        // proximity or its exact list index; only the decorative dots are thinned.
-        const stride = Math.max(1, Math.ceil(editablePoints.length / 1500))
-        for (let i = 0; i < editablePoints.length; i += stride) {
-          const p = editablePoints[i]
-          L.circleMarker(coordinates(p), {
-            radius: 4,
-            color: primary,
-            fillColor: card,
-            className: 'tracking-point',
-            fillOpacity: 0.9,
-            interactive: false,
-          }).addTo(group)
+          // Keep long recordings responsive. Every point remains selectable by
+          // proximity or its exact list index; only the decorative dots are thinned.
+          const stride = Math.max(1, Math.ceil(editablePoints.length / 1500))
+          for (let i = 0; i < editablePoints.length; i += stride) {
+            const p = editablePoints[i]
+            L.circleMarker(displayPoint(p), {
+              radius: 4,
+              color: primary,
+              fillColor: card,
+              className: 'tracking-point',
+              fillOpacity: 0.9,
+              interactive: false,
+            }).addTo(group)
+          }
+          continue
         }
-        continue
-      }
-      L.polyline(points, {
-        color: mapColor(path.color, primary),
-        weight: 3,
-        opacity: props.selectedSessionId ? 0.35 : 1,
-        interactive: false,
-      }).addTo(group)
-    }
-    if (props.insertion) {
-      const [a, b] = props.insertion.map(coordinates)
-      const { center, radius } = insertionArea(a, b)
-      L.circle(center, {
-        radius,
-        color: accent,
-        fillColor: accent,
-        className: 'tracking-insert-area',
-        fillOpacity: 0.15,
-        interactive: false,
-      }).addTo(group)
-    } else if (props.selectedPoint) {
-      const point = props.selectedPoint,
-        origin = coordinates(props.origin ?? point)
-      const moveRadius = props.moveRadius ?? MIN_EDIT_RADIUS_METERS
-      if (props.origin)
-        L.circle(origin, {
-          radius: moveRadius,
-          color: primary,
-          fillColor: primary,
-          className: 'tracking-move-limit',
-          fillOpacity: 0.05,
-          dashArray: '5 5',
+        L.polyline(points, {
+          color: mapColor(path.color, primary),
+          weight: 3,
+          opacity: props.selectedSessionId ? 0.35 : 1,
           interactive: false,
         }).addTo(group)
-      const marker = L.marker(coordinates(point), {
-        draggable: !props.disabled && Boolean(props.origin),
-        icon: L.divIcon({
-          className: 'tracking-selected-point',
-          html: '',
-          iconSize: [44, 44],
-          iconAnchor: [22, 22],
-        }),
-      }).addTo(group)
-      marker.on('drag', () => {
+      }
+      if (props.insertion) {
+        const [a, b] = props.insertion.map(coordinates)
+        const { center, radius } = insertionArea(a, b)
+        L.circle(shiftWorldCoordinate(center, offset), {
+          radius,
+          color: accent,
+          fillColor: accent,
+          className: 'tracking-insert-area',
+          fillOpacity: 0.15,
+          interactive: false,
+        }).addTo(group)
+      } else if (props.selectedPoint) {
+        const point = props.selectedPoint,
+          origin = displayPoint(props.origin ?? point)
+        const moveRadius = props.moveRadius ?? MIN_EDIT_RADIUS_METERS
+        if (props.origin)
+          L.circle(origin, {
+            radius: moveRadius,
+            color: primary,
+            fillColor: primary,
+            className: 'tracking-move-limit',
+            fillOpacity: 0.05,
+            dashArray: '5 5',
+            interactive: false,
+          }).addTo(group)
+        const marker = L.marker(displayPoint(point), {
+          draggable: !props.disabled && Boolean(props.origin),
+          icon: L.divIcon({
+            className: 'tracking-selected-point',
+            html: '',
+            iconSize: [44, 44],
+            iconAnchor: [22, 22],
+          }),
+        }).addTo(group)
+        marker.on('drag', () => {
           const target = marker.getLatLng(),
-          clamped = clampMove(origin, [target.lat, target.lng], moveRadius)
-        marker.setLatLng(clamped)
-        if (
-          distance(origin, [target.lat, target.lng]) >= moveRadius
-          )
-          callbacks.current.onNotice?.(`${Math.round(moveRadius)} m move limit reached.`)
-      })
-      marker.on('dragend', () => {
-        const p = marker.getLatLng()
-        callbacks.current.onMove?.(p.lat, p.lng)
-      })
-    }
+            clamped = clampMove(origin, [target.lat, target.lng], moveRadius)
+          marker.setLatLng(nearestWorldCoordinate(clamped, origin[1]))
+          if (distance(origin, [target.lat, target.lng]) >= moveRadius) {
+            callbacks.current.onNotice?.(`${Math.round(moveRadius)} m move limit reached.`)
+          }
+        })
+        marker.on('dragend', () => {
+          const p = marker.getLatLng()
+          callbacks.current.onMove?.(...normalizeWorldCoordinate([p.lat, p.lng]))
+        })
+      }
+    })
     const insertAt = (point: [number, number]) => {
       const [a, b] = props.insertion ?? []
       if (!a || !b) return
@@ -257,7 +266,7 @@ export function TrackingSessionMap(props: Props) {
     }
     const click = (event: L.LeafletMouseEvent) => {
       if (props.disabled) return
-      const point: [number, number] = [event.latlng.lat, event.latlng.lng]
+      const point = normalizeWorldCoordinate([event.latlng.lat, event.latlng.lng])
       if (props.insertion) {
         insertAt(point)
         return
@@ -267,7 +276,7 @@ export function TrackingSessionMap(props: Props) {
         closest = 25
       for (const p of editablePoints) {
         const pixels = map
-          .latLngToContainerPoint(coordinates(p))
+          .latLngToContainerPoint(nearestWorldCoordinate(coordinates(p), event.latlng.lng))
           .distanceTo(event.containerPoint)
         if (pixels < closest) {
           closest = pixels
@@ -279,7 +288,7 @@ export function TrackingSessionMap(props: Props) {
     map.on('click', click)
     return () => {
       map.off('click', click)
-      group.remove()
+      repeated.remove()
     }
   }, [
     props.paths,

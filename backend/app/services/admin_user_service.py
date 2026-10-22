@@ -186,6 +186,8 @@ class AdminUserService:
             raise AdminUserProtectedActionError(
                 'The last remaining administrator cannot be deleted'
             )
+        from services.planning_cleanup import clear_account_flight_snapshots
+        clear_account_flight_snapshots(self.db, user_id)
         self.db.delete(user)
         self.db.commit()
 

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 class JobKey(str, Enum):
     GEONAMES_IMPORT = 'geonames_import'
-    ITINERARY_ROUTE_MAINTENANCE = 'itinerary_route_maintenance'
+    PLANNING_ARTIFACT_CLEANUP = 'planning_artifact_cleanup'
     ORPHANED_MEDIA_CLEANUP = 'orphaned_media_cleanup'
 
 
@@ -35,7 +35,7 @@ def _definitions() -> tuple[JobDefinition, ...]:
     # Imported lazily to keep the base contract free of factory imports.
     from .factories import (
         create_geonames_import_job,
-        create_itinerary_route_maintenance_job,
+        create_planning_artifact_cleanup_job,
         create_orphaned_media_cleanup_job,
     )
 
@@ -50,10 +50,10 @@ def _definitions() -> tuple[JobDefinition, ...]:
             minimum_interval=timedelta(days=1),
         ),
         JobDefinition(
-            key=JobKey.ITINERARY_ROUTE_MAINTENANCE,
-            name='Itinerary route maintenance',
-            description='Backfill missing routes and retry due route failures.',
-            factory=create_itinerary_route_maintenance_job,
+            key=JobKey.PLANNING_ARTIFACT_CLEANUP,
+            name='Planning artifact cleanup',
+            description='Delete expired private planning previews and flight candidates.',
+            factory=create_planning_artifact_cleanup_job,
             default_enabled=True,
             default_cron='0 0 * * *',
         ),

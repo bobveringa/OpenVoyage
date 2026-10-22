@@ -1,3 +1,8 @@
+import { connectionWritePayload } from './trip-detail/planning-utils'
+import { calculateChangedConnectionRoutes } from './trip-detail/stop-routes'
+import { ConnectionDeletionDialog } from './trip-detail/connection-deletion-dialog'
+import { PlanningSessionContext } from '@/pages/trip-detail/planning-session'
+import type { AirportTransferRequest, AirportTransferSide } from '@/pages/trip-detail/airport-transfers'
 import { useMediaUpload } from '@/hooks/use-media-upload'
 import type * as L from 'leaflet'
 import {
@@ -13,6 +18,7 @@ import {
   addTripMember,
   addTripViewer,
   ApiError,
+  ItineraryMutationCancelledError,
   createItineraryStop,
   createPost,
   createTripShareLink,
@@ -20,8 +26,11 @@ import {
   deletePost,
   deleteTrip,
   deleteItineraryStop,
+  createItineraryConnection,
+  deleteItineraryConnection,
   getErrorMessage,
   getItinerary,
+  getRouteOverview,
   getPost,
   listGpsPostCandidates,
   getPostTimeline,
@@ -30,10 +39,10 @@ import {
   listTripShareLinks,
   listTripViewers,
   publishPost,
-  refreshItineraryTravelLegRoute,
+  refreshItineraryConnectionRoute,
   removeTripMember,
   removeTripViewer,
-  replaceItineraryTravelLeg,
+  replaceItineraryConnection,
   reverseGeocodePlaces,
   revokeTripShareLink,
   restoreTripShareLink,
@@ -46,9 +55,11 @@ import {
   type CurrentUser,
   type GpsPostCandidate,
   type Itinerary,
+  type RouteOverview,
+  type ConnectionDeletionSummary,
   type ItineraryStopCreatePayload,
   type ItineraryStopUpdatePayload,
-  type ItineraryTravelReplacePayload,
+  type ItineraryConnectionReplacePayload,
   type Post,
   type PostSocialSummary,
   type PostCreatePayload,
@@ -106,8 +117,7 @@ import type {
   TripViewerViewModel,
   PostMedia,
   Stop,
-  TravelLeg,
-  TravelMode,
+  Connection,
   TravelPost,
   TravelPostRoute,
   TripTrackingGeometry,
@@ -120,7 +130,7 @@ import type {
   PostSubmitDraft,
   ShareLinkCreateDraft,
   StopEditDraft,
-  TravelLegEditDraft,
+  ConnectionEditDraft,
   TripSettingsDraft,
   UserLookupDraft,
 } from '@/pages/trip-detail/page-types'
@@ -172,7 +182,7 @@ export function TripDetailPage({
   const immichEnabled = usePublicSetting('immich.enabled') === true
   const isDesktopLayout = useMediaQuery('(min-width: 64rem)')
   const shouldUseMobileMapPicker = !isDesktopLayout
-  const initialCanUseMemberUi = authStatus === 'authenticated'
+  const initialCanUseMemberUi = authStatus === 'loading' || authStatus === 'authenticated'
   const initialUrlState = readTripDetailUrlState({
     canEditTravelPosts: initialCanUseMemberUi,
     canOpenManagementDialogs: initialCanUseMemberUi,
@@ -188,7 +198,22 @@ export function TripDetailPage({
     { error: null, status: 'loading' },
   )
   const [itineraryRevision, setItineraryRevision] = useState(0)
+  const [routeOverview, setRouteOverview] = useState<RouteOverview>({ trip_id: tripId ?? '', stops: [], connections: [] })
+  const [planningLoadKey, setPlanningLoadKey] = useState<string | null>(null)
   const [mutationError, setMutationError] = useState<string | null>(null)
+  const [connectionDeletionConnections, setConnectionDeletionSummarys] = useState<ConnectionDeletionSummary[] | null>(null)
+  const connectionDeletionResolver = useRef<((confirmed: boolean) => void) | null>(null)
+  const confirmConnectionDeletion = useCallback((connections: ConnectionDeletionSummary[]) => new Promise<boolean>((resolve) => {
+    connectionDeletionResolver.current = resolve
+    setConnectionDeletionSummarys(connections)
+  }), [])
+  const finishConnectionDeletion = useCallback((confirmed: boolean) => {
+    connectionDeletionResolver.current?.(confirmed)
+    connectionDeletionResolver.current = null
+    setConnectionDeletionSummarys(null)
+  }, [])
+  const cancelConnectionDeletion = useCallback(() => finishConnectionDeletion(false), [finishConnectionDeletion])
+  useEffect(() => () => { connectionDeletionResolver.current?.(false) }, [])
   const [postConflict, setPostConflict] = useState<PostConflictState | null>(
     null,
   )
@@ -198,7 +223,14 @@ export function TripDetailPage({
   const [tripShareLinks, setTripShareLinks] =
     useState<readonly ShareLinkViewModel[]>([])
   const [plannedStops, setPlannedStops] = useState<readonly Stop[]>([])
-  const [travelLegs, setTravelLegs] = useState<readonly TravelLeg[]>([])
+  const [planningPanelHost, setPlanningPanelHost] = useState<HTMLDivElement | null>(null)
+  const [planningPanelOpen, setPlanningPanelOpen] = useState(false)
+  const [airportTransferRequest, setAirportTransferRequest] = useState<AirportTransferRequest | null>(null)
+  const handleAirportTransferSelect = useCallback((connectionId: string, side: AirportTransferSide) => {
+    setAirportTransferRequest((previous) => ({ connectionId, side, sequence: (previous?.sequence ?? 0) + 1 }))
+  }, [])
+  const [planningPreview, setPlanningPreview] = useState<Connection | null>(null)
+  const [connections, setConnections] = useState<readonly Connection[]>([])
   const [travelPosts, setTravelPosts] = useState<readonly TravelPost[]>([])
   const [trackingGeometry, setTrackingGeometry] = useState<TripTrackingGeometry>(
     EMPTY_TRACKING_GEOMETRY,
@@ -234,6 +266,8 @@ export function TripDetailPage({
     useState<DraftPostLocation | null>(null)
   const [draftStopLocation, setDraftStopLocation] =
     useState<DraftPostLocation | null>(null)
+  const [draftConnectionLocation, setDraftConnectionLocation] =
+    useState<DraftPostLocation | null>(null)
   const urlStateRef = useRef<TripDetailUrlState>(initialUrlState)
   // Which trip the rendered content belongs to, so a reload of the trip
   // already on screen can keep showing it instead of blanking out.
@@ -263,7 +297,7 @@ export function TripDetailPage({
   const applyItinerary = useCallback((itinerary: Itinerary) => {
     setItineraryRevision(itinerary.itinerary_revision)
     setPlannedStops(itinerary.stops)
-    setTravelLegs(itinerary.legs)
+    setConnections(itinerary.connections)
   }, [])
 
   const loadTripManagement = useCallback(
@@ -362,14 +396,14 @@ export function TripDetailPage({
       try {
         const [
           loadedTrip,
-          loadedItinerary,
+          loadedOverview,
           loadedTimeline,
           loadedMembers,
           loadedGpsPostCandidates,
         ] =
           await Promise.all([
             getTrip({ accessToken, shareToken, tripId }),
-            getItinerary({ accessToken, shareToken, tripId }),
+            getRouteOverview({ accessToken, shareToken, tripId }),
             fetchTravelTimeline(),
             listTripMembers({ accessToken, shareToken, tripId }),
             fetchGpsPostCandidates(),
@@ -429,7 +463,11 @@ export function TripDetailPage({
         }
 
         setTrip(toTripViewModel(loadedTrip))
-        applyItinerary(loadedItinerary)
+        setRouteOverview(loadedOverview)
+        setPlanningLoadKey(null)
+        setPlannedStops([])
+        setConnections([])
+        setItineraryRevision(0)
         setTripMembers(loadedTripMembers)
         setTravelPosts(loadedPosts)
         setTrackingGeometry(loadedTrackingGeometry)
@@ -461,7 +499,6 @@ export function TripDetailPage({
     },
     [
       accessToken,
-      applyItinerary,
       currentUserId,
       fetchGpsPostCandidates,
       fetchTravelTimeline,
@@ -486,6 +523,36 @@ export function TripDetailPage({
     }
   }, [authStatus, loadTripDetail])
 
+  // Travel only needs the public map projection, even for participants.
+  // Load private planning data when an authorized participant opens planning.
+  useEffect(() => {
+    if (!tripId || !accessToken || !canMutate || mode !== 'planning' || loadState.status !== 'success') return
+    const key = `${tripId}:${currentUserId}`
+    if (planningLoadKey === key) return
+    let current = true
+    void getItinerary({ tripId, accessToken }).then((itinerary) => {
+      if (!current) return
+      applyItinerary(itinerary)
+      setPlanningLoadKey(key)
+    }).catch((error) => {
+      if (current) setMutationError(getErrorMessage(error))
+    })
+    return () => { current = false }
+  }, [tripId, accessToken, currentUserId, canMutate, mode, loadState.status, planningLoadKey, applyItinerary])
+
+  // Every successful planning mutation advances the revision. Refresh the
+  // projection so switching back to travel reflects the saved route.
+  useEffect(() => {
+    if (!tripId || !accessToken || !canMutate || itineraryRevision === 0) return
+    let current = true
+    void getRouteOverview({ tripId, accessToken }).then((overview) => {
+      if (current) setRouteOverview(overview)
+    }).catch((error) => {
+      if (current) setMutationError(getErrorMessage(error))
+    })
+    return () => { current = false }
+  }, [tripId, accessToken, canMutate, itineraryRevision])
+
   const runMutation = useCallback(
     async (label: string, action: () => Promise<void>) => {
       if (pendingAction) {
@@ -497,35 +564,13 @@ export function TripDetailPage({
       try {
         await action()
       } catch (mutationFailure) {
+        if (mutationFailure instanceof ItineraryMutationCancelledError) return
         setMutationError(getErrorMessage(mutationFailure))
       } finally {
         setPendingAction(null)
       }
     },
     [pendingAction],
-  )
-
-  const reloadItineraryUntilRouteReady = useCallback(
-    async (legId: string, expectedProviderRoute: boolean) => {
-      if (!tripId) {
-        return
-      }
-
-      const maxAttempts = expectedProviderRoute ? 6 : 1
-      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        if (attempt > 0) {
-          await delay(450)
-        }
-
-        const itinerary = await getItinerary({ accessToken, shareToken, tripId })
-        applyItinerary(itinerary)
-        const leg = itinerary.legs.find((item) => item.id === legId)
-        if (!expectedProviderRoute || leg?.route.type === 'PROVIDER_BACKED') {
-          return
-        }
-      }
-    },
-    [accessToken, applyItinerary, shareToken, tripId],
   )
 
   const applyTripDetailUrlState = useCallback(
@@ -886,6 +931,17 @@ export function TripDetailPage({
     })
   }
 
+  async function applyStopMutation(itinerary: Itinerary, action: string) {
+    applyItinerary(itinerary)
+    if (!accessToken) return
+    setPendingAction('Calculating routes')
+    try {
+      await calculateChangedConnectionRoutes({ itinerary, previousConnections: connections, accessToken, onUpdate: applyItinerary })
+    } catch (error) {
+      setMutationError(`${action}, but routes could not be calculated: ${getErrorMessage(error)}`)
+    }
+  }
+
   function handleStopSave(stopId: string, draft: StopEditDraft) {
     if (!tripId || !accessToken) {
       setMutationError('Sign in to update itinerary stops.')
@@ -908,65 +964,75 @@ export function TripDetailPage({
       }
 
       const itinerary = await updateItineraryStop({
+        onConfirmConnectionDeletion: confirmConnectionDeletion,
         accessToken,
         itineraryRevision,
         payload,
         stopId,
         tripId,
       })
-      applyItinerary(itinerary)
+      await applyStopMutation(itinerary, 'Stop saved')
     })
   }
 
-  function handleTravelLegSave(legId: string, draft: TravelLegEditDraft) {
+  function handleConnectionCreate(payload: ItineraryConnectionReplacePayload) {
+    if (!tripId || !accessToken) return
+    void runMutation('Adding connection', async () => {
+      const result = await createItineraryConnection({ tripId, accessToken, itineraryRevision, payload })
+      setConnections((connections) => result.connection.connection_type === 'DEPARTURE' ? [result.connection, ...connections] : [...connections, result.connection])
+      if (result.itineraryRevision !== null) setItineraryRevision(result.itineraryRevision)
+    })
+  }
+
+  function handleConnectionDelete(connectionId: string) {
+    if (!tripId || !accessToken) return
+    void runMutation('Removing connection', async () => {
+      applyItinerary(await deleteItineraryConnection({ tripId, connectionId, accessToken, itineraryRevision, confirmConnectionDeletion: true }))
+    })
+  }
+
+  function handleConnectionSave(connectionId: string, draft: ConnectionEditDraft) {
     if (!tripId || !accessToken) {
-      setMutationError('Sign in to update travel legs.')
+      setMutationError('Sign in to update connections.')
       return
     }
 
-    void runMutation('Saving travel leg', async () => {
-      const result = await replaceItineraryTravelLeg({
+    void runMutation('Saving connection', async () => {
+      const result = await replaceItineraryConnection({
         accessToken,
         itineraryRevision,
-        legId,
-        payload: toTravelLegPayload(draft),
+        connectionId,
+        payload: toConnectionPayload(draft),
         tripId,
       })
-      setTravelLegs((currentLegs) =>
-        currentLegs.map((leg) => (leg.id === legId ? result.leg : leg)),
+      setConnections((currentConnections) =>
+        currentConnections.map((connection) => (connection.id === connectionId ? result.connection : connection)),
       )
       if (result.itineraryRevision !== null) {
         setItineraryRevision(result.itineraryRevision)
       }
-      await reloadItineraryUntilRouteReady(
-        legId,
-        canUseProviderRoute(draft.travelMode),
-      )
     })
   }
 
-  function handleTravelLegRouteRefresh(legId: string) {
+  function handleConnectionRouteRefresh(connectionId: string) {
     if (!tripId || !accessToken) {
       setMutationError('Sign in to refresh travel routes.')
       return
     }
 
     void runMutation('Refreshing route', async () => {
-      const result = await refreshItineraryTravelLegRoute({
+      const result = await refreshItineraryConnectionRoute({
         accessToken,
-        legId,
+        itineraryRevision,
+        connectionId,
         tripId,
       })
-      setTravelLegs((currentLegs) =>
-        currentLegs.map((leg) => (leg.id === legId ? result.leg : leg)),
+      setConnections((currentConnections) =>
+        currentConnections.map((connection) => (connection.id === connectionId ? result.connection : connection)),
       )
       if (result.itineraryRevision !== null) {
         setItineraryRevision(result.itineraryRevision)
       }
-      await reloadItineraryUntilRouteReady(
-        legId,
-        canUseProviderRoute(result.leg.travel_mode),
-      )
     })
   }
 
@@ -978,12 +1044,13 @@ export function TripDetailPage({
 
     void runMutation('Deleting stop', async () => {
       const itinerary = await deleteItineraryStop({
+        onConfirmConnectionDeletion: confirmConnectionDeletion,
         accessToken,
         itineraryRevision,
         stopId,
         tripId,
       })
-      applyItinerary(itinerary)
+      await applyStopMutation(itinerary, 'Stop deleted')
     })
   }
 
@@ -995,12 +1062,12 @@ export function TripDetailPage({
 
     void runMutation('Creating stop', async () => {
       const itinerary = await createItineraryStop({
+        onConfirmConnectionDeletion: confirmConnectionDeletion,
         accessToken,
         itineraryRevision,
         payload: toCreateStopPayload(draft, plannedStops),
         tripId,
       })
-      applyItinerary(itinerary)
       setDraftStopLocation(null)
       navigateTripDetailUrlState(
         {
@@ -1010,6 +1077,7 @@ export function TripDetailPage({
         },
         'replace',
       )
+      await applyStopMutation(itinerary, 'Stop saved')
     })
   }
 
@@ -1244,6 +1312,8 @@ export function TripDetailPage({
               : 'create-post',
         })
         setMapPointTarget(selectedTarget)
+      } else if (target === 'connection') {
+        setDraftConnectionLocation(draftLocation)
       } else {
         setDraftStopLocation(draftLocation)
       }
@@ -1259,6 +1329,13 @@ export function TripDetailPage({
             return
           }
 
+          if (selectedTarget === 'connection') {
+            setDraftConnectionLocation((currentLocation) =>
+              hasSameCoordinates(currentLocation?.coordinates, coordinates)
+                ? resolvedLocation : currentLocation,
+            )
+            return
+          }
           setDraftStopLocation((currentLocation) =>
             hasSameCoordinates(currentLocation?.coordinates, coordinates)
               ? resolvedLocation
@@ -1312,6 +1389,7 @@ export function TripDetailPage({
 
   const handleModeChange = useCallback(
     (nextMode: TripMode) => {
+      setAirportTransferRequest(null)
       setFocusedPostId(null)
       navigateTripDetailUrlState({
         activeDialog: null,
@@ -1425,9 +1503,9 @@ export function TripDetailPage({
   }, [])
 
   useEffect(() => {
-    // Keep a requested management menu until membership has loaded. Clearing
-    // it using the empty initial member list loses settings return links.
-    if (loadState.status !== 'success' && activeDialog === 'management') return
+    // URL intent must survive session and membership loading. Permissions are
+    // enforced after the actual membership is known, before rendering member UI.
+    if (authStatus === 'loading' || loadState.status !== 'success') return
     const currentState = {
       activeDialog,
       managementSection,
@@ -1450,6 +1528,7 @@ export function TripDetailPage({
     }
   }, [
     activeDialog,
+    authStatus,
     applyTripDetailUrlState,
     canManageTrip,
     canMutate,
@@ -1490,15 +1569,15 @@ export function TripDetailPage({
       ? draftPostLocation
       : mapPointTarget === 'stop'
         ? draftStopLocation
-        : null
+        : mapPointTarget === 'connection' ? draftConnectionLocation : null
   const mobileMapPickerLocation =
     mobileMapPickerTarget === 'post'
       ? draftPostLocation
       : mobileMapPickerTarget === 'stop'
         ? draftStopLocation
-        : null
+        : mobileMapPickerTarget === 'connection' ? draftConnectionLocation : null
   const visibleMode: TripMode = canSwitchModes ? mode : 'traveling'
-  const upcomingStops = getUpcomingStops(plannedStops)
+  const upcomingStops = getUpcomingStops(routeOverview.stops)
   const mapRouteMode: MapRouteMode =
     visibleMode === 'traveling' ? 'travel-timeline' : 'itinerary'
   const visibleStops =
@@ -1540,6 +1619,13 @@ export function TripDetailPage({
   }
 
   return (
+    <PlanningSessionContext value={{ accessToken, itineraryRevision, onPreview: setPlanningPreview, saveError: mutationError, panelHost: planningPanelHost, onPanelOpenChange: setPlanningPanelOpen, airportTransferRequest, onAirportTransferSelect: canMutate ? handleAirportTransferSelect : undefined,
+      connectionMap: {
+        location: draftConnectionLocation, active: mapPointTarget === 'connection',
+        start: (initial) => { setDraftConnectionLocation(initial); handleMapPointTargetChange('connection') },
+        stop: () => handleMapPointTargetChange(null),
+      },
+    }}>
     <div className="relative z-0 -mx-4 min-h-[calc(100dvh-4rem-1px)] w-[calc(100%+2rem)] overflow-x-hidden sm:-mx-6 sm:w-[calc(100%+3rem)] lg:mx-0 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-hidden lg:px-6 lg:py-3">
       <div className="min-h-0 w-full lg:h-full">
         <div
@@ -1592,22 +1678,26 @@ export function TripDetailPage({
               onPostSubmit={handlePostSubmit}
               postConflict={postConflict}
               onPlanningViewChange={handlePlanningViewChange}
-              onRefreshTravelLegRoute={handleTravelLegRouteRefresh}
+              onRefreshConnectionRoute={handleConnectionRouteRefresh}
               onStopSave={handleStopSave}
               onStopChange={handleStopChange}
               onStopDelete={handleStopDelete}
-              onTravelLegSave={handleTravelLegSave}
+              onConnectionSave={handleConnectionSave}
+              onConnectionCreate={handleConnectionCreate}
+              onConnectionDelete={handleConnectionDelete}
               onTravelingViewChange={handleTravelingViewChange}
               pendingAction={mediaStatus ?? pendingAction}
               postScrollRequest={postScrollRequest}
               newPostIds={newPostIds}
               editingPostId={editingPostId}
               planningView={planningView}
+              planningReady={planningLoadKey === `${tripId}:${currentUserId}`}
               reserveMobileModeSwitchSpace={canSwitchModes}
               showMobileTravelMap={shouldUseMobileMapPicker}
-              stops={visibleStops}
+              routeOverview={routeOverview}
+              stops={plannedStops}
               trip={trip}
-              travelLegs={travelLegs}
+              connections={connections}
               trackingGeometry={trackingGeometry}
               tripMembers={tripMembers}
               travelPosts={travelPosts}
@@ -1616,6 +1706,8 @@ export function TripDetailPage({
           </div>
           {!shouldUseMobileMapPicker ? (
             <MapWorkspace
+              onPlanningPanelHostChange={setPlanningPanelHost}
+              planningPreview={planningPanelOpen ? planningPreview : null}
               draftMapLocation={activeDraftMapLocation}
               mapPointEnabled={mapPointTarget !== null}
               focusedPostId={focusedPostId}
@@ -1626,7 +1718,9 @@ export function TripDetailPage({
               onPostMarkerSelect={handleMapPostSelect}
               routeMode={mapRouteMode}
               stops={visibleStops}
-              travelLegs={travelLegs}
+              connections={visibleMode === 'traveling' ? routeOverview.connections : planningPreview ? connections.some((connection) => connection.id === planningPreview.id)
+                ? connections.map((connection) => connection.id === planningPreview.id ? planningPreview : connection)
+                : [...connections, planningPreview] : connections}
               trackingGeometry={trackingGeometry}
               travelPosts={travelPosts}
             />
@@ -1682,6 +1776,8 @@ export function TripDetailPage({
           viewers={tripViewers}
         />
       ) : null}
+      <ConnectionDeletionDialog connections={connectionDeletionConnections}
+        onCancel={cancelConnectionDeletion} onConfirm={() => finishConnectionDeletion(true)} />
       <MobileMapPointPicker
         initialLocation={mobileMapPickerLocation}
         isTripOngoing={isTripCurrentlyOngoing}
@@ -1702,7 +1798,7 @@ export function TripDetailPage({
         routeMode={mobileMapPickerRouteMode}
         stops={mobileMapPickerStops}
         target={mobileMapPickerTarget}
-        travelLegs={travelLegs}
+        connections={mobileMapPickerTarget === 'post' ? routeOverview.connections : connections}
         trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
       />
@@ -1713,6 +1809,7 @@ export function TripDetailPage({
         />
       ) : null}
     </div>
+    </PlanningSessionContext>
   )
 }
 
@@ -1952,10 +2049,10 @@ function toCreateStopPayload(
   const afterStop = stops.find((stop) => stop.id === draft.afterStopId) ?? null
 
   return {
-    incoming_travel: null,
+    incoming_connection: null,
     location: toLocationInput(draft.placeId, draft.coordinates),
     notes: draft.notes,
-    outgoing_travel: null,
+    outgoing_connection: null,
     placement: {
       after_stop_id:
         afterStop?.planned_start_date === draft.plannedStartDate
@@ -1968,15 +2065,8 @@ function toCreateStopPayload(
   }
 }
 
-function toTravelLegPayload(
-  draft: TravelLegEditDraft,
-): ItineraryTravelReplacePayload {
-  return {
-    notes: draft.notes,
-    operator: draft.operator,
-    reference: draft.reference,
-    travel_mode: draft.travelMode,
-  }
+function toConnectionPayload(draft: ConnectionEditDraft): ItineraryConnectionReplacePayload {
+  return connectionWritePayload(draft)
 }
 
 function toPostCreatePayload(
@@ -2040,14 +2130,4 @@ function getPreviousSameDateStopId(
   }
 
   return sameDateStops[stopIndex - 1]?.id ?? null
-}
-
-function canUseProviderRoute(travelMode: TravelMode) {
-  return travelMode === 'WALK' || travelMode === 'BIKE' || travelMode === 'CAR'
-}
-
-function delay(ms: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, ms)
-  })
 }
