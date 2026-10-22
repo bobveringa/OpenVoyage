@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 from sqlalchemy import delete, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from models.api.itinerary import (
     ItineraryPlacement,
@@ -653,10 +653,11 @@ class ItineraryService:
             for seg, previous in zip(segments, cached.payload['routes'], strict=True):
                 if previous and previous['input_hash'] == seg.input_hash:
                     seg.result = previous
+            prepared = self.route_service.prepare_connection(leg, payload, segments)
             connection = ItineraryTravelLegResponse.from_model(
                 leg,
                 route=self.route_service.connection(
-                    leg, segments, infer_defaults=payload.segments is None
+                    leg, prepared.segments, warnings=prepared.warnings
                 ),
             )
             connection.notes = payload.notes
@@ -684,8 +685,9 @@ class ItineraryService:
             segment.input_hash for segment in current_segments
         ] != [segment.input_hash for segment in segments]:
             raise ItineraryRevisionMismatchError('Connection endpoint inputs changed')
+        prepared = self.route_service.prepare_connection(leg, payload, segments)
         result = self.route_service.connection(
-            leg, segments, infer_defaults=payload.segments is None
+            leg, prepared.segments, warnings=prepared.warnings
         )
         if any(
             s.intent.travel_mode in ('CAR', 'BIKE', 'WALK')
@@ -707,6 +709,7 @@ class ItineraryService:
             {
                 'routes': [s.result for s in segments],
                 'connection': connection.model_dump(mode='json', by_alias=True),
+                'resolved_input_hash': prepared.binding,
             },
             binding,
             revision,
@@ -730,7 +733,7 @@ class ItineraryService:
         self.db.rollback()
         calculation_gate.enter(current_user_id, trip_id, leg_id)
         try:
-            self.route_service.calculate(segments, retry_failed=True)
+            self.route_service.calculate(segments, retry_failed=True, force=True)
         finally:
             calculation_gate.leave(current_user_id, trip_id)
         trip, _ = self._require_manage_trip_locked(
@@ -741,14 +744,20 @@ class ItineraryService:
         for calculated in segments:
             if current[calculated.id].input_hash != calculated.input_hash:
                 raise ItineraryRevisionMismatchError('Route inputs changed')
-            if self.route_service.unavailable_auto_car(calculated):
-                row = next(s for s in leg.segments if s.id == calculated.id)
-                row.travel_mode = 'OTHER'
-                row.input_version += 1
+        prepared = self.route_service.prepare_connection(leg, None, segments)
+        changed = False
+        for calculated in prepared.segments:
+            row = next(s for s in leg.segments if s.id == calculated.id)
+            if row.travel_mode != calculated.intent.travel_mode:
+                row.travel_mode = calculated.intent.travel_mode
+                row.input_version = calculated.version
                 row.route = None
+                changed = True
                 continue
-            if calculated.result is not None:
-                row = next(s for s in leg.segments if s.id == calculated.id)
+            if (
+                calculated.result is not None
+                and calculated.result != current[calculated.id].result
+            ):
                 row.route = None
                 self.db.flush()
                 row.route = ItinerarySegmentRoute(
@@ -757,7 +766,9 @@ class ItineraryService:
                     input_version=row.input_version,
                     **route_values(calculated.result),
                 )
-        self._increment_revision(trip)
+                changed = True
+        if changed:
+            self._increment_revision(trip)
         self.db.commit()
         return ItineraryTravelLegDetail(leg, trip.itinerary_revision)
 
@@ -920,7 +931,16 @@ class ItineraryService:
     ) -> dict[StopPair, ItineraryTravelLeg]:
         legs = list(
             self.db.execute(
-                select(ItineraryTravelLeg).where(ItineraryTravelLeg.trip_id == trip_id)
+                select(ItineraryTravelLeg)
+                .options(
+                    selectinload(ItineraryTravelLeg.segments).joinedload(
+                        ItineraryTravelSegment.route
+                    ),
+                    selectinload(ItineraryTravelLeg.segments).joinedload(
+                        ItineraryTravelSegment.flight
+                    ),
+                )
+                .where(ItineraryTravelLeg.trip_id == trip_id)
             )
             .scalars()
             .all()

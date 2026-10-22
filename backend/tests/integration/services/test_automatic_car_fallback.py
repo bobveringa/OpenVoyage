@@ -48,7 +48,10 @@ def test_saved_auto_car_falls_back_only_for_unavailable_routes(
     assert client.get(endpoint, headers=headers(user)).json()['segments'] == response.json()['segments']
 
 
-def test_inferred_preview_suggests_other_when_car_is_unavailable(client, plan):
+@pytest.mark.parametrize('echo_segments', [False, True])
+def test_inferred_preview_suggests_other_when_car_is_unavailable(
+    client, plan, echo_segments
+):
     user, _, _, endpoint, revision, leg, _ = plan
     payload = connection_write(leg, {})
     for _ in range(2):  # Cached suggestions must use the same fallback.
@@ -60,7 +63,11 @@ def test_inferred_preview_suggests_other_when_car_is_unavailable(client, plan):
         assert segment['route_state'] == 'UNSUPPORTED'
     saved = client.put(
         endpoint, headers=headers(user, revision),
-        json=connection_write(leg, {'segments': [segment['intent']]}),
+        json=connection_write(leg, {
+            'preview_id': preview.json()['preview_id'],
+            **({'segments': [segment['intent']]} if echo_segments else {}),
+        }),
     )
     assert saved.status_code == 200, saved.text
     assert saved.json()['segments'][0]['intent']['travel_mode'] == 'OTHER'
+    assert saved.json()['segments'][0]['route_state'] == 'UNSUPPORTED'

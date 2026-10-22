@@ -12,7 +12,7 @@ for (const mobile of [false, true]) {
       await page.route('**/api/v1/places/geocode?**', (route) => route.fulfill({ json: [{
         id: 'london', name: 'London', full_name: 'London', latitude: 51.5, longitude: -0.1, region: 'England', country_code: 'GB',
       }] }))
-      await page.route('**/api/v1/trips/trip/itinerary/legs/preview**', async (route) => {
+      await page.route('**/api/v1/trips/trip/itinerary/connections/preview**', async (route) => {
         const payload = route.request().postDataJSON()
         previews.push(payload)
         const segment = payload.segments?.[0] ?? { travel_mode: 'CAR', mode_selected: false, notes: '', route_option: 0 }
@@ -33,7 +33,7 @@ for (const mobile of [false, true]) {
           created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z',
         } } })
       })
-      await page.route('**/api/v1/trips/trip/itinerary/legs', async (route) => {
+      await page.route('**/api/v1/trips/trip/itinerary/connections', async (route) => {
         const payload = route.request().postDataJSON()
         saves.push(payload)
         // A failed save must keep the chosen location and mode editable.
@@ -122,11 +122,11 @@ for (const side of ['departure', 'return']) {
     const requests: ItineraryTravelReplacePayload[] = []
     let flightLookups = 0
     await page.route('**/api/v1/places/geocode?**', (route) => route.fulfill({ json: [outside] }))
-    await page.route('**/api/v1/trips/trip/itinerary/legs/flight-lookups', (route) => {
+    await page.route('**/api/v1/trips/trip/itinerary/connections/flight-lookups', (route) => {
       flightLookups += 1
       return route.fulfill({ json: { status: 'NOT_FOUND', candidates: [] } })
     })
-    await page.route('**/api/v1/trips/trip/itinerary/legs/preview**', async (route) => {
+    await page.route('**/api/v1/trips/trip/itinerary/connections/preview**', async (route) => {
       const payload: ItineraryTravelReplacePayload = route.request().postDataJSON()
       requests.push(payload)
       const segment = payload.segments?.[0] ?? { travel_mode: 'FLIGHT', mode_selected: false, notes: '', route_option: 0 }

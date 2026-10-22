@@ -136,7 +136,7 @@ describe('outer connection deletion confirmation', () => {
       if (status === 200) expect(await result).toEqual(snapshot)
       else await expect(result).rejects.toThrow('Could not remove connection')
       expect(fetchMock).toHaveBeenCalledOnce()
-      expect(String(fetchMock.mock.calls[0][0])).toContain('/itinerary/legs/leg?confirm_travel_deletion=true')
+      expect(String(fetchMock.mock.calls[0][0])).toContain('/itinerary/connections/leg?confirm_travel_deletion=true')
       expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('If-Match')).toBe('"7"')
       expect(confirmation).not.toHaveBeenCalled()
     } finally { confirmation.mockRestore() }
@@ -156,7 +156,7 @@ describe('outer connection deletion confirmation', () => {
     expect(confirmation).toHaveBeenCalledWith([{ from: 'Schiphol', to: 'Paris' }, { from: 'Paris', to: 'Brussels' }])
     if (confirm) {
       const [url, options] = fetchMock.mock.calls[1]
-      expect(String(url)).toContain('/itinerary/legs/leg?confirm_travel_deletion=true')
+      expect(String(url)).toContain('/itinerary/connections/leg?confirm_travel_deletion=true')
       expect(options?.method).toBe('DELETE')
       expect(new Headers(options?.headers).get('If-Match')).toBe('"7"')
     } else {

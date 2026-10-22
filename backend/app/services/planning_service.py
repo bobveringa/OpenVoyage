@@ -8,7 +8,7 @@ import time
 import uuid
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -140,6 +140,14 @@ class ResolvedSegment:
     lookup_owner: uuid.UUID | None
     result: dict | None
     input_hash: str = ''
+
+
+@dataclass(frozen=True)
+class PreparedConnection:
+    intent: ConnectionIntent
+    segments: list[ResolvedSegment]
+    warnings: list[str]
+    binding: str
 
 
 class CalculationGate:
@@ -314,7 +322,14 @@ class PlanningService:
             or row.created_by_user_id != actor
             or row.expires_at <= utcnow()
             or (revision is not None and row.itinerary_revision != revision)
-            or (binding is not None and row.input_hash != binding)
+            or (
+                binding is not None
+                and row.input_hash != binding
+                and not (
+                    kind == 'PREVIEW'
+                    and row.payload.get('resolved_input_hash') == binding
+                )
+            )
         ):
             raise HTTPException(
                 409,
@@ -495,31 +510,32 @@ class PlanningService:
             if right.start is None and right.intent.travel_mode != 'FLIGHT':
                 right.start = left.end
         for seg in result:
-            seg.input_hash = fingerprint(
-                {
-                    'mode': seg.intent.travel_mode,
-                    'flight': seg.intent.flight.model_dump(
-                        mode='json', exclude={'candidate_id', 'airline_name'}
-                    )
-                    if seg.intent.travel_mode == 'FLIGHT' and seg.intent.flight
-                    else None,
-                    'schedule': [
-                        seg.lookup.scheduled_departure,
-                        seg.lookup.scheduled_arrival,
-                    ]
-                    if seg.lookup
-                    else None,
-                    'points': [
-                        (p.longitude, p.latitude) if p else None
-                        for p in (seg.start, seg.via, seg.end)
-                    ],
-                }
-            )
+            seg.input_hash = self.segment_input_hash(seg)
             if seg.id in previous_hashes and previous_hashes[seg.id] != seg.input_hash:
                 seg.version += 1
             if seg.result and seg.result['input_hash'] != seg.input_hash:
                 seg.result = None
         return result
+
+    @staticmethod
+    def segment_input_hash(segment: ResolvedSegment) -> str:
+        return fingerprint(
+            {
+                'mode': segment.intent.travel_mode,
+                'flight': segment.intent.flight.model_dump(
+                    mode='json', exclude={'candidate_id', 'airline_name'}
+                ) if segment.intent.travel_mode == 'FLIGHT' and segment.intent.flight
+                else None,
+                'schedule': [
+                    segment.lookup.scheduled_departure,
+                    segment.lookup.scheduled_arrival,
+                ] if segment.lookup else None,
+                'points': [
+                    (p.longitude, p.latitude) if p else None
+                    for p in (segment.start, segment.via, segment.end)
+                ],
+            }
+        )
 
     @staticmethod
     def saved_flight_inputs(flight):
@@ -551,15 +567,50 @@ class PlanningService:
             )
         )
 
-    def connection(self, leg, segments=None, *, infer_defaults=False):
+    def prepare_connection(
+        self, leg, intent: ConnectionIntent | None, segments: list[ResolvedSegment]
+    ) -> PreparedConnection:
+        """Finalize automatic choices once for previewing, saving and refreshing.
+
+        Explicit transport choices stay unchanged. Keep calculation inputs intact
+        so the original request can still reuse its cached provider results.
+        """
+        infer_defaults = intent is None or intent.segments is None
+        existing = {row.id: row for row in leg.segments}
+        prepared, warnings = [], []
+        for segment in segments:
+            if infer_defaults and self.unavailable_auto_car(segment):
+                segment = replace(
+                    segment,
+                    intent=segment.intent.model_copy(
+                        update={'travel_mode': TravelMode.OTHER}
+                    ),
+                    result=None,
+                )
+                segment.input_hash = self.segment_input_hash(segment)
+                if segment.id in existing:
+                    segment.version = max(
+                        segment.version, existing[segment.id].input_version + 1
+                    )
+                warnings.append('No car route is available; Other was selected.')
+            prepared.append(segment)
+        normalized_intent = ConnectionIntent(
+            notes=intent.notes if intent is not None else leg.notes,
+            segments=[segment.intent for segment in prepared],
+        )
+        return PreparedConnection(
+            intent=normalized_intent,
+            segments=prepared,
+            warnings=warnings,
+            binding=self.binding(leg, normalized_intent),
+        )
+
+    def connection(self, leg, segments=None, *, warnings=()):
         segments = segments if segments is not None else self.build(leg)
-        responses, warnings, coordinates = [], [], []
+        responses, warnings, coordinates = [], list(warnings), []
         for index, seg in enumerate(segments):
             route = seg.result or {}
             mode = seg.intent.travel_mode
-            if infer_defaults and self.unavailable_auto_car(seg):
-                mode, route = 'OTHER', {}
-                warnings.append('No car route is available; Other was selected.')
             supported = mode in ROAD_MODES
             state = route.get(
                 'status', 'NOT_CALCULATED' if supported else 'UNSUPPORTED'
@@ -729,7 +780,9 @@ class PlanningService:
             option = seg.intent.route_option
             proposed = preview.payload['routes'][index] if preview else None
             if option and (
-                not proposed or option > len(proposed.get('alternatives', []))
+                not proposed
+                or proposed['input_hash'] != seg.input_hash
+                or option > len(proposed.get('alternatives', []))
             ):
                 raise HTTPException(
                     409,
@@ -738,6 +791,12 @@ class PlanningService:
                         'message': 'Recalculate routes before selecting this alternative',
                     },
                 )
+            if proposed and proposed['input_hash'] == seg.input_hash:
+                seg.result = proposed if not option else (
+                    proposed | proposed['alternatives'][option - 1]
+                )
+        prepared = self.prepare_connection(leg, intent, segments)
+        segments = prepared.segments
         old = {row.id: row for row in leg.segments}
         keep = []
         for index, seg in enumerate(segments):
@@ -811,15 +870,6 @@ class PlanningService:
                 row.flight.lookup_owner_user_id = seg.lookup_owner
             else:
                 row.flight = None
-            if preview:
-                proposed = preview.payload['routes'][index]
-                if proposed and proposed['input_hash'] == seg.input_hash:
-                    seg.result = proposed
-                    if seg.intent.route_option:
-                        seg.result = (
-                            proposed
-                            | proposed['alternatives'][seg.intent.route_option - 1]
-                        )
             keep_route = (
                 row.route is not None
                 and seg.result is not None
@@ -840,7 +890,7 @@ class PlanningService:
                 )
             keep.append(row)
         leg.segments = keep
-        leg.notes = intent.notes
+        leg.notes = prepared.intent.notes
         self.db.flush()
 
     def _calculate_one(self, seg, deadline):
@@ -890,7 +940,9 @@ class PlanningService:
         except RouteProviderError, OSError, ValueError:
             return base | {'error_code': 'ROUTE_UNAVAILABLE'}
 
-    def calculate(self, segments, retry_failed=False, include_alternatives=False):
+    def calculate(
+        self, segments, retry_failed=False, include_alternatives=False, *, force=False
+    ):
         deadline = time.monotonic() + 30
         pending = [
             s
@@ -899,7 +951,8 @@ class PlanningService:
             and s.start
             and s.end
             and (
-                s.result is None
+                force
+                or s.result is None
                 or (retry_failed and s.result['status'] == 'FAILED')
                 or (
                     include_alternatives
@@ -919,7 +972,7 @@ class PlanningService:
                 ]
                 for seg, future in zip(batch, futures, strict=True):
                     calculated = future.result()
-                    if seg.result and seg.result['status'] == 'READY':
+                    if not force and seg.result and seg.result['status'] == 'READY':
                         # Opening the chooser must preserve the saved route selection.
                         options = []
                         if calculated['status'] == 'READY':
@@ -956,7 +1009,9 @@ class PlanningService:
             itinerary_revision=revision,
             input_hash=binding,
             payload=payload,
-            expires_at=utcnow() + timedelta(minutes=10),
+            expires_at=utcnow() + (
+                timedelta(days=7) if kind == 'PREVIEW' else timedelta(minutes=10)
+            ),
         )
         self.db.add(row)
         return row

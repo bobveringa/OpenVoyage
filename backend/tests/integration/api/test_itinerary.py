@@ -122,6 +122,14 @@ def test_itinerary_mutations_require_current_quoted_revision(
     assert create_response.status_code == 201
     assert create_response.headers['etag'] == '"1"'
     assert stale_response.status_code == 412
+    assert stale_response.json()['detail'] == {
+        'code': 'ITINERARY_CHANGED',
+        'message': (
+            'This trip\'s plan changed while you were editing. '
+            'Reload the page and try again. '
+            'Your unsaved changes will be lost when you reload.'
+        ),
+    }
 
     get_response = client.get(
         f'{api_prefix}/trips/{trip.id}/itinerary',

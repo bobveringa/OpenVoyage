@@ -62,7 +62,7 @@ def plan(client, db_session, api_prefix):
     data = response.json()
     leg = data['legs'][0]
     calculation_gate.recent.clear()
-    return user, trip, base, base + '/legs/' + leg['id'], revision, leg, data
+    return user, trip, base, base + '/connections/' + leg['id'], revision, leg, data
 
 
 def flight_payload():
@@ -590,6 +590,46 @@ def enable_routes(db_session, monkeypatch, result):
     route = Mock(side_effect=result) if callable(result) else Mock(return_value=result)
     monkeypatch.setattr(GraphHopperRouteProvider, 'get_route', route)
     return route
+
+
+def test_refresh_recalculates_a_ready_route(client, db_session, plan, monkeypatch):
+    user, _, _, endpoint, revision, _, _ = plan
+    first_route = RouteResponse(
+        {'type': 'LineString', 'coordinates': [[5.12, 52.09], [4.9, 52.37]]},
+        50000, 3600,
+    )
+    refreshed_route = RouteResponse(
+        {'type': 'LineString', 'coordinates': [[5.12, 52.09], [5, 52.2], [4.9, 52.37]]},
+        55000, 3900,
+    )
+    provider = enable_routes(db_session, monkeypatch, first_route)
+    first = client.post(endpoint + '/route-refresh', headers=headers(user, revision))
+    assert first.status_code == 200, first.text
+    provider.return_value = refreshed_route
+    refreshed = client.post(
+        endpoint + '/route-refresh', headers=headers(user, first.headers['etag'])
+    )
+    assert refreshed.status_code == 200, refreshed.text
+    assert provider.call_count == 2
+    assert refreshed.json()['route']['geometry'] == refreshed_route.geometry_geojson
+    assert refreshed.json()['duration_seconds'] == 3900
+    read = client.get(endpoint, headers=headers(user))
+    assert read.json()['route'] == refreshed.json()['route']
+
+
+def test_refresh_without_calculable_routes_keeps_revision(client, plan):
+    user, _, _, endpoint, revision, leg, _ = plan
+    saved = client.put(
+        endpoint, headers=headers(user, revision),
+        json=connection_write(leg, {'segments': [{'travel_mode': 'TRAIN'}]}),
+    )
+    assert saved.status_code == 200, saved.text
+    refreshed = client.post(
+        endpoint + '/route-refresh', headers=headers(user, saved.headers['etag'])
+    )
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.headers['etag'] == saved.headers['etag']
+    assert refreshed.json() == saved.json()
 
 
 def test_successful_preview_is_reused_and_source_only_edit_keeps_estimate(

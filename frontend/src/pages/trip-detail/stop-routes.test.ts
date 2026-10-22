@@ -57,7 +57,7 @@ describe('automatic routes after creating a stop', () => {
 
     expect(fetchMock).toHaveBeenCalledOnce()
     const [url, request] = fetchMock.mock.calls[0]
-    expect(String(url)).toContain('/trips/trip/itinerary/legs/added/route-refresh')
+    expect(String(url)).toContain('/trips/trip/itinerary/connections/added/route-refresh')
     expect(request?.method).toBe('POST')
     expect(new Headers(request?.headers).get('If-Match')).toBe('"3"')
     expect(new Headers(request?.headers).get('Authorization')).toBe('Bearer token')

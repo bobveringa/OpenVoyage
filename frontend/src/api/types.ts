@@ -530,7 +530,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/trips/{trip_id}/itinerary/legs": {
+    "/api/v1/trips/{trip_id}/itinerary/connections": {
         parameters: {
             query?: never;
             header?: never;
@@ -539,15 +539,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Leg */
-        post: operations["create_leg_api_v1_trips__trip_id__itinerary_legs_post"];
+        /** Create Connection */
+        post: operations["create_connection_api_v1_trips__trip_id__itinerary_connections_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/trips/{trip_id}/itinerary/legs/flight-lookups": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/flight-lookups": {
         parameters: {
             query?: never;
             header?: never;
@@ -557,14 +557,14 @@ export interface paths {
         get?: never;
         put?: never;
         /** Lookup New Connection Flight */
-        post: operations["lookup_new_connection_flight_api_v1_trips__trip_id__itinerary_legs_flight_lookups_post"];
+        post: operations["lookup_new_connection_flight_api_v1_trips__trip_id__itinerary_connections_flight_lookups_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/trips/{trip_id}/itinerary/legs/preview": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -574,33 +574,33 @@ export interface paths {
         get?: never;
         put?: never;
         /** Preview New Connection */
-        post: operations["preview_new_connection_api_v1_trips__trip_id__itinerary_legs_preview_post"];
+        post: operations["preview_new_connection_api_v1_trips__trip_id__itinerary_connections_preview_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/{connection_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Leg */
-        get: operations["get_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__get"];
-        /** Replace Leg */
-        put: operations["replace_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__put"];
+        /** Get Connection */
+        get: operations["get_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__get"];
+        /** Replace Connection */
+        put: operations["replace_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__put"];
         post?: never;
-        /** Delete Leg */
-        delete: operations["delete_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__delete"];
+        /** Delete Connection */
+        delete: operations["delete_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/flight-lookups": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/{connection_id}/flight-lookups": {
         parameters: {
             query?: never;
             header?: never;
@@ -609,15 +609,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Lookup Flight */
-        post: operations["lookup_flight_api_v1_trips__trip_id__itinerary_legs__leg_id__flight_lookups_post"];
+        /** Lookup Connection Flight */
+        post: operations["lookup_connection_flight_api_v1_trips__trip_id__itinerary_connections__connection_id__flight_lookups_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/preview": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/{connection_id}/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -626,15 +626,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Preview Leg */
-        post: operations["preview_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__preview_post"];
+        /** Preview Connection */
+        post: operations["preview_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__preview_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/route-refresh": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/{connection_id}/route-refresh": {
         parameters: {
             query?: never;
             header?: never;
@@ -643,8 +643,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Refresh Leg Route */
-        post: operations["refresh_leg_route_api_v1_trips__trip_id__itinerary_legs__leg_id__route_refresh_post"];
+        /** Refresh Connection Route */
+        post: operations["refresh_connection_route_api_v1_trips__trip_id__itinerary_connections__connection_id__route_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2080,7 +2080,10 @@ export interface components {
             notes: string;
             /** Preview Id */
             preview_id?: string | null;
-            /** Segments */
+            /**
+             * Segments
+             * @description Omit to choose transport automatically. Provide one or more segments to choose transport explicitly. An empty list or null is not accepted.
+             */
             segments?: components["schemas"]["SegmentIntent"][];
             /** To */
             to: components["schemas"]["StopConnectionEndpoint"] | components["schemas"]["LocationConnectionEndpointInput"];
@@ -4815,7 +4818,7 @@ export interface operations {
             };
         };
     };
-    create_leg_api_v1_trips__trip_id__itinerary_legs_post: {
+    create_connection_api_v1_trips__trip_id__itinerary_connections_post: {
         parameters: {
             query?: never;
             header?: {
@@ -4852,7 +4855,7 @@ export interface operations {
             };
         };
     };
-    lookup_new_connection_flight_api_v1_trips__trip_id__itinerary_legs_flight_lookups_post: {
+    lookup_new_connection_flight_api_v1_trips__trip_id__itinerary_connections_flight_lookups_post: {
         parameters: {
             query?: never;
             header?: {
@@ -4889,7 +4892,7 @@ export interface operations {
             };
         };
     };
-    preview_new_connection_api_v1_trips__trip_id__itinerary_legs_preview_post: {
+    preview_new_connection_api_v1_trips__trip_id__itinerary_connections_preview_post: {
         parameters: {
             query?: {
                 retry_failed?: boolean;
@@ -4928,7 +4931,7 @@ export interface operations {
             };
         };
     };
-    get_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__get: {
+    get_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__get: {
         parameters: {
             query?: never;
             header?: {
@@ -4936,7 +4939,7 @@ export interface operations {
             };
             path: {
                 trip_id: string;
-                leg_id: string;
+                connection_id: string;
             };
             cookie?: never;
         };
@@ -4962,7 +4965,7 @@ export interface operations {
             };
         };
     };
-    replace_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__put: {
+    replace_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__put: {
         parameters: {
             query?: never;
             header?: {
@@ -4970,7 +4973,7 @@ export interface operations {
             };
             path: {
                 trip_id: string;
-                leg_id: string;
+                connection_id: string;
             };
             cookie?: never;
         };
@@ -5000,7 +5003,7 @@ export interface operations {
             };
         };
     };
-    delete_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__delete: {
+    delete_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__delete: {
         parameters: {
             query?: {
                 confirm_travel_deletion?: boolean;
@@ -5010,7 +5013,7 @@ export interface operations {
             };
             path: {
                 trip_id: string;
-                leg_id: string;
+                connection_id: string;
             };
             cookie?: never;
         };
@@ -5036,7 +5039,7 @@ export interface operations {
             };
         };
     };
-    lookup_flight_api_v1_trips__trip_id__itinerary_legs__leg_id__flight_lookups_post: {
+    lookup_connection_flight_api_v1_trips__trip_id__itinerary_connections__connection_id__flight_lookups_post: {
         parameters: {
             query?: never;
             header?: {
@@ -5044,7 +5047,7 @@ export interface operations {
             };
             path: {
                 trip_id: string;
-                leg_id: string;
+                connection_id: string;
             };
             cookie?: never;
         };
@@ -5074,7 +5077,7 @@ export interface operations {
             };
         };
     };
-    preview_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__preview_post: {
+    preview_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__preview_post: {
         parameters: {
             query?: {
                 retry_failed?: boolean;
@@ -5084,7 +5087,7 @@ export interface operations {
             };
             path: {
                 trip_id: string;
-                leg_id: string;
+                connection_id: string;
             };
             cookie?: never;
         };
@@ -5114,7 +5117,7 @@ export interface operations {
             };
         };
     };
-    refresh_leg_route_api_v1_trips__trip_id__itinerary_legs__leg_id__route_refresh_post: {
+    refresh_connection_route_api_v1_trips__trip_id__itinerary_connections__connection_id__route_refresh_post: {
         parameters: {
             query?: never;
             header?: {
@@ -5122,7 +5125,7 @@ export interface operations {
             };
             path: {
                 trip_id: string;
-                leg_id: string;
+                connection_id: string;
             };
             cookie?: never;
         };

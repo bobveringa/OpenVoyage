@@ -8,7 +8,7 @@ for (const mobile of [false, true]) {
     const outside = { type: 'LOCATION', location: {
       id: 'outside', name: 'London', full_name: 'London', region: '', country_code: 'GB', latitude: 51.5, longitude: -0.1,
     } }
-    await page.route('**/api/v1/trips/trip/itinerary/legs/preview**', async route => {
+    await page.route('**/api/v1/trips/trip/itinerary/connections/preview**', async route => {
       const payload = route.request().postDataJSON()
       requests.push(payload)
       const intent = payload.segments?.[0] ?? { travel_mode: 'OTHER', mode_selected: false, notes: '', route_option: 0 }

@@ -1819,6 +1819,7 @@
             "title": "Preview Id"
           },
           "segments": {
+            "description": "Omit to choose transport automatically. Provide one or more segments to choose transport explicitly. An empty list or null is not accepted.",
             "items": {
               "$ref": "#/components/schemas/SegmentIntent"
             },
@@ -8290,9 +8291,9 @@
         ]
       }
     },
-    "/api/v1/trips/{trip_id}/itinerary/legs": {
+    "/api/v1/trips/{trip_id}/itinerary/connections": {
       "post": {
-        "operationId": "create_leg_api_v1_trips__trip_id__itinerary_legs_post",
+        "operationId": "create_connection_api_v1_trips__trip_id__itinerary_connections_post",
         "parameters": [
           {
             "in": "path",
@@ -8358,15 +8359,15 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Create Leg",
+        "summary": "Create Connection",
         "tags": [
           "itinerary"
         ]
       }
     },
-    "/api/v1/trips/{trip_id}/itinerary/legs/flight-lookups": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/flight-lookups": {
       "post": {
-        "operationId": "lookup_new_connection_flight_api_v1_trips__trip_id__itinerary_legs_flight_lookups_post",
+        "operationId": "lookup_new_connection_flight_api_v1_trips__trip_id__itinerary_connections_flight_lookups_post",
         "parameters": [
           {
             "in": "path",
@@ -8438,9 +8439,9 @@
         ]
       }
     },
-    "/api/v1/trips/{trip_id}/itinerary/legs/preview": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/preview": {
       "post": {
-        "operationId": "preview_new_connection_api_v1_trips__trip_id__itinerary_legs_preview_post",
+        "operationId": "preview_new_connection_api_v1_trips__trip_id__itinerary_connections_preview_post",
         "parameters": [
           {
             "in": "path",
@@ -8522,9 +8523,9 @@
         ]
       }
     },
-    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/{connection_id}": {
       "delete": {
-        "operationId": "delete_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__delete",
+        "operationId": "delete_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__delete",
         "parameters": [
           {
             "in": "path",
@@ -8538,11 +8539,11 @@
           },
           {
             "in": "path",
-            "name": "leg_id",
+            "name": "connection_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Leg Id",
+              "title": "Connection Id",
               "type": "string"
             }
           },
@@ -8600,13 +8601,13 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Delete Leg",
+        "summary": "Delete Connection",
         "tags": [
           "itinerary"
         ]
       },
       "get": {
-        "operationId": "get_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__get",
+        "operationId": "get_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__get",
         "parameters": [
           {
             "in": "path",
@@ -8620,11 +8621,11 @@
           },
           {
             "in": "path",
-            "name": "leg_id",
+            "name": "connection_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Leg Id",
+              "title": "Connection Id",
               "type": "string"
             }
           },
@@ -8672,13 +8673,13 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Get Leg",
+        "summary": "Get Connection",
         "tags": [
           "itinerary"
         ]
       },
       "put": {
-        "operationId": "replace_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__put",
+        "operationId": "replace_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__put",
         "parameters": [
           {
             "in": "path",
@@ -8692,11 +8693,11 @@
           },
           {
             "in": "path",
-            "name": "leg_id",
+            "name": "connection_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Leg Id",
+              "title": "Connection Id",
               "type": "string"
             }
           },
@@ -8754,15 +8755,15 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Replace Leg",
+        "summary": "Replace Connection",
         "tags": [
           "itinerary"
         ]
       }
     },
-    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/flight-lookups": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/{connection_id}/flight-lookups": {
       "post": {
-        "operationId": "lookup_flight_api_v1_trips__trip_id__itinerary_legs__leg_id__flight_lookups_post",
+        "operationId": "lookup_connection_flight_api_v1_trips__trip_id__itinerary_connections__connection_id__flight_lookups_post",
         "parameters": [
           {
             "in": "path",
@@ -8776,11 +8777,11 @@
           },
           {
             "in": "path",
-            "name": "leg_id",
+            "name": "connection_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Leg Id",
+              "title": "Connection Id",
               "type": "string"
             }
           },
@@ -8838,15 +8839,15 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Lookup Flight",
+        "summary": "Lookup Connection Flight",
         "tags": [
           "itinerary"
         ]
       }
     },
-    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/preview": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/{connection_id}/preview": {
       "post": {
-        "operationId": "preview_leg_api_v1_trips__trip_id__itinerary_legs__leg_id__preview_post",
+        "operationId": "preview_connection_api_v1_trips__trip_id__itinerary_connections__connection_id__preview_post",
         "parameters": [
           {
             "in": "path",
@@ -8860,11 +8861,11 @@
           },
           {
             "in": "path",
-            "name": "leg_id",
+            "name": "connection_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Leg Id",
+              "title": "Connection Id",
               "type": "string"
             }
           },
@@ -8932,15 +8933,15 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Preview Leg",
+        "summary": "Preview Connection",
         "tags": [
           "itinerary"
         ]
       }
     },
-    "/api/v1/trips/{trip_id}/itinerary/legs/{leg_id}/route-refresh": {
+    "/api/v1/trips/{trip_id}/itinerary/connections/{connection_id}/route-refresh": {
       "post": {
-        "operationId": "refresh_leg_route_api_v1_trips__trip_id__itinerary_legs__leg_id__route_refresh_post",
+        "operationId": "refresh_connection_route_api_v1_trips__trip_id__itinerary_connections__connection_id__route_refresh_post",
         "parameters": [
           {
             "in": "path",
@@ -8954,11 +8955,11 @@
           },
           {
             "in": "path",
-            "name": "leg_id",
+            "name": "connection_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Leg Id",
+              "title": "Connection Id",
               "type": "string"
             }
           },
@@ -9006,7 +9007,7 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Refresh Leg Route",
+        "summary": "Refresh Connection Route",
         "tags": [
           "itinerary"
         ]

@@ -68,7 +68,14 @@ def _raise_http_error(exc: Exception) -> None:
     if isinstance(exc, ItineraryRevisionMismatchError):
         raise HTTPException(
             status_code=status.HTTP_412_PRECONDITION_FAILED,
-            detail=str(exc),
+            detail={
+                'code': 'ITINERARY_CHANGED',
+                'message': (
+                    'This trip\'s plan changed while you were editing. '
+                    'Reload the page and try again. '
+                    'Your unsaved changes will be lost when you reload.'
+                ),
+            },
         )
     if isinstance(exc, (ItineraryPlacementError, ItineraryTravelValidationError)):
         raise HTTPException(
@@ -269,11 +276,11 @@ def delete_stop(
 
 
 @router.post(
-    '/legs',
+    '/connections',
     status_code=status.HTTP_201_CREATED,
     response_model=ItineraryTravelLegResponse,
 )
-def create_leg(
+def create_connection(
     trip_id: uuid.UUID,
     payload: ItineraryTravelReplaceRequest,
     response: Response,
@@ -299,10 +306,10 @@ def create_leg(
     )
 
 
-@router.delete('/legs/{leg_id}', response_model=ItineraryResponse)
-def delete_leg(
+@router.delete('/connections/{connection_id}', response_model=ItineraryResponse)
+def delete_connection(
     trip_id: uuid.UUID,
-    leg_id: uuid.UUID,
+    connection_id: uuid.UUID,
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
@@ -313,7 +320,7 @@ def delete_leg(
     try:
         snapshot = itinerary_service.delete_travel_leg(
             trip_id,
-            leg_id,
+            connection_id,
             user.id,
             _parse_if_match(if_match),
         )
@@ -330,12 +337,12 @@ def delete_leg(
 
 
 @router.get(
-    '/legs/{leg_id}',
+    '/connections/{connection_id}',
     response_model=ItineraryTravelLegResponse,
 )
-def get_leg(
+def get_connection(
     trip_id: uuid.UUID,
-    leg_id: uuid.UUID,
+    connection_id: uuid.UUID,
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: OptionalCurrentUser,
@@ -344,7 +351,7 @@ def get_leg(
     try:
         detail = itinerary_service.get_travel_leg(
             trip_id=trip_id,
-            leg_id=leg_id,
+            leg_id=connection_id,
             current_user_id=user.id if user else None,
             share_token=share_token,
         )
@@ -360,12 +367,12 @@ def get_leg(
 
 
 @router.put(
-    '/legs/{leg_id}',
+    '/connections/{connection_id}',
     response_model=ItineraryTravelLegResponse,
 )
-def replace_leg(
+def replace_connection(
     trip_id: uuid.UUID,
-    leg_id: uuid.UUID,
+    connection_id: uuid.UUID,
     payload: ItineraryTravelReplaceRequest,
     response: Response,
     itinerary_service: ItineraryServiceDep,
@@ -375,7 +382,7 @@ def replace_leg(
     try:
         detail = itinerary_service.replace_travel_leg(
             trip_id=trip_id,
-            leg_id=leg_id,
+            leg_id=connection_id,
             payload=payload,
             current_user_id=user.id,
             expected_revision=_parse_if_match(if_match),
@@ -391,12 +398,12 @@ def replace_leg(
 
 
 @router.post(
-    '/legs/{leg_id}/route-refresh',
+    '/connections/{connection_id}/route-refresh',
     response_model=ItineraryTravelLegResponse,
 )
-def refresh_leg_route(
+def refresh_connection_route(
     trip_id: uuid.UUID,
-    leg_id: uuid.UUID,
+    connection_id: uuid.UUID,
     response: Response,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
@@ -405,7 +412,7 @@ def refresh_leg_route(
     try:
         detail = itinerary_service.calculate_saved_routes(
             trip_id=trip_id,
-            leg_id=leg_id,
+            leg_id=connection_id,
             current_user_id=user.id,
             expected_revision=_parse_if_match(if_match),
         )
@@ -419,7 +426,7 @@ def refresh_leg_route(
     )
 
 
-@router.post('/legs/preview', response_model=PreviewResponse)
+@router.post('/connections/preview', response_model=PreviewResponse)
 def preview_new_connection(
     trip_id: uuid.UUID,
     payload: ItineraryTravelReplaceRequest,
@@ -436,7 +443,7 @@ def preview_new_connection(
         _raise_http_error(exc)
 
 
-@router.post('/legs/flight-lookups', response_model=FlightLookupResponse)
+@router.post('/connections/flight-lookups', response_model=FlightLookupResponse)
 def lookup_new_connection_flight(
     trip_id: uuid.UUID,
     payload: FlightLookupRequest,
@@ -452,10 +459,10 @@ def lookup_new_connection_flight(
         _raise_http_error(exc)
 
 
-@router.post('/legs/{leg_id}/preview', response_model=PreviewResponse)
-def preview_leg(
+@router.post('/connections/{connection_id}/preview', response_model=PreviewResponse)
+def preview_connection(
     trip_id: uuid.UUID,
-    leg_id: uuid.UUID,
+    connection_id: uuid.UUID,
     payload: ItineraryTravelReplaceRequest,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
@@ -464,16 +471,16 @@ def preview_leg(
 ):
     try:
         return itinerary_service.preview_travel(
-            trip_id, leg_id, payload, user.id, _parse_if_match(if_match), retry_failed
+            trip_id, connection_id, payload, user.id, _parse_if_match(if_match), retry_failed
         )
     except Exception as exc:
         _raise_http_error(exc)
 
 
-@router.post('/legs/{leg_id}/flight-lookups', response_model=FlightLookupResponse)
-def lookup_flight(
+@router.post('/connections/{connection_id}/flight-lookups', response_model=FlightLookupResponse)
+def lookup_connection_flight(
     trip_id: uuid.UUID,
-    leg_id: uuid.UUID,
+    connection_id: uuid.UUID,
     payload: FlightLookupRequest,
     itinerary_service: ItineraryServiceDep,
     user: CurrentUser,
@@ -481,7 +488,7 @@ def lookup_flight(
 ):
     try:
         return itinerary_service.lookup_flights(
-            trip_id, leg_id, payload, user.id, _parse_if_match(if_match)
+            trip_id, connection_id, payload, user.id, _parse_if_match(if_match)
         )
     except Exception as exc:
         _raise_http_error(exc)

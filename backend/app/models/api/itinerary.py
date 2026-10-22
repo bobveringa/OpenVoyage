@@ -90,7 +90,15 @@ class ItineraryTravelReplaceRequest(ConnectionIntent):
     from_: ConnectionEndpointInput = Field(alias='from')
     to: ConnectionEndpointInput
     # Omission uses an internal sentinel; explicit null still fails list validation.
-    segments: list[SegmentIntent] = Field(default=None, min_length=1, max_length=20)
+    segments: list[SegmentIntent] = Field(
+        default=None,
+        min_length=1,
+        max_length=20,
+        description=(
+            'Omit to choose transport automatically. Provide one or more segments '
+            'to choose transport explicitly. An empty list or null is not accepted.'
+        ),
+    )
 
     @model_validator(mode='after')
     def valid_endpoints(self):

@@ -70,7 +70,7 @@ def test_route_overview_access_and_private_planning_boundaries(
     assert stop_response.status_code == 201
     stop_id = stop_response.json()['stops'][0]['id']
     leg_response = client.post(
-        f'{root}/legs',
+        f'{root}/connections',
         headers={**headers, 'If-Match': '"1"'},
         json={
             'from': {
@@ -133,7 +133,7 @@ def test_route_overview_access_and_private_planning_boundaries(
 
     overview = client.get(f'{root}/overview', headers=reader_headers)
     assert overview.status_code == (200 if can_view else 404)
-    for path in ['', f'/stops/{stop_id}', f'/legs/{leg_id}']:
+    for path in ['', f'/stops/{stop_id}', f'/connections/{leg_id}']:
         result = client.get(f'{root}{path}', headers=reader_headers)
         assert result.status_code == (200 if can_plan else 403 if can_view else 404)
 
@@ -189,6 +189,6 @@ def test_route_overview_access_and_private_planning_boundaries(
 
     if can_plan:
         assert (
-            client.get(f'{root}/legs/{leg_id}', headers=reader_headers).json()['notes']
+            client.get(f'{root}/connections/{leg_id}', headers=reader_headers).json()['notes']
             == 'Private connection note'
         )

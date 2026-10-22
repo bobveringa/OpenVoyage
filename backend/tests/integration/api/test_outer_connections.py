@@ -78,7 +78,7 @@ def test_unsaved_outer_preview_uses_regular_default_mode_and_saves_it(
         'longitude': longitude,
     }
     response = client.post(
-        base + '/legs/preview', headers=headers(user, revision), json=body
+        base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert response.status_code == 200, response.text
     preview = response.json()
@@ -87,7 +87,7 @@ def test_unsaved_outer_preview_uses_regular_default_mode_and_saves_it(
     assert segment['mode_source'] == 'AUTO'
     assert route.call_count == (1 if mode == 'CAR' else 0)
     saved = client.post(
-        base + '/legs',
+        base + '/connections',
         headers=headers(user, revision),
         json=body
         | {
@@ -101,6 +101,115 @@ def test_unsaved_outer_preview_uses_regular_default_mode_and_saves_it(
 
 
 @pytest.mark.parametrize('side', ['DEPARTURE', 'RETURN'])
+@pytest.mark.parametrize('failure', ['disabled', 'unavailable'])
+@pytest.mark.parametrize('echo_segments', [False, True])
+def test_unsaved_outer_fallback_preview_can_be_saved(
+    client, db_session, plan, monkeypatch, side, failure, echo_segments
+):
+    from services.route_providers.route_provider import RouteProviderError
+
+    user, trip, base, _, revision, _, data = plan
+    route = None
+    if failure == 'unavailable':
+        def unavailable(*args, **kwargs):
+            raise RouteProviderError('No road connection')
+
+        route = enable_routes(db_session, monkeypatch, unavailable)
+    body = outer_body(data, side)
+    preview = client.post(
+        base + '/connections/preview', headers=headers(user, revision), json=body
+    )
+    assert preview.status_code == 200, preview.text
+    segment = preview.json()['connection']['segments'][0]
+    assert segment['intent']['travel_mode'] == 'OTHER'
+    again = client.post(
+        base + '/connections/preview', headers=headers(user, revision), json=body
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()['preview_id'] == preview.json()['preview_id']
+    payload = body | {'preview_id': preview.json()['preview_id']}
+    if echo_segments:
+        payload['segments'] = [segment['intent']]
+    # A normalized suggestion remains bound to the original outside endpoint.
+    wrong_endpoint = 'from' if side == 'DEPARTURE' else 'to'
+    changed = payload | {
+        wrong_endpoint: {
+            'type': 'LOCATION', 'location': {'latitude': 50.85, 'longitude': 4.35}
+        }
+    }
+    rejected = client.post(
+        base + '/connections', headers=headers(user, revision), json=changed
+    )
+    assert rejected.status_code == 409, rejected.text
+    # Another editor cannot adopt the creator's preview, including its fallback.
+    member = create_user(db_session, password='PlanningPass123!')
+    add_trip_member(db_session, trip_id=trip.id, user_id=member.id)
+    rejected = client.post(
+        base + '/connections', headers=headers(member, revision), json=payload
+    )
+    assert rejected.status_code == 409, rejected.text
+    saved = client.post(
+        base + '/connections', headers=headers(user, revision), json=payload
+    )
+    assert saved.status_code == 201, saved.text
+    assert saved.json()['segments'][0]['intent']['travel_mode'] == 'OTHER'
+    if route:
+        route.assert_called_once()
+
+
+def test_route_preview_is_reused_for_seven_days_then_cleaned_up(
+    client, db_session, plan, monkeypatch
+):
+    from jobs.handlers import PlanningArtifactCleanupJob
+    from models.database.base import utcnow
+
+    user, _, base, _, revision, _, data = plan
+    route = enable_routes(
+        db_session, monkeypatch,
+        RouteResponse(
+            {'type': 'LineString', 'coordinates': [[-0.1, 51.5], [4.9, 52.37]]},
+            50000, 3600,
+        ),
+    )
+    now = utcnow()
+    monkeypatch.setattr('services.planning_service.utcnow', lambda: now)
+    body = outer_body(data, segments=[{'travel_mode': 'CAR'}])
+    preview = client.post(
+        base + '/connections/preview', headers=headers(user, revision), json=body
+    )
+    assert preview.status_code == 200, preview.text
+    preview_id = uuid.UUID(preview.json()['preview_id'])
+    artifact = db_session.get(ItineraryPlanningArtifact, preview_id)
+    assert artifact.expires_at == now + timedelta(days=7)
+
+    later = now + timedelta(days=6)
+    monkeypatch.setattr('models.database.base.utcnow', lambda: later)
+    monkeypatch.setattr('services.planning_service.utcnow', lambda: later)
+    monkeypatch.setattr('jobs.handlers.utcnow', lambda: later)
+    assert PlanningArtifactCleanupJob(db_session).run().summary == {'deleted': 0}
+    again = client.post(
+        base + '/connections/preview', headers=headers(user, revision), json=body
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()['preview_id'] == str(preview_id)
+    saved = client.post(
+        base + '/connections', headers=headers(user, revision),
+        json=body | {'preview_id': str(preview_id)},
+    )
+    assert saved.status_code == 201, saved.text
+    assert saved.json()['segments'][0]['route_state'] == 'READY'
+    route.assert_called_once()
+
+    later = now + timedelta(days=7, seconds=1)
+    assert PlanningArtifactCleanupJob(db_session).run().summary == {'deleted': 1}
+    assert db_session.get(ItineraryPlanningArtifact, preview_id) is None
+    # Cleanup of a temporary preview must keep the saved route.
+    read = client.get(base + '/connections/' + saved.json()['id'], headers=headers(user))
+    assert read.status_code == 200, read.text
+    assert read.json()['segments'][0]['route_state'] == 'READY'
+
+
+@pytest.mark.parametrize('side', ['DEPARTURE', 'RETURN'])
 def test_outer_lifecycle_preview_defaults_and_noop(
     client, db_session, plan, monkeypatch, side
 ):  # noqa: F811
@@ -108,19 +217,19 @@ def test_outer_lifecycle_preview_defaults_and_noop(
     route = Mock(side_effect=AssertionError('Implicit provider request'))
     monkeypatch.setattr(GraphHopperRouteProvider, 'get_route', route)
     body = outer_body(data, side)
-    created = client.post(base + '/legs', headers=headers(user, revision), json=body)
+    created = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert created.status_code == 201, created.text
     leg = created.json()
     assert leg['connection_type'] == side
-    assert created.headers['location'].endswith('/legs/' + leg['id'])
-    endpoint = base + '/legs/' + leg['id']
+    assert created.headers['location'].endswith('/connections/' + leg['id'])
+    endpoint = base + '/connections/' + leg['id']
     revision = created.headers['etag']
     count = db_session.scalar(select(func.count()).select_from(Location))
     same = client.put(endpoint, headers=headers(user, revision), json=body)
     assert same.status_code == 200, same.text
     assert same.headers['etag'] == revision
     assert db_session.scalar(select(func.count()).select_from(Location)) == count
-    duplicate = client.post(base + '/legs', headers=headers(user, revision), json=body)
+    duplicate = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert duplicate.status_code == 409
     detail = client.get(
         base + '/stops/' + body['to' if side == 'DEPARTURE' else 'from']['stop_id'],
@@ -185,7 +294,7 @@ def test_topology_and_creation_artifacts_cannot_be_forged(client, db_session, pl
     body = outer_body(data)
     assert (
         client.post(
-            base + '/legs', headers=headers(user, revision), json=write_body(leg)
+            base + '/connections', headers=headers(user, revision), json=write_body(leg)
         ).status_code
         == 409
     )
@@ -203,14 +312,14 @@ def test_topology_and_creation_artifacts_cannot_be_forged(client, db_session, pl
     wrong_anchor = body | {'to': {'type': 'STOP', 'stop_id': data['stops'][-1]['id']}}
     assert (
         client.post(
-            base + '/legs', headers=headers(user, revision), json=wrong_anchor
+            base + '/connections', headers=headers(user, revision), json=wrong_anchor
         ).status_code
         == 409
     )
     foreign_trip = create_trip(db_session, owner_id=user.id)
     assert (
         client.post(
-            f'/api/v1/trips/{foreign_trip.id}/itinerary/legs',
+            f'/api/v1/trips/{foreign_trip.id}/itinerary/connections',
             headers=headers(user, '"0"'),
             json=body,
         ).status_code
@@ -233,12 +342,12 @@ def test_topology_and_creation_artifacts_cannot_be_forged(client, db_session, pl
     ):
         assert (
             client.post(
-                base + '/legs', headers=headers(user, revision), json=body | travel
+                base + '/connections', headers=headers(user, revision), json=body | travel
             ).status_code
             == status
         )
     assert (
-        client.post(base + '/legs', headers=headers(user), json=body).status_code == 428
+        client.post(base + '/connections', headers=headers(user), json=body).status_code == 428
     )
 
 
@@ -248,7 +357,7 @@ def test_reanchor_is_atomic_preserves_id_and_outside_and_clears_artifacts(
 ):  # noqa: F811
     user, trip, base, _, revision, _, data = plan
     created = client.post(
-        base + '/legs',
+        base + '/connections',
         headers=headers(user, revision),
         json=outer_body(
             data,
@@ -267,7 +376,7 @@ def test_reanchor_is_atomic_preserves_id_and_outside_and_clears_artifacts(
     )
     assert created.status_code == 201, created.text
     leg = created.json()
-    endpoint = base + '/legs/' + leg['id']
+    endpoint = base + '/connections/' + leg['id']
     revision = created.headers['etag']
     preview = client.post(
         endpoint + '/preview',
@@ -344,7 +453,7 @@ def test_one_stop_both_outer_connections_and_delete_final_stop(client, plan):  #
         if side == 'RETURN':
             payload['to']['location'] = {'latitude': 50.85, 'longitude': 4.35}
         created = client.post(
-            base + '/legs', headers=headers(user, revision), json=payload
+            base + '/connections', headers=headers(user, revision), json=payload
         )
         assert created.status_code == 201, created.text
         revision = created.headers['etag']
@@ -365,7 +474,7 @@ def test_one_stop_both_outer_connections_and_delete_final_stop(client, plan):  #
     assert deleted.json()['legs'] == deleted.json()['stops'] == []
     assert (
         client.post(
-            base + '/legs',
+            base + '/connections',
             headers=headers(user, deleted.headers['etag']),
             json=outer_body(data),
         ).status_code
@@ -389,10 +498,10 @@ def test_outer_read_and_mutation_access_matrix(
     trip.visibility = TripVisibility(visibility)
     db_session.commit()
     created = client.post(
-        base + '/legs', headers=headers(member, revision), json=outer_body(data)
+        base + '/connections', headers=headers(member, revision), json=outer_body(data)
     )
     assert created.status_code == 201, created.text
-    endpoint = base + '/legs/' + created.json()['id']
+    endpoint = base + '/connections/' + created.json()['id']
     revision = created.headers['etag']
     assert client.get(endpoint).status_code == anonymous
     assert client.get(endpoint, headers=headers(stranger)).status_code == outsider
@@ -403,11 +512,11 @@ def test_outer_read_and_mutation_access_matrix(
     assert created.json()['id'] in [leg['id'] for leg in overview.json()['legs']]
     body = write_body(created.json())
     for method, path, payload in [
-        ('post', base + '/legs', outer_body(data, 'RETURN')),
-        ('post', base + '/legs/preview', outer_body(data, 'RETURN')),
+        ('post', base + '/connections', outer_body(data, 'RETURN')),
+        ('post', base + '/connections/preview', outer_body(data, 'RETURN')),
         (
             'post',
-            base + '/legs/flight-lookups',
+            base + '/connections/flight-lookups',
             {
                 'flight_number': 'KL597',
                 'departure_date': '2026-11-18',
@@ -477,13 +586,13 @@ def test_unsaved_connection_preview_is_atomic_and_bound_to_inputs(
     )
     locations_before = db_session.scalar(select(func.count()).select_from(Location))
     preview = client.post(
-        base + '/legs/preview', headers=headers(user, revision), json=body
+        base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert preview.status_code == 200, preview.text
     assert preview.json()['connection']['connection_type'] == side
     assert route.call_count == 1
     cached = client.post(
-        base + '/legs/preview', headers=headers(user, revision), json=body
+        base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert cached.status_code == 200, cached.text
     assert cached.json()['preview_id'] == preview.json()['preview_id']
@@ -502,12 +611,12 @@ def test_unsaved_connection_preview_is_atomic_and_bound_to_inputs(
     )
     changed['from' if side == 'DEPARTURE' else 'to']['location']['latitude'] = 50
     rejected = client.post(
-        base + '/legs', headers=headers(user, revision), json=changed
+        base + '/connections', headers=headers(user, revision), json=changed
     )
     assert rejected.status_code == 409, rejected.text
     body['segments'][0]['route_option'] = route_option
     saved = client.post(
-        base + '/legs',
+        base + '/connections',
         headers=headers(user, revision),
         json=body | {'preview_id': preview.json()['preview_id']},
     )
@@ -527,7 +636,7 @@ def test_unsaved_flight_artifacts_are_actor_trip_and_revision_scoped(
     db_session.commit()
     matched_lookup(db_session, monkeypatch)
     found = client.post(
-        base + '/legs/flight-lookups',
+        base + '/connections/flight-lookups',
         headers=headers(user, revision),
         json={
             'flight_number': 'KL597',
@@ -550,30 +659,30 @@ def test_unsaved_flight_artifacts_are_actor_trip_and_revision_scoped(
         ],
     )
     preview = client.post(
-        base + '/legs/preview', headers=headers(user, revision), json=body
+        base + '/connections/preview', headers=headers(user, revision), json=body
     )
     assert preview.status_code == 200, preview.text
     body['preview_id'] = preview.json()['preview_id']
     assert (
         client.post(
-            base + '/legs', headers=headers(member, revision), json=body
+            base + '/connections', headers=headers(member, revision), json=body
         ).status_code
         == 409
     )
     foreign = create_trip(db_session, owner_id=user.id)
     assert (
         client.post(
-            f'/api/v1/trips/{foreign.id}/itinerary/legs/preview',
+            f'/api/v1/trips/{foreign.id}/itinerary/connections/preview',
             headers=headers(user, '"0"'),
             json=body,
         ).status_code
         == 404
     )
     assert (
-        client.post(base + '/legs', headers=headers(user, '"0"'), json=body).status_code
+        client.post(base + '/connections', headers=headers(user, '"0"'), json=body).status_code
         == 412
     )
-    saved = client.post(base + '/legs', headers=headers(user, revision), json=body)
+    saved = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert saved.status_code == 201, saved.text
     assert saved.json()['segments'][0]['lookup'] is not None
     assert db_session.get(
@@ -587,11 +696,11 @@ def test_outer_flight_candidate_scope_and_warning_sides(
     user, _, base, _, revision, interior, data = plan
     matched_lookup(db_session, monkeypatch)
     created = client.post(
-        base + '/legs', headers=headers(user, revision), json=outer_body(data)
+        base + '/connections', headers=headers(user, revision), json=outer_body(data)
     )
     assert created.status_code == 201, created.text
     leg, revision = created.json(), created.headers['etag']
-    endpoint = base + '/legs/' + leg['id']
+    endpoint = base + '/connections/' + leg['id']
     found = client.post(
         endpoint + '/flight-lookups',
         headers=headers(user, revision),
@@ -613,7 +722,7 @@ def test_outer_flight_candidate_scope_and_warning_sides(
         ],
     )
     other = client.put(
-        base + '/legs/' + interior['id'],
+        base + '/connections/' + interior['id'],
         headers=headers(user, revision),
         json=write_body(interior, segments=body['segments']),
     )
@@ -630,10 +739,10 @@ def test_outer_endpoint_changes_invalidate_preview_and_candidates(
 ):  # noqa: F811
     user, _, base, _, revision, _, data = plan
     created = client.post(
-        base + '/legs', headers=headers(user, revision), json=outer_body(data)
+        base + '/connections', headers=headers(user, revision), json=outer_body(data)
     )
     leg, revision = created.json(), created.headers['etag']
-    endpoint = base + '/legs/' + leg['id']
+    endpoint = base + '/connections/' + leg['id']
     route = enable_routes(
         db_session,
         monkeypatch,

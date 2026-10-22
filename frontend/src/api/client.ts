@@ -1246,7 +1246,7 @@ export async function createItineraryTravelLeg(options: {
   tripId: string; payload: ItineraryTravelReplacePayload; accessToken: string; itineraryRevision: number
 }): Promise<{ itineraryRevision: number | null; leg: ItineraryTravelLeg }> {
   const result = await requestJsonResponse<ItineraryTravelLeg>(
-    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs`,
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/connections`,
     { method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision, json: options.payload },
   )
   return { itineraryRevision: readEtagRevision(result.response), leg: result.data }
@@ -1257,7 +1257,7 @@ export async function deleteItineraryTravelLeg(options: {
   confirmTravelDeletion?: boolean
   onConfirmTravelDeletion?: TravelDeletionConfirmation
 }): Promise<Itinerary> {
-  const url = `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs/${encodeURIComponent(options.legId)}`
+  const url = `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/connections/${encodeURIComponent(options.legId)}`
   const request: ApiRequestOptions = { method: 'DELETE', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
     query: options.confirmTravelDeletion ? { confirm_travel_deletion: true } : undefined }
   if (options.confirmTravelDeletion) return requestJson<Itinerary>(url, request)
@@ -1277,7 +1277,7 @@ export async function replaceItineraryTravelLeg(options: {
   const legId = encodeURIComponent(options.legId)
 
   const result = await requestJsonResponse<ItineraryTravelLeg>(
-    `${API_V1_PREFIX}/trips/${tripId}/itinerary/legs/${legId}`,
+    `${API_V1_PREFIX}/trips/${tripId}/itinerary/connections/${legId}`,
     {
       method: 'PUT',
       accessToken: options.accessToken,
@@ -1302,7 +1302,7 @@ export async function refreshItineraryTravelLegRoute(options: {
   const legId = encodeURIComponent(options.legId)
 
   const result = await requestJsonResponse<ItineraryTravelLeg>(
-    `${API_V1_PREFIX}/trips/${tripId}/itinerary/legs/${legId}/route-refresh`,
+    `${API_V1_PREFIX}/trips/${tripId}/itinerary/connections/${legId}/route-refresh`,
     {
       method: 'POST',
       ifMatchRevision: options.itineraryRevision,
@@ -2151,14 +2151,14 @@ async function requestItineraryMutation(url: string, options: ApiRequestOptions,
 }
 
 export async function previewTravel(options: { tripId: string; legId?: string; accessToken: string; itineraryRevision: number; payload: ItineraryTravelReplacePayload; retryFailed?: boolean; signal?: AbortSignal }): Promise<PlanningPreview> {
-  return requestJson<PlanningPreview>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs${options.legId ? '/' + encodeURIComponent(options.legId) : ''}/preview`, {
+  return requestJson<PlanningPreview>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/connections${options.legId ? '/' + encodeURIComponent(options.legId) : ''}/preview`, {
     method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
     json: options.payload, query: { retry_failed: options.retryFailed ?? false }, timeoutMs: 35_000, signal: options.signal,
   })
 }
 
 export async function lookupFlight(options: { tripId: string; legId?: string; accessToken: string; itineraryRevision: number; payload: FlightLookupPayload; signal?: AbortSignal }): Promise<FlightLookupResult> {
-  return requestJson<FlightLookupResult>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/legs${options.legId ? '/' + encodeURIComponent(options.legId) : ''}/flight-lookups`, {
+  return requestJson<FlightLookupResult>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/connections${options.legId ? '/' + encodeURIComponent(options.legId) : ''}/flight-lookups`, {
     method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
     json: options.payload, timeoutMs: 35_000, signal: options.signal,
   })

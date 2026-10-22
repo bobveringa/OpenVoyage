@@ -36,6 +36,68 @@ def test_mode_inference_estimate_boundary():
 
 
 @pytest.mark.parametrize(
+    'source,action,status,error,expected',
+    [
+        ('AUTO', 'infer', 'FAILED', 'NOT_CONFIGURED', 'OTHER'),
+        ('AUTO', 'infer', 'FAILED', 'ROUTE_UNAVAILABLE', 'OTHER'),
+        ('AUTO', 'refresh', 'UNSUPPORTED', None, 'OTHER'),
+        ('AUTO', 'infer', 'FAILED', 'TIMEOUT', 'CAR'),
+        ('AUTO', 'infer', 'FAILED', 'ROUTING_LIMIT_REACHED', 'CAR'),
+        ('AUTO', 'infer', 'READY', None, 'CAR'),
+        ('USER', 'refresh', 'FAILED', 'ROUTE_UNAVAILABLE', 'CAR'),
+        ('AUTO', 'explicit', 'FAILED', 'ROUTE_UNAVAILABLE', 'CAR'),
+    ],
+)
+def test_preparation_finalizes_only_unavailable_automatic_transport(
+    source, action, status, error, expected
+):
+    import uuid
+    from unittest.mock import Mock
+    from models.api.itinerary import ItineraryTravelReplaceRequest
+    from models.api.planning import SegmentIntent
+    from services.planning_service import PlanningService, ResolvedSegment
+
+    segment_id = uuid.uuid4()
+    start, end = Endpoint(latitude=52, longitude=5), Endpoint(latitude=53, longitude=6)
+    leg = SimpleNamespace(
+        from_stop_id=uuid.uuid4(), to_stop_id=uuid.uuid4(), notes='Journey notes',
+        from_stop=SimpleNamespace(location=start),
+        to_stop=SimpleNamespace(location=end),
+        segments=[SimpleNamespace(id=segment_id, input_version=4)],
+    )
+    segment = ResolvedSegment(
+        SegmentIntent(id=segment_id, travel_mode='CAR'), segment_id, source, 4,
+        start, end, None, None, None,
+        {'status': status, 'error_code': error},
+    )
+    service = PlanningService(Mock(), Mock())
+    segment.input_hash = service.segment_input_hash(segment)
+    if action == 'infer':
+        intent = ItineraryTravelReplaceRequest.model_validate({
+            'from': {'type': 'STOP', 'stop_id': leg.from_stop_id},
+            'to': {'type': 'STOP', 'stop_id': leg.to_stop_id},
+        })
+    elif action == 'explicit':
+        intent = ConnectionIntent(segments=[segment.intent])
+    else:
+        intent = None
+    prepared = service.prepare_connection(leg, intent, [segment])
+    resolved = prepared.segments[0]
+    fallback = expected == 'OTHER'
+    assert resolved.intent.travel_mode == expected
+    assert prepared.intent.segments[0].travel_mode == expected
+    assert resolved.input_hash == service.segment_input_hash(resolved)
+    assert resolved.version == (5 if fallback else 4)
+    assert (resolved.result is None) == fallback
+    assert bool(prepared.warnings) == fallback
+    assert prepared.binding == service.binding(leg, prepared.intent)
+    # Finalizing a suggestion must not alter the cached calculation inputs.
+    assert segment.intent.travel_mode == 'CAR'
+    assert segment.result['status'] == status
+    assert segment.version == 4
+
+
+@pytest.mark.parametrize(
     'segments',
     [
         [],

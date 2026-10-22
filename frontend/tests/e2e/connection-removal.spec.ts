@@ -9,7 +9,7 @@ for (const mobile of [false, true]) {
       let deletes = 0
       let finish: (() => void) | undefined
       const completed = new Promise<void>((resolve) => { finish = resolve })
-      await page.route('**/api/v1/trips/trip/itinerary/legs/saved-*?**', async (route) => {
+      await page.route('**/api/v1/trips/trip/itinerary/connections/saved-*?**', async (route) => {
         deletes += 1
         expect(route.request().method()).toBe('DELETE')
         expect(new URL(route.request().url()).searchParams.get('confirm_travel_deletion')).toBe('true')

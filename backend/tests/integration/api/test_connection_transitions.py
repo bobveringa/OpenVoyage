@@ -41,7 +41,7 @@ def test_reorder_confirms_the_complete_graph_and_keeps_outer_ids(
     outer = []
     for side in ('DEPARTURE', 'RETURN'):
         created = client.post(
-            base + '/legs',
+            base + '/connections',
             headers=headers(user, revision),
             json=outer_body(
                 data, side, notes=side, segments=[{'travel_mode': 'TRAIN'}]
@@ -97,10 +97,10 @@ def test_place_and_coordinate_inputs_share_noop_and_preview_identity(
     place = create_place(db_session, name='Schiphol', latitude=52.31, longitude=4.76)
     body = outer_body(data)
     body['from']['location'] = {'place_id': str(place.id)}
-    created = client.post(base + '/legs', headers=headers(user, revision), json=body)
+    created = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert created.status_code == 201, created.text
     leg, revision = created.json(), created.headers['etag']
-    endpoint = base + '/legs/' + leg['id']
+    endpoint = base + '/connections/' + leg['id']
     location_count = len(list(db_session.scalars(select(Location))))
     same = client.put(endpoint, headers=headers(user, revision), json=write_body(leg))
     assert same.status_code == 200, same.text
@@ -126,11 +126,11 @@ def test_inferred_flight_remains_uncustomized_and_reset_is_full_replacement(
     user, _, base, _, revision, _, data = plan
     body = outer_body(data)
     body['from']['location'] = {'latitude': -33.92, 'longitude': 18.42}
-    created = client.post(base + '/legs', headers=headers(user, revision), json=body)
+    created = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert created.status_code == 201, created.text
     leg, revision = created.json(), created.headers['etag']
     assert leg['segments'][0]['intent']['travel_mode'] == 'FLIGHT'
-    endpoint = base + '/legs/' + leg['id']
+    endpoint = base + '/connections/' + leg['id']
     custom = client.put(
         endpoint,
         headers=headers(user, revision),
@@ -157,7 +157,7 @@ def test_migration_downgrade_requires_explicit_outer_removal_and_preserves_child
 ):  # noqa: F811
     user, _, base, _, revision, _, data = plan
     created = client.post(
-        base + '/legs', headers=headers(user, revision), json=outer_body(data)
+        base + '/connections', headers=headers(user, revision), json=outer_body(data)
     )
     assert created.status_code == 201, created.text
     leg, revision = created.json(), created.headers['etag']
@@ -173,7 +173,7 @@ def test_migration_downgrade_requires_explicit_outer_removal_and_preserves_child
         command.downgrade(config, 'c7e9f1a3b502')
     assert db_session.get(ItineraryTravelSegment, segment_id) is not None
     deleted = client.delete(
-        base + '/legs/' + leg['id'], headers=headers(user, revision)
+        base + '/connections/' + leg['id'], headers=headers(user, revision)
     )
     assert deleted.status_code == 200, deleted.text
     assert db_session.get(ItineraryTravelSegment, segment_id) is None
@@ -193,7 +193,7 @@ def test_preview_rechecks_resolved_outside_place_after_provider_work(
     place_id = place.id
     body = outer_body(data)
     body['from']['location'] = {'place_id': str(place_id)}
-    created = client.post(base + '/legs', headers=headers(user, revision), json=body)
+    created = client.post(base + '/connections', headers=headers(user, revision), json=body)
     assert created.status_code == 201, created.text
     leg, revision = created.json(), created.headers['etag']
 
@@ -212,7 +212,7 @@ def test_preview_rechecks_resolved_outside_place_after_provider_work(
 
     enable_routes(db_session, monkeypatch, update_place_during_calculation)
     preview = client.post(
-        base + '/legs/' + leg['id'] + '/preview',
+        base + '/connections/' + leg['id'] + '/preview',
         headers=headers(user, revision),
         json=body | {'segments': [{'travel_mode': 'CAR'}]},
     )

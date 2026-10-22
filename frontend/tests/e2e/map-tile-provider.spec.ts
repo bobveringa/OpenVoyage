@@ -41,14 +41,14 @@ test('one-stop departure flight and independent return render, edit, and confirm
   itinerary.legs = [departure, returning]
   let returnDeletes = 0
   await page.route(`**/api/v1/trips/${tripId}/itinerary`, route => fulfillJson(route, itinerary))
-  await page.route(`**/api/v1/trips/${tripId}/itinerary/legs/departure`, async route => {
+  await page.route(`**/api/v1/trips/${tripId}/itinerary/connections/departure`, async route => {
     expect(route.request().method()).toBe('PUT')
     const payload = route.request().postDataJSON()
     expect(payload.from).toEqual({ type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } })
     expect(payload.to).toEqual({ type: 'STOP', stop_id: firstStopId })
     await route.fulfill({ json: departure, headers: { ETag: '"2"' } })
   })
-  await page.route(`**/api/v1/trips/${tripId}/itinerary/legs/return**`, async route => {
+  await page.route(`**/api/v1/trips/${tripId}/itinerary/connections/return**`, async route => {
     if (route.request().method() !== 'DELETE') return route.fallback()
     returnDeletes += 1
     const confirmed = new URL(route.request().url()).searchParams.get('confirm_travel_deletion') === 'true'
@@ -105,7 +105,7 @@ test('opens departure travel immediately and saves location and transport togeth
   await mockTileServers(page)
   const itinerary = createItinerary() as Itinerary
   let previews = 0
-  await page.route(`**/api/v1/trips/${tripId}/itinerary/legs/preview**`, async route => {
+  await page.route(`**/api/v1/trips/${tripId}/itinerary/connections/preview**`, async route => {
     previews += 1
     const payload = route.request().postDataJSON()
     expect(payload.segments).toBeUndefined()
@@ -115,7 +115,7 @@ test('opens departure travel immediately and saves location and transport togeth
       segments: [{ ...itinerary.legs[0].segments[0], intent: { travel_mode: 'CAR', mode_selected: false, notes: '', route_option: 0 }, route_state: 'READY' }],
     } })
   })
-  await page.route(`**/api/v1/trips/${tripId}/itinerary/legs`, async route => {
+  await page.route(`**/api/v1/trips/${tripId}/itinerary/connections`, async route => {
     const payload = route.request().postDataJSON()
     expect(payload).toMatchObject({ from: { type: 'LOCATION', location: { latitude: 51.5, longitude: -0.1 } }, to: { type: 'STOP', stop_id: firstStopId }, notes: '', segments: [{ travel_mode: 'CAR' }] })
     await route.fulfill({ status: 201, headers: { ETag: '"2"' }, json: {
@@ -997,15 +997,15 @@ test('planning: keyless flight draft remains saveable without automatic provider
   let lookupCount = 0
   let previewCount = 0
   const leg = createItinerary().legs[0]
-  await page.route('**/itinerary/legs/*/flight-lookups', async route => {
+  await page.route('**/itinerary/connections/*/flight-lookups', async route => {
     lookupCount += 1
     await fulfillJson(route, { status: 'UNAVAILABLE', candidates: [], reason: 'Flight lookup is not configured' })
   })
-  await page.route('**/itinerary/legs/*/preview**', async route => {
+  await page.route('**/itinerary/connections/*/preview**', async route => {
     previewCount += 1
     await fulfillJson(route, { detail: 'Unexpected preview' }, 500)
   })
-  await page.route('**/itinerary/legs/' + leg.id, async route => {
+  await page.route('**/itinerary/connections/' + leg.id, async route => {
     const payload = route.request().postDataJSON()
     expect(payload.segments[0].flight.flight_number).toBe('KL597')
     expect(payload.segments[0].flight.departure_date).toBe('2026-11-18')
@@ -1029,6 +1029,32 @@ test('planning: keyless flight draft remains saveable without automatic provider
   expect(previewCount).toBe(0)
 })
 
+for (const mobile of [false, true]) {
+  test(`planning: ${mobile ? 'mobile' : 'desktop'} explains an outdated save without retrying`, async ({ page }) => {
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 })
+    await seedBrowserAuth(page)
+    const release = await mockTripApi(page, 'OWNER'); release()
+    await mockTileServers(page)
+    const leg = createItinerary().legs[0]
+    let saves = 0
+    const message = "This trip's plan changed while you were editing. Reload the page and try again. Your unsaved changes will be lost when you reload."
+    await page.route('**/itinerary/connections/' + leg.id, async route => {
+      expect(route.request().method()).toBe('PUT')
+      saves += 1
+      await fulfillJson(route, { detail: { code: 'ITINERARY_CHANGED', message } }, 412)
+    })
+    await page.goto('/trips/' + tripId)
+    await page.getByRole('button', { name: 'Plan', exact: true }).click()
+    await page.getByRole('button', { name: 'Train Amsterdam to Brussels' }).click()
+    const editor = page.getByRole(mobile ? 'dialog' : 'region', { name: 'Select your route', exact: true })
+    await editor.getByRole('button', { name: 'Select this route' }).click()
+    await expect(editor.getByRole('alert')).toHaveText(message)
+    expect(saves).toBe(1)
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Train Amsterdam to Brussels' })).toBeVisible()
+  })
+}
+
 test('planning: preview is explicit and Cancel leaves the saved connection unchanged', async ({ page }) => {
   await seedBrowserAuth(page)
   const release = await mockTripApi(page, 'OWNER'); release()
@@ -1036,14 +1062,14 @@ test('planning: preview is explicit and Cancel leaves the saved connection uncha
   const leg = createItinerary().legs[0]
   let previews = 0
   let writes = 0
-  await page.route('**/itinerary/legs/*/preview**', async route => {
+  await page.route('**/itinerary/connections/*/preview**', async route => {
     previews += 1
     const payload = route.request().postDataJSON()
     await fulfillJson(route, { preview_id: '99999999-9999-4999-8999-999999999999',
       expires_at: '2030-01-01T00:00:00Z', connection: { ...leg, ...payload,
         segments: payload.segments.map((intent: object) => ({ ...leg.segments[0], intent, route_state: 'FAILED', error_code: 'NOT_CONFIGURED' })) } })
   })
-  page.on('request', request => { if (request.method() === 'PUT' && request.url().includes('/itinerary/legs/')) writes += 1 })
+  page.on('request', request => { if (request.method() === 'PUT' && request.url().includes('/itinerary/connections/')) writes += 1 })
   await page.goto('/trips/' + tripId)
   await page.getByRole('button', { name: 'Plan', exact: true }).click()
   await page.getByRole('button', { name: 'Train Amsterdam to Brussels' }).click()
@@ -1092,7 +1118,7 @@ for (const mobile of [false, true]) {
     ]
     let previews = 0
     let writes = 0
-    await page.route('**/itinerary/legs/*/preview**', async route => {
+    await page.route('**/itinerary/connections/*/preview**', async route => {
       previews += 1
       const payload = route.request().postDataJSON()
       const segment = { ...leg.segments[0], intent: payload.segments[0], geometry: geometries[0], route_state: 'READY',
@@ -1101,7 +1127,7 @@ for (const mobile of [false, true]) {
       await fulfillJson(route, { preview_id: '99999999-9999-4999-8999-999999999999', expires_at: '2030-01-01T00:00:00Z',
         connection: { ...leg, segments: [segment], duration_seconds: 7200, duration_scope: 'JOURNEY', route: { ...leg.route, type: 'PROVIDER_BACKED', geometry: geometries[0] } } })
     })
-    await page.route('**/itinerary/legs/' + leg.id, async route => {
+    await page.route('**/itinerary/connections/' + leg.id, async route => {
       writes += 1
       const payload = route.request().postDataJSON()
       expect(payload.segments[0].route_option).toBe(1)
@@ -1157,7 +1183,7 @@ test('planning: unavailable road routing is explicit and draws no fake road', as
   const release = await mockTripApi(page, 'OWNER'); release()
   await mockTileServers(page)
   const leg = createItinerary().legs[0]
-  await page.route('**/itinerary/legs/*/preview**', async route => {
+  await page.route('**/itinerary/connections/*/preview**', async route => {
     const payload = route.request().postDataJSON()
     await fulfillJson(route, { preview_id: '99999999-9999-4999-8999-999999999999', expires_at: '2030-01-01T00:00:00Z',
       connection: { ...leg, segments: [{ ...leg.segments[0], intent: payload.segments[0], route_state: 'FAILED', error_code: 'NOT_CONFIGURED', route_options: [] }] } })
@@ -1266,7 +1292,7 @@ test('planning: cached alternatives expire and changed via points require a fres
   const leg = createItinerary().legs[0]
   let previews = 0
   const payloads: Array<{ segments: Array<{ via?: unknown }> }> = []
-  await page.route('**/itinerary/legs/*/preview**', async route => {
+  await page.route('**/itinerary/connections/*/preview**', async route => {
     previews += 1
     const payload = route.request().postDataJSON()
     payloads.push(payload)
@@ -1352,7 +1378,7 @@ for (const width of [1024, 1440]) {
       searches += 1
       await fulfillJson(route, [airport])
     })
-    await page.route('**/itinerary/legs/*/flight-lookups', route => fulfillJson(route, { status: 'MATCHES', expires_at: '2030-01-01T00:00:00Z', candidates: [{
+    await page.route('**/itinerary/connections/*/flight-lookups', route => fulfillJson(route, { status: 'MATCHES', expires_at: '2030-01-01T00:00:00Z', candidates: [{
       candidate_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', duration_seconds: 39600,
       lookup: { schema_version: 1, provider: 'aerodatabox', fetched_at: timestamp,
         flight_number: 'KL597', departure_date: '2026-11-18', airline_name: 'KLM Royal Dutch Airlines',
@@ -1425,9 +1451,9 @@ for (const mobile of [false, true]) {
     let previews = 0
     let writes = 0
     let flightLookups = 0
-    await page.route('**/itinerary/legs/*/flight-lookups', route => { flightLookups += 1; return fulfillJson(route, { status: 'UNAVAILABLE', candidates: [], reason: 'NOT_CONFIGURED' }) })
+    await page.route('**/itinerary/connections/*/flight-lookups', route => { flightLookups += 1; return fulfillJson(route, { status: 'UNAVAILABLE', candidates: [], reason: 'NOT_CONFIGURED' }) })
     await page.route('**/api/v1/trips/' + tripId + '/itinerary', route => fulfillJson(route, { ...itinerary, legs: [saved] }))
-    await page.route('**/itinerary/legs/*/preview**', async route => {
+    await page.route('**/itinerary/connections/*/preview**', async route => {
       previews += 1
       const payload = route.request().postDataJSON()
       expect(payload.segments.map((segment: { travel_mode: string }) => segment.travel_mode)).toEqual(['CAR', 'FLIGHT'])
@@ -1443,7 +1469,7 @@ for (const mobile of [false, true]) {
       ] }
       await fulfillJson(route, { preview_id: 'ffffffff-ffff-4fff-8fff-ffffffffffff', expires_at: '2030-01-01T00:00:00Z', connection })
     })
-    await page.route('**/itinerary/legs/' + saved.id, async route => {
+    await page.route('**/itinerary/connections/' + saved.id, async route => {
       writes += 1
       const payload = route.request().postDataJSON()
       expect(payload.preview_id).toBe('ffffffff-ffff-4fff-8fff-ffffffffffff')
