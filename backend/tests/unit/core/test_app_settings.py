@@ -41,7 +41,7 @@ def test_flight_settings_are_admin_only_and_keep_existing_key():
         assert definition.runtime_safe
     assert (
         app_settings_registry.require(FLIGHTS_PROVIDER_KEY).default_value
-        == 'aerodatabox'
+        == 'none'
     )
     assert app_settings_registry.require(FLIGHTS_RAPIDAPI_API_KEY).sensitive
 

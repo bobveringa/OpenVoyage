@@ -37,10 +37,20 @@ def test_disabled_or_invalid_selection_does_not_read_credentials(selection):
     reader.get_value.assert_called_once_with(FLIGHTS_PROVIDER_KEY)
 
 
-def test_defaults_keep_existing_key_and_runtime_changes_work():
+def test_default_disables_lookup_even_with_existing_key():
+    reader, values = settings_reader()
+    values[FLIGHTS_RAPIDAPI_API_KEY] = 'existing-secret'
+
+    assert FlightProviderFactory().create_flight_provider(reader) is None
+    reader.get_value.assert_called_once_with(FLIGHTS_PROVIDER_KEY)
+    assert values[FLIGHTS_RAPIDAPI_API_KEY] == 'existing-secret'
+
+
+def test_explicit_selection_uses_existing_key_and_runtime_changes_work():
     reader, values = settings_reader()
     factory = FlightProviderFactory()
     values[FLIGHTS_RAPIDAPI_API_KEY] = 'existing-secret'
+    values[FLIGHTS_PROVIDER_KEY] = 'aerodatabox'
     first = factory.create_flight_provider(reader)
     assert isinstance(first, AeroDataBoxFlightProvider)
     assert first.name == 'aerodatabox'
@@ -81,5 +91,6 @@ def test_unreadable_settings_disable_lookup_without_exposing_secrets(error, capl
 )
 def test_invalid_stored_settings_disable_lookup(key, value):
     reader, values = settings_reader()
+    values[FLIGHTS_PROVIDER_KEY] = 'aerodatabox'
     values[key] = value
     assert FlightProviderFactory().create_flight_provider(reader) is None

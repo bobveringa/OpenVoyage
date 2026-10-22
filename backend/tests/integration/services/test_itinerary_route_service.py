@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import func, select
 from core import security
-from core.app_settings import FLIGHTS_RAPIDAPI_API_KEY
+from core.app_settings import FLIGHTS_PROVIDER_KEY, FLIGHTS_RAPIDAPI_API_KEY
 from factories.users import create_user
 from factories.trips import create_trip, add_trip_viewer
 from factories.places import create_place
@@ -92,7 +92,10 @@ def flight_payload():
     ]
 
 
-def matched_lookup(monkeypatch):
+def matched_lookup(db_session, monkeypatch):
+    AppSettingsService(db_session).update_setting(
+        FLIGHTS_PROVIDER_KEY, 'aerodatabox', None
+    )
     matches = parse_flights(
         flight_payload(),
         FlightLookupRequest(flight_number='KL597', departure_date='2026-11-18'),
@@ -174,8 +177,15 @@ def test_defaults_and_saves_never_call_providers(client, plan, monkeypatch):
     route.assert_not_called()
 
 
-def test_no_flight_key_keeps_draft_editable(client, plan, monkeypatch):
+@pytest.mark.parametrize('provider', ['none', 'aerodatabox'])
+def test_no_flight_provider_or_key_keeps_draft_editable(
+    client, db_session, plan, monkeypatch, provider
+):
     user, _, _, endpoint, revision, leg, _ = plan
+    if provider != 'none':
+        AppSettingsService(db_session).update_setting(
+            FLIGHTS_PROVIDER_KEY, provider, None
+        )
     monkeypatch.setattr(
         'services.flight_providers.aerodatabox_flight_provider.urlopen',
         lambda *_a, **_k: pytest.fail('Network without key'),
@@ -276,10 +286,10 @@ def test_explicit_same_mode_is_preserved_and_requires_deletion_confirmation(
 
 
 def test_candidates_survive_notes_edits_and_do_not_leak_artifact_ids(
-    client, plan, monkeypatch
+    client, db_session, plan, monkeypatch
 ):
     user, _, _, endpoint, revision, leg, _ = plan
-    lookup = matched_lookup(monkeypatch)
+    lookup = matched_lookup(db_session, monkeypatch)
     found = client.post(
         endpoint + '/flight-lookups',
         headers=headers(user, revision),
@@ -347,7 +357,7 @@ def test_planning_actions_require_editor_and_revision(client, db_session, plan, 
 
 def test_candidate_is_bound_to_actor_and_inputs(client, db_session, plan, monkeypatch):
     user, _, _, endpoint, revision, leg, _ = plan
-    matched_lookup(monkeypatch)
+    matched_lookup(db_session, monkeypatch)
     found = client.post(
         endpoint + '/flight-lookups',
         headers=headers(user, revision),
@@ -399,9 +409,9 @@ def test_candidate_is_bound_to_actor_and_inputs(client, db_session, plan, monkey
     assert expired.status_code == 409
 
 
-def test_mixed_journey_has_no_combined_total(client, plan, monkeypatch):
+def test_mixed_journey_has_no_combined_total(client, db_session, plan, monkeypatch):
     user, _, _, endpoint, revision, leg, _ = plan
-    matched_lookup(monkeypatch)
+    matched_lookup(db_session, monkeypatch)
     found = client.post(
         endpoint + '/flight-lookups',
         headers=headers(user, revision),
@@ -505,7 +515,7 @@ def test_departing_member_loses_artifacts_but_saved_travel_survives(
     owner, trip, _, endpoint, revision, leg, _ = plan
     member = create_user(db_session, password='PlanningPass123!')
     add_trip_member(db_session, trip_id=trip.id, user_id=member.id)
-    matched_lookup(monkeypatch)
+    matched_lookup(db_session, monkeypatch)
     found = client.post(
         endpoint + '/flight-lookups',
         headers=headers(member, revision),

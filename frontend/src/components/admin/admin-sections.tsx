@@ -396,6 +396,19 @@ function SettingsAdminSections({
           settings={[routingProvider]}
           title="Routing provider"
         />
+        {routingProvider?.value === 'graphhopper' ? (
+          <SettingsGroup
+            description="Configure the endpoint and write-only credentials used for GraphHopper route requests."
+            icon={Server}
+            onReset={handleReset}
+            onSave={handleSave}
+            settings={pickSettings(settingsByKey, [
+              SETTING_KEYS.graphHopperBaseUrl,
+              SETTING_KEYS.graphHopperApiKey,
+            ])}
+            title="GraphHopper"
+          />
+        ) : null}
         <SettingsGroup
           description="Choose the service used for optional flight schedule lookup."
           icon={Server}
@@ -416,19 +429,6 @@ function SettingsAdminSections({
               SETTING_KEYS.flightApiKey,
             ])}
             title="AeroDataBox"
-          />
-        ) : null}
-        {routingProvider?.value === 'graphhopper' ? (
-          <SettingsGroup
-            description="Configure the endpoint and write-only credentials used for GraphHopper route requests."
-            icon={Server}
-            onReset={handleReset}
-            onSave={handleSave}
-            settings={pickSettings(settingsByKey, [
-              SETTING_KEYS.graphHopperBaseUrl,
-              SETTING_KEYS.graphHopperApiKey,
-            ])}
-            title="GraphHopper"
           />
         ) : null}
       </section>

@@ -520,7 +520,7 @@ def test_unsaved_flight_artifacts_are_actor_trip_and_revision_scoped(
     member = create_user(db_session, password='PlanningPass123!')
     add_trip_member(db_session, trip_id=trip.id, user_id=member.id)
     db_session.commit()
-    matched_lookup(monkeypatch)
+    matched_lookup(db_session, monkeypatch)
     found = client.post(
         base + '/legs/flight-lookups',
         headers=headers(user, revision),
@@ -580,7 +580,7 @@ def test_outer_flight_candidate_scope_and_warning_sides(
     client, db_session, plan, monkeypatch
 ):  # noqa: F811
     user, _, base, _, revision, interior, data = plan
-    matched_lookup(monkeypatch)
+    matched_lookup(db_session, monkeypatch)
     created = client.post(
         base + '/legs', headers=headers(user, revision), json=outer_body(data)
     )

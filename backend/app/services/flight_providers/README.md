@@ -8,14 +8,15 @@ Administrators configure flight lookup under **Admin → Routing**:
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `flights.provider` | `aerodatabox` | Select an adapter, or `none` to disable lookup. |
+| `flights.provider` | `none` | Select an adapter, or `none` to disable lookup. |
 | `flights.aerodatabox_base_url` | `https://aerodatabox.p.rapidapi.com` | AeroDataBox-compatible endpoint, optionally including a path prefix. |
 | `flights.aerodatabox_rapidapi_host` | `aerodatabox.p.rapidapi.com` | `X-RapidAPI-Host` request header. |
 | `flights.rapidapi_api_key` | Unconfigured | Existing encrypted, write-only AeroDataBox RapidAPI key. |
 
 The URL and host settings do not change the response format the adapter expects.
-A different flight API requires its own adapter. Defaults preserve existing
-installations and keys; no database migration is needed. Changes apply to new
+A different flight API requires its own adapter. Lookup is disabled until an
+administrator selects a provider. Existing keys and explicit provider selections
+are preserved; no database migration is needed. Changes apply to new
 requests through the app settings cache without restarting the backend (other
 worker processes may take up to the cache TTL, currently 60 seconds). Saved
 flight schedules and unexpired candidates remain available after disabling lookup.
