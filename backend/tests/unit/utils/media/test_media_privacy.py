@@ -86,6 +86,18 @@ def run(cmd):
     return subprocess.run(cmd, check=True, capture_output=True, timeout=30)
 
 
+def assert_video_colour(path, primaries, transfer, space):
+    probe = json.loads(run([
+        'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+        '-show_entries', 'stream=color_primaries,color_transfer,color_space',
+        '-of', 'json', str(path),
+    ]).stdout)
+    video = probe['streams'][0]
+    assert video.get('color_primaries') == primaries
+    assert video.get('color_transfer') == transfer
+    assert video.get('color_space') == space
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(('extension', 'video_codec', 'audio_codec'), [
     ('.mp4', 'libx264', 'aac'), ('.webm', 'libvpx-vp9', 'libopus'),
@@ -94,13 +106,16 @@ def run(cmd):
 def test_videos_and_thumbnails_strip_metadata_preserve_audio(tmp_path, extension, video_codec, audio_codec):
     source = tmp_path / ('source' + extension)
     output = tmp_path / ('clean' + extension)
+    # Newer FFmpeg encoders take colour properties from filtered frames.
+    # Tag the synthetic frames explicitly so the fixture has colours to preserve.
     run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-f', 'lavfi', '-i',
          'color=c=red:s=80x40:d=0.5', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.5',
          '-c:v', video_codec, '-c:a', audio_codec, '-shortest',
-         '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
+         '-vf', 'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709',
          '-metadata', 'location=' + PRIVATE, '-metadata', 'title=' + PRIVATE,
          '-metadata', 'creation_time=2026-10-07T12:00:00Z',
          '-metadata:s:v', 'title=' + PRIVATE, '-metadata:s:a', 'comment=' + PRIVATE, str(source)])
+    assert_video_colour(source, 'bt709', 'bt709', 'bt709')
     clean_video(str(source), str(output))
     assert PRIVATE.encode() not in output.read_bytes()
     probe = json.loads(run(['ffprobe', '-v', 'error', '-show_streams', '-show_format',
@@ -165,10 +180,11 @@ def test_hlg_video_preserves_hdr_audio_rotation_and_cleans_thumbnail(tmp_path):
          'color=c=red:s=80x40:d=0.5', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.5',
          '-c:v', 'libx265', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p10le',
          '-x265-params', 'info=0:pools=1:log-level=error', '-c:a', 'aac', '-shortest',
-         '-color_primaries', 'bt2020', '-color_trc', 'arib-std-b67', '-colorspace', 'bt2020nc',
+         '-vf', 'setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc',
          '-metadata', 'location=' + PRIVATE, '-metadata', 'title=' + PRIVATE, str(source)])
     run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-display_rotation', '90', '-i', str(source),
          '-map', '0', '-c', 'copy', str(rotated)])
+    assert_video_colour(rotated, 'bt2020', 'arib-std-b67', 'bt2020nc')
     clean_video(str(rotated), str(output))
     probe = json.loads(run(['ffprobe', '-v', 'error', '-show_streams', '-of', 'json', str(output)]).stdout)
     video, audio = probe['streams']
