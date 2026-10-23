@@ -32,7 +32,8 @@ jobs:
 
   backend:
     name: Backend checks
-    runs-on: ubuntu-latest
+    # Keep the video toolchain stable during runner migrations.
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
       # Throwaway values that satisfy the startup secret checks. Tests use a
@@ -43,7 +44,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-backend
       - name: Install video-processing tools
-        timeout-minutes: 5
+        # Covers the bounded index refresh (2m) and package install (4m).
+        timeout-minutes: 8
         run: bash .github/scripts/ensure-video-tools.sh
       - name: Lint
         run: python -m ruff check backend
