@@ -247,12 +247,6 @@ def get_post_timeline(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
     response.headers['Cache-Control'] = 'private, no-store'
-    if timeline.carries_unbounded_open_geometry:
-        # Geometry no visible post bounds from above carries a coordinate
-        # recorded moments ago, so it must not sit in a shared cache. A route
-        # that ends at a published post is as fresh as that post and stays
-        # ordinarily cacheable.
-        response.headers['Cache-Control'] = 'no-store'
 
     media_base_url = str(request.base_url).rstrip('/')
     summaries = social_service.get_summaries(
@@ -262,6 +256,7 @@ def get_post_timeline(
         share_token=share_token,
     )
     return PostTimelineResponse(
+        flight_journeys=timeline.flight_journeys,
         opening_route=(
             PostTimelineOpeningRouteResponse(segments=timeline.opening_segments)
             if timeline.opening_segments

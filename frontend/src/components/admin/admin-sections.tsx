@@ -76,8 +76,11 @@ const SETTING_KEYS = {
   themePalette: 'theme.palette',
   flightApiKey: 'flights.rapidapi_api_key',
   flightProvider: 'flights.provider',
+  flightUpdateFrequency: 'flights.update_frequency',
   flightBaseUrl: 'flights.aerodatabox_base_url',
   flightRapidApiHost: 'flights.aerodatabox_rapidapi_host',
+  flightAwareBaseUrl: 'flights.flightaware_base_url',
+  flightAwareApiKey: 'flights.flightaware_api_key',
   graphHopperApiKey: 'routing.graphhopper_api_key',
   graphHopperBaseUrl: 'routing.graphhopper_base_url',
   maxUploadSize: 'media.max_upload_size_mb',
@@ -90,11 +93,34 @@ const SETTING_KEYS = {
   immichAllowAnyServer: 'immich.allow_any_server',
 } as const
 
+const flightUpdatePresets = [
+  { value: 'minimal', label: 'Minimal', description: 'Occasional checks around departure and arrival to keep API usage low.' },
+  { value: 'relaxed', label: 'Relaxed', description: 'Light checks that become closer together as departure and arrival approach.' },
+  { value: 'balanced', label: 'Balanced', description: 'Timely departure and arrival updates, with quieter checks while cruising.' },
+  { value: 'frequent', label: 'Frequent', description: 'Start watching earlier and check closely while awaiting takeoff and landing.' },
+  { value: 'very_frequent', label: 'Very frequent', description: 'Watch well ahead of departure and follow a wider arrival window closely.' },
+]
+
 const settingPresentations: Record<string, SettingPresentation> = {
+  [SETTING_KEYS.flightUpdateFrequency]: {
+    label: 'Flight update frequency',
+    help: 'Checks adapt to each flight: before departure, while waiting to take off, during cruise, and near arrival. More frequent presets use more API credit. Provider rate limits still apply.',
+  },
   [SETTING_KEYS.flightProvider]: {
-    help: 'Choose the service used to look up flight schedules. Manual planning works with lookup disabled.',
+    help: 'Choose the service used for flight schedule lookup and automatic flight monitoring. Selecting none disables both. Manual planning and owner completion remain available.',
     label: 'Flight provider',
-    optionLabels: { aerodatabox: 'AeroDataBox', none: 'Flight lookup disabled' },
+    optionLabels: { aerodatabox: 'AeroDataBox', flightaware: 'FlightAware AeroAPI', none: 'Flight lookup and monitoring disabled' },
+  },
+  [SETTING_KEYS.flightAwareBaseUrl]: {
+    help: 'Requests and the configured API key are sent to this AeroAPI v4 endpoint.',
+    inputType: 'url',
+    label: 'FlightAware base URL',
+    placeholder: 'https://aeroapi.flightaware.com/aeroapi',
+  },
+  [SETTING_KEYS.flightAwareApiKey]: {
+    help: 'Write-only FlightAware AeroAPI key used for flight schedules and tracking.',
+    label: 'FlightAware AeroAPI key',
+    placeholder: 'Enter a new API key',
   },
   [SETTING_KEYS.flightBaseUrl]: {
     help: 'Requests and the configured API key are sent to this AeroDataBox-compatible endpoint.',
@@ -108,7 +134,7 @@ const settingPresentations: Record<string, SettingPresentation> = {
     placeholder: 'aerodatabox.p.rapidapi.com',
   },
   [SETTING_KEYS.flightApiKey]: {
-    help: 'Optional write-only RapidAPI key for AeroDataBox flight lookup. Clear it to disable lookup; manual planning still works.',
+    help: 'Optional write-only RapidAPI key for AeroDataBox flight lookup. Valid credentials enable lookup and monitoring; manual planning still works.',
     label: 'AeroDataBox RapidAPI key',
     placeholder: 'Enter a new API key',
   },
@@ -410,11 +436,11 @@ function SettingsAdminSections({
           />
         ) : null}
         <SettingsGroup
-          description="Choose the service used for optional flight schedule lookup."
+          description="Choose the service used for flight schedule lookup and automatic monitoring."
           icon={Server}
           onReset={handleReset}
           onSave={handleSave}
-          settings={pickSettings(settingsByKey, [SETTING_KEYS.flightProvider])}
+          settings={pickSettings(settingsByKey, [SETTING_KEYS.flightProvider, SETTING_KEYS.flightUpdateFrequency])}
           title="Flight provider"
         />
         {settingsByKey.get(SETTING_KEYS.flightProvider)?.value === 'aerodatabox' ? (
@@ -429,6 +455,16 @@ function SettingsAdminSections({
               SETTING_KEYS.flightApiKey,
             ])}
             title="AeroDataBox"
+          />
+        ) : null}
+        {settingsByKey.get(SETTING_KEYS.flightProvider)?.value === 'flightaware' ? (
+          <SettingsGroup
+            description="Configure the AeroAPI endpoint and write-only key used for flight schedules and tracking."
+            icon={Server}
+            onReset={handleReset}
+            onSave={handleSave}
+            settings={pickSettings(settingsByKey, [SETTING_KEYS.flightAwareBaseUrl, SETTING_KEYS.flightAwareApiKey])}
+            title="FlightAware AeroAPI"
           />
         ) : null}
       </section>
@@ -760,6 +796,19 @@ function SettingControl({
   presentation,
   setting,
 }: SettingControlProps) {
+  if (setting.key === SETTING_KEYS.flightUpdateFrequency) {
+    const index = Math.max(0, flightUpdatePresets.findIndex((preset) => preset.value === draft))
+    const selected = flightUpdatePresets[index]
+    return <div className="space-y-2">
+      <output htmlFor={id} className="block text-sm font-semibold" aria-live="polite">{selected.label}</output>
+      <input id={id} type="range" min={0} max={flightUpdatePresets.length - 1} step={1}
+        className="min-h-8 w-full cursor-pointer accent-primary" disabled={disabled} value={index}
+        aria-valuetext={selected.label} aria-describedby={`${id}-description`}
+        onChange={(event) => onChange(flightUpdatePresets[Number(event.target.value)].value)} />
+      <div className="flex justify-between text-xs text-muted-foreground"><span>Less frequent</span><span>More frequent</span></div>
+      <p id={`${id}-description`} className="text-xs leading-5 text-muted-foreground">{selected.description}</p>
+    </div>
+  }
   if (setting.key === SETTING_KEYS.immichAllowedServers) {
     return (
       <ImmichAllowedServersControl

@@ -6,12 +6,15 @@ from core.app_settings import (
     FLIGHTS_AERODATABOX_BASE_URL_KEY,
     FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY,
     FLIGHTS_PROVIDER_KEY,
+    FLIGHTS_FLIGHTAWARE_BASE_URL_KEY,
+    FLIGHTS_FLIGHTAWARE_API_KEY,
     FLIGHTS_RAPIDAPI_API_KEY,
     app_settings_registry,
 )
 from core.app_settings_encryption import AppSettingsEncryptionError
 from services.app_settings_service import StoredAppSettingError
 from services.flight_providers import AeroDataBoxFlightProvider, FlightProviderFactory
+from services.flight_providers import FlightAwareFlightProvider
 
 
 def settings_reader():
@@ -19,6 +22,8 @@ def settings_reader():
         key: app_settings_registry.require(key).default_value
         for key in (
             FLIGHTS_PROVIDER_KEY,
+            FLIGHTS_FLIGHTAWARE_BASE_URL_KEY,
+            FLIGHTS_FLIGHTAWARE_API_KEY,
             FLIGHTS_AERODATABOX_BASE_URL_KEY,
             FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY,
             FLIGHTS_RAPIDAPI_API_KEY,
@@ -44,6 +49,30 @@ def test_default_disables_lookup_even_with_existing_key():
     assert FlightProviderFactory().create_flight_provider(reader) is None
     reader.get_value.assert_called_once_with(FLIGHTS_PROVIDER_KEY)
     assert values[FLIGHTS_RAPIDAPI_API_KEY] == 'existing-secret'
+
+
+def test_flightaware_selection_reads_only_its_credentials_and_updates_at_runtime():
+    reader, values = settings_reader()
+    values[FLIGHTS_PROVIDER_KEY] = ' FlightAware '
+    values[FLIGHTS_FLIGHTAWARE_API_KEY] = 'private-key'
+    factory = FlightProviderFactory()
+    provider = factory.create_flight_provider(reader)
+    assert isinstance(provider, FlightAwareFlightProvider)
+    assert provider.is_configured()
+    assert provider.base_url == 'https://aeroapi.flightaware.com/aeroapi'
+    assert FLIGHTS_RAPIDAPI_API_KEY not in [call.args[0] for call in reader.get_value.call_args_list]
+    values[FLIGHTS_FLIGHTAWARE_API_KEY] = None
+    assert not factory.create_flight_provider(reader).is_configured()
+    values[FLIGHTS_FLIGHTAWARE_BASE_URL_KEY] = 'ftp://invalid.test'
+    assert factory.create_flight_provider(reader) is None
+
+
+def test_flightaware_factory_passes_local_airport_resolver():
+    reader, values = settings_reader()
+    values[FLIGHTS_PROVIDER_KEY] = 'flightaware'
+    resolver = Mock()
+    provider = FlightProviderFactory(airport_resolver=resolver).create_flight_provider(reader)
+    assert provider._airport_resolver is resolver
 
 
 def test_explicit_selection_uses_existing_key_and_runtime_changes_work():

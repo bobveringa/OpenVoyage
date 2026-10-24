@@ -591,6 +591,7 @@ def test_post_timeline_returns_backend_routes_in_chronological_order(
             {
                 'travel_mode': 'UNKNOWN',
                 'visible_to_members_only': False,
+                'source': 'POST_CONNECTOR',
                 'geometry': {
                     'type': 'LineString',
                     'coordinates': [[-9.1393, 38.7223], [-8.6291, 41.1579]],
@@ -722,7 +723,7 @@ def test_post_timeline_handles_empty_and_private_trips(
 
     assert unauthorized_response.status_code == 404
     assert owner_response.status_code == 200
-    assert owner_response.json() == {'opening_route': None, 'entries': []}
+    assert owner_response.json() == {'opening_route': None, 'entries': [], 'flight_journeys': []}
 
 
 @pytest.mark.integration

@@ -1032,3 +1032,75 @@ def test_selected_option_matches_fresh_cached_preview_and_saved_connection(
     assert saved.json()['itinerary_revision'] == int(saved.headers['etag'].strip('"'))
     assert saved.json()['connection']['route'] == previews[0].json()['connection']['route']
     provider.assert_called_once()
+
+
+def test_lookup_resolves_existing_airports_and_candidate_save_keeps_their_ids(
+    client, db_session, plan, monkeypatch
+):
+    from models.database.tracked_flights import TrackedFlight
+
+    user, trip, _, endpoint, revision, connection, _ = plan
+    airports = []
+    for name, code, zone in [
+        ('Schiphol', 'AMS', 'Europe/Amsterdam'),
+        ('Cape Town', 'CPT', 'Africa/Johannesburg'),
+    ]:
+        airport = create_place(db_session, name=name)
+        airport.feature_class = 'S'
+        airport.feature_code, airport.iata_code, airport.timezone = 'AIRP', code, zone
+        airports.append(airport)
+    db_session.commit()
+    lookup = matched_lookup(db_session, monkeypatch)
+    payload = {'flight_number': 'KL597', 'departure_date': '2026-11-18'}
+    found = client.post(
+        endpoint + '/flight-lookups', headers=headers(user, revision), json=payload
+    )
+    assert found.status_code == 200, found.text
+    candidate = planning_body(found)['candidates'][0]
+    assert candidate['lookup']['departure_airport']['place_id'] == str(airports[0].id)
+    assert candidate['lookup']['arrival_airport']['place_id'] == str(airports[1].id)
+    cached = client.post(
+        endpoint + '/flight-lookups', headers=headers(user, revision), json=payload
+    )
+    assert planning_body(cached)['candidates'][0]['lookup']['departure_airport'][
+        'place_id'
+    ] == str(airports[0].id)
+    save = client.put(
+        endpoint,
+        headers=headers(user, revision),
+        json=connection_write(
+            connection,
+            {
+                'segments': [
+                    {
+                        'travel_mode': 'FLIGHT',
+                        'flight': {
+                            **payload,
+                            'candidate_id': candidate['candidate_id'],
+                        },
+                    }
+                ]
+            },
+        ),
+    )
+    assert save.status_code == 200, save.text
+    saved = planning_body(save)
+    flight = saved['segments'][0]['intent']['flight']
+    assert flight['departure_airport_place_id'] == str(airports[0].id)
+    assert flight['arrival_airport_place_id'] == str(airports[1].id)
+    tracked = db_session.scalar(
+        select(TrackedFlight).where(TrackedFlight.trip_id == trip.id)
+    )
+    assert tracked.departure_airport_place_id == airports[0].id
+    assert tracked.arrival_airport_place_id == airports[1].id
+    notes = client.put(
+        endpoint,
+        headers=headers(user, save.headers['etag']),
+        json=connection_write(
+            connection,
+            {'notes': 'Still matched', 'segments': [saved['segments'][0]['intent']]},
+        ),
+    )
+    assert notes.status_code == 200, notes.text
+    assert planning_body(notes)['segments'][0]['lookup'] is not None
+    lookup.assert_called_once()

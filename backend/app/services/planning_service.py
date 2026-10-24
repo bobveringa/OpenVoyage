@@ -31,6 +31,7 @@ from models.database.locations import Location
 from models.database.places import Place
 from models.database.travel import TravelMode
 from services.planning_models import PreparedConnection, ResolvedSegment
+from services.flight_airports import resolve_flight_airport
 from services.planning_calculator import RouteCalculator
 from services.planning_artifacts import PlanningArtifactStore
 from services.planning_geometry import (
@@ -766,6 +767,15 @@ class PlanningService:
                     seg.lookup.model_dump(mode='json') if seg.lookup else None
                 )
                 row.flight.lookup_owner_user_id = seg.lookup_owner
+                if seg.lookup:
+                    for side in ('departure', 'arrival'):
+                        key = f'{side}_airport_place_id'
+                        if getattr(row.flight, key) is None:
+                            airport = resolve_flight_airport(
+                                self.db, getattr(seg.lookup, f'{side}_airport')
+                            )
+                            if airport:
+                                setattr(row.flight, key, airport.id)
             else:
                 row.flight = None
             keep_route = (

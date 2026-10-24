@@ -27,9 +27,18 @@ const defaultThemePalette = {
 }
 
 const initialSettings: MockSetting[] = [
+  { key: 'flights.update_frequency', value: 'balanced', default_value: 'balanced', value_type: 'enum',
+    description: 'Adaptive flight updates', is_configured: false, runtime_safe: true,
+    updated_at: null, validation: { allowed_values: ['minimal', 'relaxed', 'balanced', 'frequent', 'very_frequent'] }, visibility: 'admin' },
   { key: 'flights.provider', value: 'none', default_value: 'none', value_type: 'enum',
     description: 'Flight lookup provider', is_configured: false, runtime_safe: true,
-    updated_at: null, validation: { allowed_values: ['none', 'aerodatabox'] }, visibility: 'admin' },
+    updated_at: null, validation: { allowed_values: ['none', 'aerodatabox', 'flightaware'] }, visibility: 'admin' },
+  { key: 'flights.flightaware_base_url', value: 'https://aeroapi.flightaware.com/aeroapi', default_value: 'https://aeroapi.flightaware.com/aeroapi', value_type: 'string',
+    description: 'FlightAware endpoint', is_configured: false, runtime_safe: true,
+    updated_at: null, validation: null, visibility: 'admin' },
+  { key: 'flights.flightaware_api_key', value: null, default_value: null, value_type: 'secret',
+    description: 'FlightAware key', is_configured: false, runtime_safe: true,
+    updated_at: null, validation: { min_length: 1, max_length: 2048 }, visibility: 'admin' },
   { key: 'flights.aerodatabox_base_url', value: 'https://aerodatabox.p.rapidapi.com', default_value: 'https://aerodatabox.p.rapidapi.com', value_type: 'string',
     description: 'Flight API endpoint', is_configured: false, runtime_safe: true,
     updated_at: null, validation: null, visibility: 'admin' },
@@ -621,7 +630,8 @@ test('defaults to disabled flight lookup and groups settings below each selected
   await page.goto('/admin#routing')
   const headings = page.getByRole('tabpanel').getByRole('heading', { level: 3 })
   const selection = page.getByLabel('Flight provider', { exact: true })
-  await expect(selection).toHaveText('Flight lookup disabled')
+  await expect(selection).toHaveText('Flight lookup and monitoring disabled')
+  await expect(page.getByText('Selecting none disables both.', { exact: false })).toBeVisible()
   await expect(page.getByLabel('AeroDataBox base URL', { exact: true })).toHaveCount(0)
   await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider'])
 
@@ -635,7 +645,7 @@ test('defaults to disabled flight lookup and groups settings below each selected
 
   const form = page.locator('form').filter({ has: selection })
   await form.getByRole('button', { name: 'Reset', exact: true }).click()
-  await expect(selection).toHaveText('Flight lookup disabled')
+  await expect(selection).toHaveText('Flight lookup and monitoring disabled')
   await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider'])
   expect(api.resets).toContain('flights.provider')
 })
@@ -659,6 +669,51 @@ test('configures the optional flight key through the same write-only admin contr
   expect(api.resets).toContain('flights.rapidapi_api_key')
 })
 
+test('selects FlightAware and saves its key without displaying it', async ({ page }) => {
+  const api = await mockAdminApi(page)
+  await page.goto('/admin#routing')
+  const selection = page.getByLabel('Flight provider', { exact: true })
+  await selection.click()
+  await page.getByRole('option', { name: 'FlightAware AeroAPI', exact: true }).click()
+  await page.locator('form').filter({ has: selection }).getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByLabel('FlightAware base URL', { exact: true })).toHaveValue('https://aeroapi.flightaware.com/aeroapi')
+  await expect(page.getByLabel('AeroDataBox base URL', { exact: true })).toHaveCount(0)
+  const input = page.getByLabel('FlightAware AeroAPI key', { exact: true })
+  const form = page.locator('form').filter({ has: input })
+  await expect(input).toHaveAttribute('type', 'password')
+  await input.fill('synthetic-flightaware-key')
+  await form.getByRole('button', { name: 'Replace key', exact: true }).click()
+  await expect(form.getByText('API key replaced.')).toBeVisible()
+  await expect(input).toHaveValue('')
+  expect(api.updates).toContainEqual({ key: 'flights.flightaware_api_key', value: 'synthetic-flightaware-key' })
+  await page.reload()
+  await expect(selection).toHaveText('FlightAware AeroAPI')
+  await expect(input).toHaveValue('')
+})
+
+test('chooses a named adaptive flight update preset and retains it after reload', async ({ page }) => {
+  const api = await mockAdminApi(page)
+  await page.goto('/admin#routing')
+  const slider = page.getByRole('slider', { name: 'Flight update frequency', exact: true })
+  const form = page.locator('form').filter({ has: slider })
+  await expect(slider).toHaveValue('2')
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Balanced')
+  await slider.focus()
+  await page.keyboard.press('End')
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Very frequent')
+  await page.keyboard.press('ArrowLeft')
+  await expect(slider).toHaveValue('3')
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Frequent')
+  await form.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(form.getByText('Setting saved.')).toBeVisible()
+  expect(api.updates).toContainEqual({ key: 'flights.update_frequency', value: 'frequent' })
+  await page.reload()
+  await expect(slider).toHaveValue('3')
+  await form.getByRole('button', { name: 'Reset', exact: true }).click()
+  await expect(slider).toHaveValue('2')
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Balanced')
+})
+
 test('configures flight endpoints and disables lookup independently of routing', async ({ page }) => {
   const api = await mockAdminApi(page)
   await page.goto('/admin#routing')
@@ -680,7 +735,7 @@ test('configures flight endpoints and disables lookup independently of routing',
   const selection = page.getByLabel('Flight provider', { exact: true })
   const selectionForm = page.locator('form').filter({ has: selection })
   await selection.click()
-  await page.getByRole('option', { name: 'Flight lookup disabled', exact: true }).click()
+  await page.getByRole('option', { name: 'Flight lookup and monitoring disabled', exact: true }).click()
   await selectionForm.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(endpoint).toHaveCount(0)
   expect(api.updates).toContainEqual({ key: 'flights.provider', value: 'none' })

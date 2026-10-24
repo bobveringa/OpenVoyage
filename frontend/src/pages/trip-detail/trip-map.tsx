@@ -17,6 +17,7 @@ import { airportTransferLabel, getAirportTransfers, type AirportTransfer } from 
 import {
   type GpsPostCandidate,
   type ItineraryRouteType,
+  type TrackingJourney,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { getTravelPostsInRouteOrder } from '@/pages/trip-detail/trip-selectors'
@@ -63,7 +64,7 @@ type DraftPostLocation = {
 }
 
 export type MapRouteMode = 'itinerary' | 'travel-timeline'
-type RouteSegmentKind = 'itinerary' | 'post-link' | 'post-to-stop'
+type RouteSegmentKind = 'itinerary' | 'post-link' | 'post-to-stop' | 'journey'
 
 type RouteSegment = {
   coordinates: L.LatLngTuple[]
@@ -73,6 +74,9 @@ type RouteSegment = {
   visibleToMembersOnly?: boolean
   alternative?: boolean
   transfer?: AirportTransfer
+  connectionId?: string
+  pendingJourney?: boolean
+  segmentIndex?: number
 }
 
 type FocusedPostNeighbor = {
@@ -418,6 +422,7 @@ export function TripLeafletMap({
       trackingGeometryRef.current.openingRoute,
       onAirportTransferSelect && routeMode === 'itinerary' ? (transfer) => latestTransferSelectRef.current?.(transfer.connectionId, transfer.side) : undefined,
       offset,
+      trackingGeometryRef.current.journey,
     ))
 
     const routeEndpointLayer = routeEndpointLayerRef.current
@@ -465,9 +470,10 @@ export function TripLeafletMap({
           travelPostsRef.current,
           trackingGeometryRef.current.openingRoute,
           fitMode,
+          { journey: trackingGeometryRef.current.journey },
         )
         if (getMapRouteSegments(routeMode, stopsRef.current, connectionsRef.current,
-          travelPostsRef.current, trackingGeometryRef.current.openingRoute).length > 0) {
+          travelPostsRef.current, trackingGeometryRef.current.openingRoute, trackingGeometryRef.current.journey).length > 0) {
           fittedViewRef.current = viewKey
         }
       }
@@ -482,7 +488,8 @@ export function TripLeafletMap({
     const observer = new ResizeObserver(() => {
       map.invalidateSize({ animate: false })
       fitRouteBounds(map, routeMode, stopsRef.current, connectionsRef.current,
-        travelPostsRef.current, trackingGeometryRef.current.openingRoute, fitMode)
+        travelPostsRef.current, trackingGeometryRef.current.openingRoute, fitMode,
+        { journey: trackingGeometryRef.current.journey })
     })
     observer.observe(map.getContainer())
     return () => observer.disconnect()
@@ -503,7 +510,7 @@ export function TripLeafletMap({
         travelPostsRef.current,
         trackingGeometryRef.current.openingRoute,
         fitMode,
-        { animate: true },
+        { animate: true, journey: trackingGeometryRef.current.journey },
       )
       return
     }
@@ -578,7 +585,7 @@ export function TripLeafletMap({
       travelPostsRef.current,
       trackingGeometryRef.current.openingRoute,
       fitMode,
-      { animate: true },
+      { animate: true, journey: trackingGeometryRef.current.journey },
     )
   }, [fitMode, resetNonce, routeMode])
 
@@ -600,6 +607,7 @@ function renderRouteLayer(
   openingRoute: TravelPostRoute | null,
   onTransferSelect?: (transfer: AirportTransfer) => void,
   longitudeOffset = 0,
+  journey?: TrackingJourney,
 ) {
   const routeSegments = getMapRouteSegments(
     routeMode,
@@ -607,6 +615,7 @@ function renderRouteLayer(
     connections,
     travelPosts,
     openingRoute,
+    journey,
   )
   for (const segment of routeSegments) {
     if (segment.coordinates.length < 2) {
@@ -618,6 +627,9 @@ function renderRouteLayer(
       coordinates,
       getRouteSegmentPathOptions(segment, routeMode),
     ).addTo(routeLayer)
+
+    if (segment.connectionId) line.getElement()?.setAttribute('data-itinerary-connection-id', segment.connectionId)
+    if (segment.segmentIndex !== undefined) line.getElement()?.setAttribute('data-itinerary-segment-index', String(segment.segmentIndex))
 
     if (segment.transfer) {
       const transfer = segment.transfer
@@ -654,6 +666,14 @@ function renderRouteLayer(
       opacity: 0.85,
       weight: 2,
     }).addTo(routeLayer)
+  }
+
+  if (routeMode === 'travel-timeline' && journey) {
+    if (journey.position && journey.active_flight_id) {
+      L.marker(shiftWorldCoordinate([journey.position.latitude, journey.position.longitude], longitudeOffset), {
+        icon: L.divIcon({ className: 'trip-map-div-icon', html: '<span class="grid size-8 place-items-center rounded-full bg-card text-primary shadow-md" aria-label="Estimated flight position">&#9992;</span>', iconSize: [32, 32], iconAnchor: [16, 16] }),
+      }).addTo(routeLayer).bindTooltip('Estimated flight position')
+    }
   }
 
   const showStopOrder = routeMode === 'itinerary'
@@ -806,7 +826,7 @@ function fitRouteBounds(
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
   fitMode: RouteFitMode,
-  options: { animate?: boolean } = {},
+  options: { animate?: boolean; journey?: TrackingJourney } = {},
 ) {
   const routeCoordinates = getRouteBoundsCoordinates(
     routeMode,
@@ -814,6 +834,7 @@ function fitRouteBounds(
     connections,
     travelPosts,
     openingRoute,
+    options.journey,
   )
   if (routeCoordinates.length === 0) {
     map.setView(defaultMapCenter, defaultMapZoom, {
@@ -1138,6 +1159,7 @@ function createRouteKey(
     connectionKey,
     postKey,
     openingRouteKey,
+    JSON.stringify(trackingGeometry.journey),
   ].join('::')
 }
 
@@ -1147,6 +1169,7 @@ function getMapRouteSegments(
   connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
+  journey?: TrackingJourney,
 ): RouteSegment[] {
   if (routeMode === 'travel-timeline') {
     return getTravelTimelineRouteSegments(
@@ -1154,6 +1177,7 @@ function getMapRouteSegments(
       connections,
       travelPosts,
       openingRoute,
+      journey,
     )
   }
 
@@ -1163,20 +1187,30 @@ function getMapRouteSegments(
 function getItineraryRouteSegments(
   stops: readonly MapStop[],
   connections: readonly MapConnection[],
+  journey?: TrackingJourney,
 ): RouteSegment[] {
   const segments: RouteSegment[] = []
   for (const connection of connections) {
-    const fromStop = resolveConnectionEndpoint(connection.from, stops)
+    const current = connection.id === journey?.current_connection_id
+    // Travel hides visited stops. The current connection must still render its
+    // later legs when its departure stop has already left the visible stop list.
+    const origin = connection.segments[0]?.from_endpoint
+    const fromStop = resolveConnectionEndpoint(connection.from, stops) ?? (current && origin
+      ? { title: origin.name, location: origin } : null)
     const toStop = resolveConnectionEndpoint(connection.to, stops)
     if (!fromStop || !toStop) continue
+    const flightIndex = current ? journey?.current_flight_segment_index ?? -1 : -1
     if (connection?.segments?.length) {
       for (const transfer of getAirportTransfers(connection, fromStop, toStop)) {
+        if (current && (transfer.side === 'departure' || flightIndex < 0)) continue
         segments.push({
           coordinates: createGeodesicRoute([[transfer.from.latitude, transfer.from.longitude], [transfer.to.latitude, transfer.to.longitude]]),
-          kind: 'itinerary', routeType: 'SIMPLE', transfer,
+          kind: 'itinerary', routeType: 'SIMPLE', transfer, connectionId: connection.id,
+          pendingJourney: current,
         })
       }
-      for (const segment of connection.segments) {
+      for (const [index, segment] of connection.segments.entries()) {
+        if (current && (flightIndex < 0 || index < flightIndex || (index === flightIndex && journey?.active_flight_id))) continue
         // Missing road calculations have no honest road geometry to draw.
         if (['CAR', 'BIKE', 'WALK'].includes(segment.intent.travel_mode) && segment.route_state !== 'READY') continue
         if (!segment.geometry) continue
@@ -1185,11 +1219,14 @@ function getItineraryRouteSegments(
         for (const option of segment.route_options || []) {
           if (createRouteGeometryKey(option.geometry) === createRouteGeometryKey(segment.geometry)) continue
           const alternative = getGeoJsonLineStringCoordinates(option.geometry)
-          if (alternative) segments.push({ coordinates: alternative, kind: 'itinerary', routeType: 'PROVIDER_BACKED', alternative: true })
+          if (alternative) segments.push({ coordinates: alternative, kind: 'itinerary', routeType: 'PROVIDER_BACKED', alternative: true, connectionId: connection.id, pendingJourney: current })
         }
         segments.push({
           coordinates: segment.route_state === 'READY' ? coordinates : createGeodesicRoute(coordinates),
           kind: 'itinerary',
+          connectionId: connection.id,
+          segmentIndex: index,
+          pendingJourney: current,
           routeType: segment.route_state === 'READY' ? 'PROVIDER_BACKED' : 'SIMPLE',
           travelMode: segment.intent.travel_mode,
         })
@@ -1205,6 +1242,7 @@ function getTravelTimelineRouteSegments(
   connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
+  journey?: TrackingJourney,
 ): RouteSegment[] {
   const postsInRouteOrder = getTravelPostsInRouteOrder(travelPosts)
   // The opening route leads into the first post, so it is drawn before every
@@ -1216,7 +1254,7 @@ function getTravelTimelineRouteSegments(
   const origin = getTravelTimelineRouteOrigin(travelPosts, openingRoute)
   const upcomingStop = stops[0] ?? null
 
-  if (origin && upcomingStop) {
+  if (!journey && origin && upcomingStop) {
     segments.push({
       coordinates: getPointToPointRouteCoordinates(
         origin,
@@ -1227,7 +1265,19 @@ function getTravelTimelineRouteSegments(
     })
   }
 
-  segments.push(...getItineraryRouteSegments(stops, connections))
+  // Replace only the current leg. Later flights and arrival transfers remain
+  // visible until landing makes that ground leg current.
+  segments.push(...getItineraryRouteSegments(stops, connections, journey))
+  if (journey) {
+    for (const geometry of [journey.connector, journey.remaining_flight_route]) {
+      if (!geometry) continue
+      const coordinates = getGeoJsonLineStringCoordinates(geometry)
+      if (coordinates) segments.push({
+        coordinates, kind: 'journey', routeType: 'SIMPLE',
+        visibleToMembersOnly: journey.visible_to_members_only,
+      })
+    }
+  }
   return segments
 }
 
@@ -1255,6 +1305,7 @@ function getRouteSegmentPathOptions(
 ): L.PolylineOptions {
   if (segment.kind === 'post-link') {
     return {
+      className: 'trip-map-traveled-route',
       ...getPostRouteSegmentPathOptions(),
       color: segment.visibleToMembersOnly
         ? getThemeColor('--chart-4', '#C2410C')
@@ -1263,6 +1314,19 @@ function getRouteSegmentPathOptions(
       // hover/focus events that would show a Leaflet tooltip.
       interactive: false,
     }
+  }
+
+  if (segment.kind === 'journey') return {
+    className: 'trip-map-journey-guidance',
+    color: '#64748b',
+    dashArray: '7 9', weight: 3, opacity: .7, interactive: false,
+  }
+
+  if (segment.pendingJourney) return {
+    className: segment.transfer ? 'trip-map-airport-transfer' : undefined,
+    color: '#64748b',
+    dashArray: segment.travelMode === 'FLIGHT' || segment.transfer ? '7 9' : undefined,
+    weight: 3, opacity: 0.6, interactive: false,
   }
 
   if (segment.kind === 'post-to-stop') {
@@ -1322,6 +1386,7 @@ function getRouteBoundsCoordinates(
   connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
+  journey?: TrackingJourney,
 ) {
   const routeCoordinates = getMapRouteSegments(
     routeMode,
@@ -1329,9 +1394,16 @@ function getRouteBoundsCoordinates(
     connections,
     travelPosts,
     openingRoute,
+    journey,
   ).flatMap((segment) => segment.coordinates)
 
+  if (routeMode === 'travel-timeline' && journey) {
+    for (const point of [journey.position, journey.target]) {
+      if (point) routeCoordinates.push([point.latitude, point.longitude])
+    }
+  }
   for (const connection of connections) {
+    if (routeMode === 'travel-timeline' && connection.id === journey?.current_connection_id) continue
     for (const endpoint of [connection.from, connection.to]) {
       if (routeMode !== 'itinerary' && endpoint.type !== 'LOCATION') continue
       const anchor = resolveConnectionEndpoint(endpoint, stops)

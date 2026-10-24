@@ -411,7 +411,7 @@ test('mobile visitors can explore an empty trip without editing controls', async
   )
   await page.route('**/api/v1/trips/*/members', (route) => fulfillJson(route, []))
   await page.goto(`/trips/${tripId}`)
-  await expect(page.getByText('Your journey starts here')).toBeVisible()
+  await expect(page.getByText('No travel posts yet')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Trip tools', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Manage GPS tracking', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'New post' })).toHaveCount(0)
@@ -419,8 +419,53 @@ test('mobile visitors can explore an empty trip without editing controls', async
   await page.getByRole('button', { name: 'Open fullscreen map' }).click()
   await expect(page.getByRole('dialog', { name: 'Fullscreen travel map' })).toBeVisible()
   await page.getByRole('button', { name: 'Exit fullscreen map' }).click()
-  await expect(page.getByText('Your journey starts here')).toBeVisible()
+  await expect(page.getByText('No travel posts yet')).toBeVisible()
 })
+
+for (const mobile of [false, true]) {
+  for (const audience of ['owner', 'viewer', 'anonymous'] as const) {
+    test(`${mobile ? 'mobile' : 'desktop'} ${audience} flight-only timeline has no empty journey prompt`, async ({ page }) => {
+      await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 })
+      if (audience !== 'anonymous') await seedBrowserAuth(page)
+      const release = await mockTripApi(page, audience === 'owner' ? 'OWNER' : 'VIEWER')
+      release()
+      await mockTileServers(page)
+      const airport = { id: 'airport', name: 'Eindhoven', iata_code: 'EIN', latitude: 51.45, longitude: 5.37, timezone: 'Europe/Amsterdam' }
+      await page.route('**/api/v1/trips/*/posts/timeline**', route => fulfillJson(route, {
+        entries: [],
+        opening_route: { duration_seconds: null, segments: [{ travel_mode: 'CAR', source: 'MOBILE_GPS', geometry: { type: 'LineString', coordinates: [[5.3, 51.4], [5.37, 51.45]] } }] },
+        flight_journeys: [{ itinerary_connection_id: 'connection', flights: [{
+          id: 'flight', flight_number: 'FR5682', airline_name: 'Ryanair', departure_airport: airport,
+          arrival_airport: { ...airport, iata_code: 'STN', name: 'Stansted', timezone: 'Europe/London' },
+          status: 'IN_FLIGHT', scheduled_departure: timestamp, scheduled_arrival: '2026-08-05T12:00:00Z',
+          estimated_departure: null, estimated_arrival: null, actual_departure: timestamp, actual_arrival: null,
+          completion_source: null, stop_reason: null, progress: .5, estimate_basis: 'SCHEDULED_DURATION',
+          position_at: timestamp, status_updated_at: timestamp, update_state: 'CURRENT',
+          visible_to_members_only: false, can_complete: false, gps_tracking_session_id: null,
+        }] }],
+      }))
+      await page.goto(`/trips/${tripId}?tab=travel`)
+      await expect(page.getByRole('article', { name: 'FR5682 · In flight', exact: true }).first()).toBeVisible()
+      await expect(page.getByText('Your journey starts here', { exact: true })).toHaveCount(0)
+      await expect(page.getByText('No travel posts yet', { exact: true })).toHaveCount(0)
+      await expect(page.getByLabel('The journey begins', { exact: true })).toHaveCount(0)
+    })
+  }
+}
+
+for (const audience of ['owner', 'viewer', 'anonymous'] as const) {
+  test(`mobile ${audience} empty trip uses appropriate journey wording`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    if (audience !== 'anonymous') await seedBrowserAuth(page)
+    const release = await mockTripApi(page, audience === 'owner' ? 'OWNER' : 'VIEWER')
+    release()
+    await mockTileServers(page)
+    await page.route('**/api/v1/trips/*/posts/timeline**', route => fulfillJson(route, { entries: [], opening_route: null, flight_journeys: [] }))
+    await page.goto(`/trips/${tripId}?tab=travel`)
+    await expect(page.getByText(audience === 'owner' ? 'Your journey starts here' : 'No travel posts yet', { exact: true })).toBeVisible()
+    await expect(page.getByText(audience === 'owner' ? 'Add your first post to bring the map to life.' : 'Stories will appear here as the journey unfolds.', { exact: true })).toBeVisible()
+  })
+}
 
 test('swaps only the base tiles and preserves routes and point selection', async ({
   page,

@@ -5,7 +5,21 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Response
 from starlette import status
 
-from api.deps import CurrentUser, GpsTrackingServiceDep, TrackingUploadUser
+from api.deps import (
+    CurrentUser,
+    GpsTrackingServiceDep,
+    TrackingUploadUser,
+    OptionalCurrentUser,
+    ShareToken,
+    SessionDep,
+)
+from models.api.flights import (
+    FlightCompleteRequest,
+    FlightCompleteResponse,
+    JourneyResponse,
+)
+from services.gps.flight_tracking_service import FlightTrackingService
+from services.gps.journey_service import current_journey
 from core import security
 from core.config import settings
 from models.database.base import utcnow
@@ -32,6 +46,7 @@ from models.api.tracking import (
 )
 from services.gps.tracking_service import (
     InvalidCursorError,
+    FlightRecordingActiveError,
     TrackingPermissionError,
     TrackingSessionConflictError,
     TrackingSessionDeletedError,
@@ -43,6 +58,42 @@ from services.gps.tracking_service import (
 from services.trip_errors import TripNotFoundError
 
 router = APIRouter(prefix='/trips/{trip_id}/tracking', tags=['tracking'])
+
+
+@router.get('/journey', response_model=JourneyResponse)
+def get_tracking_journey(
+    trip_id: uuid.UUID,
+    db: SessionDep,
+    user: OptionalCurrentUser,
+    response: Response,
+    share_token: ShareToken = None,
+):
+    response.headers['Cache-Control'] = 'private, no-store'
+    try:
+        return current_journey(db, trip_id, user.id if user else None, share_token)
+    except TripNotFoundError:
+        raise HTTPException(404, 'Trip not found') from None
+
+
+@router.post('/flights/{flight_id}/complete', response_model=FlightCompleteResponse)
+def complete_tracking_flight(
+    trip_id: uuid.UUID,
+    flight_id: uuid.UUID,
+    payload: FlightCompleteRequest,
+    db: SessionDep,
+    user: CurrentUser,
+    tracking_service: GpsTrackingServiceDep,
+):
+    flight = FlightTrackingService(db).complete(trip_id, flight_id, user.id, payload)
+    return FlightCompleteResponse(
+        flight_id=flight.id,
+        completion_source=flight.completion_source,
+        session=_session_response(
+            SessionSummary(
+                flight.session, tracking_service._count_samples(flight.session.id)
+            )
+        ),
+    )
 
 
 @router.post('/sessions/{session_id}/stop', response_model=TrackingSessionResponse)
@@ -84,6 +135,10 @@ def replace_session_points(
 
 def _raise_http_error(exc: Exception) -> None:
     """Preserve machine-readable deletion and the existing permission errors."""
+    if isinstance(exc, FlightRecordingActiveError):
+        raise HTTPException(
+            409, detail={'code': 'flight_recording_active', 'message': str(exc)}
+        )
     if isinstance(exc, TrackingSessionDeletedError):
         raise HTTPException(
             status_code=409,
@@ -115,6 +170,7 @@ def _session_response(summary: SessionSummary) -> TrackingSessionResponse:
         ended_at=summary.session.ended_at,
         recorded_by_user_id=summary.session.recorded_by_user_id,
         sample_count=summary.sample_count,
+        source=summary.session.source,
     )
 
 
@@ -158,7 +214,7 @@ def issue_tracking_upload_token(
         },
     )
     claims = security.decode_token(token, security.TOKEN_TYPE_TRACKING_UPLOAD)
-    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Cache-Control'] = 'private, no-store'
     return TrackingUploadTokenResponse(
         upload_token=token,
         trip_id=trip_id,
@@ -184,7 +240,7 @@ def tracking_upload_state(
         )
     except Exception as exc:
         _raise_http_error(exc)
-    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Cache-Control'] = 'private, no-store'
     return TrackingUploadStateResponse(
         exists=row is not None and row.deleted_at is None,
         deleted=row is not None and row.deleted_at is not None,
@@ -210,7 +266,7 @@ def list_tracking_sessions(
     except Exception as exc:
         _raise_http_error(exc)
 
-    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Cache-Control'] = 'private, no-store'
     return TrackingSessionListResponse(
         sessions=[_session_response(summary) for summary in summaries]
     )
@@ -327,7 +383,7 @@ def list_post_candidates(
     except Exception as exc:
         _raise_http_error(exc)
 
-    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Cache-Control'] = 'private, no-store'
     return [GpsPostCandidateResponse.from_model(sample) for sample in candidates]
 
 
@@ -394,7 +450,7 @@ def list_track_samples(
     except Exception as exc:
         _raise_http_error(exc)
 
-    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Cache-Control'] = 'private, no-store'
     return CursorPaginatedResponse[TrackSampleResponse](
         items=[TrackSampleResponse.from_model(sample) for sample in samples],
         next_cursor=next_cursor,

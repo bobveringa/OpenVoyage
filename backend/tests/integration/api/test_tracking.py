@@ -183,7 +183,7 @@ def _upload_headers(tracking, session_id):
         f'{tracking.base}/sessions/{session_id}/upload-token', headers=tracking.headers
     )
     assert response.status_code == 200
-    assert response.headers['cache-control'] == 'no-store'
+    assert response.headers['cache-control'] == 'private, no-store'
     return {'Authorization': f'Bearer {response.json()["upload_token"]}'}
 
 
@@ -226,7 +226,7 @@ def test_upload_token_states_privacy_and_retry_contract(
     headers = {'Authorization': f'Bearer {body["upload_token"]}'}
     client = tracking.client
     unknown = client.get(f'{url}/upload-state', headers=headers)
-    assert unknown.headers['cache-control'] == 'no-store'
+    assert unknown.headers['cache-control'] == 'private, no-store'
     assert unknown.json() == {
         'exists': False,
         'deleted': False,

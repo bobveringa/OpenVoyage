@@ -1,4 +1,5 @@
 import { connectionEndpointInput, resolveConnectionEndpoint } from './connection-endpoints'
+import { FlightAttribution } from './flight-attribution'
 import { TripLeafletMap } from './trip-map'
 import { EMPTY_TRACKING_GEOMETRY } from './models'
 import { useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
@@ -446,7 +447,10 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
           <p>{currentConnection.duration_seconds != null ? formatDuration(currentConnection.duration_seconds) + ' · ' + (currentConnection.duration_scope === 'FLIGHT_JOURNEY' ? 'Flight journey; airport transfers excluded' : 'Estimated travel time; waits excluded') : 'No combined duration estimate. Available segment times are shown above.'}</p>
           {currentConnection.warnings.map((warning) => <p key={warning.code + (warning.segment_id ?? '')} className="text-sm">{warning.message}</p>)}
         </div> : null}
-        <p className="text-xs text-muted-foreground">Flight information from <a href="https://aerodatabox.com/" target="_blank" rel="noopener" className="underline">AeroDataBox</a>. Flight lines are approximate.</p>
+        <FlightAttribution approximate providers={[
+          ...Object.values(lookups).flatMap((result) => result.candidates?.map((candidate) => candidate.lookup.provider) ?? []),
+          ...(connection?.segments.map((segment) => segment.lookup?.provider) ?? []),
+        ]} />
         <div className="flex flex-wrap justify-end gap-2">
           <Button disabled={disabled} type="button" variant="outline" onClick={() => void calculate()}>Preview changes</Button>
 

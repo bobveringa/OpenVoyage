@@ -75,7 +75,7 @@ def test_rate_limit_preserves_retry_without_returning_raw_error(monkeypatch):
     )
     with pytest.raises(FlightUnavailable) as caught:
         provider().lookup(INTENT)
-    assert caught.value.reason == 'Flight lookup limit reached'
+    assert caught.value.reason == 'Flight provider request limit reached.'
     assert caught.value.retry_after_seconds == 30
     assert 'test-secret' not in str(caught.value)
 

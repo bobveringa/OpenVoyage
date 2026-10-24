@@ -29,6 +29,7 @@ class GpsTrackingSession(Base):
 
     __tablename__ = 'gps_tracking_sessions'
     __table_args__ = (
+        CheckConstraint("source IN ('MOBILE_GPS', 'FLIGHT_ESTIMATE')", name='ck_gps_session_source'),
         CheckConstraint(
             'ended_at IS NULL OR ended_at >= started_at',
             name='ck_gps_tracking_sessions_ended_after_started',
@@ -41,6 +42,7 @@ class GpsTrackingSession(Base):
         Index(
             'uq_gps_tracking_sessions_trip_open',
             'trip_id',
+            'source',
             unique=True,
             postgresql_where=text('ended_at IS NULL AND deleted_at IS NULL'),
         ),
@@ -53,6 +55,9 @@ class GpsTrackingSession(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default='MOBILE_GPS', server_default='MOBILE_GPS'
+    )
     trip_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey(
             'trips.id',

@@ -84,6 +84,7 @@ import {
   getPrimaryPostMedia,
 } from '@/pages/trip-detail/shared-utils'
 import { TripLeafletMap } from '@/pages/trip-detail/trip-map'
+import { FlightJourneyCard } from '@/pages/trip-detail/flight-card-prototype'
 import {
   scrollPostElementIntoView,
   setPostScrollElement,
@@ -317,6 +318,14 @@ export function TravelingPanel({
   travelPosts: readonly TravelPost[]
   tripId: string
 }) {
+  const hasFlightCards = (trackingGeometry.flightJourneys ?? []).some((journey) => Boolean(journey.flights[0]?.scheduled_departure))
+  function flightCards(beforePostAt: string | null, afterPostAt: string | null, mobile = false) {
+    return (trackingGeometry.flightJourneys ?? []).filter((journey) => {
+      const at = journey.flights[0]?.scheduled_departure
+      return at && (!beforePostAt || at >= beforePostAt) && (!afterPostAt || at < afterPostAt)
+    }).map((journey) => <FlightJourneyCard key={journey.itinerary_connection_id} journey={journey} accessToken={accessToken} tripId={tripId}
+      compact={mobile} className={mobile ? 'trip-mobile-post-carousel__card max-h-[calc(100dvh-15rem)] shrink-0 snap-center overflow-y-auto shadow-lg shadow-foreground/10' : undefined} />)
+  }
   const [activePostId, setActivePostId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null
     const savedPostId = window.history.state?.openVoyageMobilePostId
@@ -608,18 +617,19 @@ export function TravelingPanel({
               ) : null}
 
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-background/80 to-transparent pb-6 pt-6">
-                {displayedPosts.length === 0 ? (
+                {displayedPosts.length === 0 && !hasFlightCards ? (
                   <div className="mx-4 rounded-2xl border border-border bg-card/95 p-4 text-center shadow-sm backdrop-blur">
-                    <p className="text-sm font-semibold">Your journey starts here</p>
+                    <p className="text-sm font-semibold">{canMutate ? 'Your journey starts here' : 'No travel posts yet'}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{canMutate ? 'Add your first post to bring the map to life.' : 'Stories will appear here as the journey unfolds.'}</p>
                   </div>
                 ) : null}
                 <div
                   aria-label="Trip stories"
-                  className="trip-mobile-post-carousel pointer-events-auto flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1"
+                  className="trip-mobile-post-carousel pointer-events-auto flex items-end snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1"
                   ref={mobileCarouselRef}
                 >
-                  {displayedPosts.map((post) => (
+                  {flightCards(null, displayedPosts[0]?.occurredAt ?? null, true)}
+                  {displayedPosts.map((post, index) => (
                     <Fragment key={post.id}>
                       <TravelPostPreviewCard
                         active={focusedPostId === post.id}
@@ -634,8 +644,10 @@ export function TravelingPanel({
                           )
                         }
                       />
+                      {flightCards(post.occurredAt, displayedPosts[index + 1]?.occurredAt ?? null, true)}
                     </Fragment>
                   ))}
+
                 </div>
               </div>
             </>
@@ -673,12 +685,13 @@ export function TravelingPanel({
         </div>
 
         <div className="space-y-5">
-          {trackingGeometry.openingRoute ? (
+          {trackingGeometry.openingRoute && (displayedPosts.length > 0 || !hasFlightCards) ? (
             <PostRouteDuration
               position="before-first-post"
               route={trackingGeometry.openingRoute}
             />
           ) : null}
+          {flightCards(null, displayedPosts[0]?.occurredAt ?? null)}
           {displayedPosts.map((post, index) => (
             <Fragment key={post.id}>
               <TravelPostCard
@@ -712,8 +725,10 @@ export function TravelingPanel({
               post.routeAfter?.durationSeconds === null ? (
                 <PostRouteDuration position="after-last-post" route={post.routeAfter} />
               ) : null}
+              {flightCards(post.occurredAt, displayedPosts[index + 1]?.occurredAt ?? null)}
             </Fragment>
           ))}
+
         </div>
       </div>
     </div>

@@ -34,6 +34,7 @@ import {
   getPost,
   listGpsPostCandidates,
   getPostTimeline,
+  getTrackingJourney,
   getTrip,
   listTripMembers,
   listTripShareLinks,
@@ -328,17 +329,19 @@ export function TripDetailPage({
       return { posts: [], trackingGeometry: EMPTY_TRACKING_GEOMETRY }
     }
 
-    const timeline = await getPostTimeline({
+    const [timeline, journey] = await Promise.all([getPostTimeline({
       accessToken,
       shareToken,
       status: accessToken ? 'all' : 'published',
       tripId,
-    })
+    }), getTrackingJourney({ tripId, accessToken, shareToken }).catch(() => undefined)])
 
     return {
       posts: timeline.entries.map(toTravelTimelinePostViewModel),
       trackingGeometry: {
         openingRoute: toTravelPostRouteViewModel(timeline.opening_route),
+        flightJourneys: timeline.flight_journeys,
+        journey,
       },
     }
   }, [accessToken, shareToken, tripId])
@@ -358,7 +361,7 @@ export function TripDetailPage({
   }, [accessToken, tripId])
 
   useEffect(() => {
-    if (!tripId || authStatus === 'loading' || !isTripCurrentlyOngoing || loadState.status !== 'success') return
+    if (!tripId || authStatus === 'loading' || loadState.status !== 'success') return
     let current = true
     let pending = false
     const refresh = async () => {
@@ -2016,6 +2019,7 @@ function toTravelPostRouteViewModel(
           {
             coordinates,
             travelMode: segment.travel_mode,
+            source: segment.source,
             visibleToMembersOnly: segment.visible_to_members_only,
           },
         ]

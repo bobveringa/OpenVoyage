@@ -13,7 +13,6 @@ from .handlers import (
 )
 
 
-
 def create_geonames_import_job(db: Session) -> GeoNamesImportJob:
     app_settings = AppSettingsService(db)
     place_service = PlaceService(db)

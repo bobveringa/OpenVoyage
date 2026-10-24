@@ -781,7 +781,7 @@ function BrowserTrackingProvider({ children }: TrackingProviderProps) {
           }
         }
 
-        const openSession = sessions.find((session) => session.ended_at === null)
+        const openSession = sessions.find((session) => session.ended_at === null && session.source !== 'FLIGHT_ESTIMATE')
         if (openSession) {
           setError('A recording is already in progress for this trip.')
           setStatus('idle')

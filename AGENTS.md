@@ -9,6 +9,7 @@
 
 - Preserve privacy and access rules for trips, shared links, GPS tracks, and media. Add regression tests when changing them.
 - Regenerate frontend API files with `npm run api:generate` after API contract changes; do not edit generated files directly.
+- Artifacts from debugging (e.g. screenshots, logs, etc.) should be stored in `private/artifacts/<name>`
 
 ## Checks
 

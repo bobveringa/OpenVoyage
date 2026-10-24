@@ -707,6 +707,59 @@
         "title": "ExistingLocationInput",
         "type": "object"
       },
+      "FlightAirportResponse": {
+        "properties": {
+          "iata_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iata Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "iata_code",
+          "latitude",
+          "longitude",
+          "timezone"
+        ],
+        "title": "FlightAirportResponse",
+        "type": "object"
+      },
       "FlightCandidate": {
         "properties": {
           "candidate_id": {
@@ -735,6 +788,59 @@
           "duration_seconds"
         ],
         "title": "FlightCandidate",
+        "type": "object"
+      },
+      "FlightCompleteRequest": {
+        "properties": {
+          "arrival_airport_place_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arrival Airport Place Id"
+          },
+          "estimated_arrival": {
+            "format": "date-time",
+            "title": "Estimated Arrival",
+            "type": "string"
+          }
+        },
+        "required": [
+          "estimated_arrival"
+        ],
+        "title": "FlightCompleteRequest",
+        "type": "object"
+      },
+      "FlightCompleteResponse": {
+        "properties": {
+          "completion_source": {
+            "enum": [
+              "PROVIDER",
+              "OWNER"
+            ],
+            "title": "Completion Source",
+            "type": "string"
+          },
+          "flight_id": {
+            "format": "uuid",
+            "title": "Flight Id",
+            "type": "string"
+          },
+          "session": {
+            "$ref": "#/components/schemas/TrackingSessionResponse"
+          }
+        },
+        "required": [
+          "flight_id",
+          "completion_source",
+          "session"
+        ],
+        "title": "FlightCompleteResponse",
         "type": "object"
       },
       "FlightIntent": {
@@ -814,6 +920,28 @@
           }
         },
         "title": "FlightIntent",
+        "type": "object"
+      },
+      "FlightJourneyResponse": {
+        "properties": {
+          "flights": {
+            "items": {
+              "$ref": "#/components/schemas/TrackedFlightResponse"
+            },
+            "title": "Flights",
+            "type": "array"
+          },
+          "itinerary_connection_id": {
+            "format": "uuid",
+            "title": "Itinerary Connection Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "itinerary_connection_id",
+          "flights"
+        ],
+        "title": "FlightJourneyResponse",
         "type": "object"
       },
       "FlightLookup": {
@@ -2268,6 +2396,168 @@
         "title": "JobUpdateRequest",
         "type": "object"
       },
+      "JourneyPosition": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "source": {
+            "enum": [
+              "MOBILE_GPS",
+              "FLIGHT_ESTIMATE",
+              "POST_CONNECTOR"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude",
+          "at",
+          "source"
+        ],
+        "title": "JourneyPosition",
+        "type": "object"
+      },
+      "JourneyResponse": {
+        "properties": {
+          "active_flight_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Flight Id"
+          },
+          "connector": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoJsonLineString"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current_connection_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Connection Id"
+          },
+          "current_flight_segment_index": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Flight Segment Index"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JourneyPosition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remaining_flight_route": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoJsonLineString"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "server_time": {
+            "format": "date-time",
+            "title": "Server Time",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JourneyTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visible_to_members_only": {
+            "default": false,
+            "title": "Visible To Members Only",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "server_time"
+        ],
+        "title": "JourneyResponse",
+        "type": "object"
+      },
+      "JourneyTarget": {
+        "properties": {
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "AIRPORT",
+              "CURRENT_STOP",
+              "DESTINATION"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "latitude",
+          "longitude"
+        ],
+        "title": "JourneyTarget",
+        "type": "object"
+      },
       "LocationConnectionEndpointInput": {
         "additionalProperties": false,
         "properties": {
@@ -3404,6 +3694,13 @@
             "title": "Entries",
             "type": "array"
           },
+          "flight_journeys": {
+            "items": {
+              "$ref": "#/components/schemas/FlightJourneyResponse"
+            },
+            "title": "Flight Journeys",
+            "type": "array"
+          },
           "opening_route": {
             "anyOf": [
               {
@@ -3456,6 +3753,16 @@
         "properties": {
           "geometry": {
             "$ref": "#/components/schemas/GeoJsonLineString"
+          },
+          "source": {
+            "default": "POST_CONNECTOR",
+            "enum": [
+              "MOBILE_GPS",
+              "FLIGHT_ESTIMATE",
+              "POST_CONNECTOR"
+            ],
+            "title": "Source",
+            "type": "string"
           },
           "travel_mode": {
             "$ref": "#/components/schemas/TravelMode"
@@ -4781,6 +5088,260 @@
         "title": "TrackSessionPointsReplaceRequest",
         "type": "object"
       },
+      "TrackedFlightResponse": {
+        "properties": {
+          "actual_arrival": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Arrival"
+          },
+          "actual_departure": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Departure"
+          },
+          "airline_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Airline Name"
+          },
+          "arrival_airport": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlightAirportResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "can_complete": {
+            "default": false,
+            "title": "Can Complete",
+            "type": "boolean"
+          },
+          "completion_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "PROVIDER",
+                  "OWNER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Source"
+          },
+          "departure_airport": {
+            "$ref": "#/components/schemas/FlightAirportResponse"
+          },
+          "estimate_basis": {
+            "anyOf": [
+              {
+                "enum": [
+                  "PROVIDER_TIMES",
+                  "SCHEDULED_DURATION"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate Basis"
+          },
+          "estimated_arrival": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Arrival"
+          },
+          "estimated_departure": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Departure"
+          },
+          "flight_number": {
+            "title": "Flight Number",
+            "type": "string"
+          },
+          "gps_tracking_session_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gps Tracking Session Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "position_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position At"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "scheduled_arrival": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled Arrival"
+          },
+          "scheduled_departure": {
+            "format": "date-time",
+            "title": "Scheduled Departure",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "UNKNOWN",
+              "SCHEDULED",
+              "CHECK_IN",
+              "BOARDING",
+              "GATE_CLOSED",
+              "DELAYED",
+              "IN_FLIGHT",
+              "ARRIVED",
+              "CANCELLED",
+              "DIVERTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Updated At"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MANUAL",
+                  "NEXT_FLIGHT_DEPARTED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "update_state": {
+            "enum": [
+              "CURRENT",
+              "STALE",
+              "UNAVAILABLE"
+            ],
+            "title": "Update State",
+            "type": "string"
+          },
+          "visible_to_members_only": {
+            "title": "Visible To Members Only",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "flight_number",
+          "airline_name",
+          "departure_airport",
+          "arrival_airport",
+          "status",
+          "scheduled_departure",
+          "scheduled_arrival",
+          "estimated_departure",
+          "estimated_arrival",
+          "actual_departure",
+          "actual_arrival",
+          "completion_source",
+          "stop_reason",
+          "progress",
+          "estimate_basis",
+          "position_at",
+          "status_updated_at",
+          "update_state",
+          "visible_to_members_only"
+        ],
+        "title": "TrackedFlightResponse",
+        "type": "object"
+      },
       "TrackingConflictResponse": {
         "properties": {
           "detail": {
@@ -4908,6 +5469,15 @@
           "sample_count": {
             "title": "Sample Count",
             "type": "integer"
+          },
+          "source": {
+            "default": "MOBILE_GPS",
+            "enum": [
+              "MOBILE_GPS",
+              "FLIGHT_ESTIMATE"
+            ],
+            "title": "Source",
+            "type": "string"
           },
           "started_at": {
             "format": "date-time",
@@ -12511,6 +13081,138 @@
         "summary": "Update Share Link",
         "tags": [
           "trips"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/tracking/flights/{flight_id}/complete": {
+      "post": {
+        "operationId": "complete_tracking_flight_api_v1_trips__trip_id__tracking_flights__flight_id__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "flight_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Flight Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlightCompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlightCompleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Complete Tracking Flight",
+        "tags": [
+          "tracking"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/tracking/journey": {
+      "get": {
+        "operationId": "get_tracking_journey_api_v1_trips__trip_id__tracking_journey_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JourneyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Tracking Journey",
+        "tags": [
+          "tracking"
         ]
       }
     },

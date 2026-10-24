@@ -41,6 +41,7 @@ export function TrackingSessionDetail({
   onBack,
   onSaved,
 }: Props) {
+  const readOnly = session.source === 'FLIGHT_ESTIMATE' && !session.ended_at
   const { preference } = useClockFormat()
   const root = useRef<HTMLDivElement>(null)
   const mapContainer = useRef<HTMLDivElement>(null)
@@ -246,7 +247,7 @@ export function TrackingSessionDetail({
       <div className="flex h-dvh w-full flex-col overflow-hidden bg-background shadow-2xl md:h-[min(800px,90dvh)] md:max-w-6xl md:rounded-2xl md:border md:border-border">
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3 pt-[max(.75rem,var(--app-safe-area-inset-top))]">
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold">Edit recording</h2>
+            <h2 className="text-lg font-semibold">{readOnly ? 'Flight recording' : 'Edit recording'}</h2>
             <p className="truncate text-xs text-muted-foreground">{formatDateTime(new Date(session.started_at), { dateStyle: 'short', timeStyle: 'medium' }, preference)}</p>
           </div>
           <Button variant="ghost" disabled={busy} onClick={back} aria-label="← Recordings"><ArrowLeft className="size-4" aria-hidden="true" />Recordings</Button>
@@ -262,7 +263,7 @@ export function TrackingSessionDetail({
           origin={origin}
           moveRadius={moveRadius}
           insertion={insertion}
-          disabled={busy}
+          disabled={busy || readOnly}
           fitKey={session.id}
           onNotice={setNotice}
           onSelect={select}
@@ -307,7 +308,7 @@ export function TrackingSessionDetail({
         <Button
           className="absolute right-2 top-2 z-10 min-h-11 bg-background shadow-sm md:hidden"
           variant="outline"
-          disabled={busy}
+          disabled={busy || readOnly}
           aria-expanded={mapExpanded}
           onClick={() => {
             setMapExpanded(value => !value)
@@ -324,7 +325,7 @@ export function TrackingSessionDetail({
             <Button
               size="sm"
               variant="ghost"
-              disabled={busy}
+              disabled={busy || readOnly}
               onClick={() => {
                 setRange([minTime, maxTime])
                 setSelectedId(selectedId || draft[0]?.id || '')
@@ -339,7 +340,7 @@ export function TrackingSessionDetail({
             min={minTime}
             max={maxTime}
             value={range}
-            disabled={busy}
+            disabled={busy || readOnly}
             onChange={(value) => {
               setRange(value)
               setNotice('')
@@ -365,17 +366,18 @@ export function TrackingSessionDetail({
         </p>
           </div>
           <aside className="space-y-4 border-t border-border p-3 md:overflow-y-auto md:border-l md:border-t-0 md:p-4">
+            {readOnly ? <p className="text-sm text-muted-foreground">Complete or stop this flight recording before editing its points.</p> : null}
             <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1" role="group" aria-label="Editing tools">
-              <Button className="min-h-11" variant={tool === 'point' ? 'default' : 'ghost'} aria-pressed={tool === 'point'} disabled={busy} onClick={() => { setTool('point'); setInserting(false) }}><MapPin className="size-4" aria-hidden="true" />Edit point</Button>
-              <Button className="min-h-11" variant={tool === 'transport' ? 'default' : 'ghost'} aria-pressed={tool === 'transport'} disabled={busy} onClick={() => { setTool('transport'); setInserting(false); setNotice('') }}><Route className="size-4" aria-hidden="true" />Bulk transport</Button>
+              <Button className="min-h-11" variant={tool === 'point' ? 'default' : 'ghost'} aria-pressed={tool === 'point'} disabled={busy || readOnly} onClick={() => { setTool('point'); setInserting(false) }}><MapPin className="size-4" aria-hidden="true" />Edit point</Button>
+              <Button className="min-h-11" variant={tool === 'transport' ? 'default' : 'ghost'} aria-pressed={tool === 'transport'} disabled={busy || readOnly} onClick={() => { setTool('transport'); setInserting(false); setNotice('') }}><Route className="size-4" aria-hidden="true" />Bulk transport</Button>
             </div>
 
             {tool === 'transport' && (
               <section className="space-y-3">
                 <h3 className="font-semibold">Transport for {visible.length} points</h3>
                 <p className="text-sm text-muted-foreground">Use the timeline to focus on part of the recording, then apply a transport type to all points in view.</p>
-                <Select ariaLabel="Bulk transport type" value={bulkMode} options={TRAVEL_MODE_OPTIONS} disabled={busy || !visible.length} onValueChange={setBulkMode} />
-                <Button className="w-full" disabled={busy || !bulkChangeCount} onClick={() => {
+                <Select ariaLabel="Bulk transport type" value={bulkMode} options={TRAVEL_MODE_OPTIONS} disabled={busy || readOnly || !visible.length} onValueChange={setBulkMode} />
+                <Button className="w-full" disabled={busy || readOnly || !bulkChangeCount} onClick={() => {
                   change(draft.map(p => bulkIds.has(p.id) ? { ...p, travel_mode: bulkMode } : p))
                   setNotice(`Transport updated for ${bulkChangeCount} points. Save changes to finish.`)
                 }}>Apply to {visible.length} points</Button>
@@ -404,7 +406,7 @@ export function TrackingSessionDetail({
                   min={1}
                   max={visible.length}
                   value={visibleIndex < 0 ? '' : visibleIndex + 1}
-                  disabled={busy}
+                  disabled={busy || readOnly}
                   onChange={(e) => {
                     const p = visible[Number(e.target.value) - 1]
                     if (p) select(p.id)
@@ -417,7 +419,7 @@ export function TrackingSessionDetail({
                 className="size-11"
                 size="icon"
                 variant="ghost"
-                disabled={busy || !next}
+                disabled={busy || readOnly || !next}
                 onClick={() => select(next.id)}
               >
                 <ChevronRight className="size-5" aria-hidden="true" />
@@ -436,7 +438,7 @@ export function TrackingSessionDetail({
                 ariaLabel="Point travel mode"
                 value={selected.travel_mode}
                 options={TRAVEL_MODE_OPTIONS}
-                disabled={busy}
+                disabled={busy || readOnly}
                 onValueChange={(mode) => {
                   if (!busy && mode !== selected.travel_mode)
                     change(
@@ -456,7 +458,7 @@ export function TrackingSessionDetail({
                   variant="outline"
                   className="min-h-11 px-2 text-xs"
                   disabled={
-                    busy ||
+                    busy || readOnly ||
                     !next ||
                     Date.parse(next.recorded_at) -
                       Date.parse(selected.recorded_at) <
@@ -471,7 +473,7 @@ export function TrackingSessionDetail({
                   variant="outline"
                   className="min-h-11 px-2 text-xs text-destructive"
                   disabled={
-                    busy ||
+                    busy || readOnly ||
                     draft.some(
                       (p) =>
                         p.after_id === selected.id ||
@@ -505,7 +507,7 @@ export function TrackingSessionDetail({
                 .map((p) => (
                   <li key={p.id}>
                     <button
-                      disabled={busy}
+                      disabled={busy || readOnly}
                       className={`min-h-11 w-full px-2 py-3 text-left text-sm ${p.id === selectedId ? 'bg-primary/15 font-semibold' : ''}`}
                       aria-pressed={p.id === selectedId}
                       onClick={() => select(p.id)}
@@ -566,7 +568,7 @@ export function TrackingSessionDetail({
             <Button
               className="min-h-11"
               variant="outline"
-              disabled={!dirty || busy}
+              disabled={!dirty || busy || readOnly}
               onClick={() => {
                 const previous = history[history.length - 1]
                 setDraft(previous)
@@ -582,7 +584,7 @@ export function TrackingSessionDetail({
             </Button>
 
             <span className="hidden text-xs text-muted-foreground sm:block">{dirty ? 'Unsaved changes' : 'All changes saved'}</span>
-            <Button className="min-h-11" disabled={!dirty || busy} onClick={() => void save()}><Save className="size-4" aria-hidden="true" />{busy ? 'Saving…' : 'Save changes'}</Button>
+            <Button className="min-h-11" disabled={!dirty || busy || readOnly} onClick={() => void save()}><Save className="size-4" aria-hidden="true" />{busy ? 'Saving…' : 'Save changes'}</Button>
           </div>
         </footer>
         {confirmLeave && (

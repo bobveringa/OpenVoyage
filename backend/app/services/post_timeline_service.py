@@ -1,5 +1,5 @@
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -15,6 +15,8 @@ from models.database.user import User, UserProfile
 from services.gps.tracking_service import GpsTrackingService, TimelineGeometry
 from services.trip_errors import TripNotFoundError
 from services.trip_access import get_trip_read_access
+from services.gps.flight_tracking_service import FlightTrackingService
+from models.api.flights import FlightJourneyResponse
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,7 @@ class PostTimeline:
     opening_segments: list[PostTimelineRouteSegmentResponse] | None
     entries: list[PostTimelineEntry]
     carries_unbounded_open_geometry: bool
+    flight_journeys: list[FlightJourneyResponse] = field(default_factory=list)
 
 
 class PostTimelineService:
@@ -129,6 +132,7 @@ class PostTimelineService:
             opening_segments=geometry.opening_segments,
             entries=entries,
             carries_unbounded_open_geometry=geometry.carries_unbounded_open_geometry,
+            flight_journeys=FlightTrackingService(self.db).cards(access, posts),
         )
 
     @staticmethod

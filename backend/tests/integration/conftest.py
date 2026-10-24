@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +13,7 @@ import core.db
 from api.deps import get_db
 from api.deps import route_provider_factory
 from jobs.runner import JobRunner
+import main
 from main import app
 from services.app_settings_service import app_settings_cache
 from core.config import settings
@@ -65,6 +67,9 @@ def idle_job_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     reports next run times; only the thread that would run the work stays down.
     """
     monkeypatch.setattr(JobRunner, 'start', lambda self: None)
+    # Monitor integration tests construct their own runtime explicitly. Ordinary
+    # API tests must not contact providers or the configured application database.
+    monkeypatch.setattr(main, 'FlightMonitorRuntime', Mock)
 
 
 @pytest.fixture(scope='function')

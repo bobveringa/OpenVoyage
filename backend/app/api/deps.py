@@ -327,8 +327,11 @@ def get_route_provider(
     return factory.create_routing_provider(app_settings_service)
 
 
-def get_flight_provider_factory() -> FlightProviderFactory:
-    return FlightProviderFactory()
+def get_flight_provider_factory(session: SessionDep) -> FlightProviderFactory:
+    from functools import partial
+    from services.flight_airports import lookup_airport_endpoint
+
+    return FlightProviderFactory(airport_resolver=partial(lookup_airport_endpoint, session))
 
 
 def get_flight_provider(

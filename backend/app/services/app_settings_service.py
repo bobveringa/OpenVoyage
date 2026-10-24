@@ -204,6 +204,10 @@ class AppSettingsService:
             stored_value = validated_value
             stored_secret = None
 
+        if key.startswith('flights.'):
+            from services.flight_settings import lock_flight_settings
+            lock_flight_settings(self.db)
+
         now = utcnow()
         insert_statement = insert(AppSetting).values(
             key=key,
@@ -226,6 +230,10 @@ class AppSettingsService:
             upsert_statement.returning(AppSetting)
         ).scalar_one()
         response = self._admin_record(definition, persisted_row)
+        if key.startswith('flights.'):
+            from sqlalchemy import update
+            from models.database.tracked_flights import TrackedFlight
+            self.db.execute(update(TrackedFlight).where(TrackedFlight.last_check_result == 'CONFIGURATION_ERROR', TrackedFlight.completion_source.is_(None), TrackedFlight.stop_reason.is_(None)).values(next_check_at=utcnow(), last_check_result='NOT_CHECKED'))
         self.db.commit()
         self.db.expire_all()
         self.cache.invalidate(self._cache_scope, key)
@@ -233,7 +241,14 @@ class AppSettingsService:
 
     def reset_setting(self, key: str) -> AdminSettingRecord:
         definition = self._require_admin_definition(key)
+        if key.startswith('flights.'):
+            from services.flight_settings import lock_flight_settings
+            lock_flight_settings(self.db)
         self.db.execute(delete(AppSetting).where(AppSetting.key == key))
+        if key.startswith('flights.'):
+            from sqlalchemy import update
+            from models.database.tracked_flights import TrackedFlight
+            self.db.execute(update(TrackedFlight).where(TrackedFlight.last_check_result == 'CONFIGURATION_ERROR', TrackedFlight.completion_source.is_(None), TrackedFlight.stop_reason.is_(None)).values(next_check_at=utcnow(), last_check_result='NOT_CHECKED'))
         self.db.commit()
         self.db.expire_all()
         self.cache.invalidate(self._cache_scope, key)

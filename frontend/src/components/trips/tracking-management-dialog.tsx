@@ -512,7 +512,7 @@ export function TrackingManagementPanel({
                         {session.sample_count === 1 ? '' : 's'}
                       </span>
                       {session.recorded_by_user_id ? null : (
-                        <span>· removed account</span>
+                        <span>· {session.source === 'FLIGHT_ESTIMATE' ? 'Flight estimate' : 'removed account'}</span>
                       )}
                     </p>
                     <RecordingBadge
@@ -533,7 +533,7 @@ export function TrackingManagementPanel({
                     localSession?.sessionId === session.id &&
                     localSession.endedAt
                   ) &&
-                  (session.recorded_by_user_id === currentUser?.id ||
+                  (session.source === 'FLIGHT_ESTIMATE' || session.recorded_by_user_id === currentUser?.id ||
                     currentUser?.role === 'ADMIN') && (
                     <Button
                       className="min-h-11"

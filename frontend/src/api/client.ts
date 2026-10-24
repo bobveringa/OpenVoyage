@@ -126,6 +126,9 @@ export type PostTimelineRoute =
 export type PostTimelineOpeningRoute =
   components['schemas']['PostTimelineOpeningRouteResponse']
 export type PostTimeline = components['schemas']['PostTimelineResponse']
+export type TrackedFlight = components['schemas']['TrackedFlightResponse']
+export type FlightJourney = components['schemas']['FlightJourneyResponse']
+export type TrackingJourney = components['schemas']['JourneyResponse']
 export type PostTimelineRouteSegment =
   components['schemas']['PostTimelineRouteSegmentResponse']
 export type GpsPrivacyZone = components['schemas']['GpsPrivacyZoneResponse']
@@ -2154,5 +2157,17 @@ export async function lookupFlight(options: { tripId: string; connectionId?: str
   return requestJson<FlightLookupResult>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/connections${options.connectionId ? '/' + encodeURIComponent(options.connectionId) : ''}/flight-lookups`, {
     method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
     json: options.payload, timeoutMs: 35_000, signal: options.signal,
+  })
+}
+
+
+export function getTrackingJourney(options: { tripId: string; accessToken?: string | null; shareToken?: string | null }): Promise<TrackingJourney> {
+  return requestJson<TrackingJourney>(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/journey`, options)
+}
+
+export function completeFlight(options: { tripId: string; flightId: string; accessToken: string; estimatedArrival: string; arrivalAirportPlaceId?: string }): Promise<components['schemas']['FlightCompleteResponse']> {
+  return requestJson(`${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/tracking/flights/${encodeURIComponent(options.flightId)}/complete`, {
+    method: 'POST', accessToken: options.accessToken,
+    json: { estimated_arrival: options.estimatedArrival, arrival_airport_place_id: options.arrivalAirportPlaceId },
   })
 }
