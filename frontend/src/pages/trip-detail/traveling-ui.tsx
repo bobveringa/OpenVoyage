@@ -85,6 +85,7 @@ import {
 } from '@/pages/trip-detail/shared-utils'
 import { TripLeafletMap } from '@/pages/trip-detail/trip-map'
 import { FlightJourneyCard } from '@/pages/trip-detail/flight-card-prototype'
+import { flightStoryId } from './flight-map-focus'
 import {
   scrollPostElementIntoView,
   setPostScrollElement,
@@ -98,6 +99,8 @@ export function MobileTravelMap({
   tripId,
   fullscreenOnMount = false,
   focusedPostId,
+  focusedFlightId = null,
+  flightFocusBottomPadding,
   gpsPostCandidates,
   isTripOngoing,
   onGpsPostCandidateSelect,
@@ -113,6 +116,8 @@ export function MobileTravelMap({
   tripId: string
   fullscreenOnMount?: boolean
   focusedPostId: string | null
+  focusedFlightId?: string | null
+  flightFocusBottomPadding?: number
   gpsPostCandidates: readonly GpsPostCandidate[]
   isTripOngoing: boolean
   onGpsPostCandidateSelect: (candidate: GpsPostCandidate) => void
@@ -190,6 +195,8 @@ export function MobileTravelMap({
         resetNonce={resetNonce}
         routeMode="travel-timeline"
         focusedPostId={focusedPostId}
+        focusedFlightId={focusedFlightId}
+        flightFocusBottomPadding={fullscreen ? undefined : flightFocusBottomPadding}
         stops={stops}
         connections={connections}
         trackingGeometry={trackingGeometry}
@@ -324,7 +331,14 @@ export function TravelingPanel({
       const at = journey.flights[0]?.scheduled_departure
       return at && (!beforePostAt || at >= beforePostAt) && (!afterPostAt || at < afterPostAt)
     }).map((journey) => <FlightJourneyCard key={journey.itinerary_connection_id} journey={journey} accessToken={accessToken} tripId={tripId}
-      mobile={mobile} className={mobile ? 'trip-mobile-post-carousel__card shrink-0 snap-center shadow-sm' : undefined} />)
+      mobile={mobile} onFlightRef={mobile ? (id, element) => setPostScrollElement(mobilePostElementsRef, flightStoryId(id), element) : undefined}
+      activeFlightId={mobile ? focusedFlightId : undefined}
+      onFlightSelect={mobile ? (id) => {
+        setFocusedFlightId(id); onFocusedPostChange(null)
+        const element = mobilePostElementsRef.current.get(flightStoryId(id))
+        if (element && mobileCarouselRef.current) scrollPostElementIntoView({ axis: 'x', behavior: 'auto', element, rootElement: mobileCarouselRef.current })
+      } : undefined}
+      className={mobile ? 'trip-mobile-post-carousel__card shrink-0 snap-center shadow-sm' : undefined} />)
   }
   const [activePostId, setActivePostId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null
@@ -343,6 +357,19 @@ export function TravelingPanel({
     () => displayedPosts.map((post) => post.id),
     [displayedPosts],
   )
+  const flightStoryIds = useMemo(() => new Map((trackingGeometry.flightJourneys ?? []).flatMap(journey =>
+    journey.flights.map(flight => [flightStoryId(flight.id), flight.id] as const))), [trackingGeometry.flightJourneys])
+  const mobileStoryIds = useMemo(() => {
+    const flightsBetween = (before: string | null, after: string | null) => (trackingGeometry.flightJourneys ?? [])
+      .filter(journey => {
+        const at = journey.flights[0]?.scheduled_departure
+        return at && (!before || at >= before) && (!after || at < after)
+      }).flatMap(journey => journey.flights.map(flight => flightStoryId(flight.id)))
+    return [...flightsBetween(null, displayedPosts[0]?.occurredAt ?? null), ...displayedPosts.flatMap((post, index) =>
+      [post.id, ...flightsBetween(post.occurredAt, displayedPosts[index + 1]?.occurredAt ?? null)])]
+  }, [displayedPosts, trackingGeometry.flightJourneys])
+  const [focusedFlightId, setFocusedFlightId] = useState<string | null>(null)
+  const [mobileCardsHeight, setMobileCardsHeight] = useState(0)
   const draftCount = useMemo(
     () => displayedPosts.filter((post) => post.isDraft).length,
     [displayedPosts],
@@ -362,13 +389,17 @@ export function TravelingPanel({
   const handleScrollFocusedPostChange = useCallback(
     (postId: string | null) => {
       if (!suppressScrollFocusRef.current) {
-        onFocusedPostChange(postId)
+        const flightId = postId ? flightStoryIds.get(postId) : null
+        setFocusedFlightId(flightId ?? null)
+        onFocusedPostChange(flightId ? null : postId)
       }
     },
-    [onFocusedPostChange],
+    [onFocusedPostChange, flightStoryIds],
   )
   const handleViewedPostChange = useCallback(
     (postId: string) => {
+      if (flightStoryIds.has(postId)) return
+      setFocusedFlightId(null)
       setViewedPostId(postId)
       if (showMobileMap) {
         onFocusedPostChange(postId)
@@ -380,7 +411,7 @@ export function TravelingPanel({
       lastRecordedPostIdRef.current = postId
       onViewedPostChange(postId)
     },
-    [onFocusedPostChange, onViewedPostChange, showMobileMap],
+    [onFocusedPostChange, onViewedPostChange, showMobileMap, flightStoryIds],
   )
   const jumpToNextNewPost = useCallback(() => {
     const viewedPostIndex = viewedPostId
@@ -421,9 +452,17 @@ export function TravelingPanel({
     onFocusedPostChange: handleScrollFocusedPostChange,
     onViewedPostChange: handleViewedPostChange,
     postElementsRef: mobilePostElementsRef,
-    postIds: displayedPostIds,
+    postIds: mobileStoryIds,
     rootRef: mobileCarouselRef,
   })
+
+  useEffect(() => {
+    const carousel = mobileCarouselRef.current
+    if (!showMobileMap || activePost || !carousel) return
+    const observer = new ResizeObserver(() => setMobileCardsHeight(Math.ceil(carousel.getBoundingClientRect().height)))
+    observer.observe(carousel)
+    return () => observer.disconnect()
+  }, [showMobileMap, activePost])
 
   useEffect(() => {
     if (!scrollRequest) {
@@ -583,6 +622,8 @@ export function TravelingPanel({
                 tripId={tripId}
                 fullscreenOnMount={restoreFullscreenMap}
                 focusedPostId={focusedPostId}
+                focusedFlightId={focusedFlightId}
+                flightFocusBottomPadding={mobileCardsHeight + 52}
                 gpsPostCandidates={gpsPostCandidates}
                 isTripOngoing={isTripOngoing}
                 onGpsPostCandidateSelect={onGpsPostCandidateSelect}

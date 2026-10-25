@@ -1,5 +1,46 @@
 import { expect, test } from '@playwright/test'
 
+for (const stage of ['Unknown position', 'In flight', 'Observed flight', 'Arrived']) {
+  test(`selecting a flight during ${stage} changes framing without adding route layers`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/tests/e2e/fixtures/flight-guidance.html?flight-focus=local')
+    await page.getByRole('button', { name: stage, exact: true }).click()
+    const map = page.getByLabel('Interactive trip route map')
+    await expect(map.locator('path.trip-map-traveled-route').first()).toBeAttached()
+    if (stage === 'Arrived') await expect(map.locator('path[data-itinerary-connection-id="current"]')).toHaveCount(0)
+    const layers = () => map.locator('svg path').evaluateAll(paths => [...new Set(paths.map(path => JSON.stringify(
+      ['class', 'stroke', 'stroke-width', 'stroke-dasharray', 'aria-label', 'data-itinerary-connection-id', 'data-itinerary-segment-index']
+        .map(attribute => [attribute, path.getAttribute(attribute)]),
+    )))].sort())
+    const before = await layers()
+    await page.getByRole('button', { name: 'Toggle flight selection', exact: true }).click()
+    await expect.poll(layers).toEqual(before)
+    await page.getByRole('button', { name: 'Toggle expanded flight', exact: true }).click()
+    await expect.poll(layers).toEqual(before)
+    await expect(map.locator('[data-focused-flight-id]')).toHaveCount(0)
+    await expect(map.getByText(/^Departure:|^Arrival:/)).toHaveCount(0)
+    await page.getByRole('button', { name: 'Toggle flight selection', exact: true }).click()
+    await expect.poll(layers).toEqual(before)
+  })
+}
+
+for (const scenario of ['long-haul', 'date-line', 'unresolved-arrival']) {
+  test(`flight camera frames ${scenario} without drawing a selected route`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/tests/e2e/fixtures/flight-guidance.html?flight-focus=' + scenario)
+    await page.getByRole('button', { name: 'Toggle flight selection', exact: true }).click()
+    for (const bottom of [160, 320]) {
+      if (bottom === 320) await page.getByRole('button', { name: 'Toggle expanded flight', exact: true }).click()
+      await expect.poll(async () => {
+        const frame = JSON.parse(await page.getByTestId('flight-frame').textContent() || '{}')
+        return frame.points?.length > 0 && frame.points.every((point: { x: number; y: number }) =>
+          point.x >= 28 && point.x <= frame.size.x - 28 && point.y >= 64 && point.y <= frame.size.y - bottom + 12)
+      }).toBe(true)
+    }
+    await expect(page.locator('[data-focused-flight-id]')).toHaveCount(0)
+  })
+}
+
 test('observed flight uses a stationary dot, a solid retained path and dashed remaining route', async ({ page }) => {
   await page.goto('/tests/e2e/fixtures/flight-guidance.html')
   await page.getByRole('button', { name: 'Observed flight', exact: true }).click()

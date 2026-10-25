@@ -463,7 +463,7 @@ for (const width of [320, 390, 768]) {
     const airport = { id: 'airport', name: 'Amsterdam Schiphol', iata_code: 'AMS', latitude: 52.31, longitude: 4.76, timezone: 'Europe/Amsterdam' }
     const flight = {
       id: 'flight-1', flight_number: 'LH1003', airline_name: 'Lufthansa', departure_airport: airport,
-      arrival_airport: { ...airport, name: 'Frankfurt Airport', iata_code: 'FRA' },
+      arrival_airport: { ...airport, name: 'Frankfurt Airport', iata_code: 'FRA', latitude: 50.04, longitude: 8.56 },
       status: 'ARRIVED', scheduled_departure: '2026-08-05T06:00:00Z', scheduled_arrival: '2026-08-05T07:00:00Z',
       actual_departure: '2026-08-05T06:10:00Z', actual_arrival: '2026-08-05T07:10:00Z', estimated_departure: null, estimated_arrival: null,
       completion_source: 'PROVIDER', stop_reason: null, progress: 1, estimate_basis: null,
@@ -474,7 +474,7 @@ for (const width of [320, 390, 768]) {
       ...createPostTimeline(),
       flight_journeys: [{ itinerary_connection_id: 'connection', flights: [flight, {
         ...flight, id: 'flight-2', flight_number: 'LH1166', departure_airport: flight.arrival_airport,
-        arrival_airport: { ...airport, name: 'Lisbon Humberto Delgado', iata_code: 'LIS', timezone: 'Europe/Lisbon' },
+        arrival_airport: { ...airport, name: 'Lisbon Humberto Delgado', iata_code: 'LIS', timezone: 'Europe/Lisbon', latitude: 38.77, longitude: -9.13 },
         scheduled_departure: '2026-08-05T07:30:00Z', scheduled_arrival: '2026-08-05T10:30:00Z',
         actual_departure: '2026-08-05T07:40:00Z', actual_arrival: null, estimated_arrival: '2026-08-05T10:20:00Z',
         status: 'IN_FLIGHT', completion_source: null, progress: .5,
@@ -488,6 +488,11 @@ for (const width of [320, 390, 768]) {
     const active = cards.nth(1)
     await expect(arrived).toHaveAccessibleName('LH1003 · Arrived')
     await expect(active).toHaveAccessibleName('LH1166 · In flight')
+    await expect(arrived.locator('button time').first()).toHaveText('08:10')
+    await expect(arrived.locator('button time').last()).toHaveText('09:10')
+    await expect(arrived).toHaveAttribute('aria-current', 'true')
+    const map = page.getByLabel('Interactive trip route map').first()
+    await expect(map.locator('path[data-focused-flight-id]')).toHaveCount(0)
     const firstBox = (await arrived.boundingBox())!
     const secondBox = (await active.boundingBox())!
     const postBox = (await cards.nth(2).boundingBox())!
@@ -511,6 +516,8 @@ for (const width of [320, 390, 768]) {
     expect((await arrived.boundingBox())!.height).toBe(firstBox.height)
     await active.scrollIntoViewIfNeeded()
     await active.getByRole('button', { name: 'Show flight details for LH1166', exact: true }).click()
+    await expect(active).toHaveAttribute('aria-current', 'true')
+    await expect(map.locator('path[data-focused-flight-id]')).toHaveCount(0)
     await expect(active.getByText('Connecting flight · 0h 30m layover', { exact: true })).toBeVisible()
     await expect(active.getByText('Arrival estimated 10 min early', { exact: true })).toBeVisible()
     await expect(active.getByLabel('Scheduled arrival 11:30', { exact: true })).toBeVisible()
@@ -518,6 +525,7 @@ for (const width of [320, 390, 768]) {
     expect(await carousel.evaluate(node => node.scrollHeight <= node.clientHeight + 1)).toBe(true)
     if (width === 390) await page.screenshot({ path: testInfo.outputPath('expanded-flight.png') })
     await cards.nth(3).scrollIntoViewIfNeeded()
+    await expect(map.locator('path[data-focused-flight-id]')).toHaveCount(0)
     await expect(active.getByRole('button', { name: 'Show flight details for LH1166', exact: true })).toHaveAttribute('aria-expanded', 'false')
     expect((await active.boundingBox())!.height).toBe(postBox.height)
   })

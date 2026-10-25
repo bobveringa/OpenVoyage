@@ -13,6 +13,7 @@ import { Compass } from 'lucide-react'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { PlanningSessionContext } from './planning-session'
 import { airportTransferLabel, getAirportTransfers, type AirportTransfer } from './airport-transfers'
+import { flightFocusCoordinates } from './flight-map-focus'
 
 import {
   type GpsPostCandidate,
@@ -196,6 +197,8 @@ export function TripLeafletMap({
   draftMapLocation,
   fitMode = 'workspace',
   focusedPostId = null,
+  focusedFlightId = null,
+  flightFocusBottomPadding,
   gpsPostCandidates = [],
   isTripOngoing = false,
   mapPointEnabled,
@@ -212,6 +215,8 @@ export function TripLeafletMap({
   draftMapLocation: DraftPostLocation | null
   fitMode?: RouteFitMode
   focusedPostId?: string | null
+  focusedFlightId?: string | null
+  flightFocusBottomPadding?: number
   gpsPostCandidates?: readonly GpsPostCandidate[]
   isTripOngoing?: boolean
   mapPointEnabled: boolean
@@ -246,6 +251,7 @@ export function TripLeafletMap({
   const routeLayerRef = useRef<RepeatedWorldLayer | null>(null)
   const tileLayerRef = useRef<L.TileLayer | null>(null)
   const focusedPostIdRef = useRef<string | null>(focusedPostId)
+  const focusedFlightIdRef = useRef<string | null>(focusedFlightId)
   const travelPostsRef = useRef(travelPosts)
   const stopsRef = useRef(stops)
   const connectionsRef = useRef(connections)
@@ -260,8 +266,12 @@ export function TripLeafletMap({
     travelPosts,
     trackingGeometry,
   )
+  const selectedFlight = trackingGeometry.flightJourneys?.flatMap(journey => journey.flights).find(flight => flight.id === focusedFlightId)
+  const flightFocusKey = JSON.stringify(selectedFlight ? [selectedFlight.id, selectedFlight.flight_number,
+    selectedFlight.departure_airport, selectedFlight.arrival_airport] : null)
 
   focusedPostIdRef.current = focusedPostId
+  focusedFlightIdRef.current = focusedFlightId
   travelPostsRef.current = travelPosts
   trackingGeometryRef.current = trackingGeometry
   gpsPostCandidatesRef.current = gpsPostCandidates
@@ -460,7 +470,7 @@ export function TripLeafletMap({
         }),
       )
       const viewKey = `${routeMode}:${fitMode}:${JSON.stringify(outsideAnchors)}:${fitMode === 'route-preview' || fitMode === 'route-selector' ? routeKey : ''}`
-      if (!focusedPostIdRef.current && fittedViewRef.current !== viewKey) {
+      if (!focusedPostIdRef.current && !focusedFlightIdRef.current && fittedViewRef.current !== viewKey) {
         fitRouteBounds(
           map,
           routeMode,
@@ -496,7 +506,25 @@ export function TripLeafletMap({
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || routeMode !== 'travel-timeline') {
+    if (!map) return
+    map.setMinZoom(focusedFlightId && routeMode === 'travel-timeline' && fitMode.startsWith('mobile-') ? 0 : 3)
+    if (routeMode !== 'travel-timeline') return
+
+    // Flights are carousel stories too; frame their own leg instead of neighboring posts.
+    if (focusedFlightId) {
+      const flight = trackingGeometryRef.current.flightJourneys?.flatMap(journey => journey.flights)
+        .find(item => item.id === focusedFlightId)
+      if (!flight) return
+      const coordinates = flightFocusCoordinates(flight)
+      const first = nearestWorldCoordinate(coordinates[0], map.getCenter().lng)
+      const shifted = shiftWorldRoute(coordinates, first[1] - coordinates[0][1])
+      const padding = getFocusedPostFitOptions(fitMode)
+      map.stop()
+      map.flyToBounds(L.latLngBounds(shifted), {
+        ...padding,
+        ...(flightFocusBottomPadding !== undefined ? { paddingBottomRight: [40, flightFocusBottomPadding] as L.PointTuple } : {}),
+        ...focusedPostAnimationOptions, maxZoom: 9,
+      })
       return
     }
 
@@ -538,7 +566,7 @@ export function TripLeafletMap({
       focusedPostView.zoom,
       focusedPostAnimationOptions,
     )
-  }, [fitMode, focusedPostId, routeMode])
+  }, [fitMode, focusedPostId, focusedFlightId, flightFocusKey, flightFocusBottomPadding, routeMode])
 
   useEffect(() => {
     const map = mapRef.current

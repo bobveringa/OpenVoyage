@@ -9,10 +9,15 @@ import { PlaceSearchDropdown } from '@/components/places/place-search-dropdown'
 import { formatDateTime } from '@/lib/date-time'
 import { cn } from '@/lib/utils'
 
-export function FlightJourneyCard({ journey, className, mobile = false, accessToken, tripId }: {
+export function FlightJourneyCard({ journey, className, mobile = false, accessToken, tripId, onFlightRef, onFlightSelect, activeFlightId }: {
   journey: FlightJourney; className?: string; mobile?: boolean; accessToken?: string | null; tripId: string
+  onFlightRef?: (flightId: string, element: HTMLElement | null) => void
+  onFlightSelect?: (flightId: string) => void
+  activeFlightId?: string | null
 }) {
   const cards = journey.flights.map((flight, index) => mobile ? <FlightCard key={flight.id} flight={flight} preview
+    onCardRef={(element) => onFlightRef?.(flight.id, element)}
+    onSelect={() => onFlightSelect?.(flight.id)} active={activeFlightId === flight.id}
     connectionLabel={journey.flights.length > 1 ? `Flight ${index + 1} of ${journey.flights.length}` : undefined}
     connectionDetails={index > 0 ? `Connecting flight${layover(journey.flights[index - 1], flight)}` : undefined}
     className={className} accessToken={accessToken} tripId={tripId} /> : <div key={flight.id}>
@@ -22,8 +27,11 @@ export function FlightJourneyCard({ journey, className, mobile = false, accessTo
   return mobile ? <>{cards}</> : <section aria-label="Flight journey" className={cn('space-y-2', className)}>{cards}</section>
 }
 
-export function FlightCard({ flight, className, preview = false, compact = false, connectionLabel, connectionDetails, accessToken, tripId }: {
+export function FlightCard({ flight, className, preview = false, compact = false, connectionLabel, connectionDetails, accessToken, tripId, onCardRef, onSelect, active }: {
   flight: TrackedFlight; className?: string; preview?: boolean; compact?: boolean; connectionLabel?: string; connectionDetails?: string; accessToken?: string | null; tripId: string
+  onCardRef?: (element: HTMLElement | null) => void
+  onSelect?: () => void
+  active?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const detailsId = useId()
@@ -181,17 +189,18 @@ export function FlightCard({ flight, className, preview = false, compact = false
   }
   return (
     <article
-      ref={cardRef}
+      ref={(element) => { cardRef.current = element; onCardRef?.(element) }}
       aria-label={`${flight.flight_number} · ${statusLabel}`}
-      className={cn('relative rounded-xl border border-l-[3px] bg-card', delayed ? 'border-amber-500/30 border-l-amber-500' : 'border-border border-l-primary/60', className)}
+      aria-current={active ? 'true' : undefined}
+      className={cn('relative rounded-xl border border-l-[3px] bg-card', delayed ? 'border-amber-500/30 border-l-amber-500' : 'border-border border-l-primary/60', active && 'ring-1 ring-primary/40', className)}
     >
       <button
         type="button"
         aria-label={`${expanded ? 'Hide' : 'Show'} flight details for ${flight.flight_number}`}
         aria-expanded={expanded}
         aria-controls={detailsId}
-        onClick={() => setExpanded((value) => !value)}
-        className="relative flex min-h-24 w-full flex-col justify-center rounded-[inherit] px-3 py-2.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        onClick={() => { onSelect?.(); setExpanded((value) => !value) }}
+        className="relative flex min-h-24 w-full flex-col justify-center rounded-[inherit] px-3 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       >
         <span className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold">
@@ -202,21 +211,31 @@ export function FlightCard({ flight, className, preview = false, compact = false
             {statusLabel}{timingLabel && timingLabel !== statusLabel ? ` · ${timingLabel}` : ''}
           </span>
         </span>
-        <span className="mt-1 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-          <span className="flex flex-col gap-0.5">
-            <span className="text-sm font-semibold">{departure.iata_code} <span className="px-0.5 font-normal text-muted-foreground" aria-hidden="true">→</span> {arrival?.iata_code ?? '—'}</span>
-            {departing ? <span className="flex items-center gap-1.5">
-              <span className="h-1.5 w-16 overflow-hidden rounded-full bg-primary/20" role="progressbar" aria-label="Estimated flight progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+        <span className="mt-1 grid grid-cols-[minmax(0,1fr)_2.5rem_minmax(0,1fr)] items-center gap-2">
+          <span className="min-w-0">
+            <span className="block text-[10px] font-medium text-muted-foreground">{departure.iata_code}</span>
+            <span className="block whitespace-nowrap text-sm font-semibold tabular-nums">
+              <span className="sr-only">{flight.actual_departure ? 'Departed' : flight.estimated_departure ? 'Estimated departure' : 'Scheduled departure'} </span>
+              <time dateTime={departureAt.toISOString()}>{airportTime(departureAt, departure)}</time>
+              <span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportTimezone(departureAt, departure)}</span>
+            </span>
+          </span>
+          <span className="grid justify-items-center gap-1 text-primary">
+            <Plane className="size-3.5 rotate-45" aria-hidden="true" />
+            {departing ? <span className="flex items-center gap-1">
+              <span className="h-1 w-5 overflow-hidden rounded-full bg-primary/20" role="progressbar" aria-label="Estimated flight progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
                 <span className="block h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
               </span>
-              <span className="text-[10px] font-medium leading-none text-primary">{percent}%</span>
+              <span className="text-[9px] font-medium leading-none">{percent}%</span>
             </span> : null}
           </span>
-          <span className="text-sm font-semibold tabular-nums">
-            {arrivalDelta != null && arrivalDelta !== 0 && scheduledArrivalAt && arrival ? <del className="mr-1.5 text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del> : null}
+          <span className="min-w-0 text-right">
+            <span className="block text-[10px] font-medium text-muted-foreground">{arrival?.iata_code ?? '—'}</span>
+            <span className="block whitespace-nowrap text-sm font-semibold tabular-nums">
             <span className="sr-only">{flight.actual_arrival ? 'Arrived' : flight.estimated_arrival ? 'Estimated arrival' : 'Scheduled arrival'} </span>
             {arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}
             <span className="ml-1 text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}</span>
+            </span>
           </span>
         </span>
         <span className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
@@ -224,23 +243,27 @@ export function FlightCard({ flight, className, preview = false, compact = false
           <span className="inline-flex shrink-0 items-center gap-1 font-medium text-primary">{expanded ? 'Hide details' : 'Flight details'}<ChevronDown className={cn('size-3 transition-transform', expanded && 'rotate-180')} aria-hidden="true" /></span>
         </span>
       </button>
-      <div id={detailsId} hidden={!expanded} role="region" aria-label={`Flight details for ${flight.flight_number}`} className="mx-3 border-t border-border/70 pb-3 pt-2">
-        {connectionDetails ? <p className="mb-2 text-[11px] font-medium text-muted-foreground">{connectionDetails}</p> : null}
-        {flight.airline_name ? <p className="mb-2 text-[11px] text-muted-foreground">{flight.airline_name}</p> : null}
-        <div className="grid grid-cols-2 gap-3">
+      <div id={detailsId} hidden={!expanded} role="region" aria-label={`Flight details for ${flight.flight_number}`} tabIndex={0} className="scrollbar-subtle mx-3 max-h-[min(16rem,32svh)] overflow-y-auto overscroll-contain border-t border-border/70 pb-3 pt-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-1 text-xs">
+          {flight.airline_name ? <p className="font-semibold">{flight.airline_name}</p> : null}
+          {connectionDetails ? <p className="rounded-lg bg-muted px-2 py-1 text-[11px] text-muted-foreground">{connectionDetails}</p> : null}
+        </div>
+        <div className="grid gap-3 rounded-xl border border-border/70 bg-muted/30 p-3">
           <div className="min-w-0">
-            <p className="truncate text-[11px] text-muted-foreground" title={departure.name}>{departure.name}</p>
-            <p className="mt-1 text-[10px] text-muted-foreground">{flight.actual_departure ? 'Departed' : flight.estimated_departure ? 'Estimated departure' : 'Scheduled departure'}</p>
-            <p className="mt-0.5 text-base font-semibold tabular-nums">
+            <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground"><PlaneTakeoff className="size-3.5" aria-hidden="true" />{flight.actual_departure ? 'Departed' : flight.estimated_departure ? 'Estimated departure' : 'Scheduled departure'} · {departureDay}</p>
+            <p className="mt-1 break-words text-xs font-medium">{departure.name}</p>
+            <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 text-lg font-semibold tabular-nums">
               {departureDelta !== 0 ? <del className="mr-1.5 text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled departure ${airportTime(scheduledDepartureAt, departure)}`}>{airportTime(scheduledDepartureAt, departure)}</del> : null}
               <time dateTime={departureAt.toISOString()}>{airportTime(departureAt, departure)}</time><span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportTimezone(departureAt, departure)}</span>
             </p>
           </div>
-          <div className="min-w-0 text-right">
-            <p className="truncate text-[11px] text-muted-foreground" title={arrival?.name ?? 'Landing airport unresolved'}>{arrival?.name ?? 'Landing airport unresolved'}</p>
-            <p className="mt-1 text-[10px] text-muted-foreground">{flight.actual_arrival ? 'Arrived' : flight.estimated_arrival ? 'Estimated arrival' : 'Scheduled arrival'}</p>
-            <p className="mt-0.5 text-base font-semibold tabular-nums">{arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}<span className="ml-1 text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}</span></p>
-            {arrivalDay && arrivalDay !== departureDay ? <p className="text-[10px] text-muted-foreground">{arrivalDay}</p> : null}
+          <div className="min-w-0 border-t border-border/70 pt-3">
+            <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground"><PlaneLanding className="size-3.5" aria-hidden="true" />{flight.actual_arrival ? 'Arrived' : flight.estimated_arrival ? 'Estimated arrival' : 'Scheduled arrival'}{arrivalDay ? ` · ${arrivalDay}` : ''}</p>
+            <p className="mt-1 break-words text-xs font-medium">{arrival?.name ?? 'Landing airport unresolved'}</p>
+            <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 text-lg font-semibold tabular-nums">
+              {arrivalDelta != null && arrivalDelta !== 0 && scheduledArrivalAt && arrival ? <del className="text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del> : null}
+              {arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}<span className="text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}</span>
+            </p>
           </div>
         </div>
         {showTiming && (departureTiming || arrivalTiming || delayed) ? <div className={cn('mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-2 py-1.5 text-[11px]', delayed ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'bg-muted text-muted-foreground')}>
