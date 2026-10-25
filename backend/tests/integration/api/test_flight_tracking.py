@@ -23,6 +23,7 @@ from models.database.itinerary import (
     ItineraryTravelSegment,
 )
 from models.database.trips import TripVisibility
+from models.database.settings import AppSetting
 from services.flight_providers.flight_provider import FlightMovement, FlightUnavailable
 from services.gps.flight_geometry import estimate
 from services.gps.flight_tracking_service import FlightTrackingService
@@ -64,6 +65,7 @@ def setup(db_session):
     db.add(connection)
     db.flush()
     service = FlightTrackingService(db)
+    db.add(AppSetting(key='flights.provider', value='flightaware'))
 
     def add(number='KL123', departure_at=START):
         lookup = FlightLookup(

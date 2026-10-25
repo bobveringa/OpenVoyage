@@ -6,6 +6,7 @@ import {
   type Page,
 } from '@playwright/test'
 import { env } from 'node:process'
+import type { ItineraryConnection } from '../../src/api/client'
 import { waitForMediaReady } from './helpers/media'
 import { seedAuthTokens } from './helpers/auth'
 
@@ -80,13 +81,28 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     })
     await expect(page.getByText('E2E Coimbra')).toBeVisible()
 
+    const routeRefresh = page.waitForResponse(response =>
+      new URL(response.url()).pathname.endsWith('/route-refresh')
+      && response.request().method() === 'POST',
+    )
     await createStop(page, {
       search: 'Porto',
       title: 'E2E Porto',
     })
     await expect(page.getByText('E2E Porto', { exact: true })).toBeVisible()
 
-    if (!expectsProviderBackedRoutes()) {
+    // Stop creation calculates its new connection asynchronously. Wait for the
+    // completed calculation before deciding which provider behavior to assert.
+    const refreshedResponse = await routeRefresh
+    expect(refreshedResponse.ok()).toBe(true)
+    const { connection: refreshedConnection } = await refreshedResponse.json() as {
+      connection: ItineraryConnection
+    }
+    const providerBackedRoutes = env.E2E_EXPECT_PROVIDER_ROUTES === undefined
+      ? refreshedConnection.route.type === 'PROVIDER_BACKED'
+      : env.E2E_EXPECT_PROVIDER_ROUTES.toLowerCase() === 'true'
+
+    if (!providerBackedRoutes) {
       // Automatic planning falls back to Other when routing is not configured.
       const connection = page.getByRole('button', { name: /Other E2E Coimbra to E2E Porto/ })
       await expect(connection).toContainText('Approximate connection')
@@ -96,7 +112,7 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
       .getByRole('button', { name: /E2E Coimbra to E2E Porto/ })
       .click()
     const chooser = page.getByRole('region', { name: 'Select your route', exact: true })
-    if (!expectsProviderBackedRoutes()) {
+    if (!providerBackedRoutes) {
       await expect(chooser.getByRole('radio', { name: 'Other', exact: true })).toBeChecked()
       // An explicit Car choice stays Car and reports the failed calculation.
       await chooser.getByRole('radio', { name: 'Car', exact: true }).click()
@@ -104,7 +120,7 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     await expect(chooser.getByRole('button', { name: 'Select this route' })).toBeEnabled()
     await chooser.getByRole('button', { name: 'Select this route' }).click()
 
-    if (expectsProviderBackedRoutes()) {
+    if (providerBackedRoutes) {
       await expect(page.getByText('Route ready').first()).toBeVisible({
         timeout: 12000,
       })
@@ -586,10 +602,6 @@ function authHeaders(tokens: AuthTokens) {
   return {
     Authorization: `Bearer ${tokens.access_token}`,
   }
-}
-
-function expectsProviderBackedRoutes() {
-  return env.E2E_EXPECT_PROVIDER_ROUTES?.toLowerCase() === 'true'
 }
 
 function tinyPngBuffer() {

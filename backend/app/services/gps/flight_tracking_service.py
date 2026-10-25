@@ -75,6 +75,31 @@ class FlightTrackingService:
             )
         )
 
+    def itinerary_connection_ids(self, flights):
+        """Resolve current links without rewriting retained tracking/history rows."""
+        if not flights:
+            return {}
+        linked = dict(
+            self.db.execute(
+                select(TrackedFlight.id, ItineraryTravelSegment.connection_id)
+                .join(
+                    ItineraryTravelSegment,
+                    (
+                        (
+                            ItineraryTravelSegment.id
+                            == TrackedFlight.itinerary_travel_segment_id
+                        )
+                        & (ItineraryTravelSegment.trip_id == TrackedFlight.trip_id)
+                    ),
+                )
+                .where(TrackedFlight.id.in_([flight.id for flight in flights]))
+            ).all()
+        )
+        return {
+            flight.id: linked.get(flight.id, flight.itinerary_connection_id)
+            for flight in flights
+        }
+
     def sync_itinerary(self, trip_id):
         """Called inside itinerary writes, and by the monitor to adopt old plans."""
         self.lock(trip_id)
@@ -107,6 +132,7 @@ class FlightTrackingService:
                     None,
                 )
                 if retained:
+                    retained.itinerary_connection_id = segment.connection_id
                     linked.add(retained.id)
                 continue
             lookup = FlightLookup.model_validate(plan.lookup)
@@ -162,6 +188,7 @@ class FlightTrackingService:
                 self.db.add(flight)
                 existing.append(flight)
             flight.itinerary_travel_segment_id = segment.id
+            flight.itinerary_connection_id = segment.connection_id
             linked.add(flight.id)
             if (
                 not self.terminal(flight)
@@ -981,12 +1008,13 @@ class FlightTrackingService:
         live = access.membership is not None or access.trip.share_live_location
         boundary = max((p.occurred_at for p in posts), default=None)
         flights = self.flights(access.trip.id)
+        connection_ids = self.itinerary_connection_ids(flights)
         grouped = defaultdict(list)
         first_departures = {}
         for flight in flights:
             if flight.itinerary_travel_segment_id or flight.session:
                 first_departures.setdefault(
-                    flight.itinerary_connection_id, flight.scheduled_departure
+                    connection_ids[flight.id], flight.scheduled_departure
                 )
         visible = []
         for flight in flights:
@@ -994,7 +1022,7 @@ class FlightTrackingService:
             if session is None and flight.itinerary_travel_segment_id is None:
                 continue
             if live:
-                if first_departures[flight.itinerary_connection_id] > now + timedelta(
+                if first_departures[connection_ids[flight.id]] > now + timedelta(
                     hours=24
                 ):
                     continue
@@ -1102,7 +1130,7 @@ class FlightTrackingService:
                 ),
                 gps_tracking_session_id=session.id if session and not deleted else None,
             )
-            grouped[flight.itinerary_connection_id].append(data)
+            grouped[connection_ids[flight.id]].append(data)
         return [
             FlightJourneyResponse(itinerary_connection_id=key, flights=value)
             for key, value in grouped.items()

@@ -5,10 +5,13 @@ from sqlalchemy import select
 from models.api.flights import JourneyPosition, JourneyResponse, JourneyTarget
 from models.api.geojson import GeoJsonLineString
 from models.api.itinerary import is_itinerary_stop_visited
+from models.api.planning import FlightLookup
 from models.database.base import utcnow
 from models.database.gps_tracking import GpsTrackSample, GpsTrackingSession
 from models.database.itinerary import ItineraryConnection, ItineraryStop
 from models.database.posts import Post
+from models.database.places import Place
+from services.flight_settings import FlightSettingsSnapshot
 from services.gps.flight_geometry import arc, arc_point, estimate
 from services.gps.flight_tracking_service import (
     FlightTrackingService,
@@ -33,11 +36,17 @@ def current_journey(db, trip_id, user_id, share_token=None):
     )
     service = FlightTrackingService(db)
     flights = service.flights(trip_id)
+    connection_ids = service.itinerary_connection_ids(flights)
+    tracking_enabled = (
+        FlightSettingsSnapshot.load(db).reader(db).get_value('flights.provider')
+        != 'none'
+    )
     active = next(
         (
             f
             for f in flights
-            if f.session
+            if tracking_enabled
+            and f.session
             and f.session.ended_at is None
             and not f.session.deleted_at
             and not f.stop_reason
@@ -71,7 +80,7 @@ def current_journey(db, trip_id, user_id, share_token=None):
     connection = None
     if active:
         connection = next(
-            (c for c in connections if c.id == active.itinerary_connection_id), None
+            (c for c in connections if c.id == connection_ids[active.id]), None
         )
     elif (
         stop
@@ -88,7 +97,7 @@ def current_journey(db, trip_id, user_id, share_token=None):
     elif stop is None and access.trip.end_date and now.date() == access.trip.end_date:
         connection = next((c for c in connections if c.to_stop_id is None), None)
     result.current_connection_id = (
-        active.itinerary_connection_id
+        connection_ids[active.id]
         if active
         else connection.id
         if connection
@@ -140,7 +149,7 @@ def current_journey(db, trip_id, user_id, share_token=None):
         else connection.to_location
         if connection
         else stop.location
-        if stop
+        if stop and now.date() >= access.trip.start_date
         else None
     )
     if target:
@@ -153,35 +162,59 @@ def current_journey(db, trip_id, user_id, share_token=None):
     current_flights = [
         f
         for f in flights
-        if f.itinerary_connection_id == result.current_connection_id
+        if connection_ids[f.id] == result.current_connection_id
         and (f.itinerary_travel_segment_id or f.session)
     ]
-    next_flight = next(
-        (
-            f
-            for f in current_flights
-            if not f.completion_source
-            and f.status != 'CANCELLED'
-            and not service.terminal(f)
-        ),
-        None,
+    # Unmatched/manual flight plans have no completion lifecycle. For that
+    # connection, use direct destination guidance instead of stranding the
+    # traveller at an airport. Temporary provider failures keep matched rows.
+    flight_segments = (
+        [segment for segment in connection.segments if segment.travel_mode == 'FLIGHT']
+        if connection
+        else []
     )
-    if next_flight:
-        if connection:
-            result.current_flight_segment_index = next(
-                (index for index, segment in enumerate(connection.segments)
-                 if segment.id == next_flight.itinerary_travel_segment_id),
-                None,
+    flights_by_segment = {f.itinerary_travel_segment_id: f for f in current_flights}
+    flight_guidance = tracking_enabled and not any(
+        not segment.flight
+        or not segment.flight.flight_number
+        or (not segment.flight.lookup and segment.id not in flights_by_segment)
+        for segment in flight_segments
+    )
+    if not flight_guidance:
+        active = None
+    next_segment = None
+    next_flight = None
+    if flight_guidance and connection:
+        for index, segment in enumerate(connection.segments):
+            if segment.travel_mode != 'FLIGHT':
+                continue
+            flight = flights_by_segment.get(segment.id)
+            if active:
+                if segment.id != active.itinerary_travel_segment_id:
+                    continue
+            elif flight and (flight.status == 'CANCELLED' or service.terminal(flight)):
+                continue
+            result.current_flight_segment_index = index
+            next_segment, next_flight = segment, flight
+            break
+    if active or next_segment:
+        if active:
+            airport = active.arrival_airport
+        elif next_flight:
+            airport = next_flight.departure_airport
+        else:
+            # A retrieved itinerary may precede the monitor adopting its
+            # tracking record. Its saved airport still supplies the target.
+            plan = next_segment.flight
+            airport = (
+                db.get(Place, plan.departure_airport_place_id)
+                if plan.departure_airport_place_id
+                else FlightLookup.model_validate(plan.lookup).departure_airport
             )
-        airport = (
-            next_flight.arrival_airport
-            if next_flight.session
-            else next_flight.departure_airport
-        )
         result.target = (
             JourneyTarget(
                 type='AIRPORT',
-                name=airport.name,
+                name=airport.name or airport.iata_code or 'Departure airport',
                 latitude=airport.latitude,
                 longitude=airport.longitude,
             )
@@ -194,9 +227,19 @@ def current_journey(db, trip_id, user_id, share_token=None):
         observed = service.observations(active, now)
         if observed:
             point = observed[-1]
-            result.position = JourneyPosition(latitude=point.latitude, longitude=point.longitude, at=point.recorded_at, source='FLIGHT_TRACK')
+            result.position = JourneyPosition(
+                latitude=point.latitude,
+                longitude=point.longitude,
+                at=point.recorded_at,
+                source='FLIGHT_TRACK',
+            )
             if active.arrival_airport:
-                result.remaining_flight_route = GeoJsonLineString(coordinates=arc((point.longitude, point.latitude), airport_coordinates(active.arrival_airport)))
+                result.remaining_flight_route = GeoJsonLineString(
+                    coordinates=arc(
+                        (point.longitude, point.latitude),
+                        airport_coordinates(active.arrival_airport),
+                    )
+                )
         elif e:
             start, end = (
                 airport_coordinates(active.departure_airport),
@@ -212,7 +255,14 @@ def current_journey(db, trip_id, user_id, share_token=None):
         else:
             result.position = None
         return result
-    if result.position and result.target:
+    if (
+        result.position
+        and result.target
+        and (
+            result.position.longitude != result.target.longitude
+            or result.position.latitude != result.target.latitude
+        )
+    ):
         result.connector = GeoJsonLineString(
             coordinates=[
                 (result.position.longitude, result.position.latitude),

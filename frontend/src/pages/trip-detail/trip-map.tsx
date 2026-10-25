@@ -75,7 +75,6 @@ type RouteSegment = {
   alternative?: boolean
   transfer?: AirportTransfer
   connectionId?: string
-  pendingJourney?: boolean
   segmentIndex?: number
 }
 
@@ -1200,35 +1199,38 @@ function getItineraryRouteSegments(
     const fromStop = resolveConnectionEndpoint(connection.from, stops) ?? (current && origin
       ? { title: origin.name, location: origin } : null)
     const toStop = resolveConnectionEndpoint(connection.to, stops)
-    if (!fromStop || !toStop) continue
+    if ((!fromStop || !toStop) && !current) continue
     const flightIndex = current ? journey?.current_flight_segment_index ?? -1 : -1
     if (connection?.segments?.length) {
-      for (const transfer of getAirportTransfers(connection, fromStop, toStop)) {
+      for (const transfer of fromStop && toStop ? getAirportTransfers(connection, fromStop, toStop) : []) {
         if (current && (transfer.side === 'departure' || flightIndex < 0)) continue
         segments.push({
           coordinates: createGeodesicRoute([[transfer.from.latitude, transfer.from.longitude], [transfer.to.latitude, transfer.to.longitude]]),
           kind: 'itinerary', routeType: 'SIMPLE', transfer, connectionId: connection.id,
-          pendingJourney: current,
         })
       }
       for (const [index, segment] of connection.segments.entries()) {
         if (current && (flightIndex < 0 || index < flightIndex || (index === flightIndex && journey?.active_flight_id))) continue
         // Missing road calculations have no honest road geometry to draw.
         if (['CAR', 'BIKE', 'WALK'].includes(segment.intent.travel_mode) && segment.route_state !== 'READY') continue
-        if (!segment.geometry) continue
-        const coordinates = getGeoJsonLineStringCoordinates(segment.geometry)
+        const geometry = segment.geometry ?? (segment.intent.travel_mode === 'FLIGHT' && segment.from_endpoint && segment.to_endpoint
+          ? { type: 'LineString' as const, coordinates: [
+            [segment.from_endpoint.longitude, segment.from_endpoint.latitude],
+            [segment.to_endpoint.longitude, segment.to_endpoint.latitude],
+          ] } : null)
+        if (!geometry) continue
+        const coordinates = getGeoJsonLineStringCoordinates(geometry)
         if (!coordinates) continue
         for (const option of segment.route_options || []) {
-          if (createRouteGeometryKey(option.geometry) === createRouteGeometryKey(segment.geometry)) continue
+          if (createRouteGeometryKey(option.geometry) === createRouteGeometryKey(geometry)) continue
           const alternative = getGeoJsonLineStringCoordinates(option.geometry)
-          if (alternative) segments.push({ coordinates: alternative, kind: 'itinerary', routeType: 'PROVIDER_BACKED', alternative: true, connectionId: connection.id, pendingJourney: current })
+          if (alternative) segments.push({ coordinates: alternative, kind: 'itinerary', routeType: 'PROVIDER_BACKED', alternative: true, connectionId: connection.id })
         }
         segments.push({
           coordinates: segment.route_state === 'READY' ? coordinates : createGeodesicRoute(coordinates),
           kind: 'itinerary',
           connectionId: connection.id,
           segmentIndex: index,
-          pendingJourney: current,
           routeType: segment.route_state === 'READY' ? 'PROVIDER_BACKED' : 'SIMPLE',
           travelMode: segment.intent.travel_mode,
         })
@@ -1320,15 +1322,8 @@ function getRouteSegmentPathOptions(
 
   if (segment.kind === 'journey') return {
     className: 'trip-map-journey-guidance',
-    color: '#64748b',
+    color: getThemeColor('--muted-foreground', '#64748b'),
     dashArray: '7 9', weight: 3, opacity: .7, interactive: false,
-  }
-
-  if (segment.pendingJourney) return {
-    className: segment.transfer ? 'trip-map-airport-transfer' : undefined,
-    color: '#64748b',
-    dashArray: segment.travelMode === 'FLIGHT' || segment.transfer ? '7 9' : undefined,
-    weight: 3, opacity: 0.6, interactive: false,
   }
 
   if (segment.kind === 'post-to-stop') {
