@@ -21,7 +21,6 @@ const flight: TrackedFlight = {
 export function Preview() {
   const [scenario, setScenario] = useState('late')
   const [observed, setObserved] = useState(false)
-  const [compact, setCompact] = useState(false)
   const scenarios: Record<string, Partial<TrackedFlight>> = {
     late: {},
     'on-time': { estimated_arrival: flight.scheduled_arrival },
@@ -40,9 +39,8 @@ export function Preview() {
     <button onClick={() => setScenario((value) => value === 'on-time' ? 'late' : 'on-time')}>Toggle on-time arrival</button>
     {Object.keys(scenarios).map((name) => <button key={name} onClick={() => setScenario(name)}>{name}</button>)}
     <button onClick={() => setObserved((value) => !value)}>Toggle observed position</button>
-    <button onClick={() => setCompact((value) => !value)}>Toggle compact card</button>
-    <FlightCard flight={{ ...flight, ...scenarios[scenario],
-      position_source: observed ? 'FLIGHT_TRACK' : 'FLIGHT_ESTIMATE', estimate_basis: observed ? null : flight.estimate_basis }} compact={compact} tripId="trip" />
+    <FlightCard preview={!new URLSearchParams(window.location.search).has('desktop')} flight={{ ...flight, ...scenarios[scenario],
+      position_source: observed ? 'FLIGHT_TRACK' : 'FLIGHT_ESTIMATE', estimate_basis: observed ? null : flight.estimate_basis }} tripId="trip" />
   </main>
 }
 

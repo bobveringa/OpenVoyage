@@ -1,5 +1,5 @@
-import { Check, Clock3, Plane, PlaneLanding, PlaneTakeoff } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Check, ChevronDown, Clock3, Plane, PlaneLanding, PlaneTakeoff } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { completeFlight, getErrorMessage, stopTrackingSession, type Place, type TrackedFlight, type FlightJourney } from '@/api/client'
 import { Button } from '@/components/ui/button'
@@ -9,20 +9,36 @@ import { PlaceSearchDropdown } from '@/components/places/place-search-dropdown'
 import { formatDateTime } from '@/lib/date-time'
 import { cn } from '@/lib/utils'
 
-export function FlightJourneyCard({ journey, className, compact = false, accessToken, tripId }: {
-  journey: FlightJourney; className?: string; compact?: boolean; accessToken?: string | null; tripId: string
+export function FlightJourneyCard({ journey, className, mobile = false, accessToken, tripId }: {
+  journey: FlightJourney; className?: string; mobile?: boolean; accessToken?: string | null; tripId: string
 }) {
-  return <section aria-label="Flight journey" className={cn(compact ? 'space-y-3' : 'space-y-2', className)}>
-    {journey.flights.map((flight, index) => <div key={flight.id}>
-      {index > 0 ? <p className={cn('text-center text-muted-foreground', compact ? 'mb-2 text-xs' : 'mb-1 text-[11px]')}>Connecting flight{layover(journey.flights[index - 1], flight)}</p> : null}
-      <FlightCard flight={flight} compact={compact} accessToken={accessToken} tripId={tripId} />
-    </div>)}
-  </section>
+  const cards = journey.flights.map((flight, index) => mobile ? <FlightCard key={flight.id} flight={flight} preview
+    connectionLabel={journey.flights.length > 1 ? `Flight ${index + 1} of ${journey.flights.length}` : undefined}
+    connectionDetails={index > 0 ? `Connecting flight${layover(journey.flights[index - 1], flight)}` : undefined}
+    className={className} accessToken={accessToken} tripId={tripId} /> : <div key={flight.id}>
+      {index > 0 ? <p className="mb-1 text-center text-[11px] text-muted-foreground">Connecting flight{layover(journey.flights[index - 1], flight)}</p> : null}
+      <FlightCard flight={flight} accessToken={accessToken} tripId={tripId} />
+    </div>)
+  return mobile ? <>{cards}</> : <section aria-label="Flight journey" className={cn('space-y-2', className)}>{cards}</section>
 }
 
-export function FlightCard({ flight, compact = false, accessToken, tripId }: {
-  flight: TrackedFlight; compact?: boolean; accessToken?: string | null; tripId: string
+export function FlightCard({ flight, className, preview = false, compact = false, connectionLabel, connectionDetails, accessToken, tripId }: {
+  flight: TrackedFlight; className?: string; preview?: boolean; compact?: boolean; connectionLabel?: string; connectionDetails?: string; accessToken?: string | null; tripId: string
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const detailsId = useId()
+  const cardRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const card = cardRef.current
+    const carousel = card?.closest('.trip-mobile-post-carousel')
+    if (!expanded || !card || !carousel) return
+    // An offscreen expanded flight must not keep the entire mobile carousel tall.
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.intersectionRect.width < entry.boundingClientRect.width / 2) setExpanded(false)
+    }, { root: carousel, threshold: [0, .5, 1] })
+    observer.observe(card)
+    return () => observer.disconnect()
+  }, [expanded])
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     if (flight.position_source !== 'FLIGHT_TRACK') return
@@ -62,103 +78,186 @@ export function FlightCard({ flight, compact = false, accessToken, tripId }: {
   const statusLabel = flight.stop_reason ? 'Tracking stopped'
     : hasDeparted && flight.status === 'DELAYED' ? completed || flight.actual_arrival ? 'Arrived' : 'In flight'
       : flight.status.replace(/_/g, ' ').toLowerCase().replace(/^./, (v) => v.toUpperCase())
+  if (!preview) {
+    return (
+      <article
+        aria-label={`${flight.flight_number} · ${statusLabel}`}
+        className={cn('overflow-hidden border bg-card', compact ? 'rounded-[1.75rem] p-3.5' : 'rounded-[1.25rem] p-3', delayed ? 'border-amber-500/30 shadow-sm' : departing ? 'border-primary/30 shadow-sm' : 'border-border')}
+      >
+        <div className="flex items-center gap-2.5">
+          <span className={cn('grid size-7 shrink-0 place-items-center rounded-xl', delayed ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : departing ? 'bg-primary text-primary-foreground' : 'bg-secondary text-primary')}>
+            <Icon className="size-4" aria-hidden="true" />
+          </span>
+          <div className={cn('min-w-0 flex-1', !compact && 'flex flex-wrap items-baseline gap-x-2')}>
+            <h3 className="shrink-0 text-sm font-semibold">{flight.flight_number}</h3>
+            <p className={cn('text-[11px] text-muted-foreground', compact ? 'mt-0.5' : 'truncate')} title={`${departureDay}${flight.airline_name ? ` · ${flight.airline_name}` : ''}`}>{departureDay}{flight.airline_name ? ` · ${flight.airline_name}` : ''}</p>
+          </div>
+          <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-medium', delayed ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : departing ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
+            {delayed ? <Clock3 className="size-3" aria-hidden="true" /> : departing ? <span className="size-1.5 rounded-full bg-primary" /> : <Check className="size-3" aria-hidden="true" />}
+            {statusLabel}
+            {timingLabel && timingLabel !== statusLabel ? ` · ${timingLabel}` : ''}
+          </span>
+        </div>
+
+        <div className={cn('grid grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] items-center gap-2', compact ? 'mt-3' : 'mt-2')}>
+          <div className="min-w-0">
+            <p className={cn('font-semibold leading-none tracking-tight', compact ? 'text-2xl' : 'text-xl')}>{departure.iata_code}</p>
+            {!compact ? <p className="mt-1 truncate text-[11px] text-muted-foreground" title={departure.name}>{departure.name}</p> : null}
+          </div>
+          <div className="relative flex items-center justify-center text-primary/60" aria-hidden="true">
+            <span className="absolute inset-x-0 border-t border-border" />
+            <Plane className="relative size-5 rotate-45 bg-card" />
+          </div>
+          <div className="min-w-0 text-right">
+            <p className={cn('font-semibold leading-none tracking-tight', compact ? 'text-2xl' : 'text-xl')}>{arrival?.iata_code ?? '—'}</p>
+            {!compact ? <p className="mt-1 truncate text-[11px] text-muted-foreground" title={arrival?.name ?? 'Landing airport unresolved'}>{arrival?.name ?? 'Landing airport unresolved'}</p> : null}
+          </div>
+        </div>
+        <div className="mt-2 flex items-start justify-between gap-2">
+          <div>
+            <p className="text-[10px] text-muted-foreground">{flight.actual_departure ? 'Departed' : flight.estimated_departure ? 'Estimated departure' : 'Scheduled departure'}</p>
+            {compact && departureDelta !== 0 ? <p className="mt-0.5 text-[11px] text-muted-foreground"><del aria-label={`Scheduled departure ${airportTime(scheduledDepartureAt, departure)}`}>{airportTime(scheduledDepartureAt, departure)}</del></p> : null}
+            <p className="mt-0.5 text-lg font-semibold leading-tight tabular-nums">
+              {!compact && departureDelta !== 0 ? <del className="mr-1.5 text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled departure ${airportTime(scheduledDepartureAt, departure)}`}>{airportTime(scheduledDepartureAt, departure)}</del> : null}
+              <time dateTime={departureAt.toISOString()}>{airportTime(departureAt, departure)}</time><span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportTimezone(departureAt, departure)}</span>
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] text-muted-foreground">{flight.actual_arrival ? 'Arrived' : flight.estimated_arrival ? 'Estimated arrival' : 'Scheduled arrival'}</p>
+            {compact && arrivalDelta != null && arrivalDelta !== 0 && scheduledArrivalAt && arrival ? <p className="mt-0.5 text-[11px] text-muted-foreground"><del aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del></p> : null}
+            <p className="mt-0.5 text-lg font-semibold leading-tight tabular-nums">
+              {!compact && arrivalDelta != null && arrivalDelta !== 0 && scheduledArrivalAt && arrival ? <del className="mr-1.5 text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del> : null}
+              {arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}<span className="ml-1 text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}</span>
+            </p>
+            {arrivalDay && arrivalDay !== departureDay ? <p className="mt-0.5 text-[10px] text-muted-foreground">{arrivalDay}</p> : null}
+          </div>
+        </div>
+
+        {showTiming && (departureTiming || arrivalTiming || delayed) ? (
+          <div className={cn('rounded-xl', delayed ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'bg-muted text-muted-foreground', compact ? 'mt-3 px-3 py-2' : 'mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-1.5')}>
+            <p className="flex items-center gap-1.5 text-xs font-medium"><Clock3 className="size-3.5 shrink-0" aria-hidden="true" />{departureTiming ?? arrivalTiming ?? 'Flight delayed'}</p>
+            {departureTiming && arrivalTiming ? <p className={cn('text-[11px]', compact && 'mt-1', arrivalDelta != null && arrivalDelta <= 0 && 'text-primary')}>{arrivalTiming}</p> : null}
+            {delayed && !hasDeparted && !departing ? <p className={cn('text-[11px]', compact && 'mt-1')}>Awaiting departure</p> : null}
+          </div>
+        ) : null}
+        {departing && !compact ? (
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <div aria-label="Estimated flight progress" aria-valuemax={100} aria-valuemin={0} aria-valuenow={percent} role="progressbar" className="h-1 min-w-16 flex-1 overflow-hidden rounded-full bg-primary/15">
+              <div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
+            </div>
+            <span className="text-[10px] text-muted-foreground">{percent}% · Estimated</span>
+            {percent >= 99 ? <p className="w-full text-[10px] text-muted-foreground">Waiting for arrival update</p> : null}
+          </div>
+        ) : departing ? (
+          <div className="mt-3 rounded-xl bg-primary/5 px-3 py-2">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-primary">{`${percent}% · Estimated`}</span>
+              <span className="text-muted-foreground">{percent >= 99 ? 'Waiting for arrival update' : 'In flight'}</span>
+            </div>
+            <div aria-label="Estimated flight progress" aria-valuemax={100} aria-valuemin={0} aria-valuenow={percent} role="progressbar" className="relative mb-1 mt-2 flex h-3 items-center">
+              <div className="w-full border-t border-dashed border-primary/30" />
+              <div className="absolute left-0 border-t-2 border-primary" style={{ width: `${percent}%` }} />
+              <span className="absolute grid size-5 -translate-x-1/2 place-items-center rounded-full bg-card text-primary ring-1 ring-primary/15" style={{ left: `${percent}%` }}>
+                <Plane className="size-3.5 rotate-45" aria-hidden="true" />
+              </span>
+              <span className="absolute right-0 size-1.5 rounded-full bg-card ring-1 ring-primary/35" />
+            </div>
+          </div>
+        ) : compact || !completed || flight.stop_reason ? (
+          <div className={cn('flex items-center gap-1.5 border-t border-border/70 text-xs text-muted-foreground', compact ? 'mt-3 pt-3' : 'mt-2 pt-2')}>
+            <Clock3 className="size-3.5" aria-hidden="true" />
+            <span>{completed ? 'Flight completed' : flight.stop_reason === 'NEXT_FLIGHT_DEPARTED' ? 'Tracking stopped because the next flight began' : flight.stop_reason ? 'Recording stopped without an arrival estimate' : flight.status === 'DIVERTED' ? 'Diverted · awaiting landing airport' : statusLabel}</span>
+          </div>
+        ) : null}
+        {flight.visible_to_members_only ? <p className="mt-2 text-[10px] text-muted-foreground">Members only · Live sharing is off</p> : null}
+        <div className={compact ? 'contents' : 'mt-2 flex flex-wrap gap-x-3 gap-y-0.5'}>
+          {flight.position_at ? <p className={cn('text-[10px] text-muted-foreground', compact && 'mt-2')}>{flight.position_source === 'FLIGHT_TRACK' ? `Observed ${Math.max(0, Math.floor((now - Date.parse(flight.position_at)) / 60_000))} min ago · Position at` : 'Estimated position at'} {formatDateTime(new Date(flight.position_at), { timeStyle: 'short' })}{flight.estimate_basis === 'SCHEDULED_DURATION' ? ' · Scheduled duration' : ''}</p> : null}
+          <p className={cn('text-[10px] text-muted-foreground', compact && 'mt-2')}>{flight.status_updated_at ? `Provider updated ${formatDateTime(new Date(flight.status_updated_at), { dateStyle: 'short', timeStyle: 'short' })}` : 'Awaiting provider update'}{flight.update_state !== 'CURRENT' ? ` · ${flight.update_state.toLowerCase()}` : ''}</p>
+        </div>
+        {flight.completion_source === 'OWNER' ? <p className="mt-2 text-[11px] text-muted-foreground">Completion confirmed by owner · Estimated arrival</p> : null}
+        {flight.can_complete && accessToken ? <FinishFlight flight={flight} accessToken={accessToken} tripId={tripId} compact={compact} /> : null}
+      </article>
+    )
+  }
   return (
     <article
+      ref={cardRef}
       aria-label={`${flight.flight_number} · ${statusLabel}`}
-      className={cn('overflow-hidden border bg-card', compact ? 'rounded-[1.75rem] p-3.5' : 'rounded-[1.25rem] p-3', delayed ? 'border-amber-500/30 shadow-sm' : departing ? 'border-primary/30 shadow-sm' : 'border-border')}
+      className={cn('relative rounded-xl border border-l-[3px] bg-card', delayed ? 'border-amber-500/30 border-l-amber-500' : 'border-border border-l-primary/60', className)}
     >
-      <div className="flex items-center gap-2.5">
-        <span className={cn('grid size-7 shrink-0 place-items-center rounded-xl', delayed ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : departing ? 'bg-primary text-primary-foreground' : 'bg-secondary text-primary')}>
-          <Icon className="size-4" aria-hidden="true" />
+      <button
+        type="button"
+        aria-label={`${expanded ? 'Hide' : 'Show'} flight details for ${flight.flight_number}`}
+        aria-expanded={expanded}
+        aria-controls={detailsId}
+        onClick={() => setExpanded((value) => !value)}
+        className="relative flex min-h-24 w-full flex-col justify-center rounded-[inherit] px-3 py-2.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      >
+        <span className="flex items-center justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold">
+            <Plane className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+            <span>Flight · {flight.flight_number}</span>
+          </span>
+          <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium', delayed ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'bg-primary/10 text-primary')}>
+            {statusLabel}{timingLabel && timingLabel !== statusLabel ? ` · ${timingLabel}` : ''}
+          </span>
         </span>
-        <div className={cn('min-w-0 flex-1', !compact && 'flex flex-wrap items-baseline gap-x-2')}>
-          <h3 className="shrink-0 text-sm font-semibold">{flight.flight_number}</h3>
-          <p className={cn('text-[11px] text-muted-foreground', compact ? 'mt-0.5' : 'truncate')} title={`${departureDay}${flight.airline_name ? ` · ${flight.airline_name}` : ''}`}>{departureDay}{flight.airline_name ? ` · ${flight.airline_name}` : ''}</p>
-        </div>
-        <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-medium', delayed ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : departing ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
-          {delayed ? <Clock3 className="size-3" aria-hidden="true" /> : departing ? <span className="size-1.5 rounded-full bg-primary" /> : <Check className="size-3" aria-hidden="true" />}
-          {statusLabel}
-          {timingLabel && timingLabel !== statusLabel ? ` · ${timingLabel}` : ''}
+        <span className="mt-1 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+          <span className="flex flex-col gap-0.5">
+            <span className="text-sm font-semibold">{departure.iata_code} <span className="px-0.5 font-normal text-muted-foreground" aria-hidden="true">→</span> {arrival?.iata_code ?? '—'}</span>
+            {departing ? <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-16 overflow-hidden rounded-full bg-primary/20" role="progressbar" aria-label="Estimated flight progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+                <span className="block h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
+              </span>
+              <span className="text-[10px] font-medium leading-none text-primary">{percent}%</span>
+            </span> : null}
+          </span>
+          <span className="text-sm font-semibold tabular-nums">
+            {arrivalDelta != null && arrivalDelta !== 0 && scheduledArrivalAt && arrival ? <del className="mr-1.5 text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del> : null}
+            <span className="sr-only">{flight.actual_arrival ? 'Arrived' : flight.estimated_arrival ? 'Estimated arrival' : 'Scheduled arrival'} </span>
+            {arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}
+            <span className="ml-1 text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}</span>
+          </span>
         </span>
-      </div>
-
-      <div className={cn('grid grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] items-center gap-2', compact ? 'mt-3' : 'mt-2')}>
-        <div className="min-w-0">
-          <p className={cn('font-semibold leading-none tracking-tight', compact ? 'text-2xl' : 'text-xl')}>{departure.iata_code}</p>
-          {!compact ? <p className="mt-1 truncate text-[11px] text-muted-foreground" title={departure.name}>{departure.name}</p> : null}
-        </div>
-        <div className="relative flex items-center justify-center text-primary/60" aria-hidden="true">
-          <span className="absolute inset-x-0 border-t border-border" />
-          <Plane className="relative size-5 rotate-45 bg-card" />
-        </div>
-        <div className="min-w-0 text-right">
-          <p className={cn('font-semibold leading-none tracking-tight', compact ? 'text-2xl' : 'text-xl')}>{arrival?.iata_code ?? '—'}</p>
-          {!compact ? <p className="mt-1 truncate text-[11px] text-muted-foreground" title={arrival?.name ?? 'Landing airport unresolved'}>{arrival?.name ?? 'Landing airport unresolved'}</p> : null}
-        </div>
-      </div>
-      <div className="mt-2 flex items-start justify-between gap-2">
-        <div>
-          <p className="text-[10px] text-muted-foreground">{flight.actual_departure ? 'Departed' : flight.estimated_departure ? 'Estimated departure' : 'Scheduled departure'}</p>
-          {compact && departureDelta !== 0 ? <p className="mt-0.5 text-[11px] text-muted-foreground"><del aria-label={`Scheduled departure ${airportTime(scheduledDepartureAt, departure)}`}>{airportTime(scheduledDepartureAt, departure)}</del></p> : null}
-          <p className="mt-0.5 text-lg font-semibold leading-tight tabular-nums">
-            {!compact && departureDelta !== 0 ? <del className="mr-1.5 text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled departure ${airportTime(scheduledDepartureAt, departure)}`}>{airportTime(scheduledDepartureAt, departure)}</del> : null}
-            <time dateTime={departureAt.toISOString()}>{airportTime(departureAt, departure)}</time><span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportTimezone(departureAt, departure)}</span>
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] text-muted-foreground">{flight.actual_arrival ? 'Arrived' : flight.estimated_arrival ? 'Estimated arrival' : 'Scheduled arrival'}</p>
-          {compact && arrivalDelta != null && arrivalDelta !== 0 && scheduledArrivalAt && arrival ? <p className="mt-0.5 text-[11px] text-muted-foreground"><del aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del></p> : null}
-          <p className="mt-0.5 text-lg font-semibold leading-tight tabular-nums">
-            {!compact && arrivalDelta != null && arrivalDelta !== 0 && scheduledArrivalAt && arrival ? <del className="mr-1.5 text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del> : null}
-            {arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}<span className="ml-1 text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}</span>
-          </p>
-          {arrivalDay && arrivalDay !== departureDay ? <p className="mt-0.5 text-[10px] text-muted-foreground">{arrivalDay}</p> : null}
-        </div>
-      </div>
-
-      {showTiming && (departureTiming || arrivalTiming || delayed) ? (
-        <div className={cn('rounded-xl', delayed ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'bg-muted text-muted-foreground', compact ? 'mt-3 px-3 py-2' : 'mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-1.5')}>
-          <p className="flex items-center gap-1.5 text-xs font-medium"><Clock3 className="size-3.5 shrink-0" aria-hidden="true" />{departureTiming ?? arrivalTiming ?? 'Flight delayed'}</p>
-          {departureTiming && arrivalTiming ? <p className={cn('text-[11px]', compact && 'mt-1', arrivalDelta != null && arrivalDelta <= 0 && 'text-primary')}>{arrivalTiming}</p> : null}
-          {delayed && !hasDeparted && !departing ? <p className={cn('text-[11px]', compact && 'mt-1')}>Awaiting departure</p> : null}
-        </div>
-      ) : null}
-      {departing && !compact ? (
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <div aria-label="Estimated flight progress" aria-valuemax={100} aria-valuemin={0} aria-valuenow={percent} role="progressbar" className="h-1 min-w-16 flex-1 overflow-hidden rounded-full bg-primary/15">
-            <div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
+        <span className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+          <span className="min-w-0 truncate">{departureDay}{connectionLabel ? ` · ${connectionLabel}` : ''}</span>
+          <span className="inline-flex shrink-0 items-center gap-1 font-medium text-primary">{expanded ? 'Hide details' : 'Flight details'}<ChevronDown className={cn('size-3 transition-transform', expanded && 'rotate-180')} aria-hidden="true" /></span>
+        </span>
+      </button>
+      <div id={detailsId} hidden={!expanded} role="region" aria-label={`Flight details for ${flight.flight_number}`} className="mx-3 border-t border-border/70 pb-3 pt-2">
+        {connectionDetails ? <p className="mb-2 text-[11px] font-medium text-muted-foreground">{connectionDetails}</p> : null}
+        {flight.airline_name ? <p className="mb-2 text-[11px] text-muted-foreground">{flight.airline_name}</p> : null}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-[11px] text-muted-foreground" title={departure.name}>{departure.name}</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">{flight.actual_departure ? 'Departed' : flight.estimated_departure ? 'Estimated departure' : 'Scheduled departure'}</p>
+            <p className="mt-0.5 text-base font-semibold tabular-nums">
+              {departureDelta !== 0 ? <del className="mr-1.5 text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled departure ${airportTime(scheduledDepartureAt, departure)}`}>{airportTime(scheduledDepartureAt, departure)}</del> : null}
+              <time dateTime={departureAt.toISOString()}>{airportTime(departureAt, departure)}</time><span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportTimezone(departureAt, departure)}</span>
+            </p>
           </div>
-          <span className="text-[10px] text-muted-foreground">{percent}% · Estimated</span>
-          {percent >= 99 ? <p className="w-full text-[10px] text-muted-foreground">Waiting for arrival update</p> : null}
-        </div>
-      ) : departing ? (
-        <div className="mt-3 rounded-xl bg-primary/5 px-3 py-2">
-          <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="font-medium text-primary">{`${percent}% · Estimated`}</span>
-            <span className="text-muted-foreground">{percent >= 99 ? 'Waiting for arrival update' : 'In flight'}</span>
-          </div>
-          <div aria-label="Estimated flight progress" aria-valuemax={100} aria-valuemin={0} aria-valuenow={percent} role="progressbar" className="relative mb-1 mt-2 flex h-3 items-center">
-            <div className="w-full border-t border-dashed border-primary/30" />
-            <div className="absolute left-0 border-t-2 border-primary" style={{ width: `${percent}%` }} />
-            <span className="absolute grid size-5 -translate-x-1/2 place-items-center rounded-full bg-card text-primary ring-1 ring-primary/15" style={{ left: `${percent}%` }}>
-              <Plane className="size-3.5 rotate-45" aria-hidden="true" />
-            </span>
-            <span className="absolute right-0 size-1.5 rounded-full bg-card ring-1 ring-primary/35" />
+          <div className="min-w-0 text-right">
+            <p className="truncate text-[11px] text-muted-foreground" title={arrival?.name ?? 'Landing airport unresolved'}>{arrival?.name ?? 'Landing airport unresolved'}</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">{flight.actual_arrival ? 'Arrived' : flight.estimated_arrival ? 'Estimated arrival' : 'Scheduled arrival'}</p>
+            <p className="mt-0.5 text-base font-semibold tabular-nums">{arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}<span className="ml-1 text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}</span></p>
+            {arrivalDay && arrivalDay !== departureDay ? <p className="text-[10px] text-muted-foreground">{arrivalDay}</p> : null}
           </div>
         </div>
-      ) : compact || !completed || flight.stop_reason ? (
-        <div className={cn('flex items-center gap-1.5 border-t border-border/70 text-xs text-muted-foreground', compact ? 'mt-3 pt-3' : 'mt-2 pt-2')}>
-          <Clock3 className="size-3.5" aria-hidden="true" />
-          <span>{completed ? 'Flight completed' : flight.stop_reason === 'NEXT_FLIGHT_DEPARTED' ? 'Tracking stopped because the next flight began' : flight.stop_reason ? 'Recording stopped without an arrival estimate' : flight.status === 'DIVERTED' ? 'Diverted · awaiting landing airport' : statusLabel}</span>
+        {showTiming && (departureTiming || arrivalTiming || delayed) ? <div className={cn('mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-2 py-1.5 text-[11px]', delayed ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'bg-muted text-muted-foreground')}>
+          <p className="flex items-center gap-1.5"><Clock3 className="size-3 shrink-0" aria-hidden="true" />{departureTiming ?? arrivalTiming ?? 'Flight delayed'}</p>
+          {departureTiming && arrivalTiming ? <p className={cn(arrivalDelta != null && arrivalDelta <= 0 && 'text-primary')}>{arrivalTiming}</p> : null}
+          {delayed && !hasDeparted && !departing ? <p>Awaiting departure</p> : null}
+        </div> : null}
+        {departing ? <p className="mt-2 text-[10px] text-muted-foreground">{percent}% · Estimated progress{percent >= 99 ? ' · Waiting for arrival update' : ''}</p> : null}
+        {flight.stop_reason || flight.status === 'DIVERTED' ? <p className="mt-2 text-[11px] text-muted-foreground">{flight.stop_reason === 'NEXT_FLIGHT_DEPARTED' ? 'Tracking stopped because the next flight began' : flight.stop_reason ? 'Recording stopped without an arrival estimate' : 'Diverted · awaiting landing airport'}</p> : null}
+        {flight.visible_to_members_only ? <p className="mt-2 text-[10px] text-muted-foreground">Members only · Live sharing is off</p> : null}
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+          {flight.position_at ? <p>{flight.position_source === 'FLIGHT_TRACK' ? `Observed ${Math.max(0, Math.floor((now - Date.parse(flight.position_at)) / 60_000))} min ago · Position at` : 'Estimated position at'} {formatDateTime(new Date(flight.position_at), { timeStyle: 'short' })}{flight.estimate_basis === 'SCHEDULED_DURATION' ? ' · Scheduled duration' : ''}</p> : null}
+          <p>{flight.status_updated_at ? `Provider updated ${formatDateTime(new Date(flight.status_updated_at), { dateStyle: 'short', timeStyle: 'short' })}` : 'Awaiting provider update'}{flight.update_state !== 'CURRENT' ? ` · ${flight.update_state.toLowerCase()}` : ''}</p>
         </div>
-      ) : null}
-      {flight.visible_to_members_only ? <p className="mt-2 text-[10px] text-muted-foreground">Members only · Live sharing is off</p> : null}
-      <div className={compact ? 'contents' : 'mt-2 flex flex-wrap gap-x-3 gap-y-0.5'}>
-        {flight.position_at ? <p className={cn('text-[10px] text-muted-foreground', compact && 'mt-2')}>{flight.position_source === 'FLIGHT_TRACK' ? `Observed ${Math.max(0, Math.floor((now - Date.parse(flight.position_at)) / 60_000))} min ago · Position at` : 'Estimated position at'} {formatDateTime(new Date(flight.position_at), { timeStyle: 'short' })}{flight.estimate_basis === 'SCHEDULED_DURATION' ? ' · Scheduled duration' : ''}</p> : null}
-        <p className={cn('text-[10px] text-muted-foreground', compact && 'mt-2')}>{flight.status_updated_at ? `Provider updated ${formatDateTime(new Date(flight.status_updated_at), { dateStyle: 'short', timeStyle: 'short' })}` : 'Awaiting provider update'}{flight.update_state !== 'CURRENT' ? ` · ${flight.update_state.toLowerCase()}` : ''}</p>
+        {flight.completion_source === 'OWNER' ? <p className="mt-2 text-[11px] text-muted-foreground">Completion confirmed by owner · Estimated arrival</p> : null}
+        {flight.can_complete && accessToken ? <FinishFlight flight={flight} accessToken={accessToken} tripId={tripId} /> : null}
       </div>
-      {flight.completion_source === 'OWNER' ? <p className="mt-2 text-[11px] text-muted-foreground">Completion confirmed by owner · Estimated arrival</p> : null}
-      {flight.can_complete && accessToken ? <FinishFlight flight={flight} accessToken={accessToken} tripId={tripId} compact={compact} /> : null}
     </article>
   )
 }
@@ -182,7 +281,7 @@ function localInputNow() {
   return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 }
 
-function FinishFlight({ flight, accessToken, tripId, compact }: { flight: TrackedFlight; accessToken: string; tripId: string; compact: boolean }) {
+function FinishFlight({ flight, accessToken, tripId, compact = false }: { flight: TrackedFlight; accessToken: string; tripId: string; compact?: boolean }) {
   const [open, setOpen] = useState(false)
   const [arrival, setArrival] = useState(localInputNow)
   const [airport, setAirport] = useState<Place | null>(null)

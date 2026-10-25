@@ -324,7 +324,7 @@ export function TravelingPanel({
       const at = journey.flights[0]?.scheduled_departure
       return at && (!beforePostAt || at >= beforePostAt) && (!afterPostAt || at < afterPostAt)
     }).map((journey) => <FlightJourneyCard key={journey.itinerary_connection_id} journey={journey} accessToken={accessToken} tripId={tripId}
-      compact={mobile} className={mobile ? 'trip-mobile-post-carousel__card max-h-[calc(100dvh-15rem)] shrink-0 snap-center overflow-y-auto shadow-lg shadow-foreground/10' : undefined} />)
+      mobile={mobile} className={mobile ? 'trip-mobile-post-carousel__card shrink-0 snap-center shadow-sm' : undefined} />)
   }
   const [activePostId, setActivePostId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null

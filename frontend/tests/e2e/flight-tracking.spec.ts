@@ -101,6 +101,7 @@ test('approved cards show real contract data, estimated progress, connections, a
   expect(completionBody.estimated_arrival).toBe(new Date(value).toISOString())
   await page.setViewportSize({ width: 390, height: 844 })
   const mobileFlight = page.getByRole('article', { name: 'KL123 · Arrived' }).first()
+  await mobileFlight.getByRole('button', { name: 'Show flight details for KL123', exact: true }).click()
   await mobileFlight.scrollIntoViewIfNeeded()
   await expect(mobileFlight).toBeInViewport()
   await page.screenshot({ path: path.join(artifacts, 'flight-cards-mobile.png') })

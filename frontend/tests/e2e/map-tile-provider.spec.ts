@@ -453,6 +453,76 @@ for (const mobile of [false, true]) {
   }
 }
 
+for (const width of [320, 390, 768]) {
+  test(`mobile connecting flights are separate post-sized summaries that expand in place at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 })
+    await seedBrowserAuth(page)
+    const release = await mockTripApi(page, 'OWNER')
+    release()
+    await mockTileServers(page)
+    const airport = { id: 'airport', name: 'Amsterdam Schiphol', iata_code: 'AMS', latitude: 52.31, longitude: 4.76, timezone: 'Europe/Amsterdam' }
+    const flight = {
+      id: 'flight-1', flight_number: 'LH1003', airline_name: 'Lufthansa', departure_airport: airport,
+      arrival_airport: { ...airport, name: 'Frankfurt Airport', iata_code: 'FRA' },
+      status: 'ARRIVED', scheduled_departure: '2026-08-05T06:00:00Z', scheduled_arrival: '2026-08-05T07:00:00Z',
+      actual_departure: '2026-08-05T06:10:00Z', actual_arrival: '2026-08-05T07:10:00Z', estimated_departure: null, estimated_arrival: null,
+      completion_source: 'PROVIDER', stop_reason: null, progress: 1, estimate_basis: null,
+      position_at: null, status_updated_at: timestamp, update_state: 'CURRENT',
+      visible_to_members_only: false, can_complete: false, gps_tracking_session_id: null,
+    }
+    await page.route('**/api/v1/trips/*/posts/timeline**', route => fulfillJson(route, {
+      ...createPostTimeline(),
+      flight_journeys: [{ itinerary_connection_id: 'connection', flights: [flight, {
+        ...flight, id: 'flight-2', flight_number: 'LH1166', departure_airport: flight.arrival_airport,
+        arrival_airport: { ...airport, name: 'Lisbon Humberto Delgado', iata_code: 'LIS', timezone: 'Europe/Lisbon' },
+        scheduled_departure: '2026-08-05T07:30:00Z', scheduled_arrival: '2026-08-05T10:30:00Z',
+        actual_departure: '2026-08-05T07:40:00Z', actual_arrival: null, estimated_arrival: '2026-08-05T10:20:00Z',
+        status: 'IN_FLIGHT', completion_source: null, progress: .5,
+      }] }],
+    }))
+    await page.goto(`/trips/${tripId}?tab=travel`)
+    const carousel = page.getByLabel('Trip stories', { exact: true })
+    const cards = carousel.locator(':scope > article')
+    await expect(cards).toHaveCount(4)
+    const arrived = cards.nth(0)
+    const active = cards.nth(1)
+    await expect(arrived).toHaveAccessibleName('LH1003 · Arrived')
+    await expect(active).toHaveAccessibleName('LH1166 · In flight')
+    const firstBox = (await arrived.boundingBox())!
+    const secondBox = (await active.boundingBox())!
+    const postBox = (await cards.nth(2).boundingBox())!
+    expect(secondBox.x).toBeGreaterThan(firstBox.x + firstBox.width)
+    expect(secondBox.y).toBe(firstBox.y)
+    expect(secondBox.height).toBe(firstBox.height)
+    expect(firstBox.height).toBe(postBox.height)
+    if (width === 390) await page.screenshot({ path: testInfo.outputPath('collapsed-flight.png') })
+    const url = page.url()
+    const toggle = arrived.getByRole('button', { name: 'Show flight details for LH1003', exact: true })
+    await toggle.click()
+    await expect(arrived.getByRole('region', { name: 'Flight details for LH1003', exact: true })).toBeVisible()
+    await expect(active.getByRole('button', { name: 'Show flight details for LH1166', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page).toHaveURL(url)
+    await expect(page.getByLabel('Interactive trip route map').first()).toBeVisible()
+    for (const element of [carousel, arrived, active]) {
+      expect(await element.evaluate(node => node.scrollHeight <= node.clientHeight + 1)).toBe(true)
+    }
+    await arrived.getByRole('button', { name: 'Hide flight details for LH1003', exact: true }).click()
+    expect((await arrived.boundingBox())!.height).toBe(firstBox.height)
+    await active.scrollIntoViewIfNeeded()
+    await active.getByRole('button', { name: 'Show flight details for LH1166', exact: true }).click()
+    await expect(active.getByText('Connecting flight · 0h 30m layover', { exact: true })).toBeVisible()
+    await expect(active.getByText('Arrival estimated 10 min early', { exact: true })).toBeVisible()
+    await expect(active.getByLabel('Scheduled arrival 11:30', { exact: true })).toBeVisible()
+    expect((await active.boundingBox())!.height).toBeLessThan(360)
+    expect(await carousel.evaluate(node => node.scrollHeight <= node.clientHeight + 1)).toBe(true)
+    if (width === 390) await page.screenshot({ path: testInfo.outputPath('expanded-flight.png') })
+    await cards.nth(3).scrollIntoViewIfNeeded()
+    await expect(active.getByRole('button', { name: 'Show flight details for LH1166', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    expect((await active.boundingBox())!.height).toBe(postBox.height)
+  })
+}
+
 for (const audience of ['owner', 'viewer', 'anonymous'] as const) {
   test(`mobile ${audience} empty trip uses appropriate journey wording`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })

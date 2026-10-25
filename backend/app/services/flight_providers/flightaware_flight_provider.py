@@ -212,9 +212,10 @@ class FlightAwareFlightProvider(FlightProviderBase):
                 ident_type='designator', start=start.isoformat(), end=end.isoformat()
             )
             if not history:
+                # AeroAPI rejects fractional seconds from the rolling cutoff.
                 params['end'] = min(
                     end, now + timedelta(days=2, seconds=-1)
-                ).isoformat()
+                ).isoformat(timespec='seconds')
         payload = self._request(path, deadline, params)
         if payload is None:
             return []

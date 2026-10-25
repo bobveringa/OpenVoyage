@@ -1,7 +1,7 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 test('observed card shows observation age while progress stays estimated', async ({ page }) => {
-  await page.goto('/tests/e2e/fixtures/flight-cards.html')
+  await openFlightDetails(page)
   await page.getByRole('button', { name: 'Toggle observed position' }).click()
   await expect(page.getByText(/Observed \d+ min ago · Position at/)).toBeVisible()
   await expect(page.getByText('Estimated position at', { exact: false })).toHaveCount(0)
@@ -11,7 +11,7 @@ test('observed card shows observation age while progress stays estimated', async
 for (const width of [390, 1280]) {
   test(`in-flight cards retain departure and arrival delays at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
-    await page.goto('/tests/e2e/fixtures/flight-cards.html')
+    await openFlightDetails(page)
     const card = page.getByRole('article', { name: 'FR5682 · In flight', exact: true })
     await expect(card.getByText('In flight · Delayed', { exact: true })).toBeVisible()
     await expect(card.getByText('Departed 45 min late', { exact: true })).toBeVisible()
@@ -28,11 +28,10 @@ for (const width of [390, 1280]) {
     await expect(card.locator('del')).toHaveCount(1)
   })
 
-  for (const compact of [false, true]) {
-    test(`early estimated arrival recovers a late departure at ${width}px, compact=${compact}`, async ({ page }) => {
+  for (const keyboard of [false, true]) {
+    test(`early estimated arrival recovers a late departure at ${width}px, keyboard=${keyboard}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 })
-      await page.goto('/tests/e2e/fixtures/flight-cards.html')
-      if (compact) await page.getByRole('button', { name: 'Toggle compact card' }).click()
+      await openFlightDetails(page, keyboard)
       await page.getByRole('button', { name: 'early', exact: true }).click()
       const card = page.getByRole('article', { name: 'FR5682 · In flight', exact: true })
       await expect(card.getByText('In flight · Early', { exact: true })).toBeVisible()
@@ -40,14 +39,14 @@ for (const width of [390, 1280]) {
       await expect(card.getByText('Departed 45 min late', { exact: true })).toBeVisible()
       await expect(card).not.toHaveClass(/border-amber/)
       await expect(card.getByLabel('Scheduled arrival 20:00', { exact: true })).toHaveText('20:00')
-      await expect(card.locator('time').filter({ hasText: /^19:50$/ })).toBeVisible()
+      await expect(card.locator('time').filter({ hasText: /^19:50$/ }).first()).toBeVisible()
       await expect(card.locator('del')).toHaveCount(2)
     })
   }
 
   test(`actual early arrival takes priority over a stale late estimate at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
-    await page.goto('/tests/e2e/fixtures/flight-cards.html')
+    await openFlightDetails(page)
     await page.getByRole('button', { name: 'arrived-early', exact: true }).click()
     const card = page.getByRole('article', { name: 'FR5682 · Arrived', exact: true })
     await expect(card.getByText('Arrived · Early', { exact: true })).toBeVisible()
@@ -60,7 +59,7 @@ for (const width of [390, 1280]) {
 
 for (const scenario of ['unknown-estimate', 'unknown-schedule']) {
   test(`does not infer arrival timing from departure delay with ${scenario}`, async ({ page }) => {
-    await page.goto('/tests/e2e/fixtures/flight-cards.html')
+    await openFlightDetails(page)
     await page.getByRole('button', { name: scenario, exact: true }).click()
     const card = page.getByRole('article', { name: 'FR5682 · In flight', exact: true })
     await expect(card.getByText('In flight', { exact: true }).first()).toBeVisible()
@@ -72,7 +71,7 @@ for (const scenario of ['unknown-estimate', 'unknown-schedule']) {
 }
 
 test('still highlights a departure delay before takeoff, including status-only delays', async ({ page }) => {
-  await page.goto('/tests/e2e/fixtures/flight-cards.html')
+  await openFlightDetails(page)
   await page.getByRole('button', { name: 'awaiting-departure', exact: true }).click()
   const card = page.getByRole('article', { name: 'FR5682 · Delayed', exact: true })
   await expect(card).toHaveClass(/border-amber/)
@@ -84,7 +83,7 @@ test('still highlights a departure delay before takeoff, including status-only d
 })
 
 test('a stale delayed status cannot override confirmed departure and an early arrival estimate', async ({ page }) => {
-  await page.goto('/tests/e2e/fixtures/flight-cards.html')
+  await openFlightDetails(page)
   await page.getByRole('button', { name: 'stale-delay', exact: true }).click()
   const card = page.getByRole('article', { name: 'FR5682 · In flight', exact: true })
   await expect(card.getByText('In flight · Early', { exact: true })).toBeVisible()
@@ -93,7 +92,7 @@ test('a stale delayed status cannot override confirmed departure and an early ar
 
 for (const [scenario, status] of [['cancelled', 'Cancelled'], ['diverted', 'Diverted']]) {
   test(`preserves ${status} status instead of showing an early arrival badge`, async ({ page }) => {
-    await page.goto('/tests/e2e/fixtures/flight-cards.html')
+    await openFlightDetails(page)
     await page.getByRole('button', { name: scenario, exact: true }).click()
     const card = page.getByRole('article', { name: `FR5682 · ${status}`, exact: true })
     await expect(card.getByText(status, { exact: true }).first()).toBeVisible()
@@ -102,10 +101,33 @@ for (const [scenario, status] of [['cancelled', 'Cancelled'], ['diverted', 'Dive
 }
 
 test('also retains the scheduled departure when the plane leaves early', async ({ page }) => {
-  await page.goto('/tests/e2e/fixtures/flight-cards.html')
+  await openFlightDetails(page)
   await page.getByRole('button', { name: 'early-departure', exact: true }).click()
   const card = page.getByRole('article', { name: 'FR5682 · In flight', exact: true })
   await expect(card.getByText('Departed 10 min early', { exact: true })).toBeVisible()
   await expect(card.getByLabel('Scheduled departure 20:00', { exact: true })).toHaveText('20:00')
   await expect(card.locator('del')).toHaveCount(2)
 })
+
+test('desktop keeps its full flight card instead of the mobile disclosure', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/tests/e2e/fixtures/flight-cards.html?desktop')
+  const card = page.getByRole('article', { name: 'FR5682 · In flight', exact: true })
+  await expect(card.getByRole('button', { name: /flight details/ })).toHaveCount(0)
+  await expect(card.getByText('Departed 45 min late', { exact: true })).toBeVisible()
+  await expect(card.getByText('Arrival estimated 30 min late', { exact: true })).toBeVisible()
+  await expect(card.getByText('Eindhoven', { exact: true })).toBeVisible()
+  await expect(card.getByText('Stansted', { exact: true })).toBeVisible()
+  await expect(card.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50')
+})
+
+async function openFlightDetails(page: Page, keyboard = false) {
+  await page.goto('/tests/e2e/fixtures/flight-cards.html')
+  const toggle = page.getByRole('button', { name: 'Show flight details for FR5682', exact: true })
+  if (keyboard) {
+    await toggle.focus()
+    await toggle.press('Enter')
+  } else {
+    await toggle.click()
+  }
+}

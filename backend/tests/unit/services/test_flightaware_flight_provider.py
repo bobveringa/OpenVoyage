@@ -291,6 +291,34 @@ def test_future_schedule_endpoint_handles_digit_in_iata_airline(monkeypatch):
     assert params['flight_number'] == ['4514']
 
 
+@pytest.mark.parametrize('tracking', [False, True])
+def test_next_day_request_caps_end_without_fractional_seconds(monkeypatch, tracking):
+    now = datetime(2026, 10, 25, 11, 6, 14, 333861, tzinfo=timezone.utc)
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz)
+
+    monkeypatch.setattr(
+        'services.flight_providers.flightaware_flight_provider.datetime', FrozenDatetime,
+    )
+    day = now.date() + timedelta(days=1)
+    network = install(monkeypatch, [flight(
+        scheduled_out=f'{day}T16:45:00Z', scheduled_in=f'{day}T19:40:00Z',
+    )])
+    adapter = provider()
+    intent = INTENT.model_copy(update={'departure_date': day})
+    results = adapter.track(intent) if tracking else adapter.lookup(intent)
+    assert len(results) == 1
+    request = network.call_args_list[0].args[0]
+    assert '/flights/W64514?' in request.full_url
+    params = parse_qs(urlsplit(request.full_url).query)
+    assert params['start'] == ['2026-10-25T10:00:00+00:00']
+    # AeroAPI rejects fractional seconds when the active window caps the end.
+    assert params['end'] == ['2026-10-27T11:06:13+00:00']
+
+
 @pytest.mark.parametrize(
     'changes,status,departed,arrived',
     [
