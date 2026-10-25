@@ -38,14 +38,30 @@ export function FlightCard({ flight, compact = false, accessToken, tripId }: {
   const arrivalAt = arrivalValue ? new Date(arrivalValue) : null
   const scheduledDepartureAt = new Date(flight.scheduled_departure)
   const scheduledArrivalAt = flight.scheduled_arrival ? new Date(flight.scheduled_arrival) : null
-  const departureDelay = Math.max(0, Math.round((departureAt.getTime() - scheduledDepartureAt.getTime()) / 60_000))
-  const arrivalDelay = arrivalAt && scheduledArrivalAt ? Math.max(0, Math.round((arrivalAt.getTime() - scheduledArrivalAt.getTime()) / 60_000)) : 0
-  const delayed = flight.status === 'DELAYED' || departureDelay > 0 || arrivalDelay > 0
+  const departureDelta = Math.round((departureAt.getTime() - scheduledDepartureAt.getTime()) / 60_000)
+  const arrivalDelta = (flight.actual_arrival || flight.estimated_arrival) && arrivalAt && scheduledArrivalAt
+    ? Math.round((arrivalAt.getTime() - scheduledArrivalAt.getTime()) / 60_000) : null
+  const hasDeparted = Boolean(flight.actual_departure || flight.actual_arrival || completed || ['IN_FLIGHT', 'ARRIVED'].includes(flight.status))
+  const showTiming = !flight.stop_reason && !['CANCELLED', 'DIVERTED'].includes(flight.status)
+  const delayed = showTiming && (hasDeparted ? arrivalDelta != null && arrivalDelta > 0
+    : flight.status === 'DELAYED' || departureDelta > 0 || (arrivalDelta != null && arrivalDelta > 0))
+  const timingLabel = showTiming && hasDeparted && arrivalDelta != null
+    ? arrivalDelta > 0 ? 'Delayed' : arrivalDelta < 0 ? 'Early' : 'On time'
+    : delayed ? 'Delayed' : null
+  const departureTiming = departureDelta !== 0
+    ? flight.actual_departure ? `Departed ${Math.abs(departureDelta)} min ${departureDelta > 0 ? 'late' : 'early'}`
+      : departureDelta > 0 ? `Departure delayed ${departureDelta} min behind schedule`
+        : `Departure estimated ${Math.abs(departureDelta)} min early`
+    : null
+  const arrivalTiming = showTiming && arrivalDelta != null
+    ? `${flight.actual_arrival ? 'Arrived' : 'Arrival estimated'} ${arrivalDelta === 0 ? 'on time' : `${Math.abs(arrivalDelta)} min ${arrivalDelta > 0 ? 'late' : 'early'}`}` : null
   const arrivalDay = arrivalAt && arrival ? airportDate(arrivalAt, arrival) : null
   const departureDay = airportDate(departureAt, departure)
   const Icon = delayed ? Clock3 : completed ? PlaneLanding : PlaneTakeoff
   const percent = Math.round((flight.progress ?? 0) * 100)
-  const statusLabel = flight.stop_reason ? 'Tracking stopped' : flight.status.replace(/_/g, ' ').toLowerCase().replace(/^./, (v) => v.toUpperCase())
+  const statusLabel = flight.stop_reason ? 'Tracking stopped'
+    : hasDeparted && flight.status === 'DELAYED' ? completed || flight.actual_arrival ? 'Arrived' : 'In flight'
+      : flight.status.replace(/_/g, ' ').toLowerCase().replace(/^./, (v) => v.toUpperCase())
   return (
     <article
       aria-label={`${flight.flight_number} · ${statusLabel}`}
@@ -62,7 +78,7 @@ export function FlightCard({ flight, compact = false, accessToken, tripId }: {
         <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-medium', delayed ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : departing ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
           {delayed ? <Clock3 className="size-3" aria-hidden="true" /> : departing ? <span className="size-1.5 rounded-full bg-primary" /> : <Check className="size-3" aria-hidden="true" />}
           {statusLabel}
-          {delayed && flight.status !== 'DELAYED' ? ' · Delayed' : ''}
+          {timingLabel && timingLabel !== statusLabel ? ` · ${timingLabel}` : ''}
         </span>
       </div>
 
@@ -82,24 +98,24 @@ export function FlightCard({ flight, compact = false, accessToken, tripId }: {
       </div>
       <div className={cn('flex items-start justify-between gap-2', compact ? 'mt-2' : 'mt-3')}>
         <div>
-          <p className="text-[10px] text-muted-foreground">{flight.actual_departure ? 'Departed' : 'Estimated departure'}</p>
-          {departureDelay > 0 ? <p className="mt-0.5 text-[11px] text-muted-foreground"><del aria-label={`Scheduled departure ${airportTime(scheduledDepartureAt, departure)}`}>{airportTime(scheduledDepartureAt, departure)}</del></p> : null}
+          <p className="text-[10px] text-muted-foreground">{flight.actual_departure ? 'Departed' : flight.estimated_departure ? 'Estimated departure' : 'Scheduled departure'}</p>
+          {departureDelta !== 0 ? <p className="mt-0.5 text-[11px] text-muted-foreground"><del aria-label={`Scheduled departure ${airportTime(scheduledDepartureAt, departure)}`}>{airportTime(scheduledDepartureAt, departure)}</del></p> : null}
           <p className="mt-0.5 text-lg font-semibold leading-tight tabular-nums">{airportTime(departureAt, departure)}{compact ? <span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportTimezone(departureAt, departure)}</span> : null}</p>
           {!compact ? <p className="mt-0.5 text-[10px] text-muted-foreground">{airportTimezone(departureAt, departure)}</p> : null}
         </div>
         <div className="text-right">
-          <p className="text-[10px] text-muted-foreground">{flight.actual_arrival ? 'Arrived' : 'Estimated arrival'}</p>
-          {arrivalDelay > 0 && scheduledArrivalAt && arrival ? <p className="mt-0.5 text-[11px] text-muted-foreground"><del aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del></p> : null}
+          <p className="text-[10px] text-muted-foreground">{flight.actual_arrival ? 'Arrived' : flight.estimated_arrival ? 'Estimated arrival' : 'Scheduled arrival'}</p>
+          {arrivalDelta != null && arrivalDelta !== 0 && scheduledArrivalAt && arrival ? <p className="mt-0.5 text-[11px] text-muted-foreground"><del aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del></p> : null}
           <p className="mt-0.5 text-lg font-semibold leading-tight tabular-nums">{arrivalAt && arrival ? airportTime(arrivalAt, arrival) : '—'}{compact ? <span className="ml-1 text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}</span> : null}</p>
           {!compact || arrivalDay !== departureDay ? <p className="mt-0.5 text-[10px] text-muted-foreground">{!compact && arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}{arrivalDay && arrivalDay !== departureDay ? `${compact ? '' : ' · '}${arrivalDay}` : ''}</p> : null}
         </div>
       </div>
 
-      {delayed ? (
-        <div className={cn('mt-3 rounded-xl bg-amber-500/10 px-3 text-amber-800 dark:text-amber-300', compact ? 'py-2' : 'py-2.5')}>
-          <p className="flex items-center gap-1.5 text-xs font-medium"><Clock3 className="size-3.5 shrink-0" aria-hidden="true" />{departureDelay > 0 ? `${flight.actual_departure ? 'Departed' : 'Departure delayed'} ${departureDelay} min ${flight.actual_departure ? 'late' : 'behind schedule'}` : 'Flight delayed'}</p>
-          {arrivalDelay > 0 ? <p className="mt-1 text-[11px]">{flight.actual_arrival ? 'Arrived' : 'Arrival estimated'} {arrivalDelay} min late</p> : null}
-          {!flight.actual_departure && !departing && !completed && !['IN_FLIGHT', 'ARRIVED', 'CANCELLED', 'DIVERTED'].includes(flight.status) ? <p className="mt-1 text-[11px]">Awaiting departure</p> : null}
+      {showTiming && (departureTiming || arrivalTiming || delayed) ? (
+        <div className={cn('mt-3 rounded-xl px-3', delayed ? 'bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'bg-muted text-muted-foreground', compact ? 'py-2' : 'py-2.5')}>
+          <p className="flex items-center gap-1.5 text-xs font-medium"><Clock3 className="size-3.5 shrink-0" aria-hidden="true" />{departureTiming ?? arrivalTiming ?? 'Flight delayed'}</p>
+          {departureTiming && arrivalTiming ? <p className={cn('mt-1 text-[11px]', arrivalDelta != null && arrivalDelta <= 0 && 'text-primary')}>{arrivalTiming}</p> : null}
+          {delayed && !hasDeparted && !departing ? <p className="mt-1 text-[11px]">Awaiting departure</p> : null}
         </div>
       ) : null}
       {departing ? (
