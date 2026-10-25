@@ -37,7 +37,7 @@ describe('planning preview reuse', () => {
   })
 
   it('binds every segment and flight detail while ignoring object property order', () => {
-    const flight = { travel_mode: 'FLIGHT' as const, notes: '', mode_selected: true, route_option: 0, flight: { flight_number: 'KL597', departure_date: '2026-11-18' } }
+    const flight = { travel_mode: 'FLIGHT' as const, notes: '', mode_selected: true, route_option: 0, flight: { flight_number: 'QF6842', departure_date: '2026-11-18' } }
     const journey = { ...draft, segments: [...draft.segments, flight] }
     const reordered = { ...journey, segments: [{ ...draft.segments[0], via: { longitude: 4.8, latitude: 51.7 } }, flight] }
     const same = { ...reordered, segments: [{ ...draft.segments[0], via: { latitude: 51.7, longitude: 4.8 } }, flight] }

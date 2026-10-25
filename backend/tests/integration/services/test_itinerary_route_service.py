@@ -68,8 +68,8 @@ def plan(client, db_session, api_prefix):
 
 def flight_lookup():
     return FlightLookup(
-        flight_number='KL597', departure_date='2026-11-18', fetched_at='2026-10-25T10:00:00Z',
-        airline_name='KLM',
+        flight_number='QF6842', departure_date='2026-11-18', fetched_at='2026-10-25T10:00:00Z',
+        airline_name='Qantas',
         departure_airport=Endpoint(name='Schiphol', latitude=52.3, longitude=4.7, iata_code='AMS', timezone='Europe/Amsterdam'),
         arrival_airport=Endpoint(name='Cape Town', latitude=-33.97, longitude=18.6, iata_code='CPT', timezone='Africa/Johannesburg'),
         scheduled_departure='2026-11-18T10:00:00+01:00', scheduled_arrival='2026-11-18T22:00:00+02:00',
@@ -106,7 +106,7 @@ def test_alternative_provider_can_lookup_save_and_read_schedule(client, plan):
 
     client.app.dependency_overrides[get_flight_provider] = AlternativeProvider
     try:
-        payload = {'flight_number': 'KL597', 'departure_date': '2026-11-18'}
+        payload = {'flight_number': 'QF6842', 'departure_date': '2026-11-18'}
         found = client.post(
             endpoint + '/flight-lookups', headers=headers(user, revision), json=payload
         )
@@ -174,7 +174,7 @@ def test_no_flight_provider_or_key_keeps_draft_editable(
     response = client.post(
         endpoint + '/flight-lookups',
         headers=headers(user, revision),
-        json={'flight_number': 'KL597', 'departure_date': '2026-11-18'},
+        json={'flight_number': 'QF6842', 'departure_date': '2026-11-18'},
     )
     assert response.status_code == 200, response.text
     assert planning_body(response)['status'] == 'UNAVAILABLE'
@@ -188,7 +188,7 @@ def test_no_flight_provider_or_key_keeps_draft_editable(
                     {
                         'travel_mode': 'FLIGHT',
                         'flight': {
-                            'flight_number': 'KL597',
+                            'flight_number': 'QF6842',
                             'departure_date': '2026-11-18',
                         },
                     }
@@ -198,7 +198,7 @@ def test_no_flight_provider_or_key_keeps_draft_editable(
     )
     assert save.status_code == 200, save.text
     assert planning_body(save)['duration_seconds'] is None
-    assert planning_body(save)['segments'][0]['intent']['flight']['flight_number'] == 'KL597'
+    assert planning_body(save)['segments'][0]['intent']['flight']['flight_number'] == 'QF6842'
 
 
 def test_preview_failure_is_adopted_without_retry(client, plan, db_session):
@@ -274,7 +274,7 @@ def test_candidates_survive_notes_edits_and_do_not_leak_artifact_ids(
     found = client.post(
         endpoint + '/flight-lookups',
         headers=headers(user, revision),
-        json={'flight_number': 'kl 597', 'departure_date': '2026-11-18'},
+        json={'flight_number': 'qf 6842', 'departure_date': '2026-11-18'},
     )
     assert found.status_code == 200, found.text
     candidate = planning_body(found)['candidates'][0]['candidate_id']
@@ -296,7 +296,7 @@ def test_candidates_survive_notes_edits_and_do_not_leak_artifact_ids(
                     {
                         'travel_mode': 'FLIGHT',
                         'flight': {
-                            'flight_number': 'KL597',
+                            'flight_number': 'QF6842',
                             'departure_date': '2026-11-18',
                             'candidate_id': candidate,
                         },
@@ -320,7 +320,7 @@ def test_planning_actions_require_editor_and_revision(client, db_session, plan, 
     viewer = create_user(db_session, password='PlanningPass123!')
     add_trip_viewer(db_session, trip_id=trip.id, user_id=viewer.id, created_by=user.id)
     payload = (
-        {'flight_number': 'KL597', 'departure_date': '2026-11-18'}
+        {'flight_number': 'QF6842', 'departure_date': '2026-11-18'}
         if action == 'flight-lookups'
         else connection_write(connection, {'segments': [connection['segments'][0]['intent']]})
     )
@@ -342,7 +342,7 @@ def test_candidate_is_bound_to_actor_and_inputs(client, db_session, plan, monkey
     found = client.post(
         endpoint + '/flight-lookups',
         headers=headers(user, revision),
-        json={'flight_number': 'KL597', 'departure_date': '2026-11-18'},
+        json={'flight_number': 'QF6842', 'departure_date': '2026-11-18'},
     )
     candidate = planning_body(found)['candidates'][0]['candidate_id']
     invalid = client.put(
@@ -355,7 +355,7 @@ def test_candidate_is_bound_to_actor_and_inputs(client, db_session, plan, monkey
                     {
                         'travel_mode': 'FLIGHT',
                         'flight': {
-                            'flight_number': 'KL598',
+                            'flight_number': 'QF6843',
                             'departure_date': '2026-11-18',
                             'candidate_id': candidate,
                         },
@@ -378,7 +378,7 @@ def test_candidate_is_bound_to_actor_and_inputs(client, db_session, plan, monkey
                     {
                         'travel_mode': 'FLIGHT',
                         'flight': {
-                            'flight_number': 'KL597',
+                            'flight_number': 'QF6842',
                             'departure_date': '2026-11-18',
                             'candidate_id': candidate,
                         },
@@ -396,7 +396,7 @@ def test_mixed_journey_has_no_combined_total(client, db_session, plan, monkeypat
     found = client.post(
         endpoint + '/flight-lookups',
         headers=headers(user, revision),
-        json={'flight_number': 'KL597', 'departure_date': '2026-11-18'},
+        json={'flight_number': 'QF6842', 'departure_date': '2026-11-18'},
     )
     candidate = planning_body(found)['candidates'][0]['candidate_id']
     save = client.put(
@@ -410,7 +410,7 @@ def test_mixed_journey_has_no_combined_total(client, db_session, plan, monkeypat
                     {
                         'travel_mode': 'FLIGHT',
                         'flight': {
-                            'flight_number': 'KL597',
+                            'flight_number': 'QF6842',
                             'departure_date': '2026-11-18',
                             'candidate_id': candidate,
                         },
@@ -500,7 +500,7 @@ def test_departing_member_loses_artifacts_but_saved_travel_survives(
     found = client.post(
         endpoint + '/flight-lookups',
         headers=headers(member, revision),
-        json={'flight_number': 'KL597', 'departure_date': '2026-11-18'},
+        json={'flight_number': 'QF6842', 'departure_date': '2026-11-18'},
     )
     candidate = planning_body(found)['candidates'][0]['candidate_id']
     # Even another trip editor cannot adopt this member's private candidate.
@@ -510,7 +510,7 @@ def test_departing_member_loses_artifacts_but_saved_travel_survives(
             {
                 'travel_mode': 'FLIGHT',
                 'flight': {
-                    'flight_number': 'KL597',
+                    'flight_number': 'QF6842',
                     'departure_date': '2026-11-18',
                     'candidate_id': candidate,
                 },
@@ -557,7 +557,7 @@ def test_departing_member_loses_artifacts_but_saved_travel_survives(
     assert deleted.status_code == 200, deleted.text
     after = planning_body(client.get(endpoint, headers=headers(owner)))
     assert after['segments'][0]['lookup'] is None
-    assert after['segments'][0]['intent']['flight']['flight_number'] == 'KL597'
+    assert after['segments'][0]['intent']['flight']['flight_number'] == 'QF6842'
     assert after['notes'] == 'Keep my travel notes'
 
 
@@ -1030,7 +1030,7 @@ def test_lookup_resolves_existing_airports_and_candidate_save_keeps_their_ids(
         airports.append(airport)
     db_session.commit()
     lookup = matched_lookup(db_session, monkeypatch)
-    payload = {'flight_number': 'KL597', 'departure_date': '2026-11-18'}
+    payload = {'flight_number': 'QF6842', 'departure_date': '2026-11-18'}
     found = client.post(
         endpoint + '/flight-lookups', headers=headers(user, revision), json=payload
     )

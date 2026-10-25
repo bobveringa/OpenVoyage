@@ -10,22 +10,22 @@ import type { MapConnection, MapStop } from '../../../src/pages/trip-detail/mode
 import '../../../src/index.css'
 
 const stops = [
-  { id: 'eindhoven', title: 'Eindhoven', location: { latitude: 51.44, longitude: 5.48 } },
-  { id: 'london', title: 'London', location: { latitude: 51.51, longitude: -.13 } },
-  { id: 'paris', title: 'Paris', location: { latitude: 48.85, longitude: 2.35 } },
+  { id: 'auckland', title: 'Auckland', location: { latitude: -36.85, longitude: 174.76 } },
+  { id: 'wellington', title: 'Wellington', location: { latitude: -41.29, longitude: 174.78 } },
+  { id: 'christchurch', title: 'Christchurch', location: { latitude: -43.53, longitude: 172.64 } },
 ] as MapStop[]
-const departure = { name: 'Eindhoven Airport', latitude: 51.45, longitude: 5.37 }
-const arrival = { name: 'Stansted Airport', latitude: 51.89, longitude: .26 }
+const departure = { name: 'Auckland Airport', latitude: -37.01, longitude: 174.79 }
+const arrival = { name: 'Wellington Airport', latitude: -41.33, longitude: 174.81 }
 const current = {
-  route: { type: 'SIMPLE', geometry: { type: 'LineString', coordinates: [[5.37, 51.45], [.26, 51.89]] } },
-  id: 'current', from: { type: 'STOP', stop_id: 'eindhoven' }, to: { type: 'STOP', stop_id: 'london' },
+  route: { type: 'SIMPLE', geometry: { type: 'LineString', coordinates: [[174.79, -37.01], [174.81, -41.33]] } },
+  id: 'current', from: { type: 'STOP', stop_id: 'auckland' }, to: { type: 'STOP', stop_id: 'wellington' },
   segments: [{ id: 'flight', intent: { travel_mode: 'FLIGHT' }, route_state: 'UNSUPPORTED',
     from_endpoint: departure, to_endpoint: arrival,
-    geometry: { type: 'LineString', coordinates: [[5.37, 51.45], [.26, 51.89]] } }],
+    geometry: { type: 'LineString', coordinates: [[174.79, -37.01], [174.81, -41.33]] } }],
 } as MapConnection
-const future = { ...current, id: 'future', from: current.to, to: { type: 'STOP', stop_id: 'paris' },
+const future = { ...current, id: 'future', from: current.to, to: { type: 'STOP', stop_id: 'christchurch' },
   segments: [{ intent: { travel_mode: 'CAR' }, route_state: 'READY', from_endpoint: stops[1].location,
-    to_endpoint: stops[2].location, geometry: { type: 'LineString', coordinates: [[-.13, 51.51], [2.35, 48.85]] } }],
+    to_endpoint: stops[2].location, geometry: { type: 'LineString', coordinates: [[174.78, -41.29], [172.64, -43.53]] } }],
 } as MapConnection
 const base: TrackingJourney = {
   server_time: '2026-10-23T19:20:00Z', current_connection_id: 'current', position: null,
@@ -33,16 +33,16 @@ const base: TrackingJourney = {
   target: { type: 'AIRPORT', ...departure }, connector: null, active_flight_id: null,
   remaining_flight_route: null, visible_to_members_only: false,
 }
-const position = { latitude: 51.44, longitude: 5.48, at: base.server_time, source: 'MOBILE_GPS' as const }
-const connector = { type: 'LineString' as const, coordinates: [[5.48, 51.44], [5.37, 51.45]] }
+const position = { latitude: -36.85, longitude: 174.76, at: base.server_time, source: 'MOBILE_GPS' as const }
+const connector = { type: 'LineString' as const, coordinates: [[174.76, -36.85], [174.79, -37.01]] }
 const stages: Record<string, TrackingJourney | undefined> = {
   'Unknown position': base,
   'Ground guidance': { ...base, position, connector },
-  'In flight': { ...base, position: { ...position, latitude: 51.7, longitude: 2.5, source: 'FLIGHT_ESTIMATE' }, active_flight_id: 'flight', remaining_flight_route: { type: 'LineString', coordinates: [[2.5, 51.7], [.26, 51.89]] } },
-  'Observed flight': { ...base, position: { ...position, latitude: 51.7, longitude: 2.5, source: 'FLIGHT_TRACK' }, active_flight_id: 'flight', remaining_flight_route: { type: 'LineString', coordinates: [[2.5, 51.7], [.26, 51.89]] } },
+  'In flight': { ...base, position: { ...position, latitude: -39.2, longitude: 174.8, source: 'FLIGHT_ESTIMATE' }, active_flight_id: 'flight', remaining_flight_route: { type: 'LineString', coordinates: [[174.8, -39.2], [174.81, -41.33]] } },
+  'Observed flight': { ...base, position: { ...position, latitude: -39.2, longitude: 174.8, source: 'FLIGHT_TRACK' }, active_flight_id: 'flight', remaining_flight_route: { type: 'LineString', coordinates: [[174.8, -39.2], [174.81, -41.33]] } },
   'Between flights': { ...base, position, connector, target: { type: 'AIRPORT', ...arrival } },
-  'Arrived': { ...base, current_flight_segment_index: null, position: { ...position, ...arrival }, connector: { type: 'LineString', coordinates: [[.26, 51.89], [-.13, 51.51]] }, target: { type: 'DESTINATION', ...stops[1].location, name: 'London' } },
-  'Ground only': { ...base, current_flight_segment_index: null, position, connector: { type: 'LineString', coordinates: [[5.48, 51.44], [-.13, 51.51]] }, target: { type: 'DESTINATION', ...stops[1].location, name: 'London' } },
+  'Arrived': { ...base, current_flight_segment_index: null, position: { ...position, ...arrival }, connector: { type: 'LineString', coordinates: [[174.81, -41.33], [174.78, -41.29]] }, target: { type: 'DESTINATION', ...stops[1].location, name: 'Wellington' } },
+  'Ground only': { ...base, current_flight_segment_index: null, position, connector: { type: 'LineString', coordinates: [[174.76, -36.85], [174.78, -41.29]] }, target: { type: 'DESTINATION', ...stops[1].location, name: 'Wellington' } },
   'Hidden journey': { ...base, current_connection_id: null, target: null },
   'Unavailable journey': undefined,
 }
@@ -55,9 +55,9 @@ L.Map.addInitHook(function (this: L.Map) {
 })
 const focusScenario = new URLSearchParams(window.location.search).get('flight-focus')
 const focusFlight: TrackedFlight = {
-  id: 'flight', flight_number: 'FR5682', airline_name: 'Ryanair',
-  departure_airport: { id: 'departure', ...departure, iata_code: 'EIN', timezone: 'Europe/Amsterdam' },
-  arrival_airport: { id: 'arrival', ...arrival, iata_code: 'STN', timezone: 'Europe/London' },
+  id: 'flight', flight_number: 'NZ6827', airline_name: 'Air New Zealand',
+  departure_airport: { id: 'departure', ...departure, iata_code: 'AKL', timezone: 'Pacific/Auckland' },
+  arrival_airport: { id: 'arrival', ...arrival, iata_code: 'WLG', timezone: 'Pacific/Auckland' },
   scheduled_departure: base.server_time, scheduled_arrival: null, actual_departure: null, actual_arrival: null,
   estimated_departure: null, estimated_arrival: null, status: 'SCHEDULED', progress: null, estimate_basis: null,
   completion_source: null, stop_reason: null, position_at: null, status_updated_at: null, update_state: 'CURRENT',
@@ -93,8 +93,8 @@ export function Preview() {
   }, [])
   const selected = savedTransfer ? { ...current, segments: [...current.segments, {
     id: 'arrival-car', intent: { travel_mode: 'CAR' }, route_state: 'READY',
-    from_endpoint: arrival, to_endpoint: { ...stops[1].location, name: 'London' },
-    geometry: { type: 'LineString', coordinates: [[.26, 51.89], [.1, 51.7], [-.13, 51.51]] },
+    from_endpoint: arrival, to_endpoint: { ...stops[1].location, name: 'Wellington' },
+    geometry: { type: 'LineString', coordinates: [[174.81, -41.33], [174.8, -39.2], [174.78, -41.29]] },
   }] } as MapConnection : current
   return <main>
     <div style={{ height: focusScenario ? 200 : 80 }}>
@@ -113,8 +113,8 @@ export function Preview() {
         resetNonce={0} routeMode={plan ? 'itinerary' : 'travel-timeline'} stops={hideVisited && !plan ? stops.slice(1) : stops}
         connections={[stage === 'Ground only' ? { ...current, segments: [{ ...current.segments[0], intent: { ...current.segments[0].intent, travel_mode: 'CAR' }, route_state: 'READY' }] } : selected, future]} travelPosts={[]} trackingGeometry={{ openingRoute: {
           durationSeconds: null, segments: stage === 'Observed flight'
-            ? [{ travelMode: 'FLIGHT', source: 'FLIGHT_TRACK', coordinates: [[51.45, 5.37], [51.6, 4], [51.7, 2.5]] }]
-            : [{ travelMode: 'CAR', source: 'MOBILE_GPS', coordinates: [[51.43, 5.5], [51.44, 5.48]] }],
+            ? [{ travelMode: 'FLIGHT', source: 'FLIGHT_TRACK', coordinates: [[-37.01, 174.79], [-38.1, 174.8], [-39.2, 174.8]] }]
+            : [{ travelMode: 'CAR', source: 'MOBILE_GPS', coordinates: [[-36.84, 174.75], [-36.85, 174.76]] }],
         }, journey: stages[stage], flightJourneys }} />
     </div>
   </main>

@@ -155,7 +155,7 @@ def test_old_configuration_failure_cannot_undo_settings_fix(
 ):
     s = setup
     monkeypatch.setattr('services.app_settings_service.utcnow', lambda: START + timedelta(minutes=2))
-    unrequested = s.add('KL456', START + timedelta(minutes=1))
+    unrequested = s.add('QF5938', START + timedelta(minutes=1))
     configure(s.db, 'flights.provider', 'flightaware')
     configure(s.db, 'flights.flightaware_api_key', 'old-key')
     # Unreadable inactive key must never break the raw comparison.
@@ -285,7 +285,7 @@ def test_cancellation_applies_collected_facts_without_requesting_backlog(
     setup, monitor_engine
 ):
     s = setup
-    second = s.add('KL456', START + timedelta(minutes=1))
+    second = s.add('QF5938', START + timedelta(minutes=1))
     cancelled = threading.Event()
     provider = Mock()
 
@@ -337,15 +337,15 @@ def test_stale_configuration_keeps_valid_facts_and_other_failure_backoff(
     setup, engine, monitor_engine
 ):
     s = setup
-    other = s.add('KL456', START + timedelta(minutes=1))
-    third = s.add('KL789', START + timedelta(minutes=2))
+    other = s.add('QF5938', START + timedelta(minutes=1))
+    third = s.add('QF7163', START + timedelta(minutes=2))
     configure(s.db, 'flights.provider', 'flightaware')
     provider = Mock()
 
     def track(request):
-        if request.flight_number == 'KL123':
+        if request.flight_number == 'QF4826':
             return [movement(s, status='BOARDING')]
-        if request.flight_number == 'KL456':
+        if request.flight_number == 'QF5938':
             raise FlightUnavailable(result='UNAVAILABLE')
         with Session(engine) as db:
             configure(db, 'flights.check_interval_minutes', 30)
@@ -473,7 +473,7 @@ def test_cancellation_during_reconciliation_stops_before_next_trip(
         TrackedFlight(
             trip_id=other_trip.id,
             itinerary_connection_id=uuid.uuid4(),
-            flight_number='KL999',
+            flight_number='QF9385',
             scheduled_departure=START,
             departure_airport_place_id=s.departure.id,
             next_check_at=START,

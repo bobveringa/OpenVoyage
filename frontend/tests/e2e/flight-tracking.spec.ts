@@ -54,10 +54,10 @@ test('approved cards show real contract data, estimated progress, connections, a
   const now = Date.now()
   const iso = (minutes: number) => new Date(now + minutes * 60_000).toISOString()
   const airport = (name: string, iata_code: string, latitude: number, longitude: number, timezone: string) => ({ id: crypto.randomUUID(), name, iata_code, latitude, longitude, timezone })
-  const departure = airport('Amsterdam Schiphol', 'AMS', 52.31, 4.76, 'Europe/Amsterdam')
-  const arrival = airport('Lisbon Humberto Delgado', 'LIS', 38.77, -9.13, 'Europe/Lisbon')
+  const departure = airport('Sydney', 'SYD', -33.95, 151.18, 'Australia/Sydney')
+  const arrival = airport('Melbourne', 'MEL', -37.67, 144.84, 'Australia/Melbourne')
   const flight = {
-    id: crypto.randomUUID(), flight_number: 'KL123', airline_name: 'Example airline',
+    id: crypto.randomUUID(), flight_number: 'QF4826', airline_name: 'Example airline',
     departure_airport: departure, arrival_airport: arrival, status: 'IN_FLIGHT',
     scheduled_departure: iso(-75), estimated_departure: iso(-60), actual_departure: iso(-60),
     scheduled_arrival: iso(45), estimated_arrival: iso(60), actual_arrival: null,
@@ -72,7 +72,7 @@ test('approved cards show real contract data, estimated progress, connections, a
     const body = await response.json()
     body.flight_journeys = [{ itinerary_connection_id: crypto.randomUUID(), flights: [
       completed ? { ...flight, status: 'ARRIVED', progress: 1, completion_source: 'OWNER', can_complete: false, position_at: null } : flight,
-      { ...flight, id: crypto.randomUUID(), flight_number: 'KL456', scheduled_departure: iso(180), actual_departure: null, estimated_departure: iso(180), scheduled_arrival: iso(300), estimated_arrival: iso(300), progress: null, position_at: null, status: 'DELAYED', can_complete: false },
+      { ...flight, id: crypto.randomUUID(), flight_number: 'QF5938', scheduled_departure: iso(180), actual_departure: null, estimated_departure: iso(180), scheduled_arrival: iso(300), estimated_arrival: iso(300), progress: null, position_at: null, status: 'DELAYED', can_complete: false },
     ] }]
     await route.fulfill({ response, json: body })
   })
@@ -82,7 +82,7 @@ test('approved cards show real contract data, estimated progress, connections, a
     await route.fulfill({ json: { flight_id: flight.id, completion_source: 'OWNER', session: { id: flight.gps_tracking_session_id, started_at: flight.actual_departure, ended_at: completionBody.estimated_arrival, recorded_by_user_id: null, sample_count: 65, source: 'FLIGHT_ESTIMATE' } } })
   })
   await page.goto(`/trips/${tripId}?tab=travel`)
-  const card = page.getByRole('article', { name: 'KL123 · In flight' }).last()
+  const card = page.getByRole('article', { name: 'QF4826 · In flight' }).last()
   await expect(card.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50')
   await expect(card.getByText('Members only · Live sharing is off')).toBeVisible()
   await expect(card.getByText(/Provider updated/)).toBeVisible()
@@ -100,8 +100,8 @@ test('approved cards show real contract data, estimated progress, connections, a
   await expect(page.getByText('Completion confirmed by owner · Estimated arrival').last()).toBeVisible()
   expect(completionBody.estimated_arrival).toBe(new Date(value).toISOString())
   await page.setViewportSize({ width: 390, height: 844 })
-  const mobileFlight = page.getByRole('article', { name: 'KL123 · Arrived' }).first()
-  await mobileFlight.getByRole('button', { name: 'Show flight details for KL123', exact: true }).click()
+  const mobileFlight = page.getByRole('article', { name: 'QF4826 · Arrived' }).first()
+  await mobileFlight.getByRole('button', { name: 'Show flight details for QF4826', exact: true }).click()
   await mobileFlight.scrollIntoViewIfNeeded()
   await expect(mobileFlight).toBeInViewport()
   await page.screenshot({ path: path.join(artifacts, 'flight-cards-mobile.png') })

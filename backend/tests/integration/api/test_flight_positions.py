@@ -142,7 +142,7 @@ def test_next_flight_cancels_previous_final_retrieval_before_network(setup):
     from dataclasses import replace
 
     s = setup
-    second = s.add('KL456', START + timedelta(hours=3))
+    second = s.add('QF5938', START + timedelta(hours=3))
     adapter = provider(s, arrived=True)
     first = adapter.track.return_value[0]
     adapter.track.side_effect = lambda intent: (

@@ -21,7 +21,7 @@ from integration.services.test_itinerary_route_service import plan, headers  # n
 )
 def test_configured_and_unconfigured_flight_api(client, db_session, plan):  # noqa: F811
     user, _, _, endpoint, revision, connection, _ = plan
-    payload = {'flight_number': 'KL597', 'departure_date': '2026-11-18'}
+    payload = {'flight_number': 'QF12', 'departure_date': '2026-11-18'}
     unconfigured = client.post(
         endpoint + '/flight-lookups', headers=headers(user, revision), json=payload
     )
@@ -57,7 +57,7 @@ def test_configured_and_unconfigured_flight_api(client, db_session, plan):  # no
     )
     assert saved.status_code == 200
     assert (
-        planning_body(saved)['segments'][0]['lookup']['departure_airport']['iata_code'] == 'AMS'
+        planning_body(saved)['segments'][0]['lookup']['departure_airport']['iata_code'] == 'LAX'
     )
     assert planning_body(saved)['segments'][0]['duration_seconds'] is not None
     service.reset_setting(FLIGHTS_FLIGHTAWARE_API_KEY)

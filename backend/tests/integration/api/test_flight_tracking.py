@@ -67,7 +67,7 @@ def setup(db_session):
     service = FlightTrackingService(db)
     db.add(AppSetting(key='flights.provider', value='flightaware'))
 
-    def add(number='KL123', departure_at=START):
+    def add(number='QF4826', departure_at=START):
         lookup = FlightLookup(
             flight_number=number,
             departure_date=departure_at.date(),
@@ -154,7 +154,7 @@ def test_matched_candidate_without_manual_airport_ids_is_adopted(setup, via_job)
     assert plan.arrival_airport_place_id == s.arrival.id
     assert s.trip.itinerary_revision == revision + 1
     access = get_trip_read_access(s.db, trip_id=s.trip.id, current_user_id=s.owner.id)
-    assert s.service.cards(access, [], START)[0].flights[0].flight_number == 'KL123'
+    assert s.service.cards(access, [], START)[0].flights[0].flight_number == 'QF4826'
     s.service.sync_itinerary(s.trip.id)
     s.db.commit()
     assert len(s.service.flights(s.trip.id)) == 1
@@ -447,7 +447,7 @@ def test_next_departure_finalizes_or_stops_previous_without_overlap(
 ):
     s = setup
     depart(s)
-    second = s.add('KL456', START + timedelta(hours=3))
+    second = s.add('QF5938', START + timedelta(hours=3))
     boundary = START + timedelta(hours=3)
     updates = {
         second.id: movement(
@@ -607,7 +607,7 @@ def test_confirmed_departure_with_inconsistent_time_uses_observation_boundary(se
     s = setup
     # Earlier movement confirmation first observed at 09:00.
     apply(s, movement(s, status='IN_FLIGHT', departure_confirmed=True))
-    second = s.add('KL456', START + timedelta(hours=3))
+    second = s.add('QF5938', START + timedelta(hours=3))
     s.service.apply_updates(
         s.trip.id,
         {
@@ -626,7 +626,7 @@ def test_confirmed_departure_with_inconsistent_time_uses_observation_boundary(se
 
 def test_late_earlier_departure_cannot_stop_a_newer_recording(setup):
     s = setup
-    second = s.add('KL456', START + timedelta(hours=3))
+    second = s.add('QF5938', START + timedelta(hours=3))
     s.service.apply_updates(
         s.trip.id,
         {second.id: movement(s, status='IN_FLIGHT', departure_confirmed=True)},
@@ -797,14 +797,14 @@ def test_connection_card_appears_24_hours_before_first_flight_and_keeps_connecti
     setup,
 ):
     s = setup
-    s.add('KL456', START + timedelta(hours=30))
+    s.add('QF5938', START + timedelta(hours=30))
     access = get_trip_read_access(s.db, trip_id=s.trip.id, current_user_id=s.owner.id)
     assert s.service.cards(access, [], START - timedelta(hours=25)) == []
     journeys = s.service.cards(access, [], START - timedelta(hours=23))
     assert len(journeys) == 1
     assert [flight.flight_number for flight in journeys[0].flights] == [
-        'KL123',
-        'KL456',
+        'QF4826',
+        'QF5938',
     ]
 
 
@@ -813,7 +813,7 @@ def test_next_flight_stop_explanation_waits_for_readers_history_boundary(
 ):
     s = setup
     depart(s)
-    second = s.add('KL456', START + timedelta(hours=3))
+    second = s.add('QF5938', START + timedelta(hours=3))
     s.service.apply_updates(
         s.trip.id,
         {second.id: movement(s, status='IN_FLIGHT', departure_confirmed=True)},
@@ -1016,7 +1016,7 @@ def test_journey_tracks_current_leg_through_landing_and_layover(setup, monkeypat
     assert landed.current_flight_segment_index is None
     assert landed.active_flight_id is None
     assert landed.target.type == 'DESTINATION'
-    s.add('KL456', START + timedelta(hours=4))
+    s.add('QF5938', START + timedelta(hours=4))
     layover = current_journey(s.db, s.trip.id, s.owner.id)
     assert layover.current_flight_segment_index == 1
     assert layover.target.type == 'AIRPORT'

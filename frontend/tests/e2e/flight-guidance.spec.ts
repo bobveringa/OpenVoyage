@@ -67,8 +67,8 @@ test('current travel guidance replaces legs in order and preserves arrival trans
   await expect(page.locator('path.trip-map-traveled-route').first()).toBeAttached()
   await expect(current.first()).toBeAttached()
   const flight = page.locator('path[data-itinerary-connection-id="current"][data-itinerary-segment-index="0"]')
-  const departureTransfer = page.locator('path[aria-label="Airport transfer: Eindhoven → Eindhoven Airport"]')
-  const arrivalTransfer = page.locator('path[aria-label="Airport transfer: Stansted Airport → London"]')
+  const departureTransfer = page.locator('path[aria-label="Airport transfer: Auckland → Auckland Airport"]')
+  const arrivalTransfer = page.locator('path[aria-label="Airport transfer: Wellington Airport → Wellington"]')
   await expect(departureTransfer).toHaveCount(0)
   await expect(arrivalTransfer.first()).toBeAttached()
   await expect(future.first()).toBeAttached()
@@ -128,7 +128,7 @@ test('a saved airport-to-hotel road route stays planned until landing', async ({
 test('arrival transfers remain visible when Travel filters out the visited departure stop', async ({ page }) => {
   await page.goto('/tests/e2e/fixtures/flight-guidance.html')
   await page.getByRole('button', { name: 'Hide visited departure stop', exact: true }).click()
-  const arrival = page.locator('path[aria-label="Airport transfer: Stansted Airport → London"]')
+  const arrival = page.locator('path[aria-label="Airport transfer: Wellington Airport → Wellington"]')
   for (const stage of ['Ground guidance', 'In flight']) {
     await page.getByRole('button', { name: stage, exact: true }).click()
     await expect(arrival.first()).toBeAttached()

@@ -27,7 +27,7 @@ test('one-stop departure flight and independent return render, edit, and confirm
     from: { type: 'LOCATION', location: createLocation('outside-a', 'London', 51.5, -0.1) },
     to: { type: 'STOP', stop_id: firstStopId },
     segments: [{ ...template.segments[0], id: 'departure-segment',
-      intent: { travel_mode: 'FLIGHT', flight: { flight_number: 'KL1000', departure_date: '2027-05-10' } },
+      intent: { travel_mode: 'FLIGHT', flight: { flight_number: 'QF2468', departure_date: '2027-05-10' } },
       from_endpoint: { name: 'LHR', latitude: 51.47, longitude: -0.45 },
       to_endpoint: { name: 'AMS', latitude: 52.31, longitude: 4.76 },
       geometry: { type: 'LineString', coordinates: [[-0.45, 51.47], [4.76, 52.31]] },
@@ -435,7 +435,7 @@ for (const mobile of [false, true]) {
         entries: [],
         opening_route: { duration_seconds: null, segments: [{ travel_mode: 'CAR', source: 'MOBILE_GPS', geometry: { type: 'LineString', coordinates: [[5.3, 51.4], [5.37, 51.45]] } }] },
         flight_journeys: [{ itinerary_connection_id: 'connection', flights: [{
-          id: 'flight', flight_number: 'FR5682', airline_name: 'Ryanair', departure_airport: airport,
+          id: 'flight', flight_number: 'NZ6827', airline_name: 'Air New Zealand', departure_airport: airport,
           arrival_airport: { ...airport, iata_code: 'STN', name: 'Stansted', timezone: 'Europe/London' },
           status: 'IN_FLIGHT', scheduled_departure: timestamp, scheduled_arrival: '2026-08-05T12:00:00Z',
           estimated_departure: null, estimated_arrival: null, actual_departure: timestamp, actual_arrival: null,
@@ -445,7 +445,7 @@ for (const mobile of [false, true]) {
         }] }],
       }))
       await page.goto(`/trips/${tripId}?tab=travel`)
-      await expect(page.getByRole('article', { name: 'FR5682 · In flight', exact: true }).first()).toBeVisible()
+      await expect(page.getByRole('article', { name: 'NZ6827 · In flight', exact: true }).first()).toBeVisible()
       await expect(page.getByText('Your journey starts here', { exact: true })).toHaveCount(0)
       await expect(page.getByText('No travel posts yet', { exact: true })).toHaveCount(0)
       await expect(page.getByLabel('The journey begins', { exact: true })).toHaveCount(0)
@@ -462,7 +462,7 @@ for (const width of [320, 390, 768]) {
     await mockTileServers(page)
     const airport = { id: 'airport', name: 'Amsterdam Schiphol', iata_code: 'AMS', latitude: 52.31, longitude: 4.76, timezone: 'Europe/Amsterdam' }
     const flight = {
-      id: 'flight-1', flight_number: 'LH1003', airline_name: 'Lufthansa', departure_airport: airport,
+      id: 'flight-1', flight_number: 'NZ3847', airline_name: 'Air New Zealand', departure_airport: airport,
       arrival_airport: { ...airport, name: 'Frankfurt Airport', iata_code: 'FRA', latitude: 50.04, longitude: 8.56 },
       status: 'ARRIVED', scheduled_departure: '2026-08-05T06:00:00Z', scheduled_arrival: '2026-08-05T07:00:00Z',
       actual_departure: '2026-08-05T06:10:00Z', actual_arrival: '2026-08-05T07:10:00Z', estimated_departure: null, estimated_arrival: null,
@@ -473,7 +473,7 @@ for (const width of [320, 390, 768]) {
     await page.route('**/api/v1/trips/*/posts/timeline**', route => fulfillJson(route, {
       ...createPostTimeline(),
       flight_journeys: [{ itinerary_connection_id: 'connection', flights: [flight, {
-        ...flight, id: 'flight-2', flight_number: 'LH1166', departure_airport: flight.arrival_airport,
+        ...flight, id: 'flight-2', flight_number: 'NZ4958', departure_airport: flight.arrival_airport,
         arrival_airport: { ...airport, name: 'Lisbon Humberto Delgado', iata_code: 'LIS', timezone: 'Europe/Lisbon', latitude: 38.77, longitude: -9.13 },
         scheduled_departure: '2026-08-05T07:30:00Z', scheduled_arrival: '2026-08-05T10:30:00Z',
         actual_departure: '2026-08-05T07:40:00Z', actual_arrival: null, estimated_arrival: '2026-08-05T10:20:00Z',
@@ -486,8 +486,8 @@ for (const width of [320, 390, 768]) {
     await expect(cards).toHaveCount(4)
     const arrived = cards.nth(0)
     const active = cards.nth(1)
-    await expect(arrived).toHaveAccessibleName('LH1003 · Arrived')
-    await expect(active).toHaveAccessibleName('LH1166 · In flight')
+    await expect(arrived).toHaveAccessibleName('NZ3847 · Arrived')
+    await expect(active).toHaveAccessibleName('NZ4958 · In flight')
     await expect(arrived.locator('button time').first()).toHaveText('08:10')
     await expect(arrived.locator('button time').last()).toHaveText('09:10')
     await expect(arrived).toHaveAttribute('aria-current', 'true')
@@ -502,20 +502,20 @@ for (const width of [320, 390, 768]) {
     expect(firstBox.height).toBe(postBox.height)
     if (width === 390) await page.screenshot({ path: testInfo.outputPath('collapsed-flight.png') })
     const url = page.url()
-    const toggle = arrived.getByRole('button', { name: 'Show flight details for LH1003', exact: true })
+    const toggle = arrived.getByRole('button', { name: 'Show flight details for NZ3847', exact: true })
     await toggle.click()
-    await expect(arrived.getByRole('region', { name: 'Flight details for LH1003', exact: true })).toBeVisible()
-    await expect(active.getByRole('button', { name: 'Show flight details for LH1166', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    await expect(arrived.getByRole('region', { name: 'Flight details for NZ3847', exact: true })).toBeVisible()
+    await expect(active.getByRole('button', { name: 'Show flight details for NZ4958', exact: true })).toHaveAttribute('aria-expanded', 'false')
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page).toHaveURL(url)
     await expect(page.getByLabel('Interactive trip route map').first()).toBeVisible()
     for (const element of [carousel, arrived, active]) {
       expect(await element.evaluate(node => node.scrollHeight <= node.clientHeight + 1)).toBe(true)
     }
-    await arrived.getByRole('button', { name: 'Hide flight details for LH1003', exact: true }).click()
+    await arrived.getByRole('button', { name: 'Hide flight details for NZ3847', exact: true }).click()
     expect((await arrived.boundingBox())!.height).toBe(firstBox.height)
     await active.scrollIntoViewIfNeeded()
-    await active.getByRole('button', { name: 'Show flight details for LH1166', exact: true }).click()
+    await active.getByRole('button', { name: 'Show flight details for NZ4958', exact: true }).click()
     await expect(active).toHaveAttribute('aria-current', 'true')
     await expect(map.locator('path[data-focused-flight-id]')).toHaveCount(0)
     await expect(active.getByText('Connecting flight · 0h 30m layover', { exact: true })).toBeVisible()
@@ -526,7 +526,7 @@ for (const width of [320, 390, 768]) {
     if (width === 390) await page.screenshot({ path: testInfo.outputPath('expanded-flight.png') })
     await cards.nth(3).scrollIntoViewIfNeeded()
     await expect(map.locator('path[data-focused-flight-id]')).toHaveCount(0)
-    await expect(active.getByRole('button', { name: 'Show flight details for LH1166', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    await expect(active.getByRole('button', { name: 'Show flight details for NZ4958', exact: true })).toHaveAttribute('aria-expanded', 'false')
     expect((await active.boundingBox())!.height).toBe(postBox.height)
   })
 }
@@ -1130,7 +1130,7 @@ test('planning: keyless flight draft remains saveable without automatic flight l
   })
   await page.route('**/itinerary/connections/' + connection.id, async route => {
     const payload = route.request().postDataJSON()
-    expect(payload.segments[0].flight.flight_number).toBe('KL597')
+    expect(payload.segments[0].flight.flight_number).toBe('QF6842')
     expect(payload.segments[0].flight.departure_date).toBe('2026-11-18')
     await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: '"2"' },
       body: JSON.stringify({ itinerary_revision: 2, connection: { ...connection, ...payload, segments: payload.segments.map((intent: object) => ({ ...connection.segments[0], intent })) } }) })
@@ -1140,7 +1140,7 @@ test('planning: keyless flight draft remains saveable without automatic flight l
   await page.getByRole('button', { name: 'Train Amsterdam to Brussels' }).click()
   const editor = page.getByRole('region', { name: 'Select your route', exact: true })
   await editor.getByRole('radio', { name: 'Flight', exact: true }).click()
-  await editor.getByLabel('Flight number', { exact: true }).fill('KL597')
+  await editor.getByLabel('Flight number', { exact: true }).fill('QF6842')
   await editor.getByRole('button', { name: 'Departure date', exact: true }).click()
   for (let month = 0; month < 6; month += 1) await editor.getByRole('dialog').getByRole('button', { name: 'Previous month', exact: true }).click()
   await editor.getByRole('dialog').getByRole('button', { name: '18', exact: true }).click()
@@ -1282,11 +1282,11 @@ for (const mobile of [false, true]) {
     await editor.getByRole('radio', { name: 'Flight', exact: true }).click()
     await expect(editor.getByRole('radio', { name: 'Car route 1' })).toBeVisible()
     await expect(editor.getByRole('radio', { name: 'Car route 2' })).toBeVisible()
-    await editor.getByLabel('Flight number', { exact: true }).fill('KL597')
+    await editor.getByLabel('Flight number', { exact: true }).fill('QF6842')
     await editor.getByRole('radio', { name: 'Car route 2' }).click()
     await expect(editor.getByRole('radio', { name: 'Car route 2' })).toHaveAttribute('aria-checked', 'true')
     await editor.getByRole('radio', { name: 'Flight', exact: true }).click()
-    await expect(editor.getByLabel('Flight number', { exact: true })).toHaveValue('KL597')
+    await expect(editor.getByLabel('Flight number', { exact: true })).toHaveValue('QF6842')
     await editor.getByRole('radio', { name: 'Car route 2' }).click()
     await expect.poll(() => selectedPath.getAttribute('d')).not.toBe(originalPath)
     expect(previews).toBe(1)
@@ -1351,7 +1351,7 @@ test('planning: desktop chooser stays in the map workspace and switches to the m
   await panel.getByRole('button', { name: 'Route details & notes' }).click()
   await panel.getByRole('textbox', { name: 'Segment notes', exact: true }).fill('Keep my journey notes')
   await panel.getByRole('radio', { name: 'Flight', exact: true }).click()
-  await panel.getByLabel('Flight number', { exact: true }).fill('KL597')
+  await panel.getByLabel('Flight number', { exact: true }).fill('QF6842')
   await page.setViewportSize({ width: 1024, height: 1000 })
   for (const name of ['1', '2']) {
     await expect.poll(async () => {
@@ -1363,13 +1363,13 @@ test('planning: desktop chooser stays in the map workspace and switches to the m
   await page.setViewportSize({ width: 390, height: 844 })
   const screen = page.getByRole('dialog', { name: 'Select your route' })
   await expect(screen).toBeVisible()
-  await expect(screen.getByLabel('Flight number', { exact: true })).toHaveValue('KL597')
+  await expect(screen.getByLabel('Flight number', { exact: true })).toHaveValue('QF6842')
   await expect(screen.getByRole('textbox', { name: 'Segment notes', exact: true })).toHaveValue('Keep my journey notes')
   await expect(screen.getByRole('region', { name: 'Connection map preview' })).toBeVisible()
   await page.setViewportSize({ width: 1440, height: 1000 })
   await expect(panel).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(panel.getByLabel('Flight number', { exact: true })).toHaveValue('KL597')
+  await expect(panel.getByLabel('Flight number', { exact: true })).toHaveValue('QF6842')
   expect(zoomedRoute).toBeTruthy()
   await page.keyboard.press('Escape')
   await expect(panel).toHaveCount(0)
@@ -1397,7 +1397,7 @@ for (const width of [1024, 1440]) {
     await expect.poll(() => map.boundingBox()).toEqual(mapBounds)
     const panelBounds = await panel.boundingBox()
     await panel.getByRole('radio', { name: 'Flight', exact: true }).click()
-    await panel.getByLabel('Flight number', { exact: true }).fill('KL597')
+    await panel.getByLabel('Flight number', { exact: true }).fill('QF6842')
     await panel.getByRole('button', { name: 'Flight & booking details' }).click()
     await panel.getByRole('radio', { name: 'Train', exact: true }).click()
     await expect.poll(() => sidebar.boundingBox()).toEqual(sidebarBounds)
@@ -1529,7 +1529,7 @@ for (const width of [390, 1024, 1440]) {
     await page.route('**/itinerary/connections/*/flight-lookups', route => fulfillJson(route, { status: 'MATCHES', expires_at: '2030-01-01T00:00:00Z', candidates: [{
       candidate_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', duration_seconds: 39600,
       lookup: { schema_version: 1, provider: 'aerodatabox', fetched_at: timestamp,
-        flight_number: 'KL597', departure_date: '2026-11-18', airline_name: 'KLM Royal Dutch Airlines',
+        flight_number: 'QF6842', departure_date: '2026-11-18', airline_name: 'Qantas',
         departure_airport: airport, arrival_airport: { ...airport, name: 'Cape Town International Airport Arrival Terminal', iata_code: 'CPT' },
         scheduled_departure: '2026-11-18T10:00:00+01:00', scheduled_arrival: '2026-11-18T22:00:00+02:00',
       },
@@ -1550,7 +1550,7 @@ for (const width of [390, 1024, 1440]) {
       await expect(field).toBeInViewport()
       await expect(editor.getByRole('region', { name: 'Connection map preview' })).toHaveCSS('position', 'relative')
     }
-    await editor.getByLabel('Flight number', { exact: true }).fill('KL597')
+    await editor.getByLabel('Flight number', { exact: true }).fill('QF6842')
     await editor.getByRole('button', { name: 'Departure date', exact: true }).click()
     for (let month = 0; month < 6; month += 1) await editor.getByRole('dialog').getByRole('button', { name: 'Previous month', exact: true }).click()
     await editor.getByRole('dialog').getByRole('button', { name: '18', exact: true }).click()
@@ -1599,7 +1599,7 @@ function airportTransferItinerary(): Itinerary {
   const connection = itinerary.connections[0]
   const flight = connection.segments[0]
   flight.intent = { ...flight.intent, travel_mode: 'FLIGHT', flight: {
-    flight_number: 'KL1401', departure_date: '2026-10-24',
+    flight_number: 'QF3579', departure_date: '2026-10-24',
     departure_airport_place_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
     arrival_airport_place_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
   } }

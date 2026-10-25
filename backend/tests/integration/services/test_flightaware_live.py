@@ -18,7 +18,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize('number', ['w6 4514', 'FR5682'])
+@pytest.mark.parametrize('number', ['QF12', 'NZ6'])
 def test_live_lookup_and_tracking(number):
     key = os.getenv('FLIGHTAWARE_API_KEY') or dotenv_values(
         Path(__file__).resolve().parents[4] / '.env'

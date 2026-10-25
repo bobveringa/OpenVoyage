@@ -41,7 +41,7 @@ def phone_point(s, at, latitude, longitude):
 @pytest.fixture
 def journey(setup, monkeypatch):
     s = setup
-    s.second = s.add('LH456', START + timedelta(hours=4))
+    s.second = s.add('NZ2946', START + timedelta(hours=4))
     s.frankfurt = create_place(
         s.db, name='Frankfurt Airport', latitude=50.04, longitude=8.56
     )

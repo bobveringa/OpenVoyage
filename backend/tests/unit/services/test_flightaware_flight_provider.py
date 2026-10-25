@@ -13,7 +13,7 @@ from services.flight_providers import FlightAwareFlightProvider, FlightUnavailab
 
 MODULE = 'services.flight_providers.flightaware_flight_provider.urlopen'
 DAY = datetime.now(timezone.utc).date() - timedelta(days=1)
-INTENT = FlightLookupRequest(flight_number='w6 4514', departure_date=DAY)
+INTENT = FlightLookupRequest(flight_number='6e 7384', departure_date=DAY)
 
 
 @pytest.fixture(autouse=True)
@@ -21,21 +21,21 @@ def isolated_airport_cache(monkeypatch):
     monkeypatch.setattr('services.flight_providers.flightaware_flight_provider._AIRPORT_CACHE', {})
 
 AIRPORTS = {
-    'EHEH': dict(
-        code_icao='EHEH',
-        code_iata='EIN',
-        name='Eindhoven',
-        latitude=51.45,
-        longitude=5.37,
-        timezone='Europe/Amsterdam',
+    'VIDP': dict(
+        code_icao='VIDP',
+        code_iata='DEL',
+        name='Delhi',
+        latitude=28.56,
+        longitude=77.10,
+        timezone='Asia/Kolkata',
     ),
-    'LBWN': dict(
-        code_icao='LBWN',
-        code_iata='VAR',
-        name='Varna',
-        latitude=43.23,
-        longitude=27.82,
-        timezone='Europe/Sofia',
+    'VABB': dict(
+        code_icao='VABB',
+        code_iata='BOM',
+        name='Mumbai',
+        latitude=19.09,
+        longitude=72.87,
+        timezone='Asia/Kolkata',
     ),
 }
 
@@ -43,22 +43,22 @@ AIRPORTS = {
 def flight(**changes):
     return (
         dict(
-            ident='WZZ4514',
-            ident_icao='WZZ4514',
-            ident_iata='W64514',
+            ident='IGO7384',
+            ident_icao='IGO7384',
+            ident_iata='6E7384',
             origin=dict(
-                code='EHEH',
+                code='VIDP',
                 **{
                     k: v
-                    for k, v in AIRPORTS['EHEH'].items()
+                    for k, v in AIRPORTS['VIDP'].items()
                     if k not in ('latitude', 'longitude')
                 },
             ),
             destination=dict(
-                code='LBWN',
+                code='VABB',
                 **{
                     k: v
-                    for k, v in AIRPORTS['LBWN'].items()
+                    for k, v in AIRPORTS['VABB'].items()
                     if k not in ('latitude', 'longitude')
                 },
             ),
@@ -128,13 +128,13 @@ def test_observed_track_options_validation_sorting_and_corrections(monkeypatch):
 def test_lookup_maps_iata_alias_airports_and_gate_times(monkeypatch):
     network = install(monkeypatch)
     (result,) = provider().lookup(INTENT, timeout=3)
-    assert result.flight_number == 'W64514'
+    assert result.flight_number == '6E7384'
     assert result.provider == 'flightaware'
-    assert result.departure_airport.iata_code == 'EIN'
-    assert result.arrival_airport.latitude == 43.23
+    assert result.departure_airport.iata_code == 'DEL'
+    assert result.arrival_airport.latitude == 19.09
     assert result.duration_seconds == 10500
     request = network.call_args_list[0].args[0]
-    assert '/flights/W64514?' in request.full_url
+    assert '/flights/6E7384?' in request.full_url
     assert request.get_header('X-apikey') == 'private-key'
     assert 'private-key' not in request.full_url
     params = parse_qs(urlsplit(request.full_url).query)
@@ -147,7 +147,7 @@ def test_uses_local_departure_day_and_skips_other_flights_before_airport_request
     monkeypatch,
 ):
     rows = [
-        flight(ident='RYR5682', ident_icao='RYR5682', ident_iata='FR5682'),
+        flight(ident='ANZ6827', ident_icao='ANZ6827', ident_iata='NZ6827'),
         flight(scheduled_out=f'{DAY}T23:30:00Z'),
     ]
     network = install(monkeypatch, rows)
@@ -161,7 +161,7 @@ def test_utc_previous_day_can_match_local_departure_day(monkeypatch):
 
 
 def test_codeshares_duplicate_candidates_and_airport_request_reuse(monkeypatch):
-    raw = flight(ident_iata='XX123', codeshares_iata=['W64514'])
+    raw = flight(ident_iata='XX123', codeshares_iata=['6E7384'])
     network = install(monkeypatch, [raw, copy.deepcopy(raw)])
     assert len(provider().lookup(INTENT)) == 1
     assert network.call_count == 3
@@ -173,7 +173,7 @@ def test_airport_cache_reuses_metadata_but_refreshes_flight_facts(monkeypatch):
     assert adapter.lookup(INTENT)
     assert adapter.track(INTENT)
     assert network.call_count == 4
-    assert '/flights/W64514?' in network.call_args_list[-1].args[0].full_url
+    assert '/flights/6E7384?' in network.call_args_list[-1].args[0].full_url
 
 
 def test_airport_cache_survives_new_job_adapters_but_expires(monkeypatch):
@@ -210,18 +210,18 @@ def test_local_airports_avoid_remote_metadata_requests(monkeypatch, tracking):
     adapter = FlightAwareFlightProvider(api_key='private-key', airport_resolver=resolver)
     results = adapter.track(INTENT) if tracking else adapter.lookup(INTENT)
     assert len(results) == 1
-    assert results[0].departure_airport.name == 'Local Eindhoven'
+    assert results[0].departure_airport.name == 'Local Delhi'
     destination = results[0].landing_airport if tracking else results[0].arrival_airport
-    assert destination.name == 'Local Varna'
+    assert destination.name == 'Local Mumbai'
     assert network.call_count == 1
-    assert [call.args[0] for call in resolver.call_args_list] == ['EHEH', 'LBWN']
+    assert [call.args[0] for call in resolver.call_args_list] == ['VIDP', 'VABB']
 
 
 def test_missing_local_airport_uses_cached_remote_fallback(monkeypatch):
     network = install(monkeypatch, [flight(), flight()])
-    local = Endpoint(latitude=51.45, longitude=5.37, icao_code='EHEH',
-                     iata_code='EIN', timezone='Europe/Amsterdam')
-    resolver = Mock(side_effect=lambda code: local if code == 'EHEH' else None)
+    local = Endpoint(latitude=28.56, longitude=77.10, icao_code='VIDP',
+                     iata_code='DEL', timezone='Asia/Kolkata')
+    resolver = Mock(side_effect=lambda code: local if code == 'VIDP' else None)
     adapter = FlightAwareFlightProvider(api_key='private-key', airport_resolver=resolver)
     assert len(adapter.lookup(INTENT)) == 1
     assert len(adapter.lookup(INTENT)) == 1
@@ -240,12 +240,12 @@ def test_local_airports_take_precedence_over_cached_remote_metadata(monkeypatch)
 
 def test_provider_codes_supplement_local_airports_for_tracking_identity(monkeypatch):
     network = install(monkeypatch)
-    local = Endpoint(latitude=51.45, longitude=5.37, icao_code='EHEH',
-                     timezone='Europe/Amsterdam')
+    local = Endpoint(latitude=28.56, longitude=77.10, icao_code='VIDP',
+                     timezone='Asia/Kolkata')
     adapter = FlightAwareFlightProvider(
         api_key='private-key', airport_resolver=lambda _: local,
     )
-    assert adapter.track(INTENT)[0].departure_airport.iata_code == 'EIN'
+    assert adapter.track(INTENT)[0].departure_airport.iata_code == 'DEL'
     assert local.iata_code is None
     assert network.call_count == 1
 
@@ -263,7 +263,7 @@ def test_provider_codes_supplement_local_airports_for_tracking_identity(monkeypa
             }
         },
         {'destination': {'code': '../secret'}},
-        {'origin': {'code': 'EHEH', 'timezone': 'Unknown/Zone'}},
+        {'origin': {'code': 'VIDP', 'timezone': 'Unknown/Zone'}},
     ],
 )
 def test_malformed_candidates_are_skipped(monkeypatch, changes):
@@ -274,10 +274,10 @@ def test_malformed_candidates_are_skipped(monkeypatch, changes):
 def test_future_schedule_endpoint_handles_digit_in_iata_airline(monkeypatch):
     day = DAY + timedelta(days=30)
     raw = flight(
-        origin='EHEH',
-        origin_icao='EHEH',
-        destination='LBWN',
-        destination_icao='LBWN',
+        origin='VIDP',
+        origin_icao='VIDP',
+        destination='VABB',
+        destination_icao='VABB',
         scheduled_out=f'{day}T16:45:00Z',
         scheduled_in=f'{day}T19:40:00Z',
     )
@@ -287,8 +287,8 @@ def test_future_schedule_endpoint_handles_digit_in_iata_airline(monkeypatch):
     request = network.call_args_list[0].args[0]
     assert '/schedules/' in request.full_url
     params = parse_qs(urlsplit(request.full_url).query)
-    assert params['airline'] == ['W6']
-    assert params['flight_number'] == ['4514']
+    assert params['airline'] == ['6E']
+    assert params['flight_number'] == ['7384']
 
 
 @pytest.mark.parametrize('tracking', [False, True])
@@ -312,7 +312,7 @@ def test_next_day_request_caps_end_without_fractional_seconds(monkeypatch, track
     results = adapter.track(intent) if tracking else adapter.lookup(intent)
     assert len(results) == 1
     request = network.call_args_list[0].args[0]
-    assert '/flights/W64514?' in request.full_url
+    assert '/flights/6E7384?' in request.full_url
     params = parse_qs(urlsplit(request.full_url).query)
     assert params['start'] == ['2026-10-25T10:00:00+00:00']
     # AeroAPI rejects fractional seconds when the active window caps the end.
@@ -439,7 +439,7 @@ def test_old_dates_use_history_endpoint(monkeypatch):
     day = DAY - timedelta(days=20)
     network = install(monkeypatch, [flight(scheduled_out=f'{day}T16:45:00Z')])
     assert provider().lookup(INTENT.model_copy(update={'departure_date': day}))
-    assert '/history/flights/W64514?' in network.call_args_list[0].args[0].full_url
+    assert '/history/flights/6E7384?' in network.call_args_list[0].args[0].full_url
 
 
 def test_404_is_empty(monkeypatch):

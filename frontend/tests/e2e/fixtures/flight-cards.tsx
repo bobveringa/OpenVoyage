@@ -4,11 +4,11 @@ import type { TrackedFlight } from '../../../src/api/client'
 import { FlightCard } from '../../../src/pages/trip-detail/flight-card-prototype'
 import '../../../src/index.css'
 
-const airport = { id: 'airport', name: 'Eindhoven', iata_code: 'EIN', latitude: 51.45, longitude: 5.37, timezone: 'Europe/Amsterdam' }
+const airport = { id: 'airport', name: 'Wellington', iata_code: 'WLG', latitude: -41.33, longitude: 174.81, timezone: 'Pacific/Auckland' }
 const flight: TrackedFlight = {
-  id: 'flight', flight_number: 'FR5682', airline_name: 'Ryanair',
+  id: 'flight', flight_number: 'NZ6827', airline_name: 'Air New Zealand',
   departure_airport: airport,
-  arrival_airport: { ...airport, name: 'Stansted', iata_code: 'STN', timezone: 'Europe/London' },
+  arrival_airport: { ...airport, name: 'Auckland', iata_code: 'AKL', latitude: -37.01, longitude: 174.79, timezone: 'Pacific/Auckland' },
   status: 'IN_FLIGHT', scheduled_departure: '2026-10-23T18:00:00Z',
   scheduled_arrival: '2026-10-23T19:00:00Z', actual_departure: '2026-10-23T18:45:00Z',
   estimated_departure: '2026-10-23T18:45:00Z', estimated_arrival: '2026-10-23T19:30:00Z',
