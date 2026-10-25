@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useEffect, useId, type ReactNode } from 'react'
+import { useEffect, useId, type ReactNode, type Ref } from 'react'
 import { createPortal } from 'react-dom'
 
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ type ModalProps = {
   bottomSheetOnMobile?: boolean
   className?: string
   overlayClassName?: string
+  overlayRef?: Ref<HTMLDivElement>
   contentClassName?: string
   description?: string
   dismissible?: boolean
@@ -28,6 +29,7 @@ export function Modal({
   children,
   className,
   overlayClassName,
+  overlayRef,
   contentClassName,
   description,
   dismissible = true,
@@ -61,6 +63,7 @@ export function Modal({
 
   return createPortal(
     <div
+      ref={overlayRef}
       aria-modal="true"
       aria-labelledby={titleId}
       className={cn(

@@ -860,7 +860,7 @@ function fitRouteBounds(
 }
 
 function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
-  if (fitMode === 'route-preview') return { paddingTopLeft: [28, 28], paddingBottomRight: [48, 88], maxZoom: 12, animate: false }
+  if (fitMode === 'route-preview') return { paddingTopLeft: [28, 28], paddingBottomRight: [48, 40], maxZoom: 12, animate: false }
   if (fitMode === 'mobile-fullscreen') {
     return { maxZoom: 8, paddingTopLeft: [32, 112], paddingBottomRight: [64, 48] }
   }

@@ -1105,7 +1105,7 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 }
 
 
-test('planning: keyless flight draft remains saveable without automatic provider requests', async ({ page }) => {
+test('planning: keyless flight draft remains saveable without automatic flight lookups', async ({ page }) => {
   await seedBrowserAuth(page)
   const release = await mockTripApi(page, 'OWNER'); release()
   await mockTileServers(page)
@@ -1141,7 +1141,7 @@ test('planning: keyless flight draft remains saveable without automatic provider
   await editor.getByRole('button', { name: 'Select this route' }).click()
   await expect(page.getByRole('button', { name: /Flight Amsterdam to Brussels/ })).toBeVisible()
   expect(lookupCount).toBe(1)
-  expect(previewCount).toBe(0)
+  expect(previewCount).toBeGreaterThan(0)
 })
 
 for (const mobile of [false, true]) {
@@ -1170,7 +1170,7 @@ for (const mobile of [false, true]) {
   })
 }
 
-test('planning: preview is explicit and Cancel leaves the saved connection unchanged', async ({ page }) => {
+test('planning: preview updates automatically and Cancel leaves the saved connection unchanged', async ({ page }) => {
   await seedBrowserAuth(page)
   const release = await mockTripApi(page, 'OWNER'); release()
   await mockTileServers(page)
@@ -1191,8 +1191,7 @@ test('planning: preview is explicit and Cancel leaves the saved connection uncha
   const editor = page.getByRole('region', { name: 'Select your route', exact: true })
   await editor.getByRole('button', { name: 'Add segment' }).click()
   await expect(editor.getByLabel('Travel segment 2', { exact: true })).toBeVisible()
-  expect(previews).toBe(0)
-  await editor.getByRole('button', { name: 'Preview changes' }).click()
+  await expect(editor.getByRole('button', { name: 'Preview changes' })).toHaveCount(0)
   await expect(editor.getByRole('button', { name: 'Retry routes' }).first()).toBeVisible()
   expect(previews).toBe(1)
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
@@ -1204,7 +1203,7 @@ test('planning: preview is explicit and Cancel leaves the saved connection uncha
 })
 
 
-test('planning: mobile editor includes the map preview', async ({ page }) => {
+test('planning: mobile editor gives the map room and keeps its caption below it', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await seedBrowserAuth(page)
   const release = await mockTripApi(page, 'OWNER'); release()
@@ -1214,7 +1213,13 @@ test('planning: mobile editor includes the map preview', async ({ page }) => {
   await page.getByRole('button', { name: 'Train Amsterdam to Brussels' }).click()
   const editor = page.getByRole('dialog', { name: 'Select your route' })
   const preview = editor.getByRole('region', { name: 'Connection map preview' })
-  await expect(preview.getByLabel('Interactive trip route map')).toBeVisible()
+  const map = preview.getByLabel('Interactive trip route map')
+  await expect(map).toBeVisible()
+  const mapBounds = await map.boundingBox()
+  const captionBounds = await preview.getByText('Amsterdam → Brussels', { exact: true }).boundingBox()
+  expect(mapBounds!.height).toBeGreaterThanOrEqual(280)
+  expect(captionBounds!.y).toBeGreaterThanOrEqual(mapBounds!.y + mapBounds!.height)
+  await page.screenshot({ path: '../private/artifacts/connection-editor/mobile-map-expanded.png', animations: 'disabled' })
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(editor).toHaveCount(0)
 })
@@ -1234,8 +1239,8 @@ for (const mobile of [false, true]) {
     let previews = 0
     let writes = 0
     await page.route('**/itinerary/connections/*/preview**', async route => {
-      previews += 1
       const payload = route.request().postDataJSON()
+      if (payload.segments[0].travel_mode === 'CAR') previews += 1
       const segment = { ...connection.segments[0], intent: payload.segments[0], geometry: geometries[0], route_state: 'READY',
         distance_meters: 210000, duration_seconds: 7200, error_code: null,
         route_options: geometries.map((geometry, i) => ({ geometry, distance_meters: 210000 + i * 5000, duration_seconds: 7200 + i * 600 })) }
@@ -1408,9 +1413,11 @@ test('planning: cached alternatives expire and changed via points require a fres
   let previews = 0
   const payloads: Array<{ segments: Array<{ via?: unknown }> }> = []
   await page.route('**/itinerary/connections/*/preview**', async route => {
-    previews += 1
     const payload = route.request().postDataJSON()
-    payloads.push(payload)
+    if (payload.segments[0].travel_mode === 'CAR') {
+      previews += 1
+      payloads.push(payload)
+    }
     const geometry = connection.segments[0].geometry
     await fulfillJson(route, { preview_id: '99999999-9999-4999-8999-999999999999',
       expires_at: new Date(initialTime.getTime() + (previews === 1 ? 10 : 30) * 60000).toISOString(),
@@ -1478,13 +1485,31 @@ test('planning: a reader without membership cannot retain the Plan URL', async (
   await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe('travel')
 })
 
-for (const width of [1024, 1440]) {
-  test('planning: flight lookup and airport search fit the desktop chooser at ' + width + 'px', async ({ page }) => {
+for (const width of [390, 1024, 1440]) {
+  test('planning: flight selection stays readable and previews automatically at ' + width + 'px', async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
     await seedBrowserAuth(page)
     const release = await mockTripApi(page, 'OWNER'); release()
     await mockTileServers(page)
     const airport = { ...createLocation('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Amsterdam Airport Schiphol International Departure Terminal', 52.3, 4.7), feature_class: 'S', feature_code: 'AIRP', iata_code: 'AMS', icao_code: 'EHAM', timezone: 'Europe/Amsterdam' }
+    const connection = createItinerary().connections[0]
+    const payloads: Array<{ segments: Array<{ flight?: { candidate_id?: string } }> }> = []
+    let releasePreview = () => {}
+    await page.route('**/itinerary/connections/*/preview**', async route => {
+      const payload = route.request().postDataJSON()
+      payloads.push(payload)
+      const selected = Boolean(payload.segments[0].flight?.candidate_id)
+      if (selected) await new Promise<void>(resolve => { releasePreview = resolve })
+      const geometry = { type: 'LineString', coordinates: selected ? [[4.7, 52.3], [18.6, -33.97]] : [[4.9, 52.37], [4.35, 50.85]] }
+      await fulfillJson(route, { preview_id: 'flight-preview', expires_at: '2099-01-01T00:00:00Z', connection: {
+        ...connection, duration_seconds: selected ? 39600 : null, duration_scope: selected ? 'FLIGHT_JOURNEY' : null,
+        segments: payload.segments.map((intent: object) => ({ ...connection.segments[0], intent, geometry,
+          duration_seconds: selected ? 39600 : null, route_state: 'UNSUPPORTED',
+          from_endpoint: selected ? airport : null,
+          to_endpoint: selected ? { name: 'Cape Town', latitude: -33.97, longitude: 18.6 } : null,
+        })), route: { ...connection.route, geometry },
+      } })
+    })
     let searches = 0
     await page.route('**/api/v1/places/geocode**', async route => {
       const url = new URL(route.request().url())
@@ -1503,8 +1528,20 @@ for (const width of [1024, 1440]) {
     }] }))
     await page.goto('/trips/' + tripId + '?tab=plan')
     await page.getByRole('button', { name: 'Train Amsterdam to Brussels' }).click()
-    const editor = page.getByRole('region', { name: 'Select your route', exact: true })
+    const editor = page.getByRole(width < 1024 ? 'dialog' : 'region', { name: 'Select your route', exact: true })
     await editor.getByRole('radio', { name: 'Flight', exact: true }).click()
+    if (width < 1024) {
+      await editor.getByLabel('Flight number', { exact: true }).focus()
+      // Emulate a keyboard shrinking only the visual viewport, as on mobile Safari.
+      await page.evaluate(() => {
+        Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: 480 })
+        window.visualViewport!.dispatchEvent(new Event('resize'))
+      })
+      await expect.poll(async () => (await editor.boundingBox())?.height).toBe(480)
+      const field = editor.getByLabel('Flight number', { exact: true })
+      await expect(field).toBeInViewport()
+      await expect(editor.getByRole('region', { name: 'Connection map preview' })).toHaveCSS('position', 'relative')
+    }
     await editor.getByLabel('Flight number', { exact: true }).fill('KL597')
     await editor.getByRole('button', { name: 'Departure date', exact: true }).click()
     for (let month = 0; month < 6; month += 1) await editor.getByRole('dialog').getByRole('button', { name: 'Previous month', exact: true }).click()
@@ -1513,6 +1550,20 @@ for (const width of [1024, 1440]) {
     const match = editor.getByRole('button', { name: /AMS → CPT/ })
     await expect(match).toBeVisible()
     await match.click()
+    await expect(match).toHaveAttribute('aria-pressed', 'true')
+    await expect(match.getByLabel('Selected flight')).toBeVisible()
+    await expect(match).toHaveClass(/text-foreground/)
+    await expect.poll(() => payloads.filter(payload => payload.segments[0].flight?.candidate_id).length).toBe(1)
+    // Notes must stay editable without cancelling the route request in progress.
+    await editor.getByRole('textbox', { name: 'Segment notes', exact: true }).fill('Keep this booking note')
+    releasePreview()
+    await expect(editor.getByText('11 hr flight journey · airport transfers not included', { exact: true })).toBeVisible()
+    await expect(editor.getByRole('textbox', { name: 'Segment notes', exact: true })).toHaveValue('Keep this booking note')
+    await expect(editor.getByRole('button', { name: 'Preview changes' })).toHaveCount(0)
+    if (width <= 1024) {
+      await match.scrollIntoViewIfNeeded()
+      await page.screenshot({ path: '../private/artifacts/connection-editor/flight-form-' + width + '.png', animations: 'disabled' })
+    }
     await expect.poll(() => editor.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
     const overflow = () => editor.evaluate(element => {
       const bounds = element.getBoundingClientRect()
@@ -1529,7 +1580,8 @@ for (const width of [1024, 1440]) {
     await result.click()
     await expect(editor.getByLabel('Departure airport', { exact: true })).toHaveValue(/Schiphol.*AMS/)
     expect(searches).toBe(1)
-    if (width === 1024) await page.screenshot({ path: '../private/flight-form-narrow-desktop.png', animations: 'disabled' })
+    await expect(match).toHaveCount(0)
+    await expect(editor.getByText('11 hr flight journey · airport transfers not included', { exact: true })).toHaveCount(0)
   })
 }
 
