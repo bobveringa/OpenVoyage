@@ -305,7 +305,7 @@ class GpsTrackingService:
             raise TrackingSessionConflictError(
                 f'Session belongs to another trip: {session_id}'
             )
-        if existing.source == 'FLIGHT_ESTIMATE':
+        if existing.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
             self._require_trip_permission(
                 trip_id=trip_id,
                 user_id=current_user_id,
@@ -315,8 +315,13 @@ class GpsTrackingService:
             self._require_session_controller(existing, current_user_id)
         if existing.deleted_at is not None:
             raise TrackingSessionDeletedError('This recording was deleted.')
+        if existing.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+            from services.gps.flight_tracking_service import FlightTrackingService
+            FlightTrackingService(self.db).cancel_final(existing)
         # Offline end retries must never extend a remotely stopped recording.
         if existing.ended_at is not None:
+            if existing.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+                self.db.commit()
             return SessionSummary(
                 session=existing, sample_count=self._count_samples(session_id)
             )
@@ -345,7 +350,7 @@ class GpsTrackingService:
                 source=existing.source,
             )
             existing.ended_at = resolved_end
-            if existing.source == 'FLIGHT_ESTIMATE':
+            if existing.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
                 from services.gps.flight_tracking_service import FlightTrackingService
 
                 FlightTrackingService(self.db).stop(existing, 'MANUAL')
@@ -404,7 +409,7 @@ class GpsTrackingService:
         zones = self.privacy_zones.list_trip_member_zone_coordinates(trip_id=trip_id)
 
         def check_privacy(lat, lon):
-            if self.privacy_zones.is_within_any_zone(
+            if session.source not in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK') and self.privacy_zones.is_within_any_zone(
                 latitude=lat, longitude=lon, zones=zones
             ):
                 raise TrackingValidationError(
@@ -535,7 +540,7 @@ class GpsTrackingService:
             delete(GpsTrackSample).where(GpsTrackSample.session_id == session_id)
         )
         session.deleted_at = utcnow()
-        if session.source == 'FLIGHT_ESTIMATE':
+        if session.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
             session.ended_at = session.ended_at or max(session.started_at, utcnow())
             from services.gps.flight_tracking_service import FlightTrackingService
 
@@ -820,6 +825,9 @@ class GpsTrackingService:
         incremental update would have to keep enough suspended state to undo
         that anyway.
         """
+        if session.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+            self.db.execute(update(GpsTrackSample).where(GpsTrackSample.session_id == session.id).values(is_display_retained=True))
+            return
         rows = self.db.execute(
             select(
                 GpsTrackSample.id,
@@ -1293,6 +1301,7 @@ class GpsTrackingService:
             .where(
                 GpsTrackSample.trip_id == trip_id,
                 GpsTrackSample.is_display_retained,
+                GpsTrackingSession.deleted_at.is_(None),
             )
             .order_by(
                 GpsTrackSample.recorded_at.asc(),
@@ -1435,6 +1444,8 @@ class GpsTrackingService:
                 visible_to_members_only=visible_to_members_only,
             )
 
+        if anchors[0].source == 'FLIGHT_TRACK' and all(a.session_id == anchors[0].session_id for a in anchors):
+            return cls._line_segment(travel_mode, coordinates, source='FLIGHT_TRACK', visible_to_members_only=visible_to_members_only)
         required_indices = {
             index for index, anchor in enumerate(anchors) if anchor.is_semantic_marker
         }
@@ -1561,7 +1572,7 @@ class GpsTrackingService:
             select(GpsTrackingSession).where(
                 GpsTrackingSession.trip_id == trip_id,
                 GpsTrackingSession.id != session_id,
-                GpsTrackingSession.source == source,
+                GpsTrackingSession.source.in_(('FLIGHT_ESTIMATE', 'FLIGHT_TRACK')) if source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK') else GpsTrackingSession.source == source,
                 GpsTrackingSession.deleted_at.is_(None),
             )
         ).scalars()
@@ -1580,22 +1591,24 @@ class GpsTrackingService:
 
     @staticmethod
     def _require_mobile(session):
-        if session.source == 'FLIGHT_ESTIMATE':
+        if session.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
             raise TrackingPermissionError(
                 'Flight recordings are managed by the server.'
             )
 
-    @staticmethod
-    def _require_editable(session):
-        if session.source == 'FLIGHT_ESTIMATE' and session.ended_at is None:
+    def _require_editable(self, session):
+        if session.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK') and session.ended_at is None:
             raise FlightRecordingActiveError(
                 'Complete or stop this flight recording before editing its points.'
             )
+        if session.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+            from services.gps.flight_tracking_service import FlightTrackingService
+            FlightTrackingService(self.db).cancel_final(session)
 
     @staticmethod
     def _edge_source(a, b):
-        if a.source == b.source == 'FLIGHT_ESTIMATE' and a.session_id == b.session_id:
-            return 'FLIGHT_ESTIMATE'
+        if a.source == b.source and a.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK') and a.session_id == b.session_id:
+            return a.source
         if a.is_post and b.is_post:
             return 'POST_CONNECTOR'
         return 'MOBILE_GPS'
@@ -1617,6 +1630,10 @@ class GpsTrackingService:
             e = estimate(flight, utcnow())
             if session.ended_at is None:
                 occluded_intervals.append((session.started_at, utcnow()))
+                if session.source == 'FLIGHT_TRACK':
+                    open_id = session.id
+                    intervals.append((session.started_at, utcnow(), session.id))
+                    continue
                 if e is None:
                     continue
                 open_id = session.id
@@ -1663,7 +1680,7 @@ class GpsTrackingService:
         anchors = [
             a
             for a in anchors
-            if a.source == 'FLIGHT_ESTIMATE'
+            if a.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK')
             or not any(
                 start <= a.recorded_at <= end for start, end in occluded_intervals
             )
@@ -1705,7 +1722,7 @@ class GpsTrackingService:
                         anchor,
                         latitude=lat,
                         longitude=lon,
-                        source='FLIGHT_ESTIMATE',
+                        source=before.source,
                         session_id=session_id,
                         travel_mode=TravelMode.FLIGHT,
                     )

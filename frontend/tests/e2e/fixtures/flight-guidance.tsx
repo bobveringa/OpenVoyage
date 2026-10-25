@@ -37,6 +37,7 @@ const stages: Record<string, TrackingJourney | undefined> = {
   'Unknown position': base,
   'Ground guidance': { ...base, position, connector },
   'In flight': { ...base, position: { ...position, latitude: 51.7, longitude: 2.5, source: 'FLIGHT_ESTIMATE' }, active_flight_id: 'flight', remaining_flight_route: { type: 'LineString', coordinates: [[2.5, 51.7], [.26, 51.89]] } },
+  'Observed flight': { ...base, position: { ...position, latitude: 51.7, longitude: 2.5, source: 'FLIGHT_TRACK' }, active_flight_id: 'flight', remaining_flight_route: { type: 'LineString', coordinates: [[2.5, 51.7], [.26, 51.89]] } },
   'Between flights': { ...base, position, connector, target: { type: 'AIRPORT', ...arrival } },
   'Arrived': { ...base, current_flight_segment_index: null, position: { ...position, ...arrival }, connector: { type: 'LineString', coordinates: [[.26, 51.89], [-.13, 51.51]] }, target: { type: 'DESTINATION', ...stops[1].location, name: 'London' } },
   'Ground only': { ...base, current_flight_segment_index: null, position, connector: { type: 'LineString', coordinates: [[5.48, 51.44], [-.13, 51.51]] }, target: { type: 'DESTINATION', ...stops[1].location, name: 'London' } },
@@ -65,7 +66,9 @@ export function Preview() {
       <TripLeafletMap draftMapLocation={null} mapPointEnabled={false} onDraftMapPointSelect={() => {}}
         resetNonce={0} routeMode={plan ? 'itinerary' : 'travel-timeline'} stops={hideVisited && !plan ? stops.slice(1) : stops}
         connections={[stage === 'Ground only' ? { ...current, segments: [{ ...current.segments[0], intent: { ...current.segments[0].intent, travel_mode: 'CAR' }, route_state: 'READY' }] } : selected, future]} travelPosts={[]} trackingGeometry={{ openingRoute: {
-          durationSeconds: null, segments: [{ travelMode: 'CAR', source: 'MOBILE_GPS', coordinates: [[51.43, 5.5], [51.44, 5.48]] }],
+          durationSeconds: null, segments: stage === 'Observed flight'
+            ? [{ travelMode: 'FLIGHT', source: 'FLIGHT_TRACK', coordinates: [[51.45, 5.37], [51.6, 4], [51.7, 2.5]] }]
+            : [{ travelMode: 'CAR', source: 'MOBILE_GPS', coordinates: [[51.43, 5.5], [51.44, 5.48]] }],
         }, journey: stages[stage] }} />
     </div>
   </main>

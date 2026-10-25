@@ -8,9 +8,17 @@ from models.api.planning import Endpoint, FlightLookup, FlightLookupRequest
 
 
 @dataclass(frozen=True)
+class FlightObservation:
+    at: datetime
+    latitude: float
+    longitude: float
+
+
+@dataclass(frozen=True)
 class FlightMovement:
     scheduled_departure: datetime
     departure_airport: Endpoint
+    provider_flight_id: str | None = None
     status: str = 'UNKNOWN'
     departure_confirmed: bool = False
     arrival_confirmed: bool = False
@@ -53,6 +61,9 @@ class FlightProviderBase(ABC):
         raise FlightUnavailable(
             'Flight tracking is not configured', result='CONFIGURATION_ERROR'
         )
+
+    def positions(self, provider_flight_id: str, *, timeout: float = 10) -> list[FlightObservation]:
+        raise FlightUnavailable(result='CONFIGURATION_ERROR')
 
 
 class DisabledFlightProvider(FlightProviderBase):

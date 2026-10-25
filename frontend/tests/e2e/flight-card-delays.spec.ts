@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test'
 
+test('observed card shows observation age while progress stays estimated', async ({ page }) => {
+  await page.goto('/tests/e2e/fixtures/flight-cards.html')
+  await page.getByRole('button', { name: 'Toggle observed position' }).click()
+  await expect(page.getByText(/Observed \d+ min ago · Position at/)).toBeVisible()
+  await expect(page.getByText('Estimated position at', { exact: false })).toHaveCount(0)
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50')
+})
+
 for (const width of [390, 1280]) {
   test(`in-flight cards retain departure and arrival delays at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })

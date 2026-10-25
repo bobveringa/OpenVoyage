@@ -1,5 +1,5 @@
 import { Check, Clock3, Plane, PlaneLanding, PlaneTakeoff } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { completeFlight, getErrorMessage, stopTrackingSession, type Place, type TrackedFlight, type FlightJourney } from '@/api/client'
 import { Button } from '@/components/ui/button'
@@ -23,6 +23,12 @@ export function FlightJourneyCard({ journey, className, compact = false, accessT
 export function FlightCard({ flight, compact = false, accessToken, tripId }: {
   flight: TrackedFlight; compact?: boolean; accessToken?: string | null; tripId: string
 }) {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    if (flight.position_source !== 'FLIGHT_TRACK') return
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [flight.position_source])
   const departure = flight.departure_airport
   const arrival = flight.arrival_airport
   const departing = flight.progress != null && flight.progress < 1
@@ -120,7 +126,7 @@ export function FlightCard({ flight, compact = false, accessToken, tripId }: {
         </div>
       )}
       {flight.visible_to_members_only ? <p className="mt-2 text-[10px] text-muted-foreground">Members only · Live sharing is off</p> : null}
-      {flight.position_at ? <p className="mt-2 text-[10px] text-muted-foreground">Estimated position at {formatDateTime(new Date(flight.position_at), { timeStyle: 'short' })}{flight.estimate_basis === 'SCHEDULED_DURATION' ? ' · Scheduled duration' : ''}</p> : null}
+      {flight.position_at ? <p className="mt-2 text-[10px] text-muted-foreground">{flight.position_source === 'FLIGHT_TRACK' ? `Observed ${Math.max(0, Math.floor((now - Date.parse(flight.position_at)) / 60_000))} min ago · Position at` : 'Estimated position at'} {formatDateTime(new Date(flight.position_at), { timeStyle: 'short' })}{flight.estimate_basis === 'SCHEDULED_DURATION' ? ' · Scheduled duration' : ''}</p> : null}
       <p className="mt-2 text-[10px] text-muted-foreground">{flight.status_updated_at ? `Provider updated ${formatDateTime(new Date(flight.status_updated_at), { dateStyle: 'short', timeStyle: 'short' })}` : 'Awaiting provider update'}{flight.update_state !== 'CURRENT' ? ` · ${flight.update_state.toLowerCase()}` : ''}</p>
       {flight.completion_source === 'OWNER' ? <p className="mt-2 text-[11px] text-muted-foreground">Completion confirmed by owner · Estimated arrival</p> : null}
       {flight.can_complete && accessToken ? <FinishFlight flight={flight} accessToken={accessToken} tripId={tripId} /> : null}

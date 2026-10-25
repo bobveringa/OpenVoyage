@@ -44,6 +44,7 @@ class TrackedFlightResponse(BaseModel):
     stop_reason: Literal['MANUAL', 'NEXT_FLIGHT_DEPARTED'] | None
     progress: float | None = Field(ge=0, le=1)
     estimate_basis: Literal['PROVIDER_TIMES', 'SCHEDULED_DURATION'] | None
+    position_source: Literal['FLIGHT_TRACK', 'FLIGHT_ESTIMATE'] | None = None
     position_at: datetime | None
     status_updated_at: datetime | None
     update_state: Literal['CURRENT', 'STALE', 'UNAVAILABLE']
@@ -72,7 +73,7 @@ class JourneyPosition(BaseModel):
     latitude: float
     longitude: float
     at: datetime
-    source: Literal['MOBILE_GPS', 'FLIGHT_ESTIMATE', 'POST_CONNECTOR']
+    source: Literal['MOBILE_GPS', 'FLIGHT_ESTIMATE', 'FLIGHT_TRACK', 'POST_CONNECTOR']
 
 
 class JourneyTarget(BaseModel):

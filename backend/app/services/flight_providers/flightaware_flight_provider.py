@@ -1,6 +1,8 @@
 """FlightAware AeroAPI v4 schedules and confirmed flight movements."""
 
 import json
+import math
+from email.utils import parsedate_to_datetime
 import re
 from collections.abc import Callable
 from datetime import datetime, time, timedelta, timezone
@@ -17,9 +19,9 @@ from models.api.planning import (
     FlightLookupRequest,
     normalize_flight_number,
 )
-from services.flight_providers.aerodatabox_flight_provider import retry_after_seconds
 from services.flight_providers.flight_provider import (
     FlightMovement,
+    FlightObservation,
     FlightProviderBase,
     FlightUnavailable,
 )
@@ -64,7 +66,10 @@ class FlightAwareFlightProvider(FlightProviderBase):
     name = 'flightaware'
 
     def __init__(
-        self, *, api_key: str | None, base_url: str = DEFAULT_BASE_URL,
+        self,
+        *,
+        api_key: str | None,
+        base_url: str = DEFAULT_BASE_URL,
         airport_resolver: Callable[[str], Endpoint | None] | None = None,
     ):
         self._api_key = (api_key or '').strip()
@@ -138,10 +143,12 @@ class FlightAwareFlightProvider(FlightProviderBase):
             # Keep place identities scoped to this operation, not the global cache.
             local = self._airport_resolver(code) if self._airport_resolver else None
             if local is not None:
-                local = local.model_copy(update={
-                    'iata_code': local.iata_code or reference.get('code_iata'),
-                    'icao_code': local.icao_code or reference.get('code_icao'),
-                })
+                local = local.model_copy(
+                    update={
+                        'iata_code': local.iata_code or reference.get('code_iata'),
+                        'icao_code': local.icao_code or reference.get('code_icao'),
+                    }
+                )
                 airports[code] = local
                 return local
             with _AIRPORT_CACHE_LOCK:
@@ -167,7 +174,10 @@ class FlightAwareFlightProvider(FlightProviderBase):
         )
         cache_key = (self.base_url, code)
         with _AIRPORT_CACHE_LOCK:
-            if cache_key not in _AIRPORT_CACHE or _AIRPORT_CACHE[cache_key][1] is not details:
+            if (
+                cache_key not in _AIRPORT_CACHE
+                or _AIRPORT_CACHE[cache_key][1] is not details
+            ):
                 if len(_AIRPORT_CACHE) >= 256:
                     _AIRPORT_CACHE.pop(next(iter(_AIRPORT_CACHE)))
                 _AIRPORT_CACHE[cache_key] = (monotonic() + 6 * 3600, details)
@@ -324,6 +334,9 @@ class FlightAwareFlightProvider(FlightProviderBase):
                 FlightMovement(
                     scheduled_departure=scheduled,
                     departure_airport=origin,
+                    provider_flight_id=raw.get('fa_flight_id')
+                    if isinstance(raw.get('fa_flight_id'), str)
+                    else None,
                     status=status,
                     departure_confirmed=bool(departure or arrival),
                     arrival_confirmed=bool(arrival),
@@ -340,3 +353,57 @@ class FlightAwareFlightProvider(FlightProviderBase):
                 )
             )
         return results
+
+    def positions(self, provider_flight_id, *, timeout=10):
+        payload = self._request(
+            '/flights/' + quote(provider_flight_id, safe='') + '/track',
+            monotonic() + min(timeout, 10),
+            {
+                'include_estimated_positions': 'false',
+                'include_surface_positions': 'false',
+            },
+        )
+        if payload is None:
+            return []
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get('positions'), list
+        ):
+            raise FlightUnavailable('Invalid flight provider response')
+        observations = {}
+        now = datetime.now(timezone.utc)
+        for point in payload['positions']:
+            if not isinstance(point, dict):
+                continue
+            at = instant(point, 'timestamp')
+            lat, lon = point.get('latitude'), point.get('longitude')
+            if (
+                at is None
+                or at > now
+                or isinstance(lat, bool)
+                or isinstance(lon, bool)
+                or not isinstance(lat, int | float)
+                or not isinstance(lon, int | float)
+                or not math.isfinite(lat)
+                or not math.isfinite(lon)
+                or not -90 <= lat <= 90
+                or not -180 <= lon <= 180
+            ):
+                continue
+            observations[at] = FlightObservation(at, lat, lon)
+        return [observations[at] for at in sorted(observations)]
+
+
+def retry_after_seconds(headers, observed_at):
+    headers = {key.lower(): str(value).strip() for key, value in headers.items()}
+    retry = headers.get('retry-after', '')
+    if retry.isdigit():
+        return int(retry)
+    if retry:
+        try:
+            return max(
+                0,
+                math.ceil((parsedate_to_datetime(retry) - observed_at).total_seconds()),
+            )
+        except ValueError, TypeError, OverflowError:
+            pass
+    return None

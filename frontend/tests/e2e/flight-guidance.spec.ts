@@ -1,5 +1,20 @@
 import { expect, test } from '@playwright/test'
 
+test('observed flight uses a stationary dot, a solid retained path and dashed remaining route', async ({ page }) => {
+  await page.goto('/tests/e2e/fixtures/flight-guidance.html')
+  await page.getByRole('button', { name: 'Observed flight', exact: true }).click()
+  const marker = page.getByLabel('Observed flight position')
+  await expect(marker).toBeAttached()
+  await expect(marker).toHaveClass(/trip-map-flight-position/)
+  const path = await marker.getAttribute('d')
+  await expect(page.locator('path.trip-map-traveled-route').first()).not.toHaveAttribute('stroke-dasharray')
+  await expect(page.locator('path.trip-map-journey-guidance').first()).toHaveAttribute('stroke-dasharray', '7 9')
+  await page.clock.install()
+  await page.clock.fastForward('05:00')
+  await expect(marker).toHaveAttribute('d', path!)
+  await expect(page.getByLabel('Estimated flight position')).toHaveCount(0)
+})
+
 test('current travel guidance replaces legs in order and preserves arrival transfers until landing', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))

@@ -1,6 +1,5 @@
 """Validation for administrator-controlled flight API destinations."""
 
-import re
 from urllib.parse import urlsplit
 
 from core.setting_validators.common import validate_http_url
@@ -20,7 +19,7 @@ def validate_flight_base_url(value: str) -> str:
     return value
 
 
-def validate_rapidapi_host(value: str) -> str:
-    if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', value):
-        raise ValueError('RapidAPI host must be a hostname without scheme or path')
+def validate_flight_interval(value: int) -> int:
+    if value not in (5, 10, 15, 30, 60):
+        raise ValueError('Choose 5, 10, 15, 30 or 60 minutes')
     return value

@@ -121,7 +121,7 @@ class FlightLookup(BaseModel):
     schema_version: Literal[1] = 1
     flight_number: str
     departure_date: date
-    provider: str = Field(default='aerodatabox', min_length=1, max_length=64)
+    provider: str = Field(default='flightaware', min_length=1, max_length=64)
     fetched_at: AwareDatetime
     airline_name: str | None = None
     departure_airport: Endpoint

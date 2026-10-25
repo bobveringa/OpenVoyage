@@ -20,9 +20,12 @@ const flight: TrackedFlight = {
 
 export function Preview() {
   const [recovered, setRecovered] = useState(false)
+  const [observed, setObserved] = useState(false)
   return <main className="mx-auto max-w-md space-y-4 p-4">
     <button onClick={() => setRecovered((value) => !value)}>Toggle on-time arrival</button>
-    <FlightCard flight={{ ...flight, estimated_arrival: recovered ? flight.scheduled_arrival : flight.estimated_arrival }} tripId="trip" />
+    <button onClick={() => setObserved((value) => !value)}>Toggle observed position</button>
+    <FlightCard flight={{ ...flight, estimated_arrival: recovered ? flight.scheduled_arrival : flight.estimated_arrival,
+      position_source: observed ? 'FLIGHT_TRACK' : 'FLIGHT_ESTIMATE', estimate_basis: observed ? null : flight.estimate_basis }} tripId="trip" />
   </main>
 }
 

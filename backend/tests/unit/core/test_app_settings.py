@@ -10,12 +10,9 @@ from core.app_settings import (
     DEFAULT_MAP_TILE_PROVIDER_URL,
     DEFAULT_THEME_PALETTE,
     FLIGHTS_PROVIDER_KEY,
-    FLIGHTS_UPDATE_FREQUENCY_KEY,
+    FLIGHTS_CHECK_INTERVAL_MINUTES_KEY,
     FLIGHTS_FLIGHTAWARE_BASE_URL_KEY,
     FLIGHTS_FLIGHTAWARE_API_KEY,
-    FLIGHTS_AERODATABOX_BASE_URL_KEY,
-    FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY,
-    FLIGHTS_RAPIDAPI_API_KEY,
     IMMICH_ALLOWED_SERVERS_KEY,
     MAP_TILE_PROVIDER_KEY,
     ROUTING_GRAPHHOPPER_BASE_URL_KEY,
@@ -35,12 +32,9 @@ from core.app_settings_encryption import (
 def test_flight_settings_are_admin_only_and_keep_existing_key():
     for key in (
         FLIGHTS_PROVIDER_KEY,
-        FLIGHTS_UPDATE_FREQUENCY_KEY,
+        FLIGHTS_CHECK_INTERVAL_MINUTES_KEY,
         FLIGHTS_FLIGHTAWARE_BASE_URL_KEY,
         FLIGHTS_FLIGHTAWARE_API_KEY,
-        FLIGHTS_AERODATABOX_BASE_URL_KEY,
-        FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY,
-        FLIGHTS_RAPIDAPI_API_KEY,
     ):
         definition = app_settings_registry.require(key)
         assert definition.visibility == SettingVisibility.ADMIN
@@ -49,13 +43,12 @@ def test_flight_settings_are_admin_only_and_keep_existing_key():
         app_settings_registry.require(FLIGHTS_PROVIDER_KEY).default_value
         == 'none'
     )
-    assert app_settings_registry.require(FLIGHTS_RAPIDAPI_API_KEY).sensitive
     assert app_settings_registry.require(FLIGHTS_FLIGHTAWARE_API_KEY).sensitive
 
 
 @pytest.mark.parametrize('value', [0, 31, -1, True, 1.5, '5', 'unknown'])
 def test_invalid_flight_update_presets_are_rejected(value):
-    definition = app_settings_registry.require(FLIGHTS_UPDATE_FREQUENCY_KEY)
+    definition = app_settings_registry.require(FLIGHTS_CHECK_INTERVAL_MINUTES_KEY)
     with pytest.raises(AppSettingValidationError):
         app_settings_registry.validate_value(definition, value)
 
@@ -64,15 +57,9 @@ def test_invalid_flight_update_presets_are_rejected(value):
     'key,value',
     [
         (FLIGHTS_PROVIDER_KEY, 'unknown'),
+        (FLIGHTS_PROVIDER_KEY, 'aerodatabox'),
         (FLIGHTS_FLIGHTAWARE_BASE_URL_KEY, 'https://user:secret@example.test'),
         (FLIGHTS_FLIGHTAWARE_BASE_URL_KEY, 'https://example.test?key=secret'),
-        (FLIGHTS_AERODATABOX_BASE_URL_KEY, 'ftp://example.test'),
-        (FLIGHTS_AERODATABOX_BASE_URL_KEY, 'https://user:secret@example.test'),
-        (FLIGHTS_AERODATABOX_BASE_URL_KEY, 'https://example.test?key=secret'),
-        (FLIGHTS_AERODATABOX_BASE_URL_KEY, 'https://example.test/#fragment'),
-        (FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY, 'https://example.test'),
-        (FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY, 'example.test/path'),
-        (FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY, 'example.test\r\nInjected: header'),
     ],
 )
 def test_invalid_flight_settings_are_rejected(key, value):

@@ -670,9 +670,11 @@ function renderRouteLayer(
 
   if (routeMode === 'travel-timeline' && journey) {
     if (journey.position && journey.active_flight_id) {
-      L.marker(shiftWorldCoordinate([journey.position.latitude, journey.position.longitude], longitudeOffset), {
-        icon: L.divIcon({ className: 'trip-map-div-icon', html: '<span class="grid size-8 place-items-center rounded-full bg-card text-primary shadow-md" aria-label="Estimated flight position">&#9992;</span>', iconSize: [32, 32], iconAnchor: [16, 16] }),
-      }).addTo(routeLayer).bindTooltip('Estimated flight position')
+      const marker = L.circleMarker(shiftWorldCoordinate([journey.position.latitude, journey.position.longitude], longitudeOffset), {
+        className: 'trip-map-flight-position', radius: 7, color: getThemeColor('--card', '#FFFFFF'), weight: 3,
+        fillColor: getThemeColor('--primary', '#0F766E'), fillOpacity: 1,
+      }).addTo(routeLayer).bindTooltip(journey.position.source === 'FLIGHT_TRACK' ? 'Observed flight position' : 'Estimated flight position')
+      marker.getElement()?.setAttribute('aria-label', journey.position.source === 'FLIGHT_TRACK' ? 'Observed flight position' : 'Estimated flight position')
     }
   }
 

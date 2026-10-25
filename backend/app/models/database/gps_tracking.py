@@ -29,7 +29,7 @@ class GpsTrackingSession(Base):
 
     __tablename__ = 'gps_tracking_sessions'
     __table_args__ = (
-        CheckConstraint("source IN ('MOBILE_GPS', 'FLIGHT_ESTIMATE')", name='ck_gps_session_source'),
+        CheckConstraint("source IN ('MOBILE_GPS', 'FLIGHT_ESTIMATE', 'FLIGHT_TRACK')", name='ck_gps_session_source'),
         CheckConstraint(
             'ended_at IS NULL OR ended_at >= started_at',
             name='ck_gps_tracking_sessions_ended_after_started',
@@ -42,7 +42,7 @@ class GpsTrackingSession(Base):
         Index(
             'uq_gps_tracking_sessions_trip_open',
             'trip_id',
-            'source',
+            text("(CASE WHEN source = 'MOBILE_GPS' THEN 'MOBILE_GPS' ELSE 'FLIGHT' END)"),
             unique=True,
             postgresql_where=text('ended_at IS NULL AND deleted_at IS NULL'),
         ),

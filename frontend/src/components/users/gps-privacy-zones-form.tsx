@@ -286,10 +286,10 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
       <CardHeader>
         <CardTitle>GPS privacy zones</CardTitle>
         <CardDescription>
-          Coordinates recorded inside one of these circles are never stored.
+          Coordinates from GPS uploads inside one of these circles are never stored.
           Zones apply to every trip you are a member of, and nobody else can see
           their name, centre, or size.
-        </CardDescription>
+         Flight positions and paths, including estimates, remain visible through privacy zones so gaps cannot reveal a zone's location.</CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-4">
@@ -297,8 +297,9 @@ export function GpsPrivacyZonesForm({ accessToken }: GpsPrivacyZonesFormProps) {
           A zone only filters <strong>future</strong> uploads. Creating, moving,
           shrinking, or deleting one never deletes or restores a coordinate that
           was already recorded. Use the trip&apos;s point deletion controls for
-          that. Zones cover GPS tracking only: they do not hide post locations,
-          photo metadata, or anything you write.
+          that. Zones filter GPS uploads only: they do not hide flight paths,
+          post locations, photo metadata, or anything you write. Flight paths
+          remain visible through zones so gaps cannot reveal where a zone is.
         </p>
 
         {error ? (

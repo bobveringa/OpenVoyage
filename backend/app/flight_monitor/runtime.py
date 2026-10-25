@@ -6,7 +6,10 @@ import time
 import uuid
 from functools import partial
 
-from core.app_settings import FLIGHTS_PROVIDER_KEY, FLIGHTS_UPDATE_FREQUENCY_KEY
+from core.app_settings import (
+    FLIGHTS_PROVIDER_KEY, FLIGHTS_CHECK_INTERVAL_MINUTES_KEY,
+    FLIGHTS_CHECK_MORE_OFTEN_BEFORE_DEPARTURE_KEY,
+)
 from services.flight_airports import lookup_airport_endpoint
 from services.flight_providers.factory import FlightProviderFactory
 from services.flight_settings import FlightSettingsSnapshot, configuration_is_current
@@ -85,7 +88,8 @@ class FlightMonitorRuntime:
             ).create_flight_provider(reader)
             service = FlightTrackingService(
                 db,
-                update_frequency=reader.get_value(FLIGHTS_UPDATE_FREQUENCY_KEY),
+                check_interval_minutes=reader.get_value(FLIGHTS_CHECK_INTERVAL_MINUTES_KEY),
+                check_more_often_before_departure=reader.get_value(FLIGHTS_CHECK_MORE_OFTEN_BEFORE_DEPARTURE_KEY),
             )
             try:
                 calls = service.poll_due(

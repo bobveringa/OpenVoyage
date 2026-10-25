@@ -96,6 +96,35 @@ def provider(key='private-key'):
     return FlightAwareFlightProvider(api_key=key)
 
 
+def test_observed_track_options_validation_sorting_and_corrections(monkeypatch):
+    at = datetime.now(timezone.utc) - timedelta(hours=2)
+    point = dict(timestamp=at.isoformat(), latitude=52, longitude=5)
+    payload = {'positions': [
+        dict(point, timestamp=(at + timedelta(minutes=1)).isoformat()),
+        point, dict(point, latitude=53), dict(point, latitude=999),
+        dict(point, longitude=True), dict(point, timestamp='bad'),
+        dict(point, timestamp=(at + timedelta(days=1)).isoformat()), None,
+    ]}
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.status = 200
+    response.read.return_value = json.dumps(payload).encode()
+    network = Mock(return_value=response)
+    monkeypatch.setattr(MODULE, network)
+    points = provider().positions('id/with space')
+    assert len(points) == 2
+    assert points[0].at == at
+    assert points[0].latitude == 53
+    assert points[1].at > points[0].at
+    request = network.call_args.args[0]
+    assert request.data is None
+    assert request.get_method() == 'GET'
+    assert '/flights/id%2Fwith%20space/track?' in request.full_url
+    assert parse_qs(urlsplit(request.full_url).query) == {
+        'include_estimated_positions': ['false'], 'include_surface_positions': ['false'],
+    }
+
+
 def test_lookup_maps_iata_alias_airports_and_gate_times(monkeypatch):
     network = install(monkeypatch)
     (result,) = provider().lookup(INTENT, timeout=3)

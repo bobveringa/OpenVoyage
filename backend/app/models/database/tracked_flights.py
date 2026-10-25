@@ -4,6 +4,8 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
+    Integer,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -80,6 +82,16 @@ class TrackedFlight(Base):
         DateTime(timezone=True), index=True
     )
     last_check_result: Mapped[str] = mapped_column(String(32), default='NOT_CHECKED')
+    provider_flight_id: Mapped[str | None] = mapped_column(String(255))
+    final_track_pending: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default='false'
+    )
+    final_track_attempts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default='0'
+    )
+    final_track_deadline: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     departure_airport: Mapped[Place] = relationship(
         foreign_keys=[departure_airport_place_id], lazy='joined'
     )

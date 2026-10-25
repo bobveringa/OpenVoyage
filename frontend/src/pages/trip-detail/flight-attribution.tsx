@@ -1,5 +1,4 @@
 const sources = {
-  aerodatabox: { name: 'AeroDataBox', url: 'https://aerodatabox.com/' },
   flightaware: { name: 'FlightAware', url: 'https://www.flightaware.com/' },
 }
 

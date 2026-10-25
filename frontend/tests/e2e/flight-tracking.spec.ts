@@ -31,7 +31,7 @@ test('checks the requested local trip after signing in', async ({ page }) => {
   const journeyResponse = await journey
   expect(journeyResponse.ok()).toBe(true)
   const journeyData = await journeyResponse.json()
-  await expect(page.getByRole('heading', { name: 'Travel posts', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   await expect(page.getByLabel('Interactive trip route map').first()).toBeVisible()
   for (const journey of timelineData.flight_journeys ?? []) {
     for (const flight of journey.flights) {

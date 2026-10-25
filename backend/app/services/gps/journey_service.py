@@ -191,7 +191,13 @@ def current_journey(db, trip_id, user_id, share_token=None):
     if active:
         result.active_flight_id = active.id
         e = estimate(active, now)
-        if e:
+        observed = service.observations(active, now)
+        if observed:
+            point = observed[-1]
+            result.position = JourneyPosition(latitude=point.latitude, longitude=point.longitude, at=point.recorded_at, source='FLIGHT_TRACK')
+            if active.arrival_airport:
+                result.remaining_flight_route = GeoJsonLineString(coordinates=arc((point.longitude, point.latitude), airport_coordinates(active.arrival_airport)))
+        elif e:
             start, end = (
                 airport_coordinates(active.departure_airport),
                 airport_coordinates(active.arrival_airport),

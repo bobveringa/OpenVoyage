@@ -9,25 +9,16 @@ Administrators configure flight lookup and automatic monitoring under **Admin �
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `flights.provider` | `none` | Select an adapter to enable lookup and monitoring, or `none` to disable both. |
-| `flights.update_frequency` | `balanced` | Named preset for adaptive checks around departure and arrival. |
-| `flights.aerodatabox_base_url` | `https://aerodatabox.p.rapidapi.com` | AeroDataBox-compatible endpoint, optionally including a path prefix. |
-| `flights.aerodatabox_rapidapi_host` | `aerodatabox.p.rapidapi.com` | `X-RapidAPI-Host` request header. |
-| `flights.rapidapi_api_key` | Unconfigured | Existing encrypted, write-only AeroDataBox RapidAPI key. |
+| `flights.check_interval_minutes` | `30` | Check every 5, 10, 15, 30 or 60 minutes during flight. |
+| `flights.check_more_often_before_departure` | `true` | Check at least every 10 minutes on the ground. |
 | `flights.flightaware_base_url` | `https://aeroapi.flightaware.com/aeroapi` | FlightAware AeroAPI v4 endpoint. |
 | `flights.flightaware_api_key` | Unconfigured | Encrypted, write-only AeroAPI key sent as `x-apikey`. |
 
-The URL and host settings do not change the response format the adapter expects.
-A different flight API requires its own adapter. Lookup is disabled until an
-administrator selects a provider. Existing keys and explicit provider selections
-are preserved. Changes apply to new planning
-requests through the app settings cache without restarting the backend (other
-worker processes may take up to the cache TTL, currently 60 seconds). Saved
-flight schedules and unexpired candidates remain available after disabling lookup.
-
-Select `flightaware` for FlightAware AeroAPI. Like AeroDataBox, production uses
-the encrypted admin key. `FLIGHTAWARE_API_KEY` in the root `.env` is a local live-test
-credential; copy its value into **Admin → Routing → FlightAware AeroAPI key** to
-enable the running application. Setting the provider to `none` always disables calls.
+Select `flightaware` to use FlightAware AeroAPI with the encrypted admin key.
+`FLIGHTAWARE_API_KEY` in the root `.env` is only a local live-test credential;
+production reads the write-only admin setting. `none` disables requests.
+The migration removes AeroDataBox settings and credentials and changes its selection
+to `none`. Saved schedules and history keep their original metadata.
 
 The adapter accepts IATA and ICAO flight numbers (including `w6 4514` and `FR5682`)
 and codeshares, and matches the scheduled departure's date in the origin timezone.
@@ -42,20 +33,30 @@ the whole operation shares a ten-second timeout and limits supplementary request
 Requests fetch one page and never automatically retry billable calls. Rate limits
 and credential failures use the existing provider failure/backoff behavior.
 
-The **Flight update frequency** slider in Admin → Routing offers five named presets.
-The same preset controls when monitoring starts, routine pre-departure checks,
-checks during the final 15 minutes before departure and while still awaiting takeoff,
-and checks near arrival. A delayed estimate never postpones checks beyond the
-original departure. Cruise checks remain every 30 minutes. Checks are capped at
-phase boundaries so an infrequent interval cannot skip the more attentive window.
+Checks begin one hour before the earlier of scheduled and estimated departure.
+With **Check more often before departure** enabled, ground checks use the shorter
+of ten minutes and the selected interval. A delayed estimate cannot postpone this
+window. Confirmed departure switches to the selected interval for the entire flight.
+Changing cadence reschedules future checks without an immediate extra request;
+provider backoff takes precedence.
 
-| Preset | Start before departure | Routine ground | Imminent/overdue departure | Arrival window | Near-arrival interval |
-| --- | --- | --- | --- | --- | --- |
-| Minimal | 30 min | 30 min | 30 min | 30 min | 30 min |
-| Relaxed | 45 min | 20 min | 15 min | 30 min | 15 min |
-| Balanced | 60 min | 20 min | 10 min | 30 min | 10 min |
-| Frequent | 90 min | 15 min | 5 min | 45 min | 5 min |
-| Very frequent | 120 min | 10 min | 5 min | 60 min | 5 min |
+Ground checks fetch status only. Airborne checks also fetch
+`/flights/{fa_flight_id}/track?include_estimated_positions=false&include_surface_positions=false`.
+Observed points retain their provider timestamps and merge by timestamp, with the
+latest valid correction winning. Shorter or failed responses cannot erase history
+or move the marker backward. The observed route is solid; the local remaining arc
+is dashed. Without observations the existing time-based arc remains available.
+Flight positions and paths bypass privacy zones, including owner edits. Normal
+trip access, live sharing and published-post boundaries still apply.
+
+Arrival is saved before fetching the final track. Final retrieval is separate,
+persisted work: at most three attempts including the arrival check, with a six-hour
+deadline from arrival confirmation. Attempts are reserved before HTTP, survive
+restarts, use the selected cadence and respect quota backoff. A nonempty response
+settles history immediately; configuration errors and exhaustion stop retries.
+Failed final retrieval keeps retained points or a usable arc fallback. Owner edits,
+deletion, manual completion and manual/next-flight stops cancel pending retrieval;
+results recheck that cancellation under the trip lock before applying.
 
 The dedicated monitor starts with the application, attempts a cycle immediately,
 and waits 60 seconds after each cycle. A PostgreSQL session advisory lock on a
@@ -63,16 +64,14 @@ dedicated `NullPool` connection admits one owner per database; other processes
 stand by. Monitoring bypasses the settings cache using a consistent raw snapshot,
 decrypting only the selected provider's credentials. Provider `none` skips polling
 and reconciliation without altering schedules, recordings, or saved facts.
-Preset changes reschedule unchecked flights and successful pending checks on the
-next enabled cycle. Rate-limit backoff is preserved. Settings changes and resets
+Cadence changes reschedule successful pending checks. Rate-limit backoff is preserved. Settings changes and resets
 serialize with configuration-error application so an old request cannot undo a
 credential fix. Changes take effect after current work and the heartbeat delay.
 The heartbeat is an idle delay, not a freshness or failover guarantee.
 
 Flight tracking no longer has Jobs controls or execution rows. A selected provider
 enables monitoring even when the legacy job was disabled; its old cron is ignored.
-Stop all old processes before migrating and starting the new version. See
-[deployment, rollback, shutdown and logging notes](../../../../docs/flight-monitor-release-notes.md).
+Stop all old processes before migrating and starting the new version. Observed recordings and pending final retrieval must be removed or settled before downgrading the schema.
 
 Manual lookups are unaffected. Actual GPS history stays visible in Travel; gray
 guidance replaces only the current leg, and later airport transfers remain planned

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from dotenv import dotenv_values
 
-from core.app_settings import FLIGHTS_RAPIDAPI_API_KEY
+from core.app_settings import FLIGHTS_FLIGHTAWARE_API_KEY
 from services.app_settings_service import AppSettingsService
 from integration.services.test_itinerary_route_service import plan, headers  # noqa: F401, F811
 
@@ -28,12 +28,13 @@ def test_configured_and_unconfigured_flight_api(client, db_session, plan):  # no
     assert unconfigured.status_code == 200
     assert planning_body(unconfigured)['status'] == 'UNAVAILABLE'
     test_key = dotenv_values(Path(__file__).resolve().parents[4] / '.env').get(
-        'RAPIDAPI_API_KEY'
+        'FLIGHTAWARE_API_KEY'
     )
     if not test_key:
         pytest.skip('No live test credential configured')
     service = AppSettingsService(db_session)
-    service.update_setting(FLIGHTS_RAPIDAPI_API_KEY, test_key, user.id)
+    service.update_setting('flights.provider', 'flightaware', user.id)
+    service.update_setting(FLIGHTS_FLIGHTAWARE_API_KEY, test_key, user.id)
     configured = client.post(
         endpoint + '/flight-lookups', headers=headers(user, revision), json=payload
     )
@@ -59,7 +60,7 @@ def test_configured_and_unconfigured_flight_api(client, db_session, plan):  # no
         planning_body(saved)['segments'][0]['lookup']['departure_airport']['iata_code'] == 'AMS'
     )
     assert planning_body(saved)['segments'][0]['duration_seconds'] is not None
-    service.reset_setting(FLIGHTS_RAPIDAPI_API_KEY)
+    service.reset_setting(FLIGHTS_FLIGHTAWARE_API_KEY)
     another_day = client.post(
         endpoint + '/flight-lookups',
         headers=headers(user, saved.headers['etag']),

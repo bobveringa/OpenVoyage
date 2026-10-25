@@ -47,6 +47,7 @@ import {
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { formatDateTime } from '@/lib/date-time'
 import { MAP_TILE_PROVIDER_SETTING_KEY } from '@/lib/map-tile-providers'
 import { cn } from '@/lib/utils'
@@ -74,11 +75,9 @@ type SettingPresentation = {
 const SETTING_KEYS = {
   cookieBannerEnabled: 'site.cookie_banner_enabled',
   themePalette: 'theme.palette',
-  flightApiKey: 'flights.rapidapi_api_key',
   flightProvider: 'flights.provider',
-  flightUpdateFrequency: 'flights.update_frequency',
-  flightBaseUrl: 'flights.aerodatabox_base_url',
-  flightRapidApiHost: 'flights.aerodatabox_rapidapi_host',
+  flightCheckInterval: 'flights.check_interval_minutes',
+  flightGroundChecks: 'flights.check_more_often_before_departure',
   flightAwareBaseUrl: 'flights.flightaware_base_url',
   flightAwareApiKey: 'flights.flightaware_api_key',
   graphHopperApiKey: 'routing.graphhopper_api_key',
@@ -93,23 +92,19 @@ const SETTING_KEYS = {
   immichAllowAnyServer: 'immich.allow_any_server',
 } as const
 
-const flightUpdatePresets = [
-  { value: 'minimal', label: 'Minimal', description: 'Occasional checks around departure and arrival to keep API usage low.' },
-  { value: 'relaxed', label: 'Relaxed', description: 'Light checks that become closer together as departure and arrival approach.' },
-  { value: 'balanced', label: 'Balanced', description: 'Timely departure and arrival updates, with quieter checks while cruising.' },
-  { value: 'frequent', label: 'Frequent', description: 'Start watching earlier and check closely while awaiting takeoff and landing.' },
-  { value: 'very_frequent', label: 'Very frequent', description: 'Watch well ahead of departure and follow a wider arrival window closely.' },
-]
-
 const settingPresentations: Record<string, SettingPresentation> = {
-  [SETTING_KEYS.flightUpdateFrequency]: {
-    label: 'Flight update frequency',
-    help: 'Checks adapt to each flight: before departure, while waiting to take off, during cruise, and near arrival. More frequent presets use more API credit. Provider rate limits still apply.',
+  [SETTING_KEYS.flightCheckInterval]: {
+    label: 'Check during flight',
+    help: 'More frequent checks use more API credit. Provider limits may delay updates.',
+  },
+  [SETTING_KEYS.flightGroundChecks]: {
+    label: 'Check more often before departure',
+    help: 'Check at least every 10 minutes in the hour before departure and while waiting for takeoff.',
   },
   [SETTING_KEYS.flightProvider]: {
     help: 'Choose the service used for flight schedule lookup and automatic flight monitoring. Selecting none disables both. Manual planning and owner completion remain available.',
     label: 'Flight provider',
-    optionLabels: { aerodatabox: 'AeroDataBox', flightaware: 'FlightAware AeroAPI', none: 'Flight lookup and monitoring disabled' },
+    optionLabels: { flightaware: 'FlightAware AeroAPI', none: 'Flight lookup and monitoring disabled' },
   },
   [SETTING_KEYS.flightAwareBaseUrl]: {
     help: 'Requests and the configured API key are sent to this AeroAPI v4 endpoint.',
@@ -120,22 +115,6 @@ const settingPresentations: Record<string, SettingPresentation> = {
   [SETTING_KEYS.flightAwareApiKey]: {
     help: 'Write-only FlightAware AeroAPI key used for flight schedules and tracking.',
     label: 'FlightAware AeroAPI key',
-    placeholder: 'Enter a new API key',
-  },
-  [SETTING_KEYS.flightBaseUrl]: {
-    help: 'Requests and the configured API key are sent to this AeroDataBox-compatible endpoint.',
-    inputType: 'url',
-    label: 'AeroDataBox base URL',
-    placeholder: 'https://aerodatabox.p.rapidapi.com',
-  },
-  [SETTING_KEYS.flightRapidApiHost]: {
-    help: 'Hostname sent in the X-RapidAPI-Host header, without a scheme or path.',
-    label: 'AeroDataBox RapidAPI host',
-    placeholder: 'aerodatabox.p.rapidapi.com',
-  },
-  [SETTING_KEYS.flightApiKey]: {
-    help: 'Optional write-only RapidAPI key for AeroDataBox flight lookup. Valid credentials enable lookup and monitoring; manual planning still works.',
-    label: 'AeroDataBox RapidAPI key',
     placeholder: 'Enter a new API key',
   },
   [SETTING_KEYS.cookieBannerEnabled]: {
@@ -440,23 +419,9 @@ function SettingsAdminSections({
           icon={Server}
           onReset={handleReset}
           onSave={handleSave}
-          settings={pickSettings(settingsByKey, [SETTING_KEYS.flightProvider, SETTING_KEYS.flightUpdateFrequency])}
+          settings={pickSettings(settingsByKey, [SETTING_KEYS.flightProvider, SETTING_KEYS.flightCheckInterval, SETTING_KEYS.flightGroundChecks])}
           title="Flight provider"
         />
-        {settingsByKey.get(SETTING_KEYS.flightProvider)?.value === 'aerodatabox' ? (
-          <SettingsGroup
-            description="Configure the endpoint, RapidAPI host, and write-only key used for flight lookup."
-            icon={Server}
-            onReset={handleReset}
-            onSave={handleSave}
-            settings={pickSettings(settingsByKey, [
-              SETTING_KEYS.flightBaseUrl,
-              SETTING_KEYS.flightRapidApiHost,
-              SETTING_KEYS.flightApiKey,
-            ])}
-            title="AeroDataBox"
-          />
-        ) : null}
         {settingsByKey.get(SETTING_KEYS.flightProvider)?.value === 'flightaware' ? (
           <SettingsGroup
             description="Configure the AeroAPI endpoint and write-only key used for flight schedules and tracking."
@@ -796,18 +761,13 @@ function SettingControl({
   presentation,
   setting,
 }: SettingControlProps) {
-  if (setting.key === SETTING_KEYS.flightUpdateFrequency) {
-    const index = Math.max(0, flightUpdatePresets.findIndex((preset) => preset.value === draft))
-    const selected = flightUpdatePresets[index]
-    return <div className="space-y-2">
-      <output htmlFor={id} className="block text-sm font-semibold" aria-live="polite">{selected.label}</output>
-      <input id={id} type="range" min={0} max={flightUpdatePresets.length - 1} step={1}
-        className="min-h-8 w-full cursor-pointer accent-primary" disabled={disabled} value={index}
-        aria-valuetext={selected.label} aria-describedby={`${id}-description`}
-        onChange={(event) => onChange(flightUpdatePresets[Number(event.target.value)].value)} />
-      <div className="flex justify-between text-xs text-muted-foreground"><span>Less frequent</span><span>More frequent</span></div>
-      <p id={`${id}-description`} className="text-xs leading-5 text-muted-foreground">{selected.description}</p>
-    </div>
+  if (setting.key === SETTING_KEYS.flightCheckInterval) {
+    return <Select disabled={disabled} id={id} onValueChange={onChange} value={draft}
+      options={[5, 10, 15, 30, 60].map(minutes => ({ label: `Every ${minutes} minutes`, value: String(minutes) }))} />
+  }
+  if (setting.key === SETTING_KEYS.flightGroundChecks) {
+    return <Switch id={id} disabled={disabled}
+      checked={draft === 'true'} onCheckedChange={checked => onChange(String(checked))} />
   }
   if (setting.key === SETTING_KEYS.immichAllowedServers) {
     return (

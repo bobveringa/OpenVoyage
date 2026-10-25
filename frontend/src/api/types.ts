@@ -1818,7 +1818,7 @@ export interface components {
             flight_number: string;
             /**
              * Provider
-             * @default aerodatabox
+             * @default flightaware
              */
             provider: string;
             /** Scheduled Arrival */
@@ -2317,7 +2317,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "MOBILE_GPS" | "FLIGHT_ESTIMATE" | "POST_CONNECTOR";
+            source: "MOBILE_GPS" | "FLIGHT_ESTIMATE" | "FLIGHT_TRACK" | "POST_CONNECTOR";
         };
         /** JourneyResponse */
         JourneyResponse: {
@@ -2790,7 +2790,7 @@ export interface components {
              * @default POST_CONNECTOR
              * @enum {string}
              */
-            source: "MOBILE_GPS" | "FLIGHT_ESTIMATE" | "POST_CONNECTOR";
+            source: "MOBILE_GPS" | "FLIGHT_ESTIMATE" | "FLIGHT_TRACK" | "POST_CONNECTOR";
             travel_mode: components["schemas"]["TravelMode"];
             /**
              * Visible To Members Only
@@ -3256,6 +3256,8 @@ export interface components {
             id: string;
             /** Position At */
             position_at: string | null;
+            /** Position Source */
+            position_source?: ("FLIGHT_TRACK" | "FLIGHT_ESTIMATE") | null;
             /** Progress */
             progress: number | null;
             /** Scheduled Arrival */
@@ -3342,7 +3344,7 @@ export interface components {
              * @default MOBILE_GPS
              * @enum {string}
              */
-            source: "MOBILE_GPS" | "FLIGHT_ESTIMATE";
+            source: "MOBILE_GPS" | "FLIGHT_ESTIMATE" | "FLIGHT_TRACK";
             /**
              * Started At
              * Format: date-time

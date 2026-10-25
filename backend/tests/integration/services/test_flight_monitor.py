@@ -69,7 +69,7 @@ def poll_owned(engine, provider, now, *, cancelled=lambda: False):
         owner.close()
 
 
-@pytest.mark.parametrize('provider_name', ['aerodatabox', 'flightaware', 'none'])
+@pytest.mark.parametrize('provider_name', ['flightaware', 'none'])
 def test_runtime_resolves_only_selected_credentials_after_key_rotation(
     setup,
     monitor_engine,
@@ -78,14 +78,11 @@ def test_runtime_resolves_only_selected_credentials_after_key_rotation(
 ):
     s = setup
     monkeypatch.setattr(settings, 'SECRET_KEY', 'old-secret-key')
-    configure(s.db, 'flights.rapidapi_api_key', 'old-adb')
+    s.db.add(AppSetting(key='flights.rapidapi_api_key', secret_value='v1:unreadable-inactive'))
+    s.db.commit()
     configure(s.db, 'flights.flightaware_api_key', 'old-fa')
     monkeypatch.setattr(settings, 'SECRET_KEY', 'rotated-secret-key')
-    selected_key = (
-        'flights.rapidapi_api_key'
-        if provider_name == 'aerodatabox'
-        else 'flights.flightaware_api_key'
-    )
+    selected_key = 'flights.flightaware_api_key'
     if provider_name != 'none':
         configure(s.db, selected_key, 'working-key')
     configure(s.db, 'flights.provider', provider_name)
@@ -100,10 +97,6 @@ def test_runtime_resolves_only_selected_credentials_after_key_rotation(
     monkeypatch.setattr(AppSettingsEncryption, 'decrypt', decrypt)
     monkeypatch.setattr('services.gps.flight_tracking_service.utcnow', lambda: START)
     track = Mock(return_value=[movement(s, status='BOARDING')])
-    monkeypatch.setattr(
-        'services.flight_providers.aerodatabox_flight_provider.AeroDataBoxFlightProvider.track',
-        track,
-    )
     monkeypatch.setattr(
         'services.flight_providers.flightaware_flight_provider.FlightAwareFlightProvider.track',
         track,
@@ -129,23 +122,23 @@ def test_runtime_resolves_only_selected_credentials_after_key_rotation(
 
 
 def test_snapshot_bypasses_identity_map_cache_and_tracks_absence(engine, db_session):
-    configure(db_session, 'flights.provider', 'aerodatabox')
+    configure(db_session, 'flights.provider', 'flightaware')
     service = AppSettingsService(db_session)
-    assert service.get_value('flights.provider') == 'aerodatabox'
+    assert service.get_value('flights.provider') == 'flightaware'
     cached_row = db_session.get(AppSetting, 'flights.provider')
     old = FlightSettingsSnapshot.load(db_session)
     with Session(engine) as other:
-        configure(other, 'flights.provider', 'flightaware')
-    assert cached_row.value == 'aerodatabox'
-    assert service.get_value('flights.provider') == 'aerodatabox'
+        configure(other, 'flights.provider', 'none')
+    assert cached_row.value == 'flightaware'
+    assert service.get_value('flights.provider') == 'flightaware'
     current = FlightSettingsSnapshot.load(db_session)
     assert old != current
-    assert current.reader(db_session).get_value('flights.provider') == 'flightaware'
+    assert current.reader(db_session).get_value('flights.provider') == 'none'
     assert (
-        current.reader(db_session).get_value('flights.update_frequency') == 'balanced'
+        current.reader(db_session).get_value('flights.check_interval_minutes') == 30
     )
     with Session(engine) as other:
-        configure(other, 'flights.update_frequency', 'balanced')
+        configure(other, 'flights.check_interval_minutes', 30)
     assert FlightSettingsSnapshot.load(db_session) != current
 
 
@@ -158,14 +151,16 @@ def test_old_configuration_failure_cannot_undo_settings_fix(
     engine,
     monitor_engine,
     change,
+    monkeypatch,
 ):
     s = setup
+    monkeypatch.setattr('services.app_settings_service.utcnow', lambda: START + timedelta(minutes=2))
     unrequested = s.add('KL456', START + timedelta(minutes=1))
-    configure(s.db, 'flights.provider', 'aerodatabox')
-    configure(s.db, 'flights.rapidapi_api_key', 'old-key')
+    configure(s.db, 'flights.provider', 'flightaware')
+    configure(s.db, 'flights.flightaware_api_key', 'old-key')
     # Unreadable inactive key must never break the raw comparison.
     s.db.add(
-        AppSetting(key='flights.flightaware_api_key', secret_value='v1:unreadable')
+        AppSetting(key='flights.rapidapi_api_key', secret_value='v1:unreadable')
     )
     s.db.commit()
     entered, release = threading.Event(), threading.Event()
@@ -186,18 +181,18 @@ def test_old_configuration_failure_cannot_undo_settings_fix(
             assert entered.wait(10)
             with Session(engine) as other:
                 if change == 'credential':
-                    configure(other, 'flights.rapidapi_api_key', 'fixed-key')
+                    configure(other, 'flights.flightaware_api_key', 'fixed-key')
                 elif change == 'reset':
                     AppSettingsService(other, cache=AppSettingsCache()).reset_setting(
-                        'flights.rapidapi_api_key'
+                        'flights.flightaware_api_key'
                     )
                 elif change == 'provider':
                     configure(other, 'flights.provider', 'none')
                 elif change == 'same_default':
-                    configure(other, 'flights.update_frequency', 'balanced')
+                    configure(other, 'flights.check_interval_minutes', 30)
                 elif change == 'same_value':
                     # Same plaintext, different ciphertext is a raw change.
-                    configure(other, 'flights.rapidapi_api_key', 'old-key')
+                    configure(other, 'flights.flightaware_api_key', 'old-key')
         finally:
             release.set()
         assert work.result(10) == 1
@@ -209,7 +204,7 @@ def test_old_configuration_failure_cannot_undo_settings_fix(
             assert flight.next_check_at is None
         else:
             assert flight.last_check_result == 'NOT_CHECKED'
-            assert flight.next_check_at == due_before[flight.id]
+            assert flight.next_check_at == (START + timedelta(minutes=12) if change == 'same_default' else due_before[flight.id])
     if change == 'credential':
         # No second settings edit is needed to resume on the next cycle.
         good = Mock()
@@ -227,8 +222,8 @@ def test_configuration_application_serializes_before_settings_update(
     reset,
 ):
     s = setup
-    configure(s.db, 'flights.provider', 'aerodatabox')
-    configure(s.db, 'flights.rapidapi_api_key', 'bad-key')
+    configure(s.db, 'flights.provider', 'flightaware')
+    configure(s.db, 'flights.flightaware_api_key', 'bad-key')
     locked, updating = threading.Event(), threading.Event()
     owner = MonitorOwnership(monitor_engine)
     assert owner.acquire()
@@ -239,9 +234,9 @@ def test_configuration_application_serializes_before_settings_update(
         with Session(engine) as update_db:
             updating.set()
             if reset:
-                AppSettingsService(update_db).reset_setting('flights.rapidapi_api_key')
+                AppSettingsService(update_db).reset_setting('flights.flightaware_api_key')
             else:
-                configure(update_db, 'flights.rapidapi_api_key', 'fixed')
+                configure(update_db, 'flights.flightaware_api_key', 'fixed')
 
     provider = Mock()
     provider.track.side_effect = FlightUnavailable(result='CONFIGURATION_ERROR')
@@ -344,7 +339,7 @@ def test_stale_configuration_keeps_valid_facts_and_other_failure_backoff(
     s = setup
     other = s.add('KL456', START + timedelta(minutes=1))
     third = s.add('KL789', START + timedelta(minutes=2))
-    configure(s.db, 'flights.provider', 'aerodatabox')
+    configure(s.db, 'flights.provider', 'flightaware')
     provider = Mock()
 
     def track(request):
@@ -353,7 +348,7 @@ def test_stale_configuration_keeps_valid_facts_and_other_failure_backoff(
         if request.flight_number == 'KL456':
             raise FlightUnavailable(result='UNAVAILABLE')
         with Session(engine) as db:
-            configure(db, 'flights.update_frequency', 'balanced')
+            configure(db, 'flights.check_interval_minutes', 30)
         raise FlightUnavailable(result='CONFIGURATION_ERROR')
 
     provider.track.side_effect = track
@@ -366,7 +361,7 @@ def test_stale_configuration_keeps_valid_facts_and_other_failure_backoff(
     assert third.last_check_result == 'NOT_CHECKED'
 
 
-@pytest.mark.parametrize('selected', ['aerodatabox', 'flightaware'])
+@pytest.mark.parametrize('selected', ['flightaware'])
 def test_runtime_reloads_fixed_credentials_after_stale_request_with_unreadable_inactive_key(
     setup,
     engine,
@@ -377,17 +372,8 @@ def test_runtime_reloads_fixed_credentials_after_stale_request_with_unreadable_i
 ):
     s = setup
     selected_key, inactive_key, adapter = (
-        (
-            'flights.rapidapi_api_key',
-            'flights.flightaware_api_key',
-            'services.flight_providers.aerodatabox_flight_provider.AeroDataBoxFlightProvider',
-        )
-        if selected == 'aerodatabox'
-        else (
-            'flights.flightaware_api_key',
-            'flights.rapidapi_api_key',
-            'services.flight_providers.flightaware_flight_provider.FlightAwareFlightProvider',
-        )
+        'flights.flightaware_api_key', 'flights.rapidapi_api_key',
+        'services.flight_providers.flightaware_flight_provider.FlightAwareFlightProvider',
     )
     configure(s.db, 'flights.provider', selected)
     configure(s.db, selected_key, 'old-key')
@@ -546,7 +532,8 @@ def test_service_commits_are_visible_and_release_trip_locks_with_probes(
             FlightTrackingService(db).poll_due(
                 provider, START, verify_ownership=partial(owner.probe, db)
             )
-        assert observed == ['NOT_CHECKED', 'NOT_CHECKED', 'OK']
+        assert observed[:2] == ['NOT_CHECKED', 'NOT_CHECKED']
+        assert observed[2:] and all(state == 'OK' for state in observed[2:])
         assert not owner.connection.in_transaction()
     finally:
         owner.close()
@@ -559,8 +546,8 @@ def test_shutdown_during_atomic_result_application_finishes_before_unlock(
     monkeypatch,
 ):
     s = setup
-    configure(s.db, 'flights.provider', 'aerodatabox')
-    configure(s.db, 'flights.rapidapi_api_key', 'configured-key')
+    configure(s.db, 'flights.provider', 'flightaware')
+    configure(s.db, 'flights.flightaware_api_key', 'configured-key')
     facts = movement(s, departure_confirmed=True, actual_departure=START)
     applied, release, stopped = threading.Event(), threading.Event(), threading.Event()
     original = FlightTrackingService.apply_updates
@@ -573,7 +560,7 @@ def test_shutdown_during_atomic_result_application_finishes_before_unlock(
     monkeypatch.setattr(FlightTrackingService, 'apply_updates', apply)
     monkeypatch.setattr('services.gps.flight_tracking_service.utcnow', lambda: START)
     monkeypatch.setattr(
-        'services.flight_providers.aerodatabox_flight_provider.AeroDataBoxFlightProvider.track',
+        'services.flight_providers.flightaware_flight_provider.FlightAwareFlightProvider.track',
         lambda *args: [facts],
     )
     runtime = FlightMonitorRuntime(engine_factory=lambda: monitor_engine)

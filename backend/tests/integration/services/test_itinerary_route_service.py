@@ -9,15 +9,14 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import func, select
 from core import security
-from core.app_settings import FLIGHTS_PROVIDER_KEY, FLIGHTS_RAPIDAPI_API_KEY
+from core.app_settings import FLIGHTS_PROVIDER_KEY, FLIGHTS_FLIGHTAWARE_API_KEY
 from factories.users import create_user
 from factories.trips import create_trip, add_trip_viewer
 from factories.places import create_place
-from models.api.planning import FlightLookupRequest
+from models.api.planning import Endpoint, FlightLookup
 from models.database.itinerary import ItineraryPlanningArtifact, ItinerarySegmentRoute
 from models.database.locations import Location
-from services.flight_providers import AeroDataBoxFlightProvider
-from services.flight_providers.aerodatabox_flight_provider import parse_flights
+from services.flight_providers.flightaware_flight_provider import FlightAwareFlightProvider
 from services.route_providers import GraphHopperRouteProvider, RouteResponse
 from services.app_settings_service import AppSettingsService
 from services.planning_calculator import calculation_gate
@@ -67,43 +66,23 @@ def plan(client, db_session, api_prefix):
     return user, trip, base, base + '/connections/' + connection['id'], revision, connection, data
 
 
-def flight_payload():
-    return [
-        {
-            'number': 'KL597',
-            'airline': {'name': 'KLM'},
-            'departure': {
-                'airport': {
-                    'name': 'Schiphol',
-                    'iata': 'AMS',
-                    'timeZone': 'Europe/Amsterdam',
-                    'location': {'lat': 52.3, 'lon': 4.7},
-                },
-                'scheduledTime': {'local': '2026-11-18T10:00:00+01:00'},
-            },
-            'arrival': {
-                'airport': {
-                    'name': 'Cape Town',
-                    'iata': 'CPT',
-                    'timeZone': 'Africa/Johannesburg',
-                    'location': {'lat': -33.97, 'lon': 18.6},
-                },
-                'scheduledTime': {'local': '2026-11-18T22:00:00+02:00'},
-            },
-        }
-    ]
+def flight_lookup():
+    return FlightLookup(
+        flight_number='KL597', departure_date='2026-11-18', fetched_at='2026-10-25T10:00:00Z',
+        airline_name='KLM',
+        departure_airport=Endpoint(name='Schiphol', latitude=52.3, longitude=4.7, iata_code='AMS', timezone='Europe/Amsterdam'),
+        arrival_airport=Endpoint(name='Cape Town', latitude=-33.97, longitude=18.6, iata_code='CPT', timezone='Africa/Johannesburg'),
+        scheduled_departure='2026-11-18T10:00:00+01:00', scheduled_arrival='2026-11-18T22:00:00+02:00',
+    )
 
 
 def matched_lookup(db_session, monkeypatch):
     AppSettingsService(db_session).update_setting(
-        FLIGHTS_PROVIDER_KEY, 'aerodatabox', None
+        FLIGHTS_PROVIDER_KEY, 'flightaware', None
     )
-    matches = parse_flights(
-        flight_payload(),
-        FlightLookupRequest(flight_number='KL597', departure_date='2026-11-18'),
-    )
+    matches = [flight_lookup()]
     lookup = Mock(return_value=matches)
-    monkeypatch.setattr(AeroDataBoxFlightProvider, 'lookup', lookup)
+    monkeypatch.setattr(FlightAwareFlightProvider, 'lookup', lookup)
     return lookup
 
 
@@ -122,7 +101,7 @@ def test_alternative_provider_can_lookup_save_and_read_schedule(client, plan):
         def lookup(self, intent, *, timeout=10):
             return [
                 item.model_copy(update={'provider': self.name})
-                for item in parse_flights(flight_payload(), intent)
+                for item in [flight_lookup()]
             ]
 
     client.app.dependency_overrides[get_flight_provider] = AlternativeProvider
@@ -179,7 +158,7 @@ def test_defaults_and_saves_never_call_providers(client, plan, monkeypatch):
     route.assert_not_called()
 
 
-@pytest.mark.parametrize('provider', ['none', 'aerodatabox'])
+@pytest.mark.parametrize('provider', ['none', 'flightaware'])
 def test_no_flight_provider_or_key_keeps_draft_editable(
     client, db_session, plan, monkeypatch, provider
 ):
@@ -189,7 +168,7 @@ def test_no_flight_provider_or_key_keeps_draft_editable(
             FLIGHTS_PROVIDER_KEY, provider, None
         )
     monkeypatch.setattr(
-        'services.flight_providers.aerodatabox_flight_provider.urlopen',
+        'services.flight_providers.flightaware_flight_provider.urlopen',
         lambda *_a, **_k: pytest.fail('Network without key'),
     )
     response = client.post(
@@ -500,12 +479,12 @@ def test_admin_flight_key_is_encrypted_and_never_public(
 ):
     user, _, _, _, _, connection, _ = plan
     service = AppSettingsService(db_session)
-    service.update_setting(FLIGHTS_RAPIDAPI_API_KEY, 'synthetic-flight-key', user.id)
-    record = service.get_admin_setting(FLIGHTS_RAPIDAPI_API_KEY)
+    service.update_setting(FLIGHTS_FLIGHTAWARE_API_KEY, 'synthetic-flight-key', user.id)
+    record = service.get_admin_setting(FLIGHTS_FLIGHTAWARE_API_KEY)
     assert record.is_configured
     assert record.value is None
-    assert service.get_value(FLIGHTS_RAPIDAPI_API_KEY) == 'synthetic-flight-key'
-    assert FLIGHTS_RAPIDAPI_API_KEY not in service.get_public_settings().settings
+    assert service.get_value(FLIGHTS_FLIGHTAWARE_API_KEY) == 'synthetic-flight-key'
+    assert FLIGHTS_FLIGHTAWARE_API_KEY not in service.get_public_settings().settings
 
 
 def test_departing_member_loses_artifacts_but_saved_travel_survives(

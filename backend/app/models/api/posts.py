@@ -190,7 +190,7 @@ class PostTimelineRouteSegmentResponse(BaseModel):
     travel_mode: TravelMode
     geometry: GeoJsonLineString
     visible_to_members_only: bool = False
-    source: Literal['MOBILE_GPS', 'FLIGHT_ESTIMATE', 'POST_CONNECTOR'] = 'POST_CONNECTOR'
+    source: Literal['MOBILE_GPS', 'FLIGHT_ESTIMATE', 'FLIGHT_TRACK', 'POST_CONNECTOR'] = 'POST_CONNECTOR'
 
 
 class PostTimelineRouteResponse(BaseModel):

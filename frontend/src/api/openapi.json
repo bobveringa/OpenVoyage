@@ -978,7 +978,7 @@
             "type": "string"
           },
           "provider": {
-            "default": "aerodatabox",
+            "default": "flightaware",
             "maxLength": 64,
             "minLength": 1,
             "title": "Provider",
@@ -2415,6 +2415,7 @@
             "enum": [
               "MOBILE_GPS",
               "FLIGHT_ESTIMATE",
+              "FLIGHT_TRACK",
               "POST_CONNECTOR"
             ],
             "title": "Source",
@@ -3759,6 +3760,7 @@
             "enum": [
               "MOBILE_GPS",
               "FLIGHT_ESTIMATE",
+              "FLIGHT_TRACK",
               "POST_CONNECTOR"
             ],
             "title": "Source",
@@ -5230,6 +5232,21 @@
             ],
             "title": "Position At"
           },
+          "position_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "FLIGHT_TRACK",
+                  "FLIGHT_ESTIMATE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Source"
+          },
           "progress": {
             "anyOf": [
               {
@@ -5474,7 +5491,8 @@
             "default": "MOBILE_GPS",
             "enum": [
               "MOBILE_GPS",
-              "FLIGHT_ESTIMATE"
+              "FLIGHT_ESTIMATE",
+              "FLIGHT_TRACK"
             ],
             "title": "Source",
             "type": "string"

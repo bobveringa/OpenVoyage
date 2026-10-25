@@ -206,6 +206,7 @@ class AppSettingsService:
 
         if key.startswith('flights.'):
             from services.flight_settings import lock_flight_settings
+
             lock_flight_settings(self.db)
 
         now = utcnow()
@@ -233,7 +234,17 @@ class AppSettingsService:
         if key.startswith('flights.'):
             from sqlalchemy import update
             from models.database.tracked_flights import TrackedFlight
-            self.db.execute(update(TrackedFlight).where(TrackedFlight.last_check_result == 'CONFIGURATION_ERROR', TrackedFlight.completion_source.is_(None), TrackedFlight.stop_reason.is_(None)).values(next_check_at=utcnow(), last_check_result='NOT_CHECKED'))
+
+            self.db.execute(
+                update(TrackedFlight)
+                .where(
+                    TrackedFlight.last_check_result == 'CONFIGURATION_ERROR',
+                    TrackedFlight.completion_source.is_(None),
+                    TrackedFlight.stop_reason.is_(None),
+                )
+                .values(next_check_at=utcnow(), last_check_result='NOT_CHECKED')
+            )
+        self._reschedule_flight_cadence(key)
         self.db.commit()
         self.db.expire_all()
         self.cache.invalidate(self._cache_scope, key)
@@ -243,16 +254,76 @@ class AppSettingsService:
         definition = self._require_admin_definition(key)
         if key.startswith('flights.'):
             from services.flight_settings import lock_flight_settings
+
             lock_flight_settings(self.db)
         self.db.execute(delete(AppSetting).where(AppSetting.key == key))
         if key.startswith('flights.'):
             from sqlalchemy import update
             from models.database.tracked_flights import TrackedFlight
-            self.db.execute(update(TrackedFlight).where(TrackedFlight.last_check_result == 'CONFIGURATION_ERROR', TrackedFlight.completion_source.is_(None), TrackedFlight.stop_reason.is_(None)).values(next_check_at=utcnow(), last_check_result='NOT_CHECKED'))
+
+            self.db.execute(
+                update(TrackedFlight)
+                .where(
+                    TrackedFlight.last_check_result == 'CONFIGURATION_ERROR',
+                    TrackedFlight.completion_source.is_(None),
+                    TrackedFlight.stop_reason.is_(None),
+                )
+                .values(next_check_at=utcnow(), last_check_result='NOT_CHECKED')
+            )
+        self._reschedule_flight_cadence(key)
         self.db.commit()
         self.db.expire_all()
         self.cache.invalidate(self._cache_scope, key)
         return self._admin_record(definition, None)
+
+    def _reschedule_flight_cadence(self, key):
+        from core.app_settings import (
+            FLIGHTS_CHECK_INTERVAL_MINUTES_KEY,
+            FLIGHTS_CHECK_MORE_OFTEN_BEFORE_DEPARTURE_KEY,
+        )
+
+        if key not in (
+            FLIGHTS_CHECK_INTERVAL_MINUTES_KEY,
+            FLIGHTS_CHECK_MORE_OFTEN_BEFORE_DEPARTURE_KEY,
+        ):
+            return
+        from datetime import timedelta
+        from models.database.tracked_flights import TrackedFlight
+        from services.flight_settings import FlightSettingsSnapshot
+        from services.gps.flight_tracking_service import FlightTrackingService
+
+        reader = FlightSettingsSnapshot.load(self.db).reader(self.db)
+        service = FlightTrackingService(
+            self.db,
+            check_interval_minutes=reader.get_value(FLIGHTS_CHECK_INTERVAL_MINUTES_KEY),
+            check_more_often_before_departure=reader.get_value(
+                FLIGHTS_CHECK_MORE_OFTEN_BEFORE_DEPARTURE_KEY
+            ),
+        )
+        now = utcnow()
+        trip_ids = self.db.scalars(
+            select(TrackedFlight.trip_id)
+            .where(TrackedFlight.next_check_at.is_not(None))
+            .distinct()
+        ).all()
+        for trip_id in sorted(trip_ids):
+            service.lock(trip_id)
+            for flight in service.flights(trip_id):
+                if flight.next_check_at is None or flight.last_check_result not in (
+                    'OK',
+                    'NOT_CHECKED',
+                ):
+                    continue
+                if flight.final_track_pending:
+                    flight.next_check_at = min(
+                        flight.final_track_deadline,
+                        now
+                        + timedelta(
+                            minutes=service.polling_policy.check_interval_minutes
+                        ),
+                    )
+                elif not service.terminal(flight):
+                    flight.next_check_at = service.next_check(flight, now)
 
     def get_value(self, key: str) -> Any:
         definition = self.registry.get(key)

@@ -1,6 +1,3 @@
-from services.flight_providers.aerodatabox_flight_provider import (
-    AeroDataBoxFlightProvider,
-)
 from services.flight_providers.factory import FlightProviderFactory
 from services.flight_providers.flightaware_flight_provider import FlightAwareFlightProvider
 from services.flight_providers.flight_provider import (
@@ -10,7 +7,6 @@ from services.flight_providers.flight_provider import (
 )
 
 __all__ = [
-    'AeroDataBoxFlightProvider',
     'FlightAwareFlightProvider',
     'DisabledFlightProvider',
     'FlightProviderBase',

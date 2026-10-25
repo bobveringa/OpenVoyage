@@ -5,8 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from models.api.planning import ConnectionIntent, Endpoint, FlightLookupRequest
-from services.flight_providers import AeroDataBoxFlightProvider, FlightUnavailable
-from services.flight_providers.aerodatabox_flight_provider import parse_flights
+from services.flight_providers import FlightAwareFlightProvider, FlightUnavailable
 from services.planning_service import default_mode, same_endpoint
 
 
@@ -130,61 +129,14 @@ def test_airport_codes_match_despite_coordinate_differences():
     )
 
 
-def flight_payload():
-    return [
-        {
-            'number': 'KL 597',
-            'airline': {'name': 'KLM'},
-            'departure': {
-                'airport': {
-                    'name': 'Schiphol',
-                    'iata': 'AMS',
-                    'timeZone': 'Europe/Amsterdam',
-                    'location': {'lat': 52.3, 'lon': 4.7},
-                },
-                'scheduledTime': {'local': '2026-11-18T10:00:00+01:00'},
-            },
-            'arrival': {
-                'airport': {
-                    'name': 'Cape Town',
-                    'iata': 'CPT',
-                    'timeZone': 'Africa/Johannesburg',
-                    'location': {'lat': -33.97, 'lon': 18.6},
-                },
-                'scheduledTime': {'local': '2026-11-18T22:00:00+02:00'},
-            },
-        }
-    ]
-
-
-def test_provider_normalizes_and_compares_instants():
-    intent = FlightLookupRequest(
-        flight_number='kl 597', departure_date=date(2026, 11, 18)
-    )
-    result = parse_flights(flight_payload(), intent)
-    assert len(result) == 1
-    assert result[0].duration_seconds == 11 * 3600
-    assert result[0].departure_airport.iata_code == 'AMS'
-    assert 'status' not in result[0].model_dump()
-
-
-def test_missing_offsets_do_not_invent_estimate():
-    payload = flight_payload()
-    payload[0]['departure']['scheduledTime'] = {'local': '2026-11-18T10:00:00'}
-    result = parse_flights(
-        payload, FlightLookupRequest(flight_number='KL597', departure_date='2026-11-18')
-    )
-    assert result[0].duration_seconds is None
-
-
 def test_no_key_never_calls_provider(monkeypatch):
     monkeypatch.setattr(
-        'services.flight_providers.aerodatabox_flight_provider.urlopen',
+        'services.flight_providers.flightaware_flight_provider.urlopen',
         lambda *_a, **_k: pytest.fail('Unexpected network call'),
     )
     with pytest.raises(FlightUnavailable):
-        AeroDataBoxFlightProvider(
-            api_key=None, base_url='https://example.test', rapidapi_host='example.test'
+        FlightAwareFlightProvider(
+            api_key=None, base_url='https://example.test'
         ).lookup(
             FlightLookupRequest(flight_number='KL597', departure_date='2026-11-18')
         )

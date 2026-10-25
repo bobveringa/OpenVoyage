@@ -146,7 +146,7 @@ export type TravelPostRouteSegment = {
   coordinates: L.LatLngTuple[]
   travelMode: TravelMode
   visibleToMembersOnly?: boolean
-  source?: 'MOBILE_GPS' | 'FLIGHT_ESTIMATE' | 'POST_CONNECTOR'
+  source?: 'MOBILE_GPS' | 'FLIGHT_ESTIMATE' | 'FLIGHT_TRACK' | 'POST_CONNECTOR'
 }
 
 /** GPS-derived map data that does not belong to any single post. */

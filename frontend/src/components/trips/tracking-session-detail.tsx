@@ -41,7 +41,7 @@ export function TrackingSessionDetail({
   onBack,
   onSaved,
 }: Props) {
-  const readOnly = session.source === 'FLIGHT_ESTIMATE' && !session.ended_at
+  const readOnly = (session.source === 'FLIGHT_ESTIMATE' || session.source === 'FLIGHT_TRACK') && !session.ended_at
   const { preference } = useClockFormat()
   const root = useRef<HTMLDivElement>(null)
   const mapContainer = useRef<HTMLDivElement>(null)
@@ -366,7 +366,8 @@ export function TrackingSessionDetail({
         </p>
           </div>
           <aside className="space-y-4 border-t border-border p-3 md:overflow-y-auto md:border-l md:border-t-0 md:p-4">
-            {readOnly ? <p className="text-sm text-muted-foreground">Complete or stop this flight recording before editing its points.</p> : null}
+            {session.source !== 'MOBILE_GPS' ? <p className="text-sm text-muted-foreground">Editing this flight path stops automatic route updates.</p> : null}
+      {readOnly ? <p className="text-sm text-muted-foreground">Complete or stop this flight recording before editing its points.</p> : null}
             <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1" role="group" aria-label="Editing tools">
               <Button className="min-h-11" variant={tool === 'point' ? 'default' : 'ghost'} aria-pressed={tool === 'point'} disabled={busy || readOnly} onClick={() => { setTool('point'); setInserting(false) }}><MapPin className="size-4" aria-hidden="true" />Edit point</Button>
               <Button className="min-h-11" variant={tool === 'transport' ? 'default' : 'ghost'} aria-pressed={tool === 'transport'} disabled={busy || readOnly} onClick={() => { setTool('transport'); setInserting(false); setNotice('') }}><Route className="size-4" aria-hidden="true" />Bulk transport</Button>

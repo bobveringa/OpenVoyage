@@ -243,7 +243,7 @@ def test_provider_finalizes_once_and_keeps_generated_points_outside_zone_filter(
     apply(s, facts, START + timedelta(hours=2))
     assert count(s) == 65
     assert s.flight.completion_source == 'PROVIDER'
-    assert s.flight.next_check_at is None
+    assert s.flight.final_track_pending
     original = [
         (p.id, p.recorded_at)
         for p in s.db.scalars(
@@ -485,7 +485,7 @@ def test_next_departure_finalizes_or_stops_previous_without_overlap(
         assert count(s) == 1
 
 
-def test_zero_duration_observation_fallback_stays_pending(setup):
+def test_arrival_without_movement_times_completes_and_waits_for_final_track(setup):
     s = setup
     apply(
         s,
@@ -493,8 +493,9 @@ def test_zero_duration_observation_fallback_stays_pending(setup):
     )
     assert s.flight.status == 'ARRIVED'
     assert s.flight.actual_departure is None and s.flight.actual_arrival is None
-    assert s.flight.session.ended_at is None
-    assert count(s) == 1
+    assert s.flight.session.ended_at == START + timedelta(hours=1)
+    assert s.flight.final_track_pending
+    assert count(s) == 65
 
 
 def test_pending_flight_visibility_uses_post_boundary_and_live_switch(
@@ -560,7 +561,7 @@ def test_poll_failures_keep_facts_and_honor_backoff(setup, result, retry):
     assert s.flight.next_check_at == (
         None
         if result == 'CONFIGURATION_ERROR'
-        else now + timedelta(seconds=retry or 600)
+        else now + timedelta(seconds=retry or 1800)
     )
     assert count(s) == 1
 
@@ -866,7 +867,7 @@ def test_completed_postless_history_has_a_card_without_live_access(
     assert body['opening_route']['segments'][0]['source'] == 'FLIGHT_ESTIMATE'
 
 
-def test_generated_points_bypass_zones_but_mobile_uploads_and_edits_do_not(
+def test_flight_points_and_edits_bypass_zones_but_mobile_uploads_do_not(
     setup, client, api_prefix
 ):
     from integration.api.test_tracking import _create_zone
@@ -942,11 +943,12 @@ def test_generated_points_bypass_zones_but_mobile_uploads_and_edits_do_not(
         headers=headers,
         json={'points': points},
     )
-    assert response.status_code == 422
-    assert 'privacy zone' in response.json()['detail']
+    assert response.status_code == 204
+    s.db.expire_all()
+    assert not s.flight.final_track_pending
 
 
-def test_balanced_polling_checks_cruise_every_30_minutes_and_arrival_every_10(setup):
+def test_default_checks_every_30_minutes_including_near_arrival(setup):
     s = setup
     depart(s)
     s.flight.scheduled_arrival = START + timedelta(hours=10)
@@ -957,31 +959,30 @@ def test_balanced_polling_checks_cruise_every_30_minutes_and_arrival_every_10(se
     ) == START + timedelta(hours=4, minutes=30)
     assert s.service.next_check(
         s.flight, START + timedelta(hours=9, minutes=30)
-    ) == START + timedelta(hours=9, minutes=40)
+    ) == START + timedelta(hours=10)
     assert s.service.next_check(s.flight, START + timedelta(hours=16)) is None
 
 
-@pytest.mark.parametrize('preset,lead,minutes', [
-    ('minimal', 30, 30), ('relaxed', 45, 15), ('balanced', 60, 10),
-    ('frequent', 90, 5), ('very_frequent', 120, 5),
-])
-def test_update_preset_applies_to_departure_while_cruise_remains_less_frequent(setup, preset, lead, minutes):
+@pytest.mark.parametrize('interval,ground,minutes', [(5, True, 5), (30, True, 10), (60, False, 60)])
+def test_check_settings_control_ground_and_airborne_cadence(setup, interval, ground, minutes):
     s = setup
-    service = FlightTrackingService(s.db, update_frequency=preset)
-    assert service.next_check(s.flight, START - timedelta(hours=3)) == START - timedelta(minutes=lead)
+    service = FlightTrackingService(s.db, check_interval_minutes=interval, check_more_often_before_departure=ground)
+    assert service.next_check(s.flight, START - timedelta(hours=3)) == START - timedelta(hours=1)
     assert service.next_check(s.flight, START) == START + timedelta(minutes=minutes)
     depart(s)
-    assert service.next_check(s.flight, START) == START + timedelta(minutes=30)
+    assert service.next_check(s.flight, START) == START + timedelta(minutes=interval)
 
 
-def test_update_preset_reschedules_existing_check_and_preserves_backoff(setup):
+def test_check_interval_reschedules_existing_check_and_preserves_backoff(setup, monkeypatch):
     s = setup
     s.flight.checked_at = START
     s.flight.last_check_result = 'OK'
     s.flight.next_check_at = START + timedelta(minutes=30)
     s.db.commit()
-    service = FlightTrackingService(s.db, update_frequency='frequent')
-    service.sync_itinerary(s.trip.id)
+    service = FlightTrackingService(s.db, check_interval_minutes=5)
+    from services.app_settings_service import AppSettingsService, AppSettingsCache
+    monkeypatch.setattr('services.app_settings_service.utcnow', lambda: START)
+    AppSettingsService(s.db, cache=AppSettingsCache()).update_setting('flights.check_interval_minutes', 5, None)
     assert s.flight.next_check_at == START + timedelta(minutes=5)
     s.flight.last_check_result = 'RATE_LIMITED'
     s.flight.next_check_at = START + timedelta(hours=2)
@@ -989,11 +990,11 @@ def test_update_preset_reschedules_existing_check_and_preserves_backoff(setup):
     assert s.flight.next_check_at == START + timedelta(hours=2)
 
 
-def test_update_preset_reschedules_first_lookup_for_existing_unchecked_flight(setup):
+def test_check_interval_reschedules_first_lookup_for_existing_unchecked_flight(setup):
     s = setup
-    service = FlightTrackingService(s.db, update_frequency='very_frequent')
+    service = FlightTrackingService(s.db, check_interval_minutes=5)
     service.sync_itinerary(s.trip.id)
-    assert s.flight.next_check_at == START - timedelta(hours=2)
+    assert s.flight.next_check_at == START - timedelta(hours=1)
 
 
 def test_journey_tracks_current_leg_through_landing_and_layover(setup, monkeypatch):
