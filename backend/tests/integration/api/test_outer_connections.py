@@ -369,7 +369,7 @@ def test_reanchor_is_atomic_preserves_id_and_outside_and_clears_artifacts(
                 {
                     'travel_mode': 'FLIGHT',
                     'flight': {
-                        'flight_number': 'KL597',
+                        'flight_number': 'QF6842',
                         'departure_date': '2026-11-18',
                     },
                 }
@@ -520,7 +520,7 @@ def test_outer_read_and_mutation_access_matrix(
             'post',
             base + '/connections/flight-lookups',
             {
-                'flight_number': 'KL597',
+                'flight_number': 'QF6842',
                 'departure_date': '2026-11-18',
             },
         ),
@@ -641,7 +641,7 @@ def test_unsaved_flight_artifacts_are_actor_trip_and_revision_scoped(
         base + '/connections/flight-lookups',
         headers=headers(user, revision),
         json={
-            'flight_number': 'KL597',
+            'flight_number': 'QF6842',
             'departure_date': '2026-11-18',
         },
     )
@@ -653,7 +653,7 @@ def test_unsaved_flight_artifacts_are_actor_trip_and_revision_scoped(
             {
                 'travel_mode': 'FLIGHT',
                 'flight': {
-                    'flight_number': 'KL597',
+                    'flight_number': 'QF6842',
                     'departure_date': '2026-11-18',
                     'candidate_id': candidate,
                 },
@@ -706,7 +706,7 @@ def test_outer_flight_candidate_scope_and_warning_sides(
     found = client.post(
         endpoint + '/flight-lookups',
         headers=headers(user, revision),
-        json={'flight_number': 'KL597', 'departure_date': '2026-11-18'},
+        json={'flight_number': 'QF6842', 'departure_date': '2026-11-18'},
     )
     assert found.status_code == 200, found.text
     candidate = planning_body(found)['candidates'][0]['candidate_id']
@@ -716,7 +716,7 @@ def test_outer_flight_candidate_scope_and_warning_sides(
             {
                 'travel_mode': 'FLIGHT',
                 'flight': {
-                    'flight_number': 'KL597',
+                    'flight_number': 'QF6842',
                     'departure_date': '2026-11-18',
                     'candidate_id': candidate,
                 },

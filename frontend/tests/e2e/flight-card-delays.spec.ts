@@ -1,0 +1,133 @@
+import { expect, test, type Page } from '@playwright/test'
+
+test('observed card shows observation age while progress stays estimated', async ({ page }) => {
+  await openFlightDetails(page)
+  await page.getByRole('button', { name: 'Toggle observed position' }).click()
+  await expect(page.getByText(/Observed \d+ min ago · Position at/)).toBeVisible()
+  await expect(page.getByText('Estimated position at', { exact: false })).toHaveCount(0)
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50')
+})
+
+for (const width of [390, 1280]) {
+  test(`in-flight cards retain departure and arrival delays at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await openFlightDetails(page)
+    const card = page.getByRole('article', { name: 'NZ6827 · In flight', exact: true })
+    await expect(card.getByText('In flight · Delayed', { exact: true })).toBeVisible()
+    await expect(card.getByText('Departed 45 min late', { exact: true })).toBeVisible()
+    await expect(card.getByText('Arrival estimated 30 min late', { exact: true })).toBeVisible()
+    await expect(card.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50')
+    await expect(card.locator('del')).toHaveCount(2)
+    await expect(card.getByText('Awaiting departure', { exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Toggle on-time arrival' }).click()
+    await expect(card.getByText('In flight · On time', { exact: true })).toBeVisible()
+    await expect(card.getByText('In flight · Delayed', { exact: true })).toHaveCount(0)
+    await expect(card.getByText('Departed 45 min late', { exact: true })).toBeVisible()
+    await expect(card.getByText('Arrival estimated on time', { exact: true })).toBeVisible()
+    await expect(card.getByText(/Arrival estimated .* min late/)).toHaveCount(0)
+    await expect(card.locator('del')).toHaveCount(1)
+  })
+
+  for (const keyboard of [false, true]) {
+    test(`early estimated arrival recovers a late departure at ${width}px, keyboard=${keyboard}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 1000 })
+      await openFlightDetails(page, keyboard)
+      await page.getByRole('button', { name: 'early', exact: true }).click()
+      const card = page.getByRole('article', { name: 'NZ6827 · In flight', exact: true })
+      await expect(card.getByText('In flight · Early', { exact: true })).toBeVisible()
+      await expect(card.getByText('Arrival estimated 10 min early', { exact: true })).toBeVisible()
+      await expect(card.getByText('Departed 45 min late', { exact: true })).toBeVisible()
+      await expect(card).not.toHaveClass(/border-amber/)
+      await expect(card.getByLabel('Scheduled arrival 08:00', { exact: true })).toHaveText('08:00')
+      await expect(card.locator('time').filter({ hasText: /^07:50$/ }).first()).toBeVisible()
+      await expect(card.locator('del')).toHaveCount(2)
+    })
+  }
+
+  test(`actual early arrival takes priority over a stale late estimate at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await openFlightDetails(page)
+    await page.getByRole('button', { name: 'arrived-early', exact: true }).click()
+    const card = page.getByRole('article', { name: 'NZ6827 · Arrived', exact: true })
+    await expect(card.getByText('Arrived · Early', { exact: true })).toBeVisible()
+    await expect(card.getByText('Arrived 10 min early', { exact: true })).toBeVisible()
+    await expect(card.getByLabel('Scheduled arrival 08:00', { exact: true })).toHaveText('08:00')
+    await expect(card.getByRole('progressbar')).toHaveCount(0)
+    await expect(card).not.toHaveClass(/border-amber/)
+  })
+}
+
+for (const scenario of ['unknown-estimate', 'unknown-schedule']) {
+  test(`does not infer arrival timing from departure delay with ${scenario}`, async ({ page }) => {
+    await openFlightDetails(page)
+    await page.getByRole('button', { name: scenario, exact: true }).click()
+    const card = page.getByRole('article', { name: 'NZ6827 · In flight', exact: true })
+    await expect(card.getByText('In flight', { exact: true }).first()).toBeVisible()
+    await expect(card.getByText('Departed 45 min late', { exact: true })).toBeVisible()
+    await expect(card.getByText(/Arrival estimated .*min (late|early)|Arrival estimated on time/)).toHaveCount(0)
+    await expect(card.getByLabel('Scheduled arrival 08:00', { exact: true })).toHaveCount(0)
+    await expect(card).not.toHaveClass(/border-amber/)
+  })
+}
+
+test('still highlights a departure delay before takeoff, including status-only delays', async ({ page }) => {
+  await openFlightDetails(page)
+  await page.getByRole('button', { name: 'awaiting-departure', exact: true }).click()
+  const card = page.getByRole('article', { name: 'NZ6827 · Delayed', exact: true })
+  await expect(card).toHaveClass(/border-amber/)
+  await expect(card.getByText('Departure delayed 45 min behind schedule', { exact: true })).toBeVisible()
+  await expect(card.getByText('Awaiting departure', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'status-delay', exact: true }).click()
+  await expect(card).toHaveClass(/border-amber/)
+  await expect(card.getByText('Flight delayed', { exact: true })).toBeVisible()
+})
+
+test('a stale delayed status cannot override confirmed departure and an early arrival estimate', async ({ page }) => {
+  await openFlightDetails(page)
+  await page.getByRole('button', { name: 'stale-delay', exact: true }).click()
+  const card = page.getByRole('article', { name: 'NZ6827 · In flight', exact: true })
+  await expect(card.getByText('In flight · Early', { exact: true })).toBeVisible()
+  await expect(card).not.toHaveClass(/border-amber/)
+})
+
+for (const [scenario, status] of [['cancelled', 'Cancelled'], ['diverted', 'Diverted']]) {
+  test(`preserves ${status} status instead of showing an early arrival badge`, async ({ page }) => {
+    await openFlightDetails(page)
+    await page.getByRole('button', { name: scenario, exact: true }).click()
+    const card = page.getByRole('article', { name: `NZ6827 · ${status}`, exact: true })
+    await expect(card.getByText(status, { exact: true }).first()).toBeVisible()
+    await expect(card.getByText(/ · Early|Arrival estimated 10 min early/)).toHaveCount(0)
+  })
+}
+
+test('also retains the scheduled departure when the plane leaves early', async ({ page }) => {
+  await openFlightDetails(page)
+  await page.getByRole('button', { name: 'early-departure', exact: true }).click()
+  const card = page.getByRole('article', { name: 'NZ6827 · In flight', exact: true })
+  await expect(card.getByText('Departed 10 min early', { exact: true })).toBeVisible()
+  await expect(card.getByLabel('Scheduled departure 07:00', { exact: true })).toHaveText('07:00')
+  await expect(card.locator('del')).toHaveCount(2)
+})
+
+test('desktop keeps its full flight card instead of the mobile disclosure', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/tests/e2e/fixtures/flight-cards.html?desktop')
+  const card = page.getByRole('article', { name: 'NZ6827 · In flight', exact: true })
+  await expect(card.getByRole('button', { name: /flight details/ })).toHaveCount(0)
+  await expect(card.getByText('Departed 45 min late', { exact: true })).toBeVisible()
+  await expect(card.getByText('Arrival estimated 30 min late', { exact: true })).toBeVisible()
+  await expect(card.getByText('Wellington', { exact: true })).toBeVisible()
+  await expect(card.getByText('Auckland', { exact: true })).toBeVisible()
+  await expect(card.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50')
+})
+
+async function openFlightDetails(page: Page, keyboard = false) {
+  await page.goto('/tests/e2e/fixtures/flight-cards.html')
+  const toggle = page.getByRole('button', { name: 'Show flight details for NZ6827', exact: true })
+  if (keyboard) {
+    await toggle.focus()
+    await toggle.press('Enter')
+  } else {
+    await toggle.click()
+  }
+}

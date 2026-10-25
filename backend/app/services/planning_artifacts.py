@@ -10,6 +10,7 @@ from models.api.planning import FlightCandidate, FlightLookup, FlightLookupRespo
 from models.database.base import utcnow
 from models.database.itinerary import ItineraryPlanningArtifact
 from services.planning_geometry import fingerprint
+from services.flight_airports import resolve_flight_lookup_airports
 
 
 class PlanningArtifactStore:
@@ -97,7 +98,9 @@ class PlanningArtifactStore:
                 candidates=[
                     FlightCandidate(
                         candidate_id=r.id,
-                        lookup=r.payload,
+                        lookup=resolve_flight_lookup_airports(
+                            self.db, FlightLookup.model_validate(r.payload)
+                        ),
                         duration_seconds=FlightLookup.model_validate(
                             r.payload
                         ).duration_seconds,

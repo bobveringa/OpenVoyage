@@ -15,7 +15,7 @@ from core.setting_validators.theme_palette import (
 )
 from core.setting_validators.flights import (
     validate_flight_base_url,
-    validate_rapidapi_host,
+    validate_flight_interval,
 )
 
 
@@ -73,10 +73,11 @@ DEFAULT_MAP_TILE_PROVIDER_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 ROUTING_PROVIDER_KEY = 'routing.provider'
 ROUTING_GRAPHHOPPER_BASE_URL_KEY = 'routing.graphhopper_base_url'
 ROUTING_GRAPHHOPPER_API_KEY = 'routing.graphhopper_api_key'
-FLIGHTS_RAPIDAPI_API_KEY = 'flights.rapidapi_api_key'
 FLIGHTS_PROVIDER_KEY = 'flights.provider'
-FLIGHTS_AERODATABOX_BASE_URL_KEY = 'flights.aerodatabox_base_url'
-FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY = 'flights.aerodatabox_rapidapi_host'
+FLIGHTS_CHECK_INTERVAL_MINUTES_KEY = 'flights.check_interval_minutes'
+FLIGHTS_CHECK_MORE_OFTEN_BEFORE_DEPARTURE_KEY = 'flights.check_more_often_before_departure'
+FLIGHTS_FLIGHTAWARE_BASE_URL_KEY = 'flights.flightaware_base_url'
+FLIGHTS_FLIGHTAWARE_API_KEY = 'flights.flightaware_api_key'
 MEDIA_MAX_UPLOAD_SIZE_MB_KEY = 'media.max_upload_size_mb'
 PLACES_GEONAMES_DATASET_KEY = 'places.geonames_dataset'
 MEDIA_ORPHAN_RETENTION_DAYS_KEY = 'media.orphan_retention_days'
@@ -87,45 +88,54 @@ COOKIE_BANNER_ENABLED_KEY = 'site.cookie_banner_enabled'
 
 SETTING_DEFINITIONS = (
     SettingDefinition(
+        key=FLIGHTS_CHECK_INTERVAL_MINUTES_KEY,
+        value_type=SettingValueType.INTEGER,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        default_value=30,
+        runtime_safe=True,
+        validation={'allowed_values': [5, 10, 15, 30, 60]},
+        validator=validate_flight_interval,
+        description='More frequent checks use more API credit. Provider limits may delay updates.',
+    ),
+    SettingDefinition(
+        key=FLIGHTS_CHECK_MORE_OFTEN_BEFORE_DEPARTURE_KEY,
+        value_type=SettingValueType.BOOLEAN,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        default_value=True,
+        runtime_safe=True,
+        description='Check at least every 10 minutes in the hour before departure and while waiting for takeoff.',
+    ),
+    SettingDefinition(
         key=FLIGHTS_PROVIDER_KEY,
         value_type=SettingValueType.ENUM,
         visibility=SettingVisibility.ADMIN,
         sensitive=False,
         default_value='none',
         runtime_safe=True,
-        validation={'allowed_values': ['none', 'aerodatabox']},
-        description='Provider used for optional itinerary flight lookup.',
+        validation={'allowed_values': ['none', 'flightaware']},
+        description='Provider used for itinerary flight lookup and automatic flight monitoring; none disables both.',
     ),
     SettingDefinition(
-        key=FLIGHTS_AERODATABOX_BASE_URL_KEY,
+        key=FLIGHTS_FLIGHTAWARE_BASE_URL_KEY,
         value_type=SettingValueType.STRING,
         visibility=SettingVisibility.ADMIN,
         sensitive=False,
-        default_value='https://aerodatabox.p.rapidapi.com',
+        default_value='https://aeroapi.flightaware.com/aeroapi',
         runtime_safe=True,
         validation={'min_length': 1, 'max_length': 2048},
         validator=validate_flight_base_url,
-        description='AeroDataBox-compatible API base URL. Requests and API keys go here.',
+        description='FlightAware AeroAPI v4 base URL. Requests and API keys go here.',
     ),
     SettingDefinition(
-        key=FLIGHTS_AERODATABOX_RAPIDAPI_HOST_KEY,
-        value_type=SettingValueType.STRING,
-        visibility=SettingVisibility.ADMIN,
-        sensitive=False,
-        default_value='aerodatabox.p.rapidapi.com',
-        runtime_safe=True,
-        validation={'min_length': 1, 'max_length': 253},
-        validator=validate_rapidapi_host,
-        description='X-RapidAPI-Host header used by the AeroDataBox adapter.',
-    ),
-    SettingDefinition(
-        key=FLIGHTS_RAPIDAPI_API_KEY,
+        key=FLIGHTS_FLIGHTAWARE_API_KEY,
         value_type=SettingValueType.SECRET,
         visibility=SettingVisibility.ADMIN,
         sensitive=True,
         runtime_safe=True,
         validation={'min_length': 1, 'max_length': 2048},
-        description='AeroDataBox RapidAPI key for optional flight lookup.',
+        description='FlightAware AeroAPI key for flight lookup and tracking.',
     ),
     SettingDefinition(
         key=COOKIE_BANNER_ENABLED_KEY,

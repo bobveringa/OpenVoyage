@@ -27,17 +27,20 @@ const defaultThemePalette = {
 }
 
 const initialSettings: MockSetting[] = [
+  { key: 'flights.check_interval_minutes', value: 30, default_value: 30, value_type: 'integer',
+    description: 'Flight check interval', is_configured: false, runtime_safe: true,
+    updated_at: null, validation: { allowed_values: [5, 10, 15, 30, 60] }, visibility: 'admin' },
+  { key: 'flights.check_more_often_before_departure', value: true, default_value: true, value_type: 'boolean',
+    description: 'Ground flight checks', is_configured: false, runtime_safe: true,
+    updated_at: null, validation: null, visibility: 'admin' },
   { key: 'flights.provider', value: 'none', default_value: 'none', value_type: 'enum',
     description: 'Flight lookup provider', is_configured: false, runtime_safe: true,
-    updated_at: null, validation: { allowed_values: ['none', 'aerodatabox'] }, visibility: 'admin' },
-  { key: 'flights.aerodatabox_base_url', value: 'https://aerodatabox.p.rapidapi.com', default_value: 'https://aerodatabox.p.rapidapi.com', value_type: 'string',
-    description: 'Flight API endpoint', is_configured: false, runtime_safe: true,
+    updated_at: null, validation: { allowed_values: ['none', 'flightaware'] }, visibility: 'admin' },
+  { key: 'flights.flightaware_base_url', value: 'https://aeroapi.flightaware.com/aeroapi', default_value: 'https://aeroapi.flightaware.com/aeroapi', value_type: 'string',
+    description: 'FlightAware endpoint', is_configured: false, runtime_safe: true,
     updated_at: null, validation: null, visibility: 'admin' },
-  { key: 'flights.aerodatabox_rapidapi_host', value: 'aerodatabox.p.rapidapi.com', default_value: 'aerodatabox.p.rapidapi.com', value_type: 'string',
-    description: 'RapidAPI host', is_configured: false, runtime_safe: true,
-    updated_at: null, validation: null, visibility: 'admin' },
-  { key: 'flights.rapidapi_api_key', value: null, default_value: null, value_type: 'secret',
-    description: 'Optional AeroDataBox RapidAPI key', is_configured: false, runtime_safe: true,
+  { key: 'flights.flightaware_api_key', value: null, default_value: null, value_type: 'secret',
+    description: 'FlightAware key', is_configured: false, runtime_safe: true,
     updated_at: null, validation: { min_length: 1, max_length: 2048 }, visibility: 'admin' },
   {
     default_value: false,
@@ -611,9 +614,9 @@ async function enableFlightLookup(page: Page) {
   const selection = page.getByLabel('Flight provider', { exact: true })
   const form = page.locator('form').filter({ has: selection })
   await selection.click()
-  await page.getByRole('option', { name: 'AeroDataBox', exact: true }).click()
+  await page.getByRole('option', { name: 'FlightAware AeroAPI', exact: true }).click()
   await form.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page.getByLabel('AeroDataBox base URL', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('FlightAware base URL', { exact: true })).toBeVisible()
 }
 
 test('defaults to disabled flight lookup and groups settings below each selected provider', async ({ page }) => {
@@ -621,21 +624,22 @@ test('defaults to disabled flight lookup and groups settings below each selected
   await page.goto('/admin#routing')
   const headings = page.getByRole('tabpanel').getByRole('heading', { level: 3 })
   const selection = page.getByLabel('Flight provider', { exact: true })
-  await expect(selection).toHaveText('Flight lookup disabled')
-  await expect(page.getByLabel('AeroDataBox base URL', { exact: true })).toHaveCount(0)
+  await expect(selection).toHaveText('Flight lookup and monitoring disabled')
+  await expect(page.getByText('Selecting none disables both.', { exact: false })).toBeVisible()
+  await expect(page.getByLabel('FlightAware base URL', { exact: true })).toHaveCount(0)
   await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider'])
 
   await enableFlightLookup(page)
-  await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider', 'AeroDataBox'])
-  expect(api.updates).toContainEqual({ key: 'flights.provider', value: 'aerodatabox' })
+  await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider', 'FlightAware AeroAPI'])
+  expect(api.updates).toContainEqual({ key: 'flights.provider', value: 'flightaware' })
 
   await page.reload()
-  await expect(selection).toHaveText('AeroDataBox')
-  await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider', 'AeroDataBox'])
+  await expect(selection).toHaveText('FlightAware AeroAPI')
+  await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider', 'FlightAware AeroAPI'])
 
   const form = page.locator('form').filter({ has: selection })
   await form.getByRole('button', { name: 'Reset', exact: true }).click()
-  await expect(selection).toHaveText('Flight lookup disabled')
+  await expect(selection).toHaveText('Flight lookup and monitoring disabled')
   await expect(headings).toHaveText(['Routing provider', 'GraphHopper', 'Flight provider'])
   expect(api.resets).toContain('flights.provider')
 })
@@ -644,7 +648,7 @@ test('configures the optional flight key through the same write-only admin contr
   const api = await mockAdminApi(page)
   await page.goto('/admin#routing')
   await enableFlightLookup(page)
-  const input = page.getByLabel('AeroDataBox RapidAPI key', { exact: true })
+  const input = page.getByLabel('FlightAware AeroAPI key', { exact: true })
   const form = page.locator('form').filter({ has: input })
   await expect(input).toHaveAttribute('type', 'password')
   await expect(input).toHaveValue('')
@@ -652,35 +656,76 @@ test('configures the optional flight key through the same write-only admin contr
   await form.getByRole('button', { name: 'Replace key', exact: true }).click()
   await expect(form.getByText('API key replaced.')).toBeVisible()
   await expect(input).toHaveValue('')
-  expect(api.updates).toContainEqual({ key: 'flights.rapidapi_api_key', value: 'synthetic-flight-key' })
+  expect(api.updates).toContainEqual({ key: 'flights.flightaware_api_key', value: 'synthetic-flight-key' })
   await form.getByRole('button', { name: 'Clear key', exact: true }).click()
   await form.getByRole('button', { name: 'Confirm clear', exact: true }).click()
   await expect(form.getByText('Not configured', { exact: true })).toBeVisible()
-  expect(api.resets).toContain('flights.rapidapi_api_key')
+  expect(api.resets).toContain('flights.flightaware_api_key')
+})
+
+test('selects FlightAware and saves its key without displaying it', async ({ page }) => {
+  const api = await mockAdminApi(page)
+  await page.goto('/admin#routing')
+  const selection = page.getByLabel('Flight provider', { exact: true })
+  await selection.click()
+  await page.getByRole('option', { name: 'FlightAware AeroAPI', exact: true }).click()
+  await page.locator('form').filter({ has: selection }).getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByLabel('FlightAware base URL', { exact: true })).toHaveValue('https://aeroapi.flightaware.com/aeroapi')
+  await expect(page.getByLabel('AeroDataBox base URL', { exact: true })).toHaveCount(0)
+  const input = page.getByLabel('FlightAware AeroAPI key', { exact: true })
+  const form = page.locator('form').filter({ has: input })
+  await expect(input).toHaveAttribute('type', 'password')
+  await input.fill('synthetic-flightaware-key')
+  await form.getByRole('button', { name: 'Replace key', exact: true }).click()
+  await expect(form.getByText('API key replaced.')).toBeVisible()
+  await expect(input).toHaveValue('')
+  expect(api.updates).toContainEqual({ key: 'flights.flightaware_api_key', value: 'synthetic-flightaware-key' })
+  await page.reload()
+  await expect(selection).toHaveText('FlightAware AeroAPI')
+  await expect(input).toHaveValue('')
+})
+
+test('saves flight interval and ground toggle and resets their defaults', async ({ page }) => {
+  const api = await mockAdminApi(page)
+  await page.goto('/admin#routing')
+  const interval = page.getByLabel('Check during flight', { exact: true })
+  const form = page.locator('form').filter({ has: interval })
+  await expect(interval).toHaveText('Every 30 minutes')
+  await interval.click()
+  await page.getByRole('option', { name: 'Every 15 minutes', exact: true }).click()
+  await form.getByRole('button', { name: 'Save', exact: true }).click()
+  expect(api.updates).toContainEqual({ key: 'flights.check_interval_minutes', value: 15 })
+  const ground = page.getByRole('switch', { name: 'Check more often before departure', exact: true })
+  await expect(ground).toBeChecked()
+  await ground.press('Space')
+  await expect(ground).not.toBeChecked()
+  const groundForm = page.locator('form').filter({ has: ground })
+  await groundForm.getByRole('button', { name: 'Save', exact: true }).click()
+  expect(api.updates).toContainEqual({ key: 'flights.check_more_often_before_departure', value: false })
+  await page.reload()
+  await expect(interval).toHaveText('Every 15 minutes')
+  await expect(ground).not.toBeChecked()
+  await form.getByRole('button', { name: 'Reset', exact: true }).click()
+  await groundForm.getByRole('button', { name: 'Reset', exact: true }).click()
+  await expect(interval).toHaveText('Every 30 minutes')
+  await expect(ground).toBeChecked()
 })
 
 test('configures flight endpoints and disables lookup independently of routing', async ({ page }) => {
   const api = await mockAdminApi(page)
   await page.goto('/admin#routing')
   await enableFlightLookup(page)
-  const endpoint = page.getByLabel('AeroDataBox base URL', { exact: true })
+  const endpoint = page.getByLabel('FlightAware base URL', { exact: true })
   const endpointForm = page.locator('form').filter({ has: endpoint })
   await endpoint.fill('https://proxy.example.test/flights-api')
   await endpointForm.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(endpointForm.getByText('Setting saved.')).toBeVisible()
-  expect(api.updates).toContainEqual({ key: 'flights.aerodatabox_base_url', value: 'https://proxy.example.test/flights-api' })
-
-  const host = page.getByLabel('AeroDataBox RapidAPI host', { exact: true })
-  const hostForm = page.locator('form').filter({ has: host })
-  await host.fill('custom.example.test')
-  await hostForm.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(hostForm.getByText('Setting saved.')).toBeVisible()
-  expect(api.updates).toContainEqual({ key: 'flights.aerodatabox_rapidapi_host', value: 'custom.example.test' })
+  expect(api.updates).toContainEqual({ key: 'flights.flightaware_base_url', value: 'https://proxy.example.test/flights-api' })
 
   const selection = page.getByLabel('Flight provider', { exact: true })
   const selectionForm = page.locator('form').filter({ has: selection })
   await selection.click()
-  await page.getByRole('option', { name: 'Flight lookup disabled', exact: true }).click()
+  await page.getByRole('option', { name: 'Flight lookup and monitoring disabled', exact: true }).click()
   await selectionForm.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(endpoint).toHaveCount(0)
   expect(api.updates).toContainEqual({ key: 'flights.provider', value: 'none' })

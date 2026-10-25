@@ -1,4 +1,5 @@
 import { resolveConnectionEndpoint, type ConnectionAnchor } from './connection-endpoints'
+import { FlightAttribution } from './flight-attribution'
 import { ConnectionEditDialog } from './connection-editor'
 import { ConnectionLocationPicker } from './connection-location-picker'
 import {
@@ -240,9 +241,7 @@ export function PlanningPanel({
           disabled={addStopDisabled} canMutate={canMutate} onEdit={() => openOuterEditor('RETURN')} onRemove={requestRemoval} /> : null}
       </div>
 
-      {connections.some((connection) => connection.segments.some((segment) => segment.lookup)) ? (
-        <p className="text-xs text-muted-foreground">Flight information from <a href="https://aerodatabox.com/" target="_blank" rel="noopener" className="underline">AeroDataBox</a>.</p>
-      ) : null}
+      <FlightAttribution providers={connections.flatMap((connection) => connection.segments.map((segment) => segment.lookup?.provider))} />
       </>}
       <StopEditDialog
         onClose={() => setEditingStopId(null)}

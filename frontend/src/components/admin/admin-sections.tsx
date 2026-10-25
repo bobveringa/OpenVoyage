@@ -47,6 +47,7 @@ import {
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { formatDateTime } from '@/lib/date-time'
 import { MAP_TILE_PROVIDER_SETTING_KEY } from '@/lib/map-tile-providers'
 import { cn } from '@/lib/utils'
@@ -74,10 +75,11 @@ type SettingPresentation = {
 const SETTING_KEYS = {
   cookieBannerEnabled: 'site.cookie_banner_enabled',
   themePalette: 'theme.palette',
-  flightApiKey: 'flights.rapidapi_api_key',
   flightProvider: 'flights.provider',
-  flightBaseUrl: 'flights.aerodatabox_base_url',
-  flightRapidApiHost: 'flights.aerodatabox_rapidapi_host',
+  flightCheckInterval: 'flights.check_interval_minutes',
+  flightGroundChecks: 'flights.check_more_often_before_departure',
+  flightAwareBaseUrl: 'flights.flightaware_base_url',
+  flightAwareApiKey: 'flights.flightaware_api_key',
   graphHopperApiKey: 'routing.graphhopper_api_key',
   graphHopperBaseUrl: 'routing.graphhopper_base_url',
   maxUploadSize: 'media.max_upload_size_mb',
@@ -91,25 +93,28 @@ const SETTING_KEYS = {
 } as const
 
 const settingPresentations: Record<string, SettingPresentation> = {
+  [SETTING_KEYS.flightCheckInterval]: {
+    label: 'Check during flight',
+    help: 'More frequent checks use more API credit. Provider limits may delay updates.',
+  },
+  [SETTING_KEYS.flightGroundChecks]: {
+    label: 'Check more often before departure',
+    help: 'Check at least every 10 minutes in the hour before departure and while waiting for takeoff.',
+  },
   [SETTING_KEYS.flightProvider]: {
-    help: 'Choose the service used to look up flight schedules. Manual planning works with lookup disabled.',
+    help: 'Choose the service used for flight schedule lookup and automatic flight monitoring. Selecting none disables both. Manual planning and owner completion remain available.',
     label: 'Flight provider',
-    optionLabels: { aerodatabox: 'AeroDataBox', none: 'Flight lookup disabled' },
+    optionLabels: { flightaware: 'FlightAware AeroAPI', none: 'Flight lookup and monitoring disabled' },
   },
-  [SETTING_KEYS.flightBaseUrl]: {
-    help: 'Requests and the configured API key are sent to this AeroDataBox-compatible endpoint.',
+  [SETTING_KEYS.flightAwareBaseUrl]: {
+    help: 'Requests and the configured API key are sent to this AeroAPI v4 endpoint.',
     inputType: 'url',
-    label: 'AeroDataBox base URL',
-    placeholder: 'https://aerodatabox.p.rapidapi.com',
+    label: 'FlightAware base URL',
+    placeholder: 'https://aeroapi.flightaware.com/aeroapi',
   },
-  [SETTING_KEYS.flightRapidApiHost]: {
-    help: 'Hostname sent in the X-RapidAPI-Host header, without a scheme or path.',
-    label: 'AeroDataBox RapidAPI host',
-    placeholder: 'aerodatabox.p.rapidapi.com',
-  },
-  [SETTING_KEYS.flightApiKey]: {
-    help: 'Optional write-only RapidAPI key for AeroDataBox flight lookup. Clear it to disable lookup; manual planning still works.',
-    label: 'AeroDataBox RapidAPI key',
+  [SETTING_KEYS.flightAwareApiKey]: {
+    help: 'Write-only FlightAware AeroAPI key used for flight schedules and tracking.',
+    label: 'FlightAware AeroAPI key',
     placeholder: 'Enter a new API key',
   },
   [SETTING_KEYS.cookieBannerEnabled]: {
@@ -410,25 +415,21 @@ function SettingsAdminSections({
           />
         ) : null}
         <SettingsGroup
-          description="Choose the service used for optional flight schedule lookup."
+          description="Choose the service used for flight schedule lookup and automatic monitoring."
           icon={Server}
           onReset={handleReset}
           onSave={handleSave}
-          settings={pickSettings(settingsByKey, [SETTING_KEYS.flightProvider])}
+          settings={pickSettings(settingsByKey, [SETTING_KEYS.flightProvider, SETTING_KEYS.flightCheckInterval, SETTING_KEYS.flightGroundChecks])}
           title="Flight provider"
         />
-        {settingsByKey.get(SETTING_KEYS.flightProvider)?.value === 'aerodatabox' ? (
+        {settingsByKey.get(SETTING_KEYS.flightProvider)?.value === 'flightaware' ? (
           <SettingsGroup
-            description="Configure the endpoint, RapidAPI host, and write-only key used for flight lookup."
+            description="Configure the AeroAPI endpoint and write-only key used for flight schedules and tracking."
             icon={Server}
             onReset={handleReset}
             onSave={handleSave}
-            settings={pickSettings(settingsByKey, [
-              SETTING_KEYS.flightBaseUrl,
-              SETTING_KEYS.flightRapidApiHost,
-              SETTING_KEYS.flightApiKey,
-            ])}
-            title="AeroDataBox"
+            settings={pickSettings(settingsByKey, [SETTING_KEYS.flightAwareBaseUrl, SETTING_KEYS.flightAwareApiKey])}
+            title="FlightAware AeroAPI"
           />
         ) : null}
       </section>
@@ -760,6 +761,14 @@ function SettingControl({
   presentation,
   setting,
 }: SettingControlProps) {
+  if (setting.key === SETTING_KEYS.flightCheckInterval) {
+    return <Select disabled={disabled} id={id} onValueChange={onChange} value={draft}
+      options={[5, 10, 15, 30, 60].map(minutes => ({ label: `Every ${minutes} minutes`, value: String(minutes) }))} />
+  }
+  if (setting.key === SETTING_KEYS.flightGroundChecks) {
+    return <Switch id={id} disabled={disabled}
+      checked={draft === 'true'} onCheckedChange={checked => onChange(String(checked))} />
+  }
   if (setting.key === SETTING_KEYS.immichAllowedServers) {
     return (
       <ImmichAllowedServersControl

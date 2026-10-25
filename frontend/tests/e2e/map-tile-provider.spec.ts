@@ -27,7 +27,7 @@ test('one-stop departure flight and independent return render, edit, and confirm
     from: { type: 'LOCATION', location: createLocation('outside-a', 'London', 51.5, -0.1) },
     to: { type: 'STOP', stop_id: firstStopId },
     segments: [{ ...template.segments[0], id: 'departure-segment',
-      intent: { travel_mode: 'FLIGHT', flight: { flight_number: 'KL1000', departure_date: '2027-05-10' } },
+      intent: { travel_mode: 'FLIGHT', flight: { flight_number: 'QF2468', departure_date: '2027-05-10' } },
       from_endpoint: { name: 'LHR', latitude: 51.47, longitude: -0.45 },
       to_endpoint: { name: 'AMS', latitude: 52.31, longitude: 4.76 },
       geometry: { type: 'LineString', coordinates: [[-0.45, 51.47], [4.76, 52.31]] },
@@ -411,7 +411,7 @@ test('mobile visitors can explore an empty trip without editing controls', async
   )
   await page.route('**/api/v1/trips/*/members', (route) => fulfillJson(route, []))
   await page.goto(`/trips/${tripId}`)
-  await expect(page.getByText('Your journey starts here')).toBeVisible()
+  await expect(page.getByText('No travel posts yet')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Trip tools', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Manage GPS tracking', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'New post' })).toHaveCount(0)
@@ -419,8 +419,131 @@ test('mobile visitors can explore an empty trip without editing controls', async
   await page.getByRole('button', { name: 'Open fullscreen map' }).click()
   await expect(page.getByRole('dialog', { name: 'Fullscreen travel map' })).toBeVisible()
   await page.getByRole('button', { name: 'Exit fullscreen map' }).click()
-  await expect(page.getByText('Your journey starts here')).toBeVisible()
+  await expect(page.getByText('No travel posts yet')).toBeVisible()
 })
+
+for (const mobile of [false, true]) {
+  for (const audience of ['owner', 'viewer', 'anonymous'] as const) {
+    test(`${mobile ? 'mobile' : 'desktop'} ${audience} flight-only timeline has no empty journey prompt`, async ({ page }) => {
+      await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 })
+      if (audience !== 'anonymous') await seedBrowserAuth(page)
+      const release = await mockTripApi(page, audience === 'owner' ? 'OWNER' : 'VIEWER')
+      release()
+      await mockTileServers(page)
+      const airport = { id: 'airport', name: 'Eindhoven', iata_code: 'EIN', latitude: 51.45, longitude: 5.37, timezone: 'Europe/Amsterdam' }
+      await page.route('**/api/v1/trips/*/posts/timeline**', route => fulfillJson(route, {
+        entries: [],
+        opening_route: { duration_seconds: null, segments: [{ travel_mode: 'CAR', source: 'MOBILE_GPS', geometry: { type: 'LineString', coordinates: [[5.3, 51.4], [5.37, 51.45]] } }] },
+        flight_journeys: [{ itinerary_connection_id: 'connection', flights: [{
+          id: 'flight', flight_number: 'NZ6827', airline_name: 'Air New Zealand', departure_airport: airport,
+          arrival_airport: { ...airport, iata_code: 'STN', name: 'Stansted', timezone: 'Europe/London' },
+          status: 'IN_FLIGHT', scheduled_departure: timestamp, scheduled_arrival: '2026-08-05T12:00:00Z',
+          estimated_departure: null, estimated_arrival: null, actual_departure: timestamp, actual_arrival: null,
+          completion_source: null, stop_reason: null, progress: .5, estimate_basis: 'SCHEDULED_DURATION',
+          position_at: timestamp, status_updated_at: timestamp, update_state: 'CURRENT',
+          visible_to_members_only: false, can_complete: false, gps_tracking_session_id: null,
+        }] }],
+      }))
+      await page.goto(`/trips/${tripId}?tab=travel`)
+      await expect(page.getByRole('article', { name: 'NZ6827 · In flight', exact: true }).first()).toBeVisible()
+      await expect(page.getByText('Your journey starts here', { exact: true })).toHaveCount(0)
+      await expect(page.getByText('No travel posts yet', { exact: true })).toHaveCount(0)
+      await expect(page.getByLabel('The journey begins', { exact: true })).toHaveCount(0)
+    })
+  }
+}
+
+for (const width of [320, 390, 768]) {
+  test(`mobile connecting flights are separate post-sized summaries that expand in place at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 })
+    await seedBrowserAuth(page)
+    const release = await mockTripApi(page, 'OWNER')
+    release()
+    await mockTileServers(page)
+    const airport = { id: 'airport', name: 'Amsterdam Schiphol', iata_code: 'AMS', latitude: 52.31, longitude: 4.76, timezone: 'Europe/Amsterdam' }
+    const flight = {
+      id: 'flight-1', flight_number: 'NZ3847', airline_name: 'Air New Zealand', departure_airport: airport,
+      arrival_airport: { ...airport, name: 'Frankfurt Airport', iata_code: 'FRA', latitude: 50.04, longitude: 8.56 },
+      status: 'ARRIVED', scheduled_departure: '2026-08-05T06:00:00Z', scheduled_arrival: '2026-08-05T07:00:00Z',
+      actual_departure: '2026-08-05T06:10:00Z', actual_arrival: '2026-08-05T07:10:00Z', estimated_departure: null, estimated_arrival: null,
+      completion_source: 'PROVIDER', stop_reason: null, progress: 1, estimate_basis: null,
+      position_at: null, status_updated_at: timestamp, update_state: 'CURRENT',
+      visible_to_members_only: false, can_complete: false, gps_tracking_session_id: null,
+    }
+    await page.route('**/api/v1/trips/*/posts/timeline**', route => fulfillJson(route, {
+      ...createPostTimeline(),
+      flight_journeys: [{ itinerary_connection_id: 'connection', flights: [flight, {
+        ...flight, id: 'flight-2', flight_number: 'NZ4958', departure_airport: flight.arrival_airport,
+        arrival_airport: { ...airport, name: 'Lisbon Humberto Delgado', iata_code: 'LIS', timezone: 'Europe/Lisbon', latitude: 38.77, longitude: -9.13 },
+        scheduled_departure: '2026-08-05T07:30:00Z', scheduled_arrival: '2026-08-05T10:30:00Z',
+        actual_departure: '2026-08-05T07:40:00Z', actual_arrival: null, estimated_arrival: '2026-08-05T10:20:00Z',
+        status: 'IN_FLIGHT', completion_source: null, progress: .5,
+      }] }],
+    }))
+    await page.goto(`/trips/${tripId}?tab=travel`)
+    const carousel = page.getByLabel('Trip stories', { exact: true })
+    const cards = carousel.locator(':scope > article')
+    await expect(cards).toHaveCount(4)
+    const arrived = cards.nth(0)
+    const active = cards.nth(1)
+    await expect(arrived).toHaveAccessibleName('NZ3847 · Arrived')
+    await expect(active).toHaveAccessibleName('NZ4958 · In flight')
+    await expect(arrived.locator('button time').first()).toHaveText('08:10')
+    await expect(arrived.locator('button time').last()).toHaveText('09:10')
+    await expect(arrived).toHaveAttribute('aria-current', 'true')
+    const map = page.getByLabel('Interactive trip route map').first()
+    await expect(map.locator('path[data-focused-flight-id]')).toHaveCount(0)
+    const firstBox = (await arrived.boundingBox())!
+    const secondBox = (await active.boundingBox())!
+    const postBox = (await cards.nth(2).boundingBox())!
+    expect(secondBox.x).toBeGreaterThan(firstBox.x + firstBox.width)
+    expect(secondBox.y).toBe(firstBox.y)
+    expect(secondBox.height).toBe(firstBox.height)
+    expect(firstBox.height).toBe(postBox.height)
+    if (width === 390) await page.screenshot({ path: testInfo.outputPath('collapsed-flight.png') })
+    const url = page.url()
+    const toggle = arrived.getByRole('button', { name: 'Show flight details for NZ3847', exact: true })
+    await toggle.click()
+    await expect(arrived.getByRole('region', { name: 'Flight details for NZ3847', exact: true })).toBeVisible()
+    await expect(active.getByRole('button', { name: 'Show flight details for NZ4958', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page).toHaveURL(url)
+    await expect(page.getByLabel('Interactive trip route map').first()).toBeVisible()
+    for (const element of [carousel, arrived, active]) {
+      expect(await element.evaluate(node => node.scrollHeight <= node.clientHeight + 1)).toBe(true)
+    }
+    await arrived.getByRole('button', { name: 'Hide flight details for NZ3847', exact: true }).click()
+    expect((await arrived.boundingBox())!.height).toBe(firstBox.height)
+    await active.scrollIntoViewIfNeeded()
+    await active.getByRole('button', { name: 'Show flight details for NZ4958', exact: true }).click()
+    await expect(active).toHaveAttribute('aria-current', 'true')
+    await expect(map.locator('path[data-focused-flight-id]')).toHaveCount(0)
+    await expect(active.getByText('Connecting flight · 0h 30m layover', { exact: true })).toBeVisible()
+    await expect(active.getByText('Arrival estimated 10 min early', { exact: true })).toBeVisible()
+    await expect(active.getByLabel('Scheduled arrival 11:30', { exact: true })).toBeVisible()
+    expect((await active.boundingBox())!.height).toBeLessThan(360)
+    expect(await carousel.evaluate(node => node.scrollHeight <= node.clientHeight + 1)).toBe(true)
+    if (width === 390) await page.screenshot({ path: testInfo.outputPath('expanded-flight.png') })
+    await cards.nth(3).scrollIntoViewIfNeeded()
+    await expect(map.locator('path[data-focused-flight-id]')).toHaveCount(0)
+    await expect(active.getByRole('button', { name: 'Show flight details for NZ4958', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    expect((await active.boundingBox())!.height).toBe(postBox.height)
+  })
+}
+
+for (const audience of ['owner', 'viewer', 'anonymous'] as const) {
+  test(`mobile ${audience} empty trip uses appropriate journey wording`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    if (audience !== 'anonymous') await seedBrowserAuth(page)
+    const release = await mockTripApi(page, audience === 'owner' ? 'OWNER' : 'VIEWER')
+    release()
+    await mockTileServers(page)
+    await page.route('**/api/v1/trips/*/posts/timeline**', route => fulfillJson(route, { entries: [], opening_route: null, flight_journeys: [] }))
+    await page.goto(`/trips/${tripId}?tab=travel`)
+    await expect(page.getByText(audience === 'owner' ? 'Your journey starts here' : 'No travel posts yet', { exact: true })).toBeVisible()
+    await expect(page.getByText(audience === 'owner' ? 'Add your first post to bring the map to life.' : 'Stories will appear here as the journey unfolds.', { exact: true })).toBeVisible()
+  })
+}
 
 test('swaps only the base tiles and preserves routes and point selection', async ({
   page,
@@ -990,7 +1113,7 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 }
 
 
-test('planning: keyless flight draft remains saveable without automatic provider requests', async ({ page }) => {
+test('planning: keyless flight draft remains saveable without automatic flight lookups', async ({ page }) => {
   await seedBrowserAuth(page)
   const release = await mockTripApi(page, 'OWNER'); release()
   await mockTileServers(page)
@@ -1007,7 +1130,7 @@ test('planning: keyless flight draft remains saveable without automatic provider
   })
   await page.route('**/itinerary/connections/' + connection.id, async route => {
     const payload = route.request().postDataJSON()
-    expect(payload.segments[0].flight.flight_number).toBe('KL597')
+    expect(payload.segments[0].flight.flight_number).toBe('QF6842')
     expect(payload.segments[0].flight.departure_date).toBe('2026-11-18')
     await route.fulfill({ status: 200, contentType: 'application/json', headers: { ETag: '"2"' },
       body: JSON.stringify({ itinerary_revision: 2, connection: { ...connection, ...payload, segments: payload.segments.map((intent: object) => ({ ...connection.segments[0], intent })) } }) })
@@ -1017,7 +1140,7 @@ test('planning: keyless flight draft remains saveable without automatic provider
   await page.getByRole('button', { name: 'Train Amsterdam to Brussels' }).click()
   const editor = page.getByRole('region', { name: 'Select your route', exact: true })
   await editor.getByRole('radio', { name: 'Flight', exact: true }).click()
-  await editor.getByLabel('Flight number', { exact: true }).fill('KL597')
+  await editor.getByLabel('Flight number', { exact: true }).fill('QF6842')
   await editor.getByRole('button', { name: 'Departure date', exact: true }).click()
   for (let month = 0; month < 6; month += 1) await editor.getByRole('dialog').getByRole('button', { name: 'Previous month', exact: true }).click()
   await editor.getByRole('dialog').getByRole('button', { name: '18', exact: true }).click()
@@ -1026,7 +1149,7 @@ test('planning: keyless flight draft remains saveable without automatic provider
   await editor.getByRole('button', { name: 'Select this route' }).click()
   await expect(page.getByRole('button', { name: /Flight Amsterdam to Brussels/ })).toBeVisible()
   expect(lookupCount).toBe(1)
-  expect(previewCount).toBe(0)
+  expect(previewCount).toBeGreaterThan(0)
 })
 
 for (const mobile of [false, true]) {
@@ -1055,7 +1178,7 @@ for (const mobile of [false, true]) {
   })
 }
 
-test('planning: preview is explicit and Cancel leaves the saved connection unchanged', async ({ page }) => {
+test('planning: preview updates automatically and Cancel leaves the saved connection unchanged', async ({ page }) => {
   await seedBrowserAuth(page)
   const release = await mockTripApi(page, 'OWNER'); release()
   await mockTileServers(page)
@@ -1076,8 +1199,7 @@ test('planning: preview is explicit and Cancel leaves the saved connection uncha
   const editor = page.getByRole('region', { name: 'Select your route', exact: true })
   await editor.getByRole('button', { name: 'Add segment' }).click()
   await expect(editor.getByLabel('Travel segment 2', { exact: true })).toBeVisible()
-  expect(previews).toBe(0)
-  await editor.getByRole('button', { name: 'Preview changes' }).click()
+  await expect(editor.getByRole('button', { name: 'Preview changes' })).toHaveCount(0)
   await expect(editor.getByRole('button', { name: 'Retry routes' }).first()).toBeVisible()
   expect(previews).toBe(1)
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
@@ -1089,7 +1211,7 @@ test('planning: preview is explicit and Cancel leaves the saved connection uncha
 })
 
 
-test('planning: mobile editor includes the map preview', async ({ page }) => {
+test('planning: mobile editor gives the map room and keeps its caption below it', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await seedBrowserAuth(page)
   const release = await mockTripApi(page, 'OWNER'); release()
@@ -1099,7 +1221,13 @@ test('planning: mobile editor includes the map preview', async ({ page }) => {
   await page.getByRole('button', { name: 'Train Amsterdam to Brussels' }).click()
   const editor = page.getByRole('dialog', { name: 'Select your route' })
   const preview = editor.getByRole('region', { name: 'Connection map preview' })
-  await expect(preview.getByLabel('Interactive trip route map')).toBeVisible()
+  const map = preview.getByLabel('Interactive trip route map')
+  await expect(map).toBeVisible()
+  const mapBounds = await map.boundingBox()
+  const captionBounds = await preview.getByText('Amsterdam → Brussels', { exact: true }).boundingBox()
+  expect(mapBounds!.height).toBeGreaterThanOrEqual(280)
+  expect(captionBounds!.y).toBeGreaterThanOrEqual(mapBounds!.y + mapBounds!.height)
+  await page.screenshot({ path: '../private/artifacts/connection-editor/mobile-map-expanded.png', animations: 'disabled' })
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(editor).toHaveCount(0)
 })
@@ -1119,8 +1247,8 @@ for (const mobile of [false, true]) {
     let previews = 0
     let writes = 0
     await page.route('**/itinerary/connections/*/preview**', async route => {
-      previews += 1
       const payload = route.request().postDataJSON()
+      if (payload.segments[0].travel_mode === 'CAR') previews += 1
       const segment = { ...connection.segments[0], intent: payload.segments[0], geometry: geometries[0], route_state: 'READY',
         distance_meters: 210000, duration_seconds: 7200, error_code: null,
         route_options: geometries.map((geometry, i) => ({ geometry, distance_meters: 210000 + i * 5000, duration_seconds: 7200 + i * 600 })) }
@@ -1154,11 +1282,11 @@ for (const mobile of [false, true]) {
     await editor.getByRole('radio', { name: 'Flight', exact: true }).click()
     await expect(editor.getByRole('radio', { name: 'Car route 1' })).toBeVisible()
     await expect(editor.getByRole('radio', { name: 'Car route 2' })).toBeVisible()
-    await editor.getByLabel('Flight number', { exact: true }).fill('KL597')
+    await editor.getByLabel('Flight number', { exact: true }).fill('QF6842')
     await editor.getByRole('radio', { name: 'Car route 2' }).click()
     await expect(editor.getByRole('radio', { name: 'Car route 2' })).toHaveAttribute('aria-checked', 'true')
     await editor.getByRole('radio', { name: 'Flight', exact: true }).click()
-    await expect(editor.getByLabel('Flight number', { exact: true })).toHaveValue('KL597')
+    await expect(editor.getByLabel('Flight number', { exact: true })).toHaveValue('QF6842')
     await editor.getByRole('radio', { name: 'Car route 2' }).click()
     await expect.poll(() => selectedPath.getAttribute('d')).not.toBe(originalPath)
     expect(previews).toBe(1)
@@ -1223,7 +1351,7 @@ test('planning: desktop chooser stays in the map workspace and switches to the m
   await panel.getByRole('button', { name: 'Route details & notes' }).click()
   await panel.getByRole('textbox', { name: 'Segment notes', exact: true }).fill('Keep my journey notes')
   await panel.getByRole('radio', { name: 'Flight', exact: true }).click()
-  await panel.getByLabel('Flight number', { exact: true }).fill('KL597')
+  await panel.getByLabel('Flight number', { exact: true }).fill('QF6842')
   await page.setViewportSize({ width: 1024, height: 1000 })
   for (const name of ['1', '2']) {
     await expect.poll(async () => {
@@ -1235,13 +1363,13 @@ test('planning: desktop chooser stays in the map workspace and switches to the m
   await page.setViewportSize({ width: 390, height: 844 })
   const screen = page.getByRole('dialog', { name: 'Select your route' })
   await expect(screen).toBeVisible()
-  await expect(screen.getByLabel('Flight number', { exact: true })).toHaveValue('KL597')
+  await expect(screen.getByLabel('Flight number', { exact: true })).toHaveValue('QF6842')
   await expect(screen.getByRole('textbox', { name: 'Segment notes', exact: true })).toHaveValue('Keep my journey notes')
   await expect(screen.getByRole('region', { name: 'Connection map preview' })).toBeVisible()
   await page.setViewportSize({ width: 1440, height: 1000 })
   await expect(panel).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(panel.getByLabel('Flight number', { exact: true })).toHaveValue('KL597')
+  await expect(panel.getByLabel('Flight number', { exact: true })).toHaveValue('QF6842')
   expect(zoomedRoute).toBeTruthy()
   await page.keyboard.press('Escape')
   await expect(panel).toHaveCount(0)
@@ -1269,7 +1397,7 @@ for (const width of [1024, 1440]) {
     await expect.poll(() => map.boundingBox()).toEqual(mapBounds)
     const panelBounds = await panel.boundingBox()
     await panel.getByRole('radio', { name: 'Flight', exact: true }).click()
-    await panel.getByLabel('Flight number', { exact: true }).fill('KL597')
+    await panel.getByLabel('Flight number', { exact: true }).fill('QF6842')
     await panel.getByRole('button', { name: 'Flight & booking details' }).click()
     await panel.getByRole('radio', { name: 'Train', exact: true }).click()
     await expect.poll(() => sidebar.boundingBox()).toEqual(sidebarBounds)
@@ -1293,9 +1421,11 @@ test('planning: cached alternatives expire and changed via points require a fres
   let previews = 0
   const payloads: Array<{ segments: Array<{ via?: unknown }> }> = []
   await page.route('**/itinerary/connections/*/preview**', async route => {
-    previews += 1
     const payload = route.request().postDataJSON()
-    payloads.push(payload)
+    if (payload.segments[0].travel_mode === 'CAR') {
+      previews += 1
+      payloads.push(payload)
+    }
     const geometry = connection.segments[0].geometry
     await fulfillJson(route, { preview_id: '99999999-9999-4999-8999-999999999999',
       expires_at: new Date(initialTime.getTime() + (previews === 1 ? 10 : 30) * 60000).toISOString(),
@@ -1363,13 +1493,31 @@ test('planning: a reader without membership cannot retain the Plan URL', async (
   await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe('travel')
 })
 
-for (const width of [1024, 1440]) {
-  test('planning: flight lookup and airport search fit the desktop chooser at ' + width + 'px', async ({ page }) => {
+for (const width of [390, 1024, 1440]) {
+  test('planning: flight selection stays readable and previews automatically at ' + width + 'px', async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
     await seedBrowserAuth(page)
     const release = await mockTripApi(page, 'OWNER'); release()
     await mockTileServers(page)
     const airport = { ...createLocation('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Amsterdam Airport Schiphol International Departure Terminal', 52.3, 4.7), feature_class: 'S', feature_code: 'AIRP', iata_code: 'AMS', icao_code: 'EHAM', timezone: 'Europe/Amsterdam' }
+    const connection = createItinerary().connections[0]
+    const payloads: Array<{ segments: Array<{ flight?: { candidate_id?: string } }> }> = []
+    let releasePreview = () => {}
+    await page.route('**/itinerary/connections/*/preview**', async route => {
+      const payload = route.request().postDataJSON()
+      payloads.push(payload)
+      const selected = Boolean(payload.segments[0].flight?.candidate_id)
+      if (selected) await new Promise<void>(resolve => { releasePreview = resolve })
+      const geometry = { type: 'LineString', coordinates: selected ? [[4.7, 52.3], [18.6, -33.97]] : [[4.9, 52.37], [4.35, 50.85]] }
+      await fulfillJson(route, { preview_id: 'flight-preview', expires_at: '2099-01-01T00:00:00Z', connection: {
+        ...connection, duration_seconds: selected ? 39600 : null, duration_scope: selected ? 'FLIGHT_JOURNEY' : null,
+        segments: payload.segments.map((intent: object) => ({ ...connection.segments[0], intent, geometry,
+          duration_seconds: selected ? 39600 : null, route_state: 'UNSUPPORTED',
+          from_endpoint: selected ? airport : null,
+          to_endpoint: selected ? { name: 'Cape Town', latitude: -33.97, longitude: 18.6 } : null,
+        })), route: { ...connection.route, geometry },
+      } })
+    })
     let searches = 0
     await page.route('**/api/v1/places/geocode**', async route => {
       const url = new URL(route.request().url())
@@ -1381,16 +1529,28 @@ for (const width of [1024, 1440]) {
     await page.route('**/itinerary/connections/*/flight-lookups', route => fulfillJson(route, { status: 'MATCHES', expires_at: '2030-01-01T00:00:00Z', candidates: [{
       candidate_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', duration_seconds: 39600,
       lookup: { schema_version: 1, provider: 'aerodatabox', fetched_at: timestamp,
-        flight_number: 'KL597', departure_date: '2026-11-18', airline_name: 'KLM Royal Dutch Airlines',
+        flight_number: 'QF6842', departure_date: '2026-11-18', airline_name: 'Qantas',
         departure_airport: airport, arrival_airport: { ...airport, name: 'Cape Town International Airport Arrival Terminal', iata_code: 'CPT' },
         scheduled_departure: '2026-11-18T10:00:00+01:00', scheduled_arrival: '2026-11-18T22:00:00+02:00',
       },
     }] }))
     await page.goto('/trips/' + tripId + '?tab=plan')
     await page.getByRole('button', { name: 'Train Amsterdam to Brussels' }).click()
-    const editor = page.getByRole('region', { name: 'Select your route', exact: true })
+    const editor = page.getByRole(width < 1024 ? 'dialog' : 'region', { name: 'Select your route', exact: true })
     await editor.getByRole('radio', { name: 'Flight', exact: true }).click()
-    await editor.getByLabel('Flight number', { exact: true }).fill('KL597')
+    if (width < 1024) {
+      await editor.getByLabel('Flight number', { exact: true }).focus()
+      // Emulate a keyboard shrinking only the visual viewport, as on mobile Safari.
+      await page.evaluate(() => {
+        Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: 480 })
+        window.visualViewport!.dispatchEvent(new Event('resize'))
+      })
+      await expect.poll(async () => (await editor.boundingBox())?.height).toBe(480)
+      const field = editor.getByLabel('Flight number', { exact: true })
+      await expect(field).toBeInViewport()
+      await expect(editor.getByRole('region', { name: 'Connection map preview' })).toHaveCSS('position', 'relative')
+    }
+    await editor.getByLabel('Flight number', { exact: true }).fill('QF6842')
     await editor.getByRole('button', { name: 'Departure date', exact: true }).click()
     for (let month = 0; month < 6; month += 1) await editor.getByRole('dialog').getByRole('button', { name: 'Previous month', exact: true }).click()
     await editor.getByRole('dialog').getByRole('button', { name: '18', exact: true }).click()
@@ -1398,6 +1558,20 @@ for (const width of [1024, 1440]) {
     const match = editor.getByRole('button', { name: /AMS → CPT/ })
     await expect(match).toBeVisible()
     await match.click()
+    await expect(match).toHaveAttribute('aria-pressed', 'true')
+    await expect(match.getByLabel('Selected flight')).toBeVisible()
+    await expect(match).toHaveClass(/text-foreground/)
+    await expect.poll(() => payloads.filter(payload => payload.segments[0].flight?.candidate_id).length).toBe(1)
+    // Notes must stay editable without cancelling the route request in progress.
+    await editor.getByRole('textbox', { name: 'Segment notes', exact: true }).fill('Keep this booking note')
+    releasePreview()
+    await expect(editor.getByText('11 hr flight journey · airport transfers not included', { exact: true })).toBeVisible()
+    await expect(editor.getByRole('textbox', { name: 'Segment notes', exact: true })).toHaveValue('Keep this booking note')
+    await expect(editor.getByRole('button', { name: 'Preview changes' })).toHaveCount(0)
+    if (width <= 1024) {
+      await match.scrollIntoViewIfNeeded()
+      await page.screenshot({ path: '../private/artifacts/connection-editor/flight-form-' + width + '.png', animations: 'disabled' })
+    }
     await expect.poll(() => editor.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
     const overflow = () => editor.evaluate(element => {
       const bounds = element.getBoundingClientRect()
@@ -1414,7 +1588,8 @@ for (const width of [1024, 1440]) {
     await result.click()
     await expect(editor.getByLabel('Departure airport', { exact: true })).toHaveValue(/Schiphol.*AMS/)
     expect(searches).toBe(1)
-    if (width === 1024) await page.screenshot({ path: '../private/flight-form-narrow-desktop.png', animations: 'disabled' })
+    await expect(match).toHaveCount(0)
+    await expect(editor.getByText('11 hr flight journey · airport transfers not included', { exact: true })).toHaveCount(0)
   })
 }
 
@@ -1424,7 +1599,7 @@ function airportTransferItinerary(): Itinerary {
   const connection = itinerary.connections[0]
   const flight = connection.segments[0]
   flight.intent = { ...flight.intent, travel_mode: 'FLIGHT', flight: {
-    flight_number: 'KL1401', departure_date: '2026-10-24',
+    flight_number: 'QF3579', departure_date: '2026-10-24',
     departure_airport_place_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
     arrival_airport_place_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
   } }

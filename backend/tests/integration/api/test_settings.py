@@ -8,6 +8,7 @@ from core.app_settings import (
     DEFAULT_MAP_TILE_PROVIDER_URL,
     DEFAULT_THEME_PALETTE,
     FLIGHTS_PROVIDER_KEY,
+    FLIGHTS_FLIGHTAWARE_API_KEY,
     MAP_TILE_PROVIDER_KEY,
     IMMICH_ALLOWED_SERVERS_KEY,
     IMMICH_ALLOW_ANY_SERVER_KEY,
@@ -36,6 +37,29 @@ def _admin(db_session):
         password='AdminPass123!',
         role=UserRole.ADMIN,
     )
+
+
+def test_flight_settings_replacement_and_legacy_keys_are_unavailable(client, db_session, api_prefix):
+    headers = _auth_headers(_admin(db_session))
+    base = f'{api_prefix}/admin/settings'
+    listing = client.get(base, headers=headers).json()
+    records = {row['key']: row for row in listing['settings']}
+    assert records['flights.check_interval_minutes']['value'] == 30
+    assert records['flights.check_more_often_before_departure']['value'] is True
+    assert records['flights.provider']['validation']['allowed_values'] == ['none', 'flightaware']
+    for key in ('flights.update_frequency', 'flights.rapidapi_api_key', 'flights.aerodatabox_base_url', 'flights.aerodatabox_rapidapi_host'):
+        assert key not in records
+        for method, suffix, body in (('GET', '', None), ('PATCH', '', {'value': 'ignored'}), ('POST', '/reset', None)):
+            assert client.request(method, f'{base}/{key}{suffix}', headers=headers, json=body).status_code == 404
+    assert client.patch(f'{base}/flights.provider', headers=headers, json={'value': 'aerodatabox'}).status_code == 422
+    for value in (5, 10, 15, 30, 60):
+        assert client.patch(f'{base}/flights.check_interval_minutes', headers=headers, json={'value': value}).status_code == 200
+    for value in (0, 20, True, '15'):
+        assert client.patch(f'{base}/flights.check_interval_minutes', headers=headers, json={'value': value}).status_code == 422
+    assert client.post(f'{base}/flights.check_interval_minutes/reset', headers=headers).json()['value'] == 30
+    assert client.patch(f'{base}/flights.check_more_often_before_departure', headers=headers, json={'value': False}).status_code == 200
+    assert client.get(f'{base}/flights.check_more_often_before_departure', headers=headers).json()['value'] is False
+    assert client.post(f'{base}/flights.check_more_often_before_departure/reset', headers=headers).json()['value'] is True
 
 
 @pytest.mark.integration
@@ -98,10 +122,11 @@ def test_admin_list_includes_redacted_secret_metadata(
         'routing.provider',
         'routing.graphhopper_base_url',
         'routing.graphhopper_api_key',
-        'flights.rapidapi_api_key',
         'flights.provider',
-        'flights.aerodatabox_base_url',
-        'flights.aerodatabox_rapidapi_host',
+        'flights.check_interval_minutes',
+        'flights.check_more_often_before_departure',
+        'flights.flightaware_base_url',
+        'flights.flightaware_api_key',
         'media.max_upload_size_mb',
         'places.geonames_dataset',
         'media.orphan_retention_days',
@@ -117,8 +142,9 @@ def test_admin_list_includes_redacted_secret_metadata(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize('selection', ['flightaware'])
 def test_flight_provider_defaults_to_disabled_and_reset_restores_default(
-    client, db_session, api_prefix
+    client, db_session, api_prefix, selection
 ) -> None:
     admin = _admin(db_session)
     headers = _auth_headers(admin)
@@ -133,9 +159,9 @@ def test_flight_provider_defaults_to_disabled_and_reset_restores_default(
     assert provider['value'] == 'none'
     assert provider['default_value'] == 'none'
 
-    selected = client.patch(endpoint, headers=headers, json={'value': 'aerodatabox'})
+    selected = client.patch(endpoint, headers=headers, json={'value': selection})
     assert selected.status_code == 200
-    assert selected.json()['value'] == 'aerodatabox'
+    assert selected.json()['value'] == selection
 
     reset = client.post(f'{endpoint}/reset', headers=headers)
     assert reset.status_code == 200
@@ -144,8 +170,9 @@ def test_flight_provider_defaults_to_disabled_and_reset_restores_default(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize('secret_key', [ROUTING_GRAPHHOPPER_API_KEY, FLIGHTS_FLIGHTAWARE_API_KEY])
 def test_admin_can_update_normal_and_secret_settings(
-    client, db_session, api_prefix, monkeypatch
+    client, db_session, api_prefix, monkeypatch, secret_key
 ) -> None:
     admin = _admin(db_session)
     encryption_key = settings.SECRET_KEY
@@ -157,7 +184,7 @@ def test_admin_can_update_normal_and_secret_settings(
         json={'value': 'graphhopper'},
     )
     secret_response = client.patch(
-        f'{api_prefix}/admin/settings/{ROUTING_GRAPHHOPPER_API_KEY}',
+        f'{api_prefix}/admin/settings/{secret_key}',
         headers=headers,
         json={'value': 'raw-api-secret'},
     )
@@ -168,7 +195,7 @@ def test_admin_can_update_normal_and_secret_settings(
     assert secret_response.status_code == 200
     assert secret_response.json()['value'] is None
     assert secret_response.json()['is_configured'] is True
-    row = db_session.get(AppSetting, ROUTING_GRAPHHOPPER_API_KEY)
+    row = db_session.get(AppSetting, secret_key)
     assert row is not None
     assert row.value is None
     assert row.secret_value is not None
@@ -178,7 +205,10 @@ def test_admin_can_update_normal_and_secret_settings(
         db_session,
         AppSettingsEncryption(encryption_key),
     )
-    assert service.get_value(ROUTING_GRAPHHOPPER_API_KEY) == 'raw-api-secret'
+    assert service.get_value(secret_key) == 'raw-api-secret'
+    public = client.get(f'{api_prefix}/settings/public')
+    assert secret_key not in public.json()['settings']
+    assert 'raw-api-secret' not in public.text
 
 
 @pytest.mark.integration
@@ -188,8 +218,8 @@ def test_admin_can_update_normal_and_secret_settings(
         (MAP_TILE_PROVIDER_KEY, 'ftp://tiles.example.test/{z}/{x}/{y}.png'),
         (ROUTING_PROVIDER_KEY, 'unknown'),
         ('flights.provider', 'unknown'),
-        ('flights.aerodatabox_base_url', 'ftp://example.test'),
-        ('flights.aerodatabox_rapidapi_host', 'https://example.test'),
+        ('flights.flightaware_base_url', 'ftp://example.test'),
+        ('flights.provider', 'aerodatabox'),
         ('routing.graphhopper_base_url', 'ftp://example.test'),
         (MEDIA_MAX_UPLOAD_SIZE_MB_KEY, True),
         (MEDIA_MAX_UPLOAD_SIZE_MB_KEY, 0),

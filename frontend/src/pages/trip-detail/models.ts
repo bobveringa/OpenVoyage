@@ -146,11 +146,14 @@ export type TravelPostRouteSegment = {
   coordinates: L.LatLngTuple[]
   travelMode: TravelMode
   visibleToMembersOnly?: boolean
+  source?: 'MOBILE_GPS' | 'FLIGHT_ESTIMATE' | 'FLIGHT_TRACK' | 'POST_CONNECTOR'
 }
 
 /** GPS-derived map data that does not belong to any single post. */
 export type TripTrackingGeometry = {
   openingRoute: TravelPostRoute | null
+  flightJourneys?: import('@/api/client').FlightJourney[]
+  journey?: import('@/api/client').TrackingJourney
 }
 
 export const EMPTY_TRACKING_GEOMETRY: TripTrackingGeometry = {

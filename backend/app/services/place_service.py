@@ -528,6 +528,7 @@ class PlaceService:
                 self._upsert_places(batch)
             if replace_existing:
                 from models.database.itinerary import ItinerarySegmentFlight
+                from models.database.tracked_flights import TrackedFlight
                 from models.database.locations import Location
 
                 referenced = select(Location.source_place_id).where(
@@ -549,6 +550,8 @@ class PlaceService:
                         Place.id.not_in(referenced),
                         Place.id.not_in(airport_refs),
                         Place.id.not_in(arrival_refs),
+                        Place.id.not_in(select(TrackedFlight.departure_airport_place_id)),
+                        Place.id.not_in(select(TrackedFlight.arrival_airport_place_id).where(TrackedFlight.arrival_airport_place_id.is_not(None))),
                     )
                 )
                 deleted = result.rowcount or 0

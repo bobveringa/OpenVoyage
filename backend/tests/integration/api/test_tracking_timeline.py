@@ -245,7 +245,7 @@ def test_post_candidates_follow_displayed_track_and_are_member_only(
     )
 
     assert response.status_code == 200, response.text
-    assert response.headers['Cache-Control'] == 'no-store'
+    assert response.headers['Cache-Control'] == 'private, no-store'
     # The last raw point is a single unconfirmed departure fix, so stationary
     # compaction removes it from the map and it must not survive as a marker.
     assert [candidate['recorded_at'] for candidate in response.json()] == [_iso(START)]
@@ -1070,7 +1070,7 @@ def test_a_draft_request_without_access_returns_an_empty_timeline(
         trip.id,
         params={'status': 'draft'},
     ).json()
-    assert body == {'opening_route': None, 'entries': []}
+    assert body == {'opening_route': None, 'entries': [], 'flight_journeys': []}
 
 
 @pytest.mark.integration

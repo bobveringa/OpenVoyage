@@ -5,8 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from models.api.planning import ConnectionIntent, Endpoint, FlightLookupRequest
-from services.flight_providers import AeroDataBoxFlightProvider, FlightUnavailable
-from services.flight_providers.aerodatabox_flight_provider import parse_flights
+from services.flight_providers import FlightAwareFlightProvider, FlightUnavailable
 from services.planning_service import default_mode, same_endpoint
 
 
@@ -130,63 +129,16 @@ def test_airport_codes_match_despite_coordinate_differences():
     )
 
 
-def flight_payload():
-    return [
-        {
-            'number': 'KL 597',
-            'airline': {'name': 'KLM'},
-            'departure': {
-                'airport': {
-                    'name': 'Schiphol',
-                    'iata': 'AMS',
-                    'timeZone': 'Europe/Amsterdam',
-                    'location': {'lat': 52.3, 'lon': 4.7},
-                },
-                'scheduledTime': {'local': '2026-11-18T10:00:00+01:00'},
-            },
-            'arrival': {
-                'airport': {
-                    'name': 'Cape Town',
-                    'iata': 'CPT',
-                    'timeZone': 'Africa/Johannesburg',
-                    'location': {'lat': -33.97, 'lon': 18.6},
-                },
-                'scheduledTime': {'local': '2026-11-18T22:00:00+02:00'},
-            },
-        }
-    ]
-
-
-def test_provider_normalizes_and_compares_instants():
-    intent = FlightLookupRequest(
-        flight_number='kl 597', departure_date=date(2026, 11, 18)
-    )
-    result = parse_flights(flight_payload(), intent)
-    assert len(result) == 1
-    assert result[0].duration_seconds == 11 * 3600
-    assert result[0].departure_airport.iata_code == 'AMS'
-    assert 'status' not in result[0].model_dump()
-
-
-def test_missing_offsets_do_not_invent_estimate():
-    payload = flight_payload()
-    payload[0]['departure']['scheduledTime'] = {'local': '2026-11-18T10:00:00'}
-    result = parse_flights(
-        payload, FlightLookupRequest(flight_number='KL597', departure_date='2026-11-18')
-    )
-    assert result[0].duration_seconds is None
-
-
 def test_no_key_never_calls_provider(monkeypatch):
     monkeypatch.setattr(
-        'services.flight_providers.aerodatabox_flight_provider.urlopen',
+        'services.flight_providers.flightaware_flight_provider.urlopen',
         lambda *_a, **_k: pytest.fail('Unexpected network call'),
     )
     with pytest.raises(FlightUnavailable):
-        AeroDataBoxFlightProvider(
-            api_key=None, base_url='https://example.test', rapidapi_host='example.test'
+        FlightAwareFlightProvider(
+            api_key=None, base_url='https://example.test'
         ).lookup(
-            FlightLookupRequest(flight_number='KL597', departure_date='2026-11-18')
+            FlightLookupRequest(flight_number='QF6842', departure_date='2026-11-18')
         )
 
 
@@ -210,7 +162,7 @@ def test_flight_chains_include_layovers_across_dst_and_reject_invalid_totals(
     b = Endpoint(latitude=51, longitude=0, iata_code='LHR')
     c = Endpoint(latitude=48, longitude=2, iata_code='CDG')
     first = FlightLookup(
-        flight_number='KL123',
+        flight_number='QF4826',
         departure_date='2026-10-25',
         fetched_at='2026-10-18T12:00:00Z',
         departure_airport=a,
@@ -219,7 +171,7 @@ def test_flight_chains_include_layovers_across_dst_and_reject_invalid_totals(
         scheduled_arrival='2026-10-25T01:15:00+01:00',
     )
     second = FlightLookup(
-        flight_number='KL124',
+        flight_number='QF4827',
         departure_date='2026-10-25',
         fetched_at='2026-10-18T12:00:00Z',
         departure_airport=c if airport_change else b,
@@ -302,7 +254,7 @@ def test_flight_dates_only_compare_real_stop_sides(
 
     point = Endpoint(latitude=52, longitude=5)
     lookup = FlightLookup(
-        flight_number='KL597',
+        flight_number='QF6842',
         departure_date='2026-11-18',
         fetched_at='2026-11-17T12:00:00Z',
         departure_airport=point,
@@ -348,7 +300,7 @@ def test_arrival_warning_uses_destination_calendar_date(arrival, zone, stop_date
     start = Endpoint(latitude=52.3, longitude=4.7)
     end = Endpoint(latitude=35.5, longitude=139.7, timezone=zone)
     lookup = FlightLookup(
-        flight_number='KL861', departure_date='2026-11-18', fetched_at='2026-11-17T12:00:00Z',
+        flight_number='QF8274', departure_date='2026-11-18', fetched_at='2026-11-17T12:00:00Z',
         departure_airport=start, arrival_airport=end, scheduled_arrival=arrival,
     )
     segment_id = uuid.uuid4()

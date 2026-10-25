@@ -1,3 +1,4 @@
+from asyncio import to_thread
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from api.main import api_router
 from api.routers import health
 from core.config import settings
 from core.db import get_engine
+from flight_monitor.runtime import FlightMonitorRuntime
 from jobs.runtime import JobRuntime
 from services.media_cleanup_service import MediaCleanupService
 from services.media_readiness import MediaNotReadyError
@@ -21,12 +23,19 @@ async def lifespan(app: FastAPI):
     with Session(get_engine()) as db:
         MediaCleanupService(db).recover_interrupted()
     runtime = JobRuntime()
+    monitor = FlightMonitorRuntime()
     app.state.job_runtime = runtime
-    runtime.start()
+    app.state.flight_monitor = monitor
     try:
+        monitor.start()
+        await to_thread(runtime.start)
         yield
     finally:
-        runtime.stop()
+        monitor.request_stop()
+        try:
+            await to_thread(runtime.stop)
+        finally:
+            await to_thread(monitor.stop)
 
 
 app = FastAPI(

@@ -971,6 +971,40 @@ export interface paths {
         patch: operations["update_share_link_api_v1_trips__trip_id__share_links__share_link_id__patch"];
         trace?: never;
     };
+    "/api/v1/trips/{trip_id}/tracking/flights/{flight_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Tracking Flight */
+        post: operations["complete_tracking_flight_api_v1_trips__trip_id__tracking_flights__flight_id__complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trips/{trip_id}/tracking/journey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Tracking Journey */
+        get: operations["get_tracking_journey_api_v1_trips__trip_id__tracking_journey_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trips/{trip_id}/tracking/post-candidates": {
         parameters: {
             query?: never;
@@ -1686,6 +1720,24 @@ export interface components {
              */
             location_id: string;
         };
+        /** FlightAirportResponse */
+        FlightAirportResponse: {
+            /** Iata Code */
+            iata_code: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Name */
+            name: string;
+            /** Timezone */
+            timezone: string | null;
+        };
         /** FlightCandidate */
         FlightCandidate: {
             /**
@@ -1696,6 +1748,30 @@ export interface components {
             /** Duration Seconds */
             duration_seconds: number | null;
             lookup: components["schemas"]["FlightLookup"];
+        };
+        /** FlightCompleteRequest */
+        FlightCompleteRequest: {
+            /** Arrival Airport Place Id */
+            arrival_airport_place_id?: string | null;
+            /**
+             * Estimated Arrival
+             * Format: date-time
+             */
+            estimated_arrival: string;
+        };
+        /** FlightCompleteResponse */
+        FlightCompleteResponse: {
+            /**
+             * Completion Source
+             * @enum {string}
+             */
+            completion_source: "PROVIDER" | "OWNER";
+            /**
+             * Flight Id
+             * Format: uuid
+             */
+            flight_id: string;
+            session: components["schemas"]["TrackingSessionResponse"];
         };
         /** FlightIntent */
         FlightIntent: {
@@ -1711,6 +1787,16 @@ export interface components {
             departure_date?: string | null;
             /** Flight Number */
             flight_number?: string | null;
+        };
+        /** FlightJourneyResponse */
+        FlightJourneyResponse: {
+            /** Flights */
+            flights: components["schemas"]["TrackedFlightResponse"][];
+            /**
+             * Itinerary Connection Id
+             * Format: uuid
+             */
+            itinerary_connection_id: string;
         };
         /** FlightLookup */
         FlightLookup: {
@@ -1732,7 +1818,7 @@ export interface components {
             flight_number: string;
             /**
              * Provider
-             * @default aerodatabox
+             * @default flightaware
              */
             provider: string;
             /** Scheduled Arrival */
@@ -2216,6 +2302,60 @@ export interface components {
             /** Timezone */
             timezone?: string | null;
         };
+        /** JourneyPosition */
+        JourneyPosition: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "MOBILE_GPS" | "FLIGHT_ESTIMATE" | "FLIGHT_TRACK" | "POST_CONNECTOR";
+        };
+        /** JourneyResponse */
+        JourneyResponse: {
+            /** Active Flight Id */
+            active_flight_id?: string | null;
+            connector?: components["schemas"]["GeoJsonLineString"] | null;
+            /** Current Connection Id */
+            current_connection_id?: string | null;
+            /** Current Flight Segment Index */
+            current_flight_segment_index?: number | null;
+            position?: components["schemas"]["JourneyPosition"] | null;
+            remaining_flight_route?: components["schemas"]["GeoJsonLineString"] | null;
+            /**
+             * Server Time
+             * Format: date-time
+             */
+            server_time: string;
+            target?: components["schemas"]["JourneyTarget"] | null;
+            /**
+             * Visible To Members Only
+             * @default false
+             */
+            visible_to_members_only: boolean;
+        };
+        /** JourneyTarget */
+        JourneyTarget: {
+            /** Latitude */
+            latitude: number;
+            /** Longitude */
+            longitude: number;
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "AIRPORT" | "CURRENT_STOP" | "DESTINATION";
+        };
         /** LocationConnectionEndpointInput */
         LocationConnectionEndpointInput: {
             /** Location */
@@ -2631,6 +2771,8 @@ export interface components {
         PostTimelineResponse: {
             /** Entries */
             entries: components["schemas"]["PostTimelineEntryResponse"][];
+            /** Flight Journeys */
+            flight_journeys?: components["schemas"]["FlightJourneyResponse"][];
             opening_route: components["schemas"]["PostTimelineOpeningRouteResponse"] | null;
         };
         /** PostTimelineRouteResponse */
@@ -2643,6 +2785,12 @@ export interface components {
         /** PostTimelineRouteSegmentResponse */
         PostTimelineRouteSegmentResponse: {
             geometry: components["schemas"]["GeoJsonLineString"];
+            /**
+             * Source
+             * @default POST_CONNECTOR
+             * @enum {string}
+             */
+            source: "MOBILE_GPS" | "FLIGHT_ESTIMATE" | "FLIGHT_TRACK" | "POST_CONNECTOR";
             travel_mode: components["schemas"]["TravelMode"];
             /**
              * Visible To Members Only
@@ -3074,6 +3222,68 @@ export interface components {
             /** Points */
             points: components["schemas"]["TrackSessionPointReplacement"][];
         };
+        /** TrackedFlightResponse */
+        TrackedFlightResponse: {
+            /** Actual Arrival */
+            actual_arrival: string | null;
+            /** Actual Departure */
+            actual_departure: string | null;
+            /** Airline Name */
+            airline_name: string | null;
+            arrival_airport: components["schemas"]["FlightAirportResponse"] | null;
+            /**
+             * Can Complete
+             * @default false
+             */
+            can_complete: boolean;
+            /** Completion Source */
+            completion_source: ("PROVIDER" | "OWNER") | null;
+            departure_airport: components["schemas"]["FlightAirportResponse"];
+            /** Estimate Basis */
+            estimate_basis: ("PROVIDER_TIMES" | "SCHEDULED_DURATION") | null;
+            /** Estimated Arrival */
+            estimated_arrival: string | null;
+            /** Estimated Departure */
+            estimated_departure: string | null;
+            /** Flight Number */
+            flight_number: string;
+            /** Gps Tracking Session Id */
+            gps_tracking_session_id?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Position At */
+            position_at: string | null;
+            /** Position Source */
+            position_source?: ("FLIGHT_TRACK" | "FLIGHT_ESTIMATE") | null;
+            /** Progress */
+            progress: number | null;
+            /** Scheduled Arrival */
+            scheduled_arrival: string | null;
+            /**
+             * Scheduled Departure
+             * Format: date-time
+             */
+            scheduled_departure: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "UNKNOWN" | "SCHEDULED" | "CHECK_IN" | "BOARDING" | "GATE_CLOSED" | "DELAYED" | "IN_FLIGHT" | "ARRIVED" | "CANCELLED" | "DIVERTED";
+            /** Status Updated At */
+            status_updated_at: string | null;
+            /** Stop Reason */
+            stop_reason: ("MANUAL" | "NEXT_FLIGHT_DEPARTED") | null;
+            /**
+             * Update State
+             * @enum {string}
+             */
+            update_state: "CURRENT" | "STALE" | "UNAVAILABLE";
+            /** Visible To Members Only */
+            visible_to_members_only: boolean;
+        };
         /** TrackingConflictResponse */
         TrackingConflictResponse: {
             /** Detail */
@@ -3129,6 +3339,12 @@ export interface components {
             recorded_by_user_id: string | null;
             /** Sample Count */
             sample_count: number;
+            /**
+             * Source
+             * @default MOBILE_GPS
+             * @enum {string}
+             */
+            source: "MOBILE_GPS" | "FLIGHT_ESTIMATE" | "FLIGHT_TRACK";
             /**
              * Started At
              * Format: date-time
@@ -7252,6 +7468,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TripShareLinkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_tracking_flight_api_v1_trips__trip_id__tracking_flights__flight_id__complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trip_id: string;
+                flight_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FlightCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlightCompleteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tracking_journey_api_v1_trips__trip_id__tracking_journey_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Trip-Share-Token"?: string | null;
+            };
+            path: {
+                trip_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JourneyResponse"];
                 };
             };
             /** @description Validation Error */

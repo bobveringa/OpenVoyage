@@ -63,7 +63,7 @@ def test_route_overview_access_and_private_planning_boundaries(
         headers={**headers, 'If-Match': '"0"'},
         json={
             'location': {'place_id': str(place.id)},
-            'title': 'Private title KL597',
+            'title': 'Private title QF6842',
             'notes': 'Private stop note',
             'planned_nights': 3,
             'placement': {'planned_start_date': '2099-05-10', 'after_stop_id': None},
@@ -86,7 +86,7 @@ def test_route_overview_access_and_private_planning_boundaries(
                     'travel_mode': 'FLIGHT',
                     'notes': 'Private segment note',
                     'flight': {
-                        'flight_number': 'KL597',
+                        'flight_number': 'QF6842',
                         'departure_date': '2099-05-09',
                     },
                 }
@@ -185,7 +185,7 @@ def test_route_overview_access_and_private_planning_boundaries(
                 check(child)
 
     check(data)
-    assert 'KL597' not in overview.text
+    assert 'QF6842' not in overview.text
     assert 'Private' not in overview.text
     assert '2099-05' not in overview.text
 

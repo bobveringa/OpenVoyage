@@ -52,6 +52,22 @@ Use them in integration tests for concise setup.
 
 ## Running Tests
 
+Flight unit tests mock the provider and HTTP responses; no real flight provider or
+API key is required. Ordinary integration tests also stub flight lookups and
+disable the application's background flight monitor. Database integration tests
+require Docker for their temporary PostGIS database.
+
+Only these explicitly enabled flight tests make real, potentially billable
+FlightAware requests and require `FLIGHTAWARE_API_KEY` in the environment or root
+`.env`:
+
+- `tests/integration/services/test_flightaware_live.py`: set `RUN_LIVE_FLIGHTAWARE_TESTS=1`.
+- `tests/integration/services/test_flight_live.py`: set `RUN_LIVE_FLIGHT_TESTS=1`.
+
+Both modules skip by default. Mocked flight numbers are fixed synthetic examples
+using airlines outside Europe; the opt-in live checks use QF12 and NZ6, which must
+operate on the requested dates. Do not replace mocked examples with personal trips.
+
 ```powershell
 cd C:\Users\BobVe\PycharmProjects\TravelBlog\backend
 python -m pytest -m unit

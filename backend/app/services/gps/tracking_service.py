@@ -5,7 +5,7 @@ import binascii
 import json
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from sqlalchemy import delete, func, or_, select, update
@@ -65,6 +65,10 @@ class TrackingSessionConflictError(Exception):
     """Raised when a session lifecycle action or upload conflicts with stored state."""
 
 
+class FlightRecordingActiveError(TrackingSessionConflictError):
+    pass
+
+
 class TrackingSessionDeletedError(TrackingSessionConflictError):
     """A retained session identity must never be recreated."""
 
@@ -114,6 +118,7 @@ class _Anchor:
     # A long stay or a post candidate. Simplification must keep these even when
     # they are collinear with the route, so a marker never sits off the line.
     is_semantic_marker: bool = False
+    source: str = 'MOBILE_GPS'
 
     @property
     def id(self) -> uuid.UUID:
@@ -157,17 +162,23 @@ class GpsTrackingService:
         issuing: bool = False,
     ) -> GpsTrackingSession | None:
         if issuing:
-            self._require_trip_permission(trip_id=trip_id, user_id=current_user_id,
-                                          permission=TripPermission.MANAGE_TRACKING)
+            self._require_trip_permission(
+                trip_id=trip_id,
+                user_id=current_user_id,
+                permission=TripPermission.MANAGE_TRACKING,
+            )
         else:
             self._require_membership(trip_id=trip_id, user_id=current_user_id)
         self._lock_trip(trip_id)
-        row = self.db.get(GpsTrackingSession, session_id)
+        row = self.db.get(GpsTrackingSession, session_id, populate_existing=True)
         if row is not None:
             if row.trip_id != trip_id:
                 raise TrackingSessionConflictError('Session belongs to another trip')
+            self._require_mobile(row)
             if row.recorded_by_user_id != current_user_id:
-                raise TrackingPermissionError('Only the recorder may reconcile this session')
+                raise TrackingPermissionError(
+                    'Only the recorder may reconcile this session'
+                )
             if issuing and row.deleted_at is not None:
                 raise TrackingSessionDeletedError('This recording was deleted.')
         return row
@@ -186,7 +197,10 @@ class GpsTrackingService:
         sessions = list(
             self.db.execute(
                 select(GpsTrackingSession)
-                .where(GpsTrackingSession.trip_id == trip_id, GpsTrackingSession.deleted_at.is_(None))
+                .where(
+                    GpsTrackingSession.trip_id == trip_id,
+                    GpsTrackingSession.deleted_at.is_(None),
+                )
                 .order_by(
                     GpsTrackingSession.started_at.asc(),
                     GpsTrackingSession.id.asc(),
@@ -231,19 +245,22 @@ class GpsTrackingService:
             raise TrackingValidationError('ended_at must not precede started_at')
 
         self._lock_trip(trip_id)
-        existing = self.db.get(GpsTrackingSession, session_id)
+        existing = self.db.get(GpsTrackingSession, session_id, populate_existing=True)
         if existing is not None:
             if existing.trip_id != trip_id:
                 raise TrackingSessionConflictError(
                     f'Session belongs to another trip: {session_id}'
                 )
+            self._require_mobile(existing)
             if existing.recorded_by_user_id != current_user_id:
                 raise TrackingPermissionError('Only the recorder may retry creation')
             if existing.deleted_at is not None:
                 raise TrackingSessionDeletedError('This recording was deleted.')
             if existing.started_at != payload.started_at:
                 raise TrackingSessionConflictError('Session start time differs')
-            return SessionSummary(existing, self._count_samples(session_id), created=False)
+            return SessionSummary(
+                existing, self._count_samples(session_id), created=False
+            )
 
         self._require_no_overlap(
             trip_id=trip_id,
@@ -281,18 +298,30 @@ class GpsTrackingService:
                 permission=TripPermission.MANAGE_TRACKING,
             )
         self._lock_trip(trip_id)
-        existing = self.db.get(GpsTrackingSession, session_id)
+        existing = self.db.get(GpsTrackingSession, session_id, populate_existing=True)
         if existing is None:
             raise TrackingSessionNotFoundError(f'Session not found: {session_id}')
         if existing.trip_id != trip_id:
             raise TrackingSessionConflictError(
                 f'Session belongs to another trip: {session_id}'
             )
-        self._require_session_controller(existing, current_user_id)
+        if existing.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+            self._require_trip_permission(
+                trip_id=trip_id,
+                user_id=current_user_id,
+                permission=TripPermission.MANAGE_TRACKING,
+            )
+        else:
+            self._require_session_controller(existing, current_user_id)
         if existing.deleted_at is not None:
             raise TrackingSessionDeletedError('This recording was deleted.')
+        if existing.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+            from services.gps.flight_tracking_service import FlightTrackingService
+            FlightTrackingService(self.db).cancel_final(existing)
         # Offline end retries must never extend a remotely stopped recording.
         if existing.ended_at is not None:
+            if existing.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+                self.db.commit()
             return SessionSummary(
                 session=existing, sample_count=self._count_samples(session_id)
             )
@@ -318,8 +347,13 @@ class GpsTrackingService:
                 session_id=session_id,
                 started_at=existing.started_at,
                 ended_at=resolved_end,
+                source=existing.source,
             )
             existing.ended_at = resolved_end
+            if existing.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+                from services.gps.flight_tracking_service import FlightTrackingService
+
+                FlightTrackingService(self.db).stop(existing, 'MANUAL')
             self.db.add(existing)
             # Closing a session settles its final point and any journey that was
             # still under way, so its candidates change on the way out.
@@ -363,6 +397,7 @@ class GpsTrackingService:
         )
         self._lock_trip(trip_id)
         session = self._get_session(trip_id=trip_id, session_id=session_id)
+        self._require_editable(session)
         rows = list(
             self.db.scalars(
                 select(GpsTrackSample)
@@ -374,7 +409,7 @@ class GpsTrackingService:
         zones = self.privacy_zones.list_trip_member_zone_coordinates(trip_id=trip_id)
 
         def check_privacy(lat, lon):
-            if self.privacy_zones.is_within_any_zone(
+            if session.source not in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK') and self.privacy_zones.is_within_any_zone(
                 latitude=lat, longitude=lon, zones=zones
             ):
                 raise TrackingValidationError(
@@ -501,8 +536,15 @@ class GpsTrackingService:
         )
         self._lock_trip(trip_id)
         session = self._get_session(trip_id=trip_id, session_id=session_id)
-        self.db.execute(delete(GpsTrackSample).where(GpsTrackSample.session_id == session_id))
+        self.db.execute(
+            delete(GpsTrackSample).where(GpsTrackSample.session_id == session_id)
+        )
         session.deleted_at = utcnow()
+        if session.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+            session.ended_at = session.ended_at or max(session.started_at, utcnow())
+            from services.gps.flight_tracking_service import FlightTrackingService
+
+            FlightTrackingService(self.db).stop(session, 'MANUAL')
         self.db.commit()
 
     # ------------------------------------------------------------------
@@ -521,7 +563,7 @@ class GpsTrackingService:
         self._require_membership(trip_id=trip_id, user_id=current_user_id)
 
         self._lock_trip(trip_id)
-        session = self.db.get(GpsTrackingSession, session_id)
+        session = self.db.get(GpsTrackingSession, session_id, populate_existing=True)
         if session is not None and session.trip_id != trip_id:
             raise TrackingSessionConflictError(
                 f'Session belongs to another trip: {session_id}'
@@ -530,6 +572,7 @@ class GpsTrackingService:
             # Not an error the client should give up on: the batch may simply
             # have overtaken the session creation request.
             raise TrackingSessionNotFoundError(f'Session not found: {session_id}')
+        self._require_mobile(session)
         if (
             session.recorded_by_user_id is None
             or session.recorded_by_user_id != current_user_id
@@ -782,6 +825,9 @@ class GpsTrackingService:
         incremental update would have to keep enough suspended state to undo
         that anyway.
         """
+        if session.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+            self.db.execute(update(GpsTrackSample).where(GpsTrackSample.session_id == session.id).values(is_display_retained=True))
+            return
         rows = self.db.execute(
             select(
                 GpsTrackSample.id,
@@ -1008,6 +1054,10 @@ class GpsTrackingService:
             )
         if len(session_ids) > 1:
             raise TrackingValidationError('Edit only one recording at a time')
+        for session in self.db.scalars(
+            select(GpsTrackingSession).where(GpsTrackingSession.id.in_(session_ids))
+        ):
+            self._require_editable(session)
         return session_ids
 
     # ------------------------------------------------------------------
@@ -1028,11 +1078,25 @@ class GpsTrackingService:
         rather than issuing a query per post interval. Which points that is, and
         which of them are semantic markers, were both decided on the write path.
         """
-        open_session = self._get_open_session(trip_id)
-        open_session_id = open_session.id if open_session is not None else None
         gps_anchors = self._load_gps_anchors(trip_id)
 
+        gps_anchors, flight_intervals, _ = self._flight_anchors(trip_id, gps_anchors)
+        open_session_ids = set(
+            self.db.scalars(
+                select(GpsTrackingSession.id).where(
+                    GpsTrackingSession.trip_id == trip_id,
+                    GpsTrackingSession.ended_at.is_(None),
+                    GpsTrackingSession.deleted_at.is_(None),
+                )
+            )
+        )
+        # Existing helpers accept membership checks via a set of open session IDs.
+        open_session_id = open_session_ids
         post_anchors = [self._post_anchor(post) for post in posts]
+        post_anchors = [
+            self._project_post(anchor, gps_anchors, flight_intervals)
+            for anchor in post_anchors
+        ]
 
         if not post_anchors:
             return self._postless_geometry(
@@ -1073,7 +1137,7 @@ class GpsTrackingService:
         self,
         *,
         gps_anchors: list[_Anchor],
-        open_session_id: uuid.UUID | None,
+        open_session_id: set[uuid.UUID],
         is_member: bool,
         share_live_location: bool,
     ) -> TimelineGeometry:
@@ -1086,7 +1150,7 @@ class GpsTrackingService:
         anchors = [
             anchor
             for anchor in gps_anchors
-            if include_open or anchor.session_id != open_session_id
+            if include_open or anchor.session_id not in open_session_id
         ]
         segments = (
             self._segments_from_anchors(
@@ -1099,7 +1163,7 @@ class GpsTrackingService:
             else None
         )
         opening_has_open_endpoint = segments is not None and any(
-            anchor.session_id == open_session_id for anchor in anchors
+            anchor.session_id in open_session_id for anchor in anchors
         )
         return TimelineGeometry(
             opening_segments=segments,
@@ -1169,7 +1233,7 @@ class GpsTrackingService:
         *,
         gps_anchors: list[_Anchor],
         final_post: _Anchor,
-        open_session_id: uuid.UUID | None,
+        open_session_id: set[uuid.UUID],
         is_member: bool,
         share_live_location: bool,
     ) -> tuple[list[PostTimelineRouteSegmentResponse] | None, bool]:
@@ -1189,7 +1253,7 @@ class GpsTrackingService:
                 [final_post, *trailing],
                 visible_to_members_only=is_member and not share_live_location,
             ),
-            open_session_id is not None and trailing[-1].session_id == open_session_id,
+            bool(open_session_id) and trailing[-1].session_id in open_session_id,
         )
 
     # ------------------------------------------------------------------
@@ -1228,6 +1292,7 @@ class GpsTrackingService:
                 GpsTrackSample.session_id,
                 GpsTrackSample.is_post_candidate,
                 GpsTrackingSession.started_at,
+                GpsTrackingSession.source,
             )
             .join(
                 GpsTrackingSession,
@@ -1236,6 +1301,7 @@ class GpsTrackingService:
             .where(
                 GpsTrackSample.trip_id == trip_id,
                 GpsTrackSample.is_display_retained,
+                GpsTrackingSession.deleted_at.is_(None),
             )
             .order_by(
                 GpsTrackSample.recorded_at.asc(),
@@ -1269,6 +1335,7 @@ class GpsTrackingService:
                 # Long stays are stored as candidates too, so this one column
                 # covers every marker simplification has to preserve.
                 is_semantic_marker=row.is_post_candidate,
+                source=row.source,
             )
             for row in rows
         ]
@@ -1278,7 +1345,7 @@ class GpsTrackingService:
         anchors: list[_Anchor],
         *,
         visible_to_members_only: bool = False,
-        member_only_session_id: uuid.UUID | None = None,
+        member_only_session_id: set[uuid.UUID] | None = None,
     ) -> list[PostTimelineRouteSegmentResponse]:
         """Turn a chronological anchor list into mode-split, simplified segments."""
         if len(anchors) == 1:
@@ -1293,16 +1360,17 @@ class GpsTrackingService:
                     visible_to_members_only=visible_to_members_only
                     or (
                         member_only_session_id is not None
-                        and only.session_id == member_only_session_id
+                        and only.session_id in member_only_session_id
                     ),
                 )
             ]
 
         segments: list[PostTimelineRouteSegmentResponse] = []
         current_mode = self._edge_mode(anchors[0], anchors[1])
+        current_source = self._edge_source(anchors[0], anchors[1])
         current_member_only = visible_to_members_only or (
             member_only_session_id is not None
-            and anchors[1].session_id == member_only_session_id
+            and anchors[1].session_id in member_only_session_id
         )
         current: list[_Anchor] = [anchors[0], anchors[1]]
 
@@ -1310,9 +1378,14 @@ class GpsTrackingService:
             mode = self._edge_mode(previous, current_anchor)
             member_only = visible_to_members_only or (
                 member_only_session_id is not None
-                and current_anchor.session_id == member_only_session_id
+                and current_anchor.session_id in member_only_session_id
             )
-            if mode != current_mode or member_only != current_member_only:
+            source = self._edge_source(previous, current_anchor)
+            if (
+                mode != current_mode
+                or source != current_source
+                or member_only != current_member_only
+            ):
                 segments.append(
                     self._segment(
                         current_mode,
@@ -1323,6 +1396,7 @@ class GpsTrackingService:
                 # The boundary coordinate belongs to both adjacent segments.
                 current = [current[-1]]
                 current_mode = mode
+                current_source = source
                 current_member_only = member_only
             current.append(current_anchor)
 
@@ -1366,9 +1440,12 @@ class GpsTrackingService:
             return cls._line_segment(
                 travel_mode,
                 coordinates * 2,
+                source=anchors[0].source,
                 visible_to_members_only=visible_to_members_only,
             )
 
+        if anchors[0].source == 'FLIGHT_TRACK' and all(a.session_id == anchors[0].session_id for a in anchors):
+            return cls._line_segment(travel_mode, coordinates, source='FLIGHT_TRACK', visible_to_members_only=visible_to_members_only)
         required_indices = {
             index for index, anchor in enumerate(anchors) if anchor.is_semantic_marker
         }
@@ -1382,6 +1459,7 @@ class GpsTrackingService:
         return cls._line_segment(
             travel_mode,
             simplified if len(simplified) > 1 else simplified * 2,
+            source=cls._edge_source(anchors[0], anchors[1]),
             visible_to_members_only=visible_to_members_only,
         )
 
@@ -1391,10 +1469,12 @@ class GpsTrackingService:
         coordinates: list[tuple[float, float]],
         *,
         visible_to_members_only: bool,
+        source: str = 'POST_CONNECTOR',
     ) -> PostTimelineRouteSegmentResponse:
         return PostTimelineRouteSegmentResponse(
             travel_mode=travel_mode,
             geometry=GeoJsonLineString(coordinates=coordinates),
+            source=source,
             visible_to_members_only=visible_to_members_only,
         )
 
@@ -1448,6 +1528,7 @@ class GpsTrackingService:
         return self.db.execute(
             select(GpsTrackingSession).where(
                 GpsTrackingSession.trip_id == trip_id,
+                GpsTrackingSession.source == 'MOBILE_GPS',
                 GpsTrackingSession.ended_at.is_(None),
                 GpsTrackingSession.deleted_at.is_(None),
             )
@@ -1460,11 +1541,13 @@ class GpsTrackingService:
         session_id: uuid.UUID,
     ) -> GpsTrackingSession:
         session = self.db.execute(
-            select(GpsTrackingSession).where(
+            select(GpsTrackingSession)
+            .where(
                 GpsTrackingSession.id == session_id,
                 GpsTrackingSession.trip_id == trip_id,
                 GpsTrackingSession.deleted_at.is_(None),
             )
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         if session is None:
             raise TrackingSessionNotFoundError(f'Session not found: {session_id}')
@@ -1477,6 +1560,7 @@ class GpsTrackingService:
         session_id: uuid.UUID,
         started_at: datetime,
         ended_at: datetime | None,
+        source: str = 'MOBILE_GPS',
     ) -> None:
         """Reject a session interval that collides with an accepted one.
 
@@ -1488,6 +1572,7 @@ class GpsTrackingService:
             select(GpsTrackingSession).where(
                 GpsTrackingSession.trip_id == trip_id,
                 GpsTrackingSession.id != session_id,
+                GpsTrackingSession.source.in_(('FLIGHT_ESTIMATE', 'FLIGHT_TRACK')) if source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK') else GpsTrackingSession.source == source,
                 GpsTrackingSession.deleted_at.is_(None),
             )
         ).scalars()
@@ -1503,3 +1588,142 @@ class GpsTrackingService:
                 raise TrackingSessionConflictError(
                     f'Session overlaps an accepted session: {other.id}'
                 )
+
+    @staticmethod
+    def _require_mobile(session):
+        if session.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+            raise TrackingPermissionError(
+                'Flight recordings are managed by the server.'
+            )
+
+    def _require_editable(self, session):
+        if session.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK') and session.ended_at is None:
+            raise FlightRecordingActiveError(
+                'Complete or stop this flight recording before editing its points.'
+            )
+        if session.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK'):
+            from services.gps.flight_tracking_service import FlightTrackingService
+            FlightTrackingService(self.db).cancel_final(session)
+
+    @staticmethod
+    def _edge_source(a, b):
+        if a.source == b.source and a.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK') and a.session_id == b.session_id:
+            return a.source
+        if a.is_post and b.is_post:
+            return 'POST_CONNECTOR'
+        return 'MOBILE_GPS'
+
+    def _flight_anchors(self, trip_id, anchors):
+        from services.gps.flight_tracking_service import (
+            FlightTrackingService,
+            airport_coordinates,
+        )
+        from services.gps.flight_geometry import arc, estimate
+
+        intervals = []
+        occluded_intervals = []
+        open_id = None
+        for flight in FlightTrackingService(self.db).flights(trip_id):
+            session = flight.session
+            if session is None or session.deleted_at or flight.stop_reason:
+                continue
+            e = estimate(flight, utcnow())
+            if session.ended_at is None:
+                occluded_intervals.append((session.started_at, utcnow()))
+                if session.source == 'FLIGHT_TRACK':
+                    open_id = session.id
+                    intervals.append((session.started_at, utcnow(), session.id))
+                    continue
+                if e is None:
+                    continue
+                open_id = session.id
+                end = e.position_at
+                coordinates = arc(
+                    airport_coordinates(flight.departure_airport),
+                    airport_coordinates(flight.arrival_airport),
+                    finish=e.progress,
+                )
+                points = [
+                    _Anchor(
+                        sort_key=(
+                            session.started_at + (end - session.started_at) * i / 64,
+                            1,
+                            session.started_at,
+                            session.id,
+                            i,
+                        ),
+                        recorded_at=session.started_at
+                        + (end - session.started_at) * i / 64,
+                        longitude=c[0],
+                        latitude=c[1],
+                        travel_mode=TravelMode.FLIGHT,
+                        is_post=False,
+                        session_id=session.id,
+                        source='FLIGHT_ESTIMATE',
+                    )
+                    for i, c in enumerate(coordinates)
+                ]
+                anchors = [a for a in anchors if a.session_id != session.id]
+                anchors.extend(points)
+            elif flight.completion_source:
+                end = session.ended_at
+                occluded_intervals.append((session.started_at, end))
+            else:
+                continue
+            intervals.append(
+                (
+                    session.started_at,
+                    utcnow() if session.ended_at is None else end,
+                    session.id,
+                )
+            )
+        anchors = [
+            a
+            for a in anchors
+            if a.source in ('FLIGHT_ESTIMATE', 'FLIGHT_TRACK')
+            or not any(
+                start <= a.recorded_at <= end for start, end in occluded_intervals
+            )
+        ]
+        return sorted(anchors, key=lambda a: a.sort_key), intervals, open_id
+
+    @staticmethod
+    def _project_post(anchor, gps_anchors, intervals):
+        for start, end, session_id in intervals:
+            if start <= anchor.recorded_at <= end:
+                points = [a for a in gps_anchors if a.session_id == session_id]
+                before = next(
+                    (
+                        a
+                        for a in reversed(points)
+                        if a.recorded_at <= anchor.recorded_at
+                    ),
+                    points[0] if points else None,
+                )
+                after = next(
+                    (a for a in points if a.recorded_at >= anchor.recorded_at),
+                    points[-1] if points else None,
+                )
+                if before and after:
+                    from services.gps.flight_geometry import arc_point
+
+                    fraction = (
+                        (anchor.recorded_at - before.recorded_at)
+                        / (after.recorded_at - before.recorded_at)
+                        if after.recorded_at > before.recorded_at
+                        else 0
+                    )
+                    lon, lat = arc_point(
+                        (before.longitude, before.latitude),
+                        (after.longitude, after.latitude),
+                        fraction,
+                    )
+                    return replace(
+                        anchor,
+                        latitude=lat,
+                        longitude=lon,
+                        source=before.source,
+                        session_id=session_id,
+                        travel_mode=TravelMode.FLIGHT,
+                    )
+        return anchor

@@ -13,10 +13,12 @@ import { Compass } from 'lucide-react'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { PlanningSessionContext } from './planning-session'
 import { airportTransferLabel, getAirportTransfers, type AirportTransfer } from './airport-transfers'
+import { flightFocusCoordinates } from './flight-map-focus'
 
 import {
   type GpsPostCandidate,
   type ItineraryRouteType,
+  type TrackingJourney,
 } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { getTravelPostsInRouteOrder } from '@/pages/trip-detail/trip-selectors'
@@ -63,7 +65,7 @@ type DraftPostLocation = {
 }
 
 export type MapRouteMode = 'itinerary' | 'travel-timeline'
-type RouteSegmentKind = 'itinerary' | 'post-link' | 'post-to-stop'
+type RouteSegmentKind = 'itinerary' | 'post-link' | 'post-to-stop' | 'journey'
 
 type RouteSegment = {
   coordinates: L.LatLngTuple[]
@@ -73,6 +75,8 @@ type RouteSegment = {
   visibleToMembersOnly?: boolean
   alternative?: boolean
   transfer?: AirportTransfer
+  connectionId?: string
+  segmentIndex?: number
 }
 
 type FocusedPostNeighbor = {
@@ -193,6 +197,8 @@ export function TripLeafletMap({
   draftMapLocation,
   fitMode = 'workspace',
   focusedPostId = null,
+  focusedFlightId = null,
+  flightFocusBottomPadding,
   gpsPostCandidates = [],
   isTripOngoing = false,
   mapPointEnabled,
@@ -209,6 +215,8 @@ export function TripLeafletMap({
   draftMapLocation: DraftPostLocation | null
   fitMode?: RouteFitMode
   focusedPostId?: string | null
+  focusedFlightId?: string | null
+  flightFocusBottomPadding?: number
   gpsPostCandidates?: readonly GpsPostCandidate[]
   isTripOngoing?: boolean
   mapPointEnabled: boolean
@@ -243,6 +251,7 @@ export function TripLeafletMap({
   const routeLayerRef = useRef<RepeatedWorldLayer | null>(null)
   const tileLayerRef = useRef<L.TileLayer | null>(null)
   const focusedPostIdRef = useRef<string | null>(focusedPostId)
+  const focusedFlightIdRef = useRef<string | null>(focusedFlightId)
   const travelPostsRef = useRef(travelPosts)
   const stopsRef = useRef(stops)
   const connectionsRef = useRef(connections)
@@ -257,8 +266,12 @@ export function TripLeafletMap({
     travelPosts,
     trackingGeometry,
   )
+  const selectedFlight = trackingGeometry.flightJourneys?.flatMap(journey => journey.flights).find(flight => flight.id === focusedFlightId)
+  const flightFocusKey = JSON.stringify(selectedFlight ? [selectedFlight.id, selectedFlight.flight_number,
+    selectedFlight.departure_airport, selectedFlight.arrival_airport] : null)
 
   focusedPostIdRef.current = focusedPostId
+  focusedFlightIdRef.current = focusedFlightId
   travelPostsRef.current = travelPosts
   trackingGeometryRef.current = trackingGeometry
   gpsPostCandidatesRef.current = gpsPostCandidates
@@ -418,6 +431,7 @@ export function TripLeafletMap({
       trackingGeometryRef.current.openingRoute,
       onAirportTransferSelect && routeMode === 'itinerary' ? (transfer) => latestTransferSelectRef.current?.(transfer.connectionId, transfer.side) : undefined,
       offset,
+      trackingGeometryRef.current.journey,
     ))
 
     const routeEndpointLayer = routeEndpointLayerRef.current
@@ -456,7 +470,7 @@ export function TripLeafletMap({
         }),
       )
       const viewKey = `${routeMode}:${fitMode}:${JSON.stringify(outsideAnchors)}:${fitMode === 'route-preview' || fitMode === 'route-selector' ? routeKey : ''}`
-      if (!focusedPostIdRef.current && fittedViewRef.current !== viewKey) {
+      if (!focusedPostIdRef.current && !focusedFlightIdRef.current && fittedViewRef.current !== viewKey) {
         fitRouteBounds(
           map,
           routeMode,
@@ -465,9 +479,10 @@ export function TripLeafletMap({
           travelPostsRef.current,
           trackingGeometryRef.current.openingRoute,
           fitMode,
+          { journey: trackingGeometryRef.current.journey },
         )
         if (getMapRouteSegments(routeMode, stopsRef.current, connectionsRef.current,
-          travelPostsRef.current, trackingGeometryRef.current.openingRoute).length > 0) {
+          travelPostsRef.current, trackingGeometryRef.current.openingRoute, trackingGeometryRef.current.journey).length > 0) {
           fittedViewRef.current = viewKey
         }
       }
@@ -482,7 +497,8 @@ export function TripLeafletMap({
     const observer = new ResizeObserver(() => {
       map.invalidateSize({ animate: false })
       fitRouteBounds(map, routeMode, stopsRef.current, connectionsRef.current,
-        travelPostsRef.current, trackingGeometryRef.current.openingRoute, fitMode)
+        travelPostsRef.current, trackingGeometryRef.current.openingRoute, fitMode,
+        { journey: trackingGeometryRef.current.journey })
     })
     observer.observe(map.getContainer())
     return () => observer.disconnect()
@@ -490,7 +506,25 @@ export function TripLeafletMap({
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || routeMode !== 'travel-timeline') {
+    if (!map) return
+    map.setMinZoom(focusedFlightId && routeMode === 'travel-timeline' && fitMode.startsWith('mobile-') ? 0 : 3)
+    if (routeMode !== 'travel-timeline') return
+
+    // Flights are carousel stories too; frame their own leg instead of neighboring posts.
+    if (focusedFlightId) {
+      const flight = trackingGeometryRef.current.flightJourneys?.flatMap(journey => journey.flights)
+        .find(item => item.id === focusedFlightId)
+      if (!flight) return
+      const coordinates = flightFocusCoordinates(flight)
+      const first = nearestWorldCoordinate(coordinates[0], map.getCenter().lng)
+      const shifted = shiftWorldRoute(coordinates, first[1] - coordinates[0][1])
+      const padding = getFocusedPostFitOptions(fitMode)
+      map.stop()
+      map.flyToBounds(L.latLngBounds(shifted), {
+        ...padding,
+        ...(flightFocusBottomPadding !== undefined ? { paddingBottomRight: [40, flightFocusBottomPadding] as L.PointTuple } : {}),
+        ...focusedPostAnimationOptions, maxZoom: 9,
+      })
       return
     }
 
@@ -503,7 +537,7 @@ export function TripLeafletMap({
         travelPostsRef.current,
         trackingGeometryRef.current.openingRoute,
         fitMode,
-        { animate: true },
+        { animate: true, journey: trackingGeometryRef.current.journey },
       )
       return
     }
@@ -532,7 +566,7 @@ export function TripLeafletMap({
       focusedPostView.zoom,
       focusedPostAnimationOptions,
     )
-  }, [fitMode, focusedPostId, routeMode])
+  }, [fitMode, focusedPostId, focusedFlightId, flightFocusKey, flightFocusBottomPadding, routeMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -578,7 +612,7 @@ export function TripLeafletMap({
       travelPostsRef.current,
       trackingGeometryRef.current.openingRoute,
       fitMode,
-      { animate: true },
+      { animate: true, journey: trackingGeometryRef.current.journey },
     )
   }, [fitMode, resetNonce, routeMode])
 
@@ -600,6 +634,7 @@ function renderRouteLayer(
   openingRoute: TravelPostRoute | null,
   onTransferSelect?: (transfer: AirportTransfer) => void,
   longitudeOffset = 0,
+  journey?: TrackingJourney,
 ) {
   const routeSegments = getMapRouteSegments(
     routeMode,
@@ -607,6 +642,7 @@ function renderRouteLayer(
     connections,
     travelPosts,
     openingRoute,
+    journey,
   )
   for (const segment of routeSegments) {
     if (segment.coordinates.length < 2) {
@@ -618,6 +654,9 @@ function renderRouteLayer(
       coordinates,
       getRouteSegmentPathOptions(segment, routeMode),
     ).addTo(routeLayer)
+
+    if (segment.connectionId) line.getElement()?.setAttribute('data-itinerary-connection-id', segment.connectionId)
+    if (segment.segmentIndex !== undefined) line.getElement()?.setAttribute('data-itinerary-segment-index', String(segment.segmentIndex))
 
     if (segment.transfer) {
       const transfer = segment.transfer
@@ -654,6 +693,16 @@ function renderRouteLayer(
       opacity: 0.85,
       weight: 2,
     }).addTo(routeLayer)
+  }
+
+  if (routeMode === 'travel-timeline' && journey) {
+    if (journey.position && journey.active_flight_id) {
+      const marker = L.circleMarker(shiftWorldCoordinate([journey.position.latitude, journey.position.longitude], longitudeOffset), {
+        className: 'trip-map-flight-position', radius: 7, color: getThemeColor('--card', '#FFFFFF'), weight: 3,
+        fillColor: getThemeColor('--primary', '#0F766E'), fillOpacity: 1,
+      }).addTo(routeLayer).bindTooltip(journey.position.source === 'FLIGHT_TRACK' ? 'Observed flight position' : 'Estimated flight position')
+      marker.getElement()?.setAttribute('aria-label', journey.position.source === 'FLIGHT_TRACK' ? 'Observed flight position' : 'Estimated flight position')
+    }
   }
 
   const showStopOrder = routeMode === 'itinerary'
@@ -806,7 +855,7 @@ function fitRouteBounds(
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
   fitMode: RouteFitMode,
-  options: { animate?: boolean } = {},
+  options: { animate?: boolean; journey?: TrackingJourney } = {},
 ) {
   const routeCoordinates = getRouteBoundsCoordinates(
     routeMode,
@@ -814,6 +863,7 @@ function fitRouteBounds(
     connections,
     travelPosts,
     openingRoute,
+    options.journey,
   )
   if (routeCoordinates.length === 0) {
     map.setView(defaultMapCenter, defaultMapZoom, {
@@ -838,7 +888,7 @@ function fitRouteBounds(
 }
 
 function getRouteFitOptions(fitMode: RouteFitMode): L.FitBoundsOptions {
-  if (fitMode === 'route-preview') return { paddingTopLeft: [28, 28], paddingBottomRight: [48, 88], maxZoom: 12, animate: false }
+  if (fitMode === 'route-preview') return { paddingTopLeft: [28, 28], paddingBottomRight: [48, 40], maxZoom: 12, animate: false }
   if (fitMode === 'mobile-fullscreen') {
     return { maxZoom: 8, paddingTopLeft: [32, 112], paddingBottomRight: [64, 48] }
   }
@@ -1138,6 +1188,7 @@ function createRouteKey(
     connectionKey,
     postKey,
     openingRouteKey,
+    JSON.stringify(trackingGeometry.journey),
   ].join('::')
 }
 
@@ -1147,6 +1198,7 @@ function getMapRouteSegments(
   connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
+  journey?: TrackingJourney,
 ): RouteSegment[] {
   if (routeMode === 'travel-timeline') {
     return getTravelTimelineRouteSegments(
@@ -1154,6 +1206,7 @@ function getMapRouteSegments(
       connections,
       travelPosts,
       openingRoute,
+      journey,
     )
   }
 
@@ -1163,33 +1216,49 @@ function getMapRouteSegments(
 function getItineraryRouteSegments(
   stops: readonly MapStop[],
   connections: readonly MapConnection[],
+  journey?: TrackingJourney,
 ): RouteSegment[] {
   const segments: RouteSegment[] = []
   for (const connection of connections) {
-    const fromStop = resolveConnectionEndpoint(connection.from, stops)
+    const current = connection.id === journey?.current_connection_id
+    // Travel hides visited stops. The current connection must still render its
+    // later legs when its departure stop has already left the visible stop list.
+    const origin = connection.segments[0]?.from_endpoint
+    const fromStop = resolveConnectionEndpoint(connection.from, stops) ?? (current && origin
+      ? { title: origin.name, location: origin } : null)
     const toStop = resolveConnectionEndpoint(connection.to, stops)
-    if (!fromStop || !toStop) continue
+    if ((!fromStop || !toStop) && !current) continue
+    const flightIndex = current ? journey?.current_flight_segment_index ?? -1 : -1
     if (connection?.segments?.length) {
-      for (const transfer of getAirportTransfers(connection, fromStop, toStop)) {
+      for (const transfer of fromStop && toStop ? getAirportTransfers(connection, fromStop, toStop) : []) {
+        if (current && (transfer.side === 'departure' || flightIndex < 0)) continue
         segments.push({
           coordinates: createGeodesicRoute([[transfer.from.latitude, transfer.from.longitude], [transfer.to.latitude, transfer.to.longitude]]),
-          kind: 'itinerary', routeType: 'SIMPLE', transfer,
+          kind: 'itinerary', routeType: 'SIMPLE', transfer, connectionId: connection.id,
         })
       }
-      for (const segment of connection.segments) {
+      for (const [index, segment] of connection.segments.entries()) {
+        if (current && (flightIndex < 0 || index < flightIndex || (index === flightIndex && journey?.active_flight_id))) continue
         // Missing road calculations have no honest road geometry to draw.
         if (['CAR', 'BIKE', 'WALK'].includes(segment.intent.travel_mode) && segment.route_state !== 'READY') continue
-        if (!segment.geometry) continue
-        const coordinates = getGeoJsonLineStringCoordinates(segment.geometry)
+        const geometry = segment.geometry ?? (segment.intent.travel_mode === 'FLIGHT' && segment.from_endpoint && segment.to_endpoint
+          ? { type: 'LineString' as const, coordinates: [
+            [segment.from_endpoint.longitude, segment.from_endpoint.latitude],
+            [segment.to_endpoint.longitude, segment.to_endpoint.latitude],
+          ] } : null)
+        if (!geometry) continue
+        const coordinates = getGeoJsonLineStringCoordinates(geometry)
         if (!coordinates) continue
         for (const option of segment.route_options || []) {
-          if (createRouteGeometryKey(option.geometry) === createRouteGeometryKey(segment.geometry)) continue
+          if (createRouteGeometryKey(option.geometry) === createRouteGeometryKey(geometry)) continue
           const alternative = getGeoJsonLineStringCoordinates(option.geometry)
-          if (alternative) segments.push({ coordinates: alternative, kind: 'itinerary', routeType: 'PROVIDER_BACKED', alternative: true })
+          if (alternative) segments.push({ coordinates: alternative, kind: 'itinerary', routeType: 'PROVIDER_BACKED', alternative: true, connectionId: connection.id })
         }
         segments.push({
           coordinates: segment.route_state === 'READY' ? coordinates : createGeodesicRoute(coordinates),
           kind: 'itinerary',
+          connectionId: connection.id,
+          segmentIndex: index,
           routeType: segment.route_state === 'READY' ? 'PROVIDER_BACKED' : 'SIMPLE',
           travelMode: segment.intent.travel_mode,
         })
@@ -1205,6 +1274,7 @@ function getTravelTimelineRouteSegments(
   connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
+  journey?: TrackingJourney,
 ): RouteSegment[] {
   const postsInRouteOrder = getTravelPostsInRouteOrder(travelPosts)
   // The opening route leads into the first post, so it is drawn before every
@@ -1216,7 +1286,7 @@ function getTravelTimelineRouteSegments(
   const origin = getTravelTimelineRouteOrigin(travelPosts, openingRoute)
   const upcomingStop = stops[0] ?? null
 
-  if (origin && upcomingStop) {
+  if (!journey && origin && upcomingStop) {
     segments.push({
       coordinates: getPointToPointRouteCoordinates(
         origin,
@@ -1227,7 +1297,19 @@ function getTravelTimelineRouteSegments(
     })
   }
 
-  segments.push(...getItineraryRouteSegments(stops, connections))
+  // Replace only the current leg. Later flights and arrival transfers remain
+  // visible until landing makes that ground leg current.
+  segments.push(...getItineraryRouteSegments(stops, connections, journey))
+  if (journey) {
+    for (const geometry of [journey.connector, journey.remaining_flight_route]) {
+      if (!geometry) continue
+      const coordinates = getGeoJsonLineStringCoordinates(geometry)
+      if (coordinates) segments.push({
+        coordinates, kind: 'journey', routeType: 'SIMPLE',
+        visibleToMembersOnly: journey.visible_to_members_only,
+      })
+    }
+  }
   return segments
 }
 
@@ -1255,6 +1337,7 @@ function getRouteSegmentPathOptions(
 ): L.PolylineOptions {
   if (segment.kind === 'post-link') {
     return {
+      className: 'trip-map-traveled-route',
       ...getPostRouteSegmentPathOptions(),
       color: segment.visibleToMembersOnly
         ? getThemeColor('--chart-4', '#C2410C')
@@ -1263,6 +1346,12 @@ function getRouteSegmentPathOptions(
       // hover/focus events that would show a Leaflet tooltip.
       interactive: false,
     }
+  }
+
+  if (segment.kind === 'journey') return {
+    className: 'trip-map-journey-guidance',
+    color: getThemeColor('--muted-foreground', '#64748b'),
+    dashArray: '7 9', weight: 3, opacity: .7, interactive: false,
   }
 
   if (segment.kind === 'post-to-stop') {
@@ -1322,6 +1411,7 @@ function getRouteBoundsCoordinates(
   connections: readonly MapConnection[],
   travelPosts: readonly TravelPost[],
   openingRoute: TravelPostRoute | null,
+  journey?: TrackingJourney,
 ) {
   const routeCoordinates = getMapRouteSegments(
     routeMode,
@@ -1329,9 +1419,16 @@ function getRouteBoundsCoordinates(
     connections,
     travelPosts,
     openingRoute,
+    journey,
   ).flatMap((segment) => segment.coordinates)
 
+  if (routeMode === 'travel-timeline' && journey) {
+    for (const point of [journey.position, journey.target]) {
+      if (point) routeCoordinates.push([point.latitude, point.longitude])
+    }
+  }
   for (const connection of connections) {
+    if (routeMode === 'travel-timeline' && connection.id === journey?.current_connection_id) continue
     for (const endpoint of [connection.from, connection.to]) {
       if (routeMode !== 'itinerary' && endpoint.type !== 'LOCATION') continue
       const anchor = resolveConnectionEndpoint(endpoint, stops)

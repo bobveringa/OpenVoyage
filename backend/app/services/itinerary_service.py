@@ -28,6 +28,7 @@ from services.connection_endpoints import (
     endpoint_label,
     location_identity,
 )
+from services.flight_airports import resolve_flight_lookup_airports
 from services.itinerary_routes import ItineraryRouteService
 from services.location_service import LocationService
 from services.trip_access import TripReadAccess, get_membership, get_trip_read_access
@@ -97,6 +98,11 @@ class ItineraryService:
         self.route_service = route_service
         self.confirm_connection_deletion = False
         self._editing_user_id = None
+
+    def _commit_itinerary(self, trip_id):
+        from services.gps.flight_tracking_service import FlightTrackingService
+        FlightTrackingService(self.db).sync_itinerary(trip_id)
+        self.db.commit()
 
     def get_itinerary(
         self,
@@ -189,7 +195,7 @@ class ItineraryService:
             outgoing_pair=outgoing_pair,
         )
         self._increment_revision(trip)
-        self.db.commit()
+        self._commit_itinerary(trip_id)
         return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
 
     def get_stop_detail(
@@ -325,7 +331,7 @@ class ItineraryService:
             )
 
         self._increment_revision(trip)
-        self.db.commit()
+        self._commit_itinerary(trip_id)
         return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
 
     def delete_stop(
@@ -360,7 +366,7 @@ class ItineraryService:
         )
         self.db.delete(stop)
         self._increment_revision(trip)
-        self.db.commit()
+        self._commit_itinerary(trip_id)
         return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
 
     def get_connection(
@@ -427,7 +433,7 @@ class ItineraryService:
             self._clear_artifacts(connection)
         self.route_service.invalidate(connection)
         self._increment_revision(trip)
-        self.db.commit()
+        self._commit_itinerary(trip_id)
         return ItineraryConnectionDetail(
             connection=self._get_connection_or_raise(trip_id=trip_id, connection_id=connection_id),
             itinerary_revision=trip.itinerary_revision,
@@ -543,7 +549,7 @@ class ItineraryService:
         self._editing_user_id = current_user_id
         self._replace_connection(connection=connection, payload=payload)
         self._increment_revision(trip)
-        self.db.commit()
+        self._commit_itinerary(trip_id)
         return ItineraryConnectionDetail(
             self._get_connection_or_raise(trip_id, connection.id), trip.itinerary_revision
         )
@@ -587,7 +593,7 @@ class ItineraryService:
         self._confirm_discard([connection])
         self.db.delete(connection)
         self._increment_revision(trip)
-        self.db.commit()
+        self._commit_itinerary(trip_id)
         return self._load_itinerary_snapshot_by_id(trip_id)
 
     def _get_readable_trip_or_raise(
@@ -797,6 +803,7 @@ class ItineraryService:
             return FlightLookupResponse(status='NOT_FOUND')
         candidates, expiry = [], None
         for lookup in matches:
+            lookup = resolve_flight_lookup_airports(self.db, lookup)
             artifact = self.route_service.artifacts.create(
                 'FLIGHT_CANDIDATE',
                 connection_id,

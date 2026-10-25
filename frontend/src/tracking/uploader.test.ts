@@ -242,6 +242,7 @@ describe('SessionUploader clock offset correction (C4)', () => {
       ended_at: null,
       id: 'session-1',
       recorded_by_user_id: 'user-1',
+      source: 'MOBILE_GPS',
       sample_count: 0,
       started_at: '2026-08-16T09:00:00.000Z',
     })
@@ -259,6 +260,7 @@ describe('SessionUploader clock offset correction (C4)', () => {
       ended_at: '2026-08-16T10:00:05.000Z',
       id: 'session-1',
       recorded_by_user_id: 'user-1',
+      source: 'MOBILE_GPS',
       sample_count: 1,
       started_at: '2026-08-16T09:00:00.000Z',
     })
@@ -293,6 +295,7 @@ describe('SessionUploader clock offset correction (C4)', () => {
       ended_at: null,
       id: 'session-1',
       recorded_by_user_id: 'user-1',
+      source: 'MOBILE_GPS',
       sample_count: 0,
       started_at: '2026-08-16T09:00:00.000Z',
     })
@@ -315,6 +318,7 @@ describe('SessionUploader clock offset correction (C4)', () => {
       ended_at: null,
       id: 'session-1',
       recorded_by_user_id: 'user-1',
+      source: 'MOBILE_GPS',
       sample_count: 0,
       started_at: '2026-08-16T09:00:00.000Z',
     })
@@ -342,6 +346,7 @@ describe('SessionUploader clock offset correction (C4)', () => {
       ended_at: null,
       id: 'session-1',
       recorded_by_user_id: 'user-1',
+      source: 'MOBILE_GPS',
       sample_count: 0,
       started_at: '2026-08-16T09:00:00.000Z',
     })
@@ -549,6 +554,7 @@ describe('SessionUploader lastSyncAt semantics', () => {
       ended_at: null,
       id: 'session-1',
       recorded_by_user_id: 'user-1',
+      source: 'MOBILE_GPS',
       sample_count: 0,
       started_at: '2026-08-16T09:00:00.000Z',
     })
@@ -649,6 +655,7 @@ describe('SessionUploader completion signal', () => {
       ended_at: '2026-08-16T10:00:00.000Z',
       id: 'session-1',
       recorded_by_user_id: 'user-1',
+      source: 'MOBILE_GPS',
       sample_count: 0,
       started_at: '2026-08-16T09:00:00.000Z',
     })

@@ -37,6 +37,7 @@ class TrackingSessionResponse(BaseModel):
     ended_at: datetime | None
     recorded_by_user_id: uuid.UUID | None
     sample_count: int
+    source: Literal['MOBILE_GPS', 'FLIGHT_ESTIMATE', 'FLIGHT_TRACK'] = 'MOBILE_GPS'
 
 
 class TrackingSessionListResponse(BaseModel):

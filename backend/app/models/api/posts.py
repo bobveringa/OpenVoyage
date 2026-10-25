@@ -12,6 +12,7 @@ from models.api.media import MediaResponse
 from models.api.users import UserDisplaySummaryResponse
 from models.database.travel import TravelMode
 from models.database.posts import Post
+from models.api.flights import FlightJourneyResponse
 
 
 class PostSortField(str, enum.Enum):
@@ -189,6 +190,7 @@ class PostTimelineRouteSegmentResponse(BaseModel):
     travel_mode: TravelMode
     geometry: GeoJsonLineString
     visible_to_members_only: bool = False
+    source: Literal['MOBILE_GPS', 'FLIGHT_ESTIMATE', 'FLIGHT_TRACK', 'POST_CONNECTOR'] = 'POST_CONNECTOR'
 
 
 class PostTimelineRouteResponse(BaseModel):
@@ -214,3 +216,4 @@ class PostTimelineOpeningRouteResponse(BaseModel):
 class PostTimelineResponse(BaseModel):
     opening_route: PostTimelineOpeningRouteResponse | None
     entries: list[PostTimelineEntryResponse]
+    flight_journeys: list[FlightJourneyResponse] = Field(default_factory=list)

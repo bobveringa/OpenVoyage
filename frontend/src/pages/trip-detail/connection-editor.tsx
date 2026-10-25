@@ -1,4 +1,5 @@
 import { connectionEndpointInput, resolveConnectionEndpoint } from './connection-endpoints'
+import { FlightAttribution } from './flight-attribution'
 import { TripLeafletMap } from './trip-map'
 import { EMPTY_TRACKING_GEOMETRY } from './models'
 import { useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
@@ -94,6 +95,7 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
   const closeAfterSave = useEffectEvent(onClose)
   const version = useRef(0)
   const request = useRef<AbortController | null>(null)
+  const lastPreviewAttempt = useRef<string | null>(null)
   const inferNewConnectionMode = useRef(creating)
   const appliedOutsideLocation = useRef(outsideLocation)
   const defaultFlightDate = connection?.connection_type === 'DEPARTURE' ? toStop?.planned_start_date
@@ -109,6 +111,7 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
     version.current += 1
     request.current?.abort()
     previews.current.clear(); modeDrafts.current.clear()
+    lastPreviewAttempt.current = null
     inferNewConnectionMode.current = creating
     const next = createConnectionEditDraft(creating ? null : connection)
     if (connection && creating) { next.from = connectionEndpointInput(connection.from); next.to = connectionEndpointInput(connection.to) }
@@ -128,6 +131,22 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
     return () => { version.current += 1; request.current?.abort(); showPreview(null) }
   }, [connection, open, showPreview, fromStop, creating, defaultFlightDate])
   const endpointReady = !onOutsideLocationChange || Boolean(outsideLocation)
+  const draftPreviewKey = planningPreviewKey(draft)
+  const automaticPreview = useEffectEvent(() => {
+    const attemptKey = session.itineraryRevision + ':' + draftPreviewKey
+    if (lastPreviewAttempt.current === attemptKey) return
+    const cached = previews.current.get(draft, session.itineraryRevision)
+    if (cached) {
+      setPreview(cached)
+      setDraft((previous) => ({ ...previous, preview_id: cached.preview_id }))
+    } else void calculate()
+  })
+  useEffect(() => {
+    if (!open || !endpointReady || !dirty || preview || busy || saving) return
+    // Let typing settle, and keep provider flight lookups an explicit action.
+    const timer = window.setTimeout(() => automaticPreview(), 400)
+    return () => window.clearTimeout(timer)
+  }, [draftPreviewKey, session.itineraryRevision, open, endpointReady, dirty, preview, busy, saving])
   const applyOutsideLocation = useEffectEvent(() => {
     if (!connection || !onOutsideLocationChange) return
     if (appliedOutsideLocation.current === outsideLocation) return
@@ -173,7 +192,7 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
   const toAnchor = connection ? outsideLocation && connection.connection_type === 'RETURN' ? outsideLocation.anchor : resolveConnectionEndpoint((preview?.connection || connection).to, endpointStops) : null
   if (!connection || !fromAnchor || !toAnchor) return null
   const savedConnection = connection
-  const disabled = saving || busy !== null || !endpointReady
+  const disabled = saving || busy === 'Looking up flight' || !endpointReady
   const transfers = currentConnection ? getAirportTransfers(currentConnection, fromAnchor, toAnchor) : []
   const activeTransfer = transfers.find((transfer) => transfer.side === transferSide)
   function transferCard(transfer: AirportTransfer) {
@@ -204,12 +223,16 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
     if (next.segments.length !== draft.segments.length || next.segments.some((segment, index) => segment.id !== draft.segments[index]?.id)) {
       previews.current.clear(); modeDrafts.current.clear()
     }
-    version.current += 1
-    request.current?.abort()
     const withoutNotes = (value: ConnectionEditDraft) => JSON.stringify({ ...value, notes: '', preview_id: undefined,
       segments: value.segments.map((segment) => ({ ...segment, notes: '' })) })
     const notesOnly = withoutNotes(next) === withoutNotes(draft)
-    setDirty(true); setBusy(null); setError(null)
+    setDirty(true)
+    if (!notesOnly) {
+      version.current += 1
+      request.current?.abort()
+      lastPreviewAttempt.current = null
+      setBusy(null); setError(null)
+    }
     const updated = notesOnly ? next : { ...next, preview_id: undefined,
       segments: next.segments.map((segment) => ({ ...segment, route_option: 0 })) }
     setDraft(updated)
@@ -226,7 +249,9 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
   }
   async function calculate(retryFailed = false, payload = draft) {
     if (!session.accessToken || !payload.from || !payload.to || !endpointReady) return
-    const activeVersion = version.current
+    lastPreviewAttempt.current = session.itineraryRevision + ':' + planningPreviewKey(payload)
+    const activeVersion = ++version.current
+    request.current?.abort()
     const controller = new AbortController()
     request.current = controller
     // Omitting segments uses the same server default as a new between-stop connection.
@@ -256,7 +281,9 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
   async function findFlight(index: number) {
     const flight = draft.segments[index].flight
     if (!session.accessToken || !flight?.flight_number || !flight.departure_date) return
-    const activeVersion = version.current
+    const activeVersion = ++version.current
+    request.current?.abort()
+    if (busy === 'Calculating route') lastPreviewAttempt.current = null
     const controller = new AbortController()
     request.current = controller
     setBusy('Looking up flight'); setError(null)
@@ -293,7 +320,7 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
     setDraft({ ...next, preview_id: cached?.preview_id })
     setPreview(cached)
     if (mode !== segment.travel_mode) setDetails(mode === 'FLIGHT' ? index : null)
-    if (!cached && (creating || roadModes.includes(mode))) void calculate(false, next)
+    if (!cached) void calculate(false, next)
   }
   function move(index: number, step: number) {
     previews.current.clear(); modeDrafts.current.clear()
@@ -305,10 +332,11 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
     <RouteChooserShell desktop={desktop} open={open} onClose={onClose}
       description={'From ' + fromAnchor.title + ' to ' + toAnchor.title}
       footer={<div className="flex flex-wrap items-center justify-between gap-3">
-        {error || session.saveError ? <p role="alert" className="w-full text-sm text-destructive">{error || session.saveError}</p> : null}
+        {error || session.saveError ? <p role="alert" className="w-full text-sm text-destructive">{session.saveError || error}</p> : null}
+        {error ? <Button disabled={disabled || busy !== null} type="button" variant="outline" onClick={() => void calculate(true)}>Retry preview</Button> : null}
         <p className="text-sm text-muted-foreground">{!endpointReady ? 'Choose a location to continue.' : busy ? <span role="status" className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{busy}…</span> : currentConnection?.duration_seconds != null ? routeTime(currentConnection.duration_seconds) + (currentConnection.duration_scope === 'FLIGHT_JOURNEY' ? ' flight journey · airport transfers not included' : ' estimated travel time') : 'Select a route to preview it on the map'}</p>
         <div className="flex min-w-0 flex-wrap gap-2"><Button disabled={saving} type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        <Button disabled={disabled || Boolean(activeTransfer)} type="button" onClick={() => { submittedConnection.current = connection; onSave(connection.id, draft) }}>{saving ? 'Saving…' : creating ? connection.connection_type === 'DEPARTURE' ? 'Add departure' : 'Add return' : 'Select this route'}</Button></div>
+        <Button disabled={disabled || busy !== null || Boolean(activeTransfer)} type="button" onClick={() => { submittedConnection.current = connection; onSave(connection.id, draft) }}>{saving ? 'Saving…' : creating ? connection.connection_type === 'DEPARTURE' ? 'Add departure' : 'Add return' : 'Select this route'}</Button></div>
       </div>}>
       <div className="grid min-h-full min-w-0 grid-cols-1">
       <div className="order-2 grid min-w-0 grid-cols-1 content-start gap-4 p-4 lg:order-1 lg:p-5">
@@ -359,9 +387,10 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
                 <Button disabled={disabled || !flight.flight_number || !flight.departure_date} variant="outline" type="button" onClick={() => void findFlight(index)}>Look up flight</Button>
                 {lookups[index]?.status === 'UNAVAILABLE' ? <p role="status" className="text-sm">{lookups[index].reason}. You can still save this flight without an estimate.</p> : null}
                 {lookups[index]?.status === 'NOT_FOUND' ? <p role="status" className="text-sm">No matching flight found. You can still save the flight details.</p> : null}
-                {lookups[index]?.candidates?.map((candidate) => <Button className="h-auto min-w-0 max-w-full flex-col items-start whitespace-normal break-words py-3 text-left" key={candidate.candidate_id} type="button" variant={flight.candidate_id === candidate.candidate_id ? 'default' : 'outline'}
+                {lookups[index]?.candidates?.map((candidate) => <Button className={'h-auto min-w-0 max-w-full flex-col items-start whitespace-normal break-words py-3 text-left text-foreground ' + (flight.candidate_id === candidate.candidate_id ? 'border-primary bg-primary/5 hover:bg-primary/10' : '')} key={candidate.candidate_id} type="button" variant="outline"
+                  aria-pressed={flight.candidate_id === candidate.candidate_id}
                   disabled={disabled} onClick={() => updateSegment(index, { flight: { ...flight, candidate_id: candidate.candidate_id } })}>
-                  <span className="block w-full min-w-0 break-words">{candidate.lookup.departure_airport.iata_code || candidate.lookup.departure_airport.name} → {candidate.lookup.arrival_airport.iata_code || candidate.lookup.arrival_airport.name}</span>
+                  <span className="flex w-full min-w-0 items-center justify-between gap-2"><span className="min-w-0 break-words">{candidate.lookup.departure_airport.iata_code || candidate.lookup.departure_airport.name} → {candidate.lookup.arrival_airport.iata_code || candidate.lookup.arrival_airport.name}</span>{flight.candidate_id === candidate.candidate_id ? <Check aria-label="Selected flight" className="size-4 text-primary" /> : null}</span>
                   {candidate.lookup.scheduled_departure ? <span className="block w-full min-w-0 break-all text-xs font-normal text-muted-foreground">{candidate.lookup.scheduled_departure.replace('T', ' ')}</span> : null}
                 </Button>)}
                 {currentLookup ? <p className="min-w-0 break-words text-xs text-muted-foreground">{currentLookup.departure_airport.name} → {currentLookup.arrival_airport.name}
@@ -446,20 +475,21 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
           <p>{currentConnection.duration_seconds != null ? formatDuration(currentConnection.duration_seconds) + ' · ' + (currentConnection.duration_scope === 'FLIGHT_JOURNEY' ? 'Flight journey; airport transfers excluded' : 'Estimated travel time; waits excluded') : 'No combined duration estimate. Available segment times are shown above.'}</p>
           {currentConnection.warnings.map((warning) => <p key={warning.code + (warning.segment_id ?? '')} className="text-sm">{warning.message}</p>)}
         </div> : null}
-        <p className="text-xs text-muted-foreground">Flight information from <a href="https://aerodatabox.com/" target="_blank" rel="noopener" className="underline">AeroDataBox</a>. Flight lines are approximate.</p>
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button disabled={disabled} type="button" variant="outline" onClick={() => void calculate()}>Preview changes</Button>
-
-        </div>
+        <FlightAttribution approximate providers={[
+          ...Object.values(lookups).flatMap((result) => result.candidates?.map((candidate) => candidate.lookup.provider) ?? []),
+          ...(connection?.segments.map((segment) => segment.lookup?.provider) ?? []),
+        ]} />
         </> : null}
         </>}
       </div>
-      {!desktop ? <section aria-label="Connection map preview" className="order-1 sticky top-0 z-10 h-64 overflow-hidden border-b border-border bg-muted lg:order-2 lg:sticky lg:top-0 lg:h-[calc(100dvh-15rem)] lg:min-h-[30rem] lg:max-h-[41rem] lg:border-b-0 lg:border-l">
+      {!desktop ? <section aria-label="Connection map preview" className="relative order-1 overflow-hidden border-b border-border bg-muted">
+        <div className="relative h-[clamp(16rem,36svh,22rem)]">
         {currentConnection && endpointReady ? <TripLeafletMap fitMode="route-preview" draftMapLocation={null} mapPointEnabled={false} onDraftMapPointSelect={() => {}}
           resetNonce={0} stops={endpointStops} connections={[currentConnection]}
           travelPosts={[]} trackingGeometry={EMPTY_TRACKING_GEOMETRY} /> : null}
-        <div className="pointer-events-none absolute bottom-3 left-3 right-12 z-[400] rounded-xl border border-border bg-card/95 p-3 text-xs shadow-sm">
-          <div className="flex items-center gap-2 font-medium"><MapPin className="size-4 text-primary" />{fromAnchor.title} → {toAnchor.title}</div>
+        </div>
+        <div className="border-t border-border bg-card px-4 py-3 text-xs">
+          <div className="flex items-start gap-2 font-medium"><MapPin className="size-4 shrink-0 text-primary" /><span className="min-w-0 break-words">{fromAnchor.title} → {toAnchor.title}</span></div>
           <p className="mt-1 text-muted-foreground">Solid: calculated route · Gray: alternatives · Dashed: approximate</p>
         </div>
       </section> : null}
