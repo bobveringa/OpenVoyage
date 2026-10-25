@@ -40,7 +40,7 @@ for (const width of [390, 1280]) {
       await expect(card.getByText('Departed 45 min late', { exact: true })).toBeVisible()
       await expect(card).not.toHaveClass(/border-amber/)
       await expect(card.getByLabel('Scheduled arrival 20:00', { exact: true })).toHaveText('20:00')
-      await expect(card.locator('p').filter({ hasText: /^19:50/ })).toBeVisible()
+      await expect(card.locator('time').filter({ hasText: /^19:50$/ })).toBeVisible()
       await expect(card.locator('del')).toHaveCount(2)
     })
   }
