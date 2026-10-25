@@ -51,6 +51,7 @@ export function TrackingRecorder({ compact = false }: { compact?: boolean }) {
   const tracking = useTracking()
   const { activeSession } = tracking
   const [now, setNow] = useState(Date.now)
+  const [requestingSync, setRequestingSync] = useState(false)
   const isSyncing = Boolean(activeSession?.endedAt) || tracking.status === 'syncing'
   const startup = tracking.startupFeedback
   const locationFoundAt = startup?.locationFoundAt ?? null
@@ -182,17 +183,46 @@ export function TrackingRecorder({ compact = false }: { compact?: boolean }) {
             />
           )}
           <div className="min-w-0">
-            <p className="text-sm font-medium">{syncMessage}</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {isSyncing
-                ? 'Your recording has ended. You can leave while the remaining points sync.'
-                : 'Keeps recording with the app in the background.'}
+            <p className="text-sm font-medium">
+              {upload === 'syncing' ? 'Syncing…' : syncMessage}
             </p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground tabular-nums">
+              {queued} point{queued === 1 ? '' : 's'} waiting to sync
+            </p>
+            {isSyncing && (
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                Your recording has ended. You can leave while the remaining points sync.
+              </p>
+            )}
             {tracking.uploaderSnapshot?.lastSyncAt ? (
               <p className="mt-1 text-xs text-muted-foreground">
                 Last synced {formatDateTime(new Date(tracking.uploaderSnapshot.lastSyncAt), { dateStyle: 'short', timeStyle: 'short' })}
               </p>
             ) : null}
+            {tracking.syncNow && (
+              <div className="mt-2 space-y-1">
+                <Button
+                  variant="outline"
+                  disabled={requestingSync || upload === 'syncing' || (queued === 0 && !isSyncing) || upload === 'terminated'}
+                  onClick={async () => {
+                    setRequestingSync(true)
+                    try {
+                      await tracking.syncNow?.()
+                    } finally {
+                      setRequestingSync(false)
+                    }
+                  }}
+                >
+                  {requestingSync || upload === 'syncing'
+                    ? <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
+                    : <CloudUpload className="size-4" aria-hidden="true" />}
+                  {requestingSync || upload === 'syncing' ? 'Syncing…' : 'Sync now'}
+                </Button>
+                {tracking.wifiOnlyUpload && (
+                  <p className="text-xs text-muted-foreground">Manual sync can use mobile data.</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
         {!isSyncing && <TrackingTravelMode />}

@@ -1,5 +1,30 @@
 import { expect, test } from '@playwright/test'
 
+for (const stopped of [false, true]) {
+  test(`manual sync shows queue and Wi-Fi override ${stopped ? 'after stopping' : 'during recording'}`, async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 844 })
+    await page.route('**/api/v1/**', (route) => route.fulfill({
+      json: route.request().url().endsWith('/sessions')
+        ? { sessions: [] } : { share_live_location: false },
+    }))
+    await page.goto('/tests/e2e/fixtures/tracking-controls.html?active&wifi-only')
+    if (stopped) await page.getByRole('button', { name: 'Stop tracking', exact: true }).click()
+    await expect(page.getByText('12 points waiting to sync', { exact: true })).toBeVisible()
+    await expect(page.getByText('Waiting to reconnect.', { exact: false })).toBeVisible()
+    await expect(page.getByText('Manual sync can use mobile data.', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Sync now', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Syncing…', exact: true })).toBeDisabled()
+    await expect(page.getByText('12 points waiting to sync', { exact: true })).toBeVisible()
+    await page.evaluate(() => window.dispatchEvent(new Event('test-sync-complete')))
+    await expect(page.getByText('0 points waiting to sync', { exact: true })).toBeVisible()
+    const sync = page.getByRole('button', { name: 'Sync now', exact: true })
+    // A stopped session may still need its final end acknowledgement with an empty queue.
+    if (stopped) await expect(sync).toBeEnabled()
+    else await expect(sync).toBeDisabled()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  })
+}
+
 test('starting shows GPS acquisition and confirms the first saved fix offline', async ({ page }) => {
   await page.clock.install()
   await page.route('**/api/v1/**', (route) => route.fulfill({

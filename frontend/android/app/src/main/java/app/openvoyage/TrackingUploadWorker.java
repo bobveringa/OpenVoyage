@@ -24,16 +24,22 @@ public final class TrackingUploadWorker extends RemoteListenableWorker {
                                     () -> {
                                         owner.set(Thread.currentThread());
                                         try {
-                                            completer.set(
-                                                    TrackingSync.run(
-                                                                    getApplicationContext(),
-                                                                    getInputData()
-                                                                            .getString("sessionId"))
-                                                            ? Result.retry()
-                                                            : Result.success());
+                                            String id = getInputData().getString("sessionId");
+                                            boolean manual = getInputData().getBoolean("manual", false);
+                                            boolean retry = TrackingSync.run(getApplicationContext(), id,
+                                                    manual && getRunAttemptCount() == 0);
+                                            if (manual) {
+                                                // Any later attempt must use the normal Wi-Fi policy.
+                                                org.json.JSONObject session = TrackingStore.get(getApplicationContext()).session(id);
+                                                if (retry && session != null)
+                                                    TrackingSync.schedule(getApplicationContext(), session, true);
+                                                completer.set(Result.success());
+                                            } else completer.set(retry ? Result.retry() : Result.success());
                                         } catch (Exception e) {
                                             completer.set(Result.retry());
                                         } finally {
+                                            if (getInputData().getBoolean("manual", false))
+                                                TrackingSync.finishManual(getInputData().getString("sessionId"));
                                             owner.set(null);
                                         }
                                     });

@@ -26,6 +26,7 @@ export type NativeRecording = {
   syncing?: boolean
   firstFixAt?: number
   totalPending?: number
+  wifiOnlyUpload?: boolean
 }
 
 const plugin = registerPlugin<{

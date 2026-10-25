@@ -1043,8 +1043,14 @@ public class TrackingService extends Service {
         lastFixElapsedNs = location.getElapsedRealtimeNanos();
 
         lastFixAtMs = System.currentTimeMillis();
-        if(TrackingStore.get(this).accept(location, power.wireName(), intervalMs, distanceFilterMeters,
-                trackingMode == NativeAdaptivePolicy.Mode.SMART)) noteSampleAccepted();
+        TrackingStore store = TrackingStore.get(this);
+        JSONObject session = store.active();
+        boolean firstPoint = session != null && !session.has("firstFixAt");
+        if (store.accept(location, power.wireName(), intervalMs, distanceFilterMeters,
+                trackingMode == NativeAdaptivePolicy.Mode.SMART)) {
+            noteSampleAccepted();
+            if (firstPoint) TrackingSync.schedule(this, store.session(session.optString("sessionId")), true);
+        }
 
         // Policy uses the service-owned raw stream so it continues while the
         // WebView is detached. Mock fixes must never influence cadence.

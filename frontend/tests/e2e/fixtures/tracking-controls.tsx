@@ -37,6 +37,8 @@ export function Preview() {
     params.has('active') ? initialSession : null,
   )
   const [mode, setMode] = useState<TravelMode>('UNKNOWN')
+  const [pending, setPending] = useState(12)
+  const [uploading, setUploading] = useState(false)
   const [startupFeedback, setStartupFeedback] = useState<TrackingContextValue['startupFeedback']>(null)
   useEffect(() => {
     const acquireFix = () => setStartupFeedback((feedback) =>
@@ -72,6 +74,7 @@ export function Preview() {
     activeSession: session,
     status: session ? (session.endedAt ? 'syncing' : 'recording') : 'idle',
     error: null,
+    wifiOnlyUpload: params.has('wifi-only'),
     startupFeedback,
     adaptiveDecision: null,
     locationWarning: params.has('warning')
@@ -81,14 +84,14 @@ export function Preview() {
     clockSkewNoticeSeconds: null,
     currentTravelMode: mode,
     queueStats: {
-      sampleCount: 12,
+      sampleCount: pending,
       oldestSampleAt: null,
       droppedLocallyCount: 0,
       simulatedRejectedCount: 0,
     },
     uploaderSnapshot: {
-      status: 'waiting-retry',
-      queueDepth: 12,
+      status: uploading ? 'syncing' : pending ? 'waiting-retry' : 'idle',
+      queueDepth: pending,
       lastSyncAt: null,
       lastErrorMessage: null,
       discardedCount: 0,
@@ -97,6 +100,12 @@ export function Preview() {
     startTracking: async () => {
       setStartupFeedback({ locationFoundAt: null })
       setSession(initialSession)
+    },
+    syncNow: async () => {
+      setUploading(true)
+      await new Promise<void>((resolve) => window.addEventListener('test-sync-complete', () => resolve(), { once: true }))
+      setPending(0)
+      setUploading(false)
     },
     stopTracking: async () =>
       setSession((current) =>

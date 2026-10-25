@@ -21,6 +21,7 @@ import org.junit.runner.RunWith;
 
 import java.io.*;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -151,6 +152,146 @@ public class TrackingUploadDeviceTest {
             store.getWritableDatabase().setTransactionSuccessful();
         } finally {
             store.getWritableDatabase().endTransaction();
+        }
+    }
+
+    @Test
+    public void firstAcceptedPointSchedulesOnceAndLaterPointsKeepTheBatchCadence() throws Exception {
+        JSONObject session = begin();
+        String id = session.getString("sessionId");
+        class TestService extends TrackingService {
+            void attach(Context base) { attachBaseContext(base); }
+        }
+        TestService service = new TestService();
+        service.attach(context);
+        Field tracking = TrackingService.class.getDeclaredField("tracking");
+        tracking.setAccessible(true);
+        tracking.set(service, true);
+        Method onFix = TrackingService.class.getDeclaredMethod("onFix", Location.class);
+        onFix.setAccessible(true);
+        androidx.work.WorkManager work = androidx.work.WorkManager.getInstance(context);
+        try {
+            long start = session.getLong("startElapsed");
+            Location rejected = fix(51.5, start + 1);
+            rejected.setMock(true);
+            onFix.invoke(service, rejected);
+            assertEquals(0, store.count(id));
+            assertTrue(work.getWorkInfosForUniqueWork(TrackingSync.retry(id)).get().isEmpty());
+
+            onFix.invoke(service, fix(51.5, start + 1000));
+            List<androidx.work.WorkInfo> first = null;
+            for (int i = 0; i < 50; i++) {
+                first = work.getWorkInfosForUniqueWork(TrackingSync.retry(id)).get();
+                if (!first.isEmpty()) break;
+                Thread.sleep(100);
+            }
+            assertEquals(1, first.size());
+            assertEquals(1, store.count(id));
+            assertTrue(store.session(id).has("firstFixAt"));
+            assertEquals(1, work.getWorkInfosForUniqueWork(TrackingSync.periodic(id)).get().size());
+
+            // Emptying the queue must not make the next point another "first" point.
+            store.getWritableDatabase().delete("samples", "session=?", new String[] {id});
+            onFix.invoke(service, fix(51.50001, start + 31000));
+            assertEquals(1, store.count(id));
+            List<androidx.work.WorkInfo> later = work.getWorkInfosForUniqueWork(TrackingSync.retry(id)).get();
+            assertEquals(1, later.size());
+            assertEquals(first.get(0).getId(), later.get(0).getId());
+        } finally {
+            TrackingSync.cancelWork(context, id);
+        }
+    }
+
+    @Test
+    public void manualSyncUsesMobileDataOnceAndKeepsWifiOnlyForAutomaticRetries() throws Exception {
+        org.junit.Assume.assumeTrue(android.os.Build.HARDWARE.contains("ranchu")
+                || android.os.Build.HARDWARE.contains("goldfish"));
+        boolean wasWifi = "1".equals(shell("settings get global wifi_on").trim());
+        shell("svc wifi disable");
+        try {
+            for (int i = 0; i < 100 && (TrackingSync.wifi(context) || !TrackingSync.connected(context)); i++)
+                Thread.sleep(100);
+            assertFalse("Wi-Fi should be disabled", TrackingSync.wifi(context));
+            assertTrue("Emulator mobile data should be connected", TrackingSync.connected(context));
+            JSONObject session = begin();
+            String id = session.getString("sessionId");
+            TrackingStore.put(session, "wifiOnlyUpload", true);
+            store.save(session);
+            credential(session, 3600000);
+            enqueue(session, 1);
+            assertTrue(TrackingSync.run(context, id));
+            assertTrue(server.requests.isEmpty());
+
+            server.badCounts = true;
+            assertTrue(TrackingSync.run(context, id, true));
+            assertEquals(1, store.count(id));
+            int attempted = server.requests.size();
+            assertTrue(attempted > 0);
+            server.badCounts = false;
+            assertTrue(TrackingSync.run(context, id));
+            assertEquals(attempted, server.requests.size());
+            assertTrue(store.session(id).getBoolean("wifiOnlyUpload"));
+            assertFalse(TrackingSync.run(context, id, true));
+            assertEquals(0, store.count(id));
+
+            enqueue(store.session(id), 1);
+            attempted = server.requests.size();
+            assertTrue(TrackingSync.run(context, id));
+            assertEquals(attempted, server.requests.size());
+            assertEquals(1, store.snapshot().getJSONObject(0).getInt("pending"));
+            assertTrue(store.session(id).getBoolean("wifiOnlyUpload"));
+
+            shell("svc data disable");
+            try {
+                for (int i = 0; i < 100 && TrackingSync.connected(context); i++) Thread.sleep(100);
+                assertFalse("Emulator should be offline", TrackingSync.connected(context));
+                TrackingSync.syncNow(context, store.session(id));
+                assertTrue(store.session(id).getString("reason").startsWith("No connection."));
+                assertTrue(androidx.work.WorkManager.getInstance(context)
+                        .getWorkInfosForUniqueWork(TrackingSync.manual(id)).get().isEmpty());
+                assertEquals(1, store.count(id));
+                assertEquals(attempted, server.requests.size());
+            } finally {
+                shell("svc data enable");
+            }
+            for (int i = 0; i < 100 && !TrackingSync.connected(context); i++) Thread.sleep(100);
+            // Reconnecting after an offline tap must not retain mobile-data permission.
+            assertTrue(TrackingSync.run(context, id));
+            assertEquals(attempted, server.requests.size());
+        } finally {
+            if (wasWifi) shell("svc wifi enable");
+        }
+    }
+
+    @Test
+    public void manualSyncCannotBypassServerDelayAuthorizationOrRecordingOwnership() throws Exception {
+        JSONObject session = begin();
+        String id = session.getString("sessionId");
+        enqueue(session, 1);
+        credential(session, 3600000);
+        JSONObject current = store.session(id);
+        TrackingStore.put(current, "notBefore", store.ageNow() + 60000);
+        store.save(current);
+        assertTrue(TrackingSync.run(context, id, true));
+        assertTrue(server.requests.isEmpty());
+        current = store.session(id);
+        TrackingStore.put(current, "notBefore", 0);
+        store.save(current);
+        credential(current, -1);
+        assertFalse(TrackingSync.run(context, id, true));
+        assertTrue(server.requests.isEmpty());
+        credential(store.session(id), 3600000);
+        store.setMeta("identity", "another-user");
+        assertFalse(TrackingSync.run(context, id, true));
+        assertTrue(server.requests.isEmpty());
+        assertEquals(1, store.count(id));
+    }
+
+    private String shell(String command) throws Exception {
+        try (android.os.ParcelFileDescriptor result = InstrumentationRegistry.getInstrumentation()
+                .getUiAutomation().executeShellCommand(command);
+                InputStream input = new android.os.ParcelFileDescriptor.AutoCloseInputStream(result)) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
     }
 
