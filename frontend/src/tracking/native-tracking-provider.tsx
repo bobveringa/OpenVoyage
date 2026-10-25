@@ -281,6 +281,18 @@ export function NativeTrackingProvider({ children }: { children: ReactNode }) {
       setError(getErrorMessage(e))
     }
   }, [selected, reconcile])
+  const syncNow = useCallback(async () => {
+    if (!selected || selected.syncing) return
+    const user = identity.current
+    try {
+      await reconcile(true)
+      if (!user || identity.current !== user) return
+      setSessions(await nativeRecording('syncNow', { sessionId: selected.sessionId }))
+      setError(null)
+    } catch (e) {
+      setError(getErrorMessage(e))
+    }
+  }, [selected, reconcile])
   const setTravelMode = useCallback(
     async (mode: TravelMode) => {
       if (selected)
@@ -302,6 +314,8 @@ export function NativeTrackingProvider({ children }: { children: ReactNode }) {
   }, [])
   const value: TrackingContextValue = {
     canStartRecording: !starting && !capturing,
+    syncNow,
+    wifiOnlyUpload: selected?.wifiOnlyUpload ?? false,
     syncMessage:
       selected?.reason ??
       (selected?.pending

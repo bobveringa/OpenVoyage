@@ -37,6 +37,9 @@ export type StartTrackingInput = {
 export type TrackingContextValue = {
   canStartRecording?: boolean
   syncMessage?: string | null
+  // Native uploads: one explicit attempt may use mobile data despite Wi-Fi-only.
+  syncNow?: () => Promise<void>
+  wifiOnlyUpload?: boolean
   totalQueuedCount?: number
   retentionWarning?: string | null
   activeSession: ActiveTrackingSession | null

@@ -169,6 +169,13 @@ public final class TrackingIpcProvider extends ContentProvider {
                     }
                     break;
                 }
+            case "syncNow":
+                {
+                    org.json.JSONObject s = store.session(id);
+                    if (s != null && s.optString("userId").equals(store.meta("identity", "")))
+                        TrackingSync.syncNow(c, s);
+                    break;
+                }
             case "travelMode":
                 {
                     org.json.JSONObject s = store.session(id);

@@ -24,9 +24,14 @@ final class TrackingSync {
     private static volatile long identityGeneration;
     private static final Object UPLOAD_LOCK = new Object();
     private static volatile String runningSession;
+    private static final java.util.Set<String> manualRequests = ConcurrentHashMap.newKeySet();
 
     static boolean isSyncing(String id) {
-        return id.equals(runningSession);
+        return id.equals(runningSession) || manualRequests.contains(id);
+    }
+
+    static void finishManual(String id) {
+        if (id != null) manualRequests.remove(id);
     }
 
     static void cancel() {
@@ -58,8 +63,45 @@ final class TrackingSync {
         return "tracking-retry-" + id;
     }
 
+    static String manual(String id) {
+        return "tracking-manual-" + id;
+    }
+
+    /** One user-requested attempt. The Wi-Fi override is never stored on the session. */
+    static void syncNow(Context c, JSONObject s) {
+        if (s == null || s.optBoolean("terminal") || s.optBoolean("authPaused")
+                || s.optBoolean("blocked") || isSyncing(s.optString("sessionId"))) return;
+        String id = s.optString("sessionId");
+        if (!connected(c)) {
+            reason(TrackingStore.get(c), id, "No connection. Your points are saved on this device.");
+            return;
+        }
+        if (!manualRequests.add(id)) return;
+        OneTimeWorkRequest work = new OneTimeWorkRequest.Builder(TrackingUploadWorker.class)
+                .setInputData(new Data.Builder().putAll(data(c, id)).putBoolean("manual", true).build())
+                // Run even when offline so the one-attempt override cannot wait for connectivity.
+                .build();
+        try {
+            com.google.common.util.concurrent.ListenableFuture<Void> queued = RemoteWorkManager.getInstance(c)
+                    // A new tap just after completion must not be lost while WorkManager
+                    // is still committing the previous attempt's result.
+                    .enqueueUniqueWork(manual(id), ExistingWorkPolicy.APPEND_OR_REPLACE, work);
+            queued.addListener(() -> {
+                try {
+                    queued.get();
+                } catch (Exception e) {
+                    finishManual(id);
+                    reason(TrackingStore.get(c), id, "Could not start sync. Your points are saved on this device.");
+                }
+            }, EXECUTOR);
+        } catch (RuntimeException e) {
+            finishManual(id);
+            throw e;
+        }
+    }
+
     static void schedule(Context c, JSONObject s, boolean immediate) {
-        if (s.optBoolean("terminal") || s.optBoolean("authPaused") || s.optBoolean("blocked"))
+        if (s == null || s.optBoolean("terminal") || s.optBoolean("authPaused") || s.optBoolean("blocked"))
             return;
         String id = s.optString("sessionId");
         Constraints constraints =
@@ -100,6 +142,15 @@ final class TrackingSync {
         RemoteWorkManager wm = RemoteWorkManager.getInstance(c);
         wm.cancelUniqueWork(periodic(id));
         wm.cancelUniqueWork(retry(id));
+        wm.cancelUniqueWork(manual(id));
+        finishManual(id);
+    }
+
+    static boolean connected(Context c) {
+        ConnectivityManager cm =
+                (ConnectivityManager) c.getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkCapabilities caps = cm.getNetworkCapabilities(cm.getActiveNetwork());
+        return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
     }
 
     static boolean wifi(Context c) {
@@ -162,6 +213,10 @@ final class TrackingSync {
     }
 
     static boolean run(Context c, String targetId) {
+        return run(c, targetId, false);
+    }
+
+    static boolean run(Context c, String targetId, boolean manual) {
         if (targetId == null) return false;
         synchronized (UPLOAD_LOCK) {
             TrackingStore db = TrackingStore.get(c);
@@ -205,7 +260,12 @@ final class TrackingSync {
                         retry = true;
                         continue;
                     }
-                    if (s.optBoolean("wifiOnlyUpload") && !wifi(c)) {
+                    if (manual && !connected(c)) {
+                        reason(db, id, "No connection. Your points are saved on this device.");
+                        retry = true;
+                        continue;
+                    }
+                    if (!manual && s.optBoolean("wifiOnlyUpload") && !wifi(c)) {
                         reason(db, id, "Waiting for Wi-Fi");
                         retry = true;
                         continue;
@@ -218,7 +278,7 @@ final class TrackingSync {
                     runningSession = id;
                     long t0 = SystemClock.elapsedRealtime();
                     JSONObject state =
-                            request(db, s, token, "GET", "/upload-state", null, generation);
+                            request(db, s, token, "GET", "/upload-state", null, generation, manual);
                     long t1 = SystemClock.elapsedRealtime();
                     long server = Instant.parse(state.getString("server_time")).toEpochMilli();
                     db.trustedTime(server);
@@ -298,7 +358,7 @@ final class TrackingSync {
                                 s.isNull("endedAt")
                                         ? JSONObject.NULL
                                         : corrected(s, s.getString("endedAt")));
-                        JSONObject created = request(db, s, token, "POST", "", body, generation);
+                        JSONObject created = request(db, s, token, "POST", "", body, generation, manual);
                         if (!id.equals(created.getString("id"))
                                 || !s.optString("userId")
                                         .equals(created.getString("recorded_by_user_id"))
@@ -328,7 +388,8 @@ final class TrackingSync {
                                         "POST",
                                         "/samples/batch",
                                         new JSONObject().put("samples", wire),
-                                        generation);
+                                        generation,
+                                        manual);
                         long total = 0;
                         for (String k :
                                 new String[] {
@@ -373,7 +434,8 @@ final class TrackingSync {
                                                 .put(
                                                         "ended_at",
                                                         corrected(s, s.getString("endedAt"))),
-                                        generation);
+                                        generation,
+                                        manual);
                         if (!id.equals(ended.getString("id")) || ended.isNull("ended_at"))
                             throw new IOException("Invalid end acknowledgement");
                         Instant.parse(ended.getString("ended_at"));
@@ -521,7 +583,8 @@ final class TrackingSync {
             String method,
             String suffix,
             JSONObject body,
-            long identity)
+            long identity,
+            boolean manual)
             throws Exception {
         if (identity != identityGeneration
                 || Thread.currentThread().isInterrupted()
@@ -532,7 +595,7 @@ final class TrackingSync {
                 || latest.optBoolean("terminal")
                 || latest.optBoolean("blocked")
                 || latest.optBoolean("authPaused")) throw new IOException("Upload paused");
-        if (latest.optBoolean("wifiOnlyUpload") && !wifi(db.context))
+        if (!manual && latest.optBoolean("wifiOnlyUpload") && !wifi(db.context))
             throw new IOException("Waiting for Wi-Fi");
         if (token.optInt("deadlineBoot", -1) == db.boot()
                 && SystemClock.elapsedRealtime() >= token.optLong("deadline"))

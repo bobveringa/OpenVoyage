@@ -147,6 +147,41 @@ it('renews stopped recordings from other trips without restarting GPS', async ()
   ).toHaveLength(1)
 })
 
+it('manually syncs a Wi-Fi-only recording without changing its settings or restarting GPS', async () => {
+  rows = [{ ...recording(), wifiOnlyUpload: true }]
+  await render()
+  expect(value.wifiOnlyUpload).toBe(true)
+  await act(async () => value.syncNow!())
+  expect(mocks.recording).toHaveBeenCalledWith('syncNow', { sessionId: 'session' })
+  expect(mocks.recording.mock.calls.some(([op]) => op === 'settings')).toBe(false)
+  expect(mocks.start).toHaveBeenCalledTimes(1) // Recovery only; manual sync doesn't restart capture.
+  expect(value.queueStats?.sampleCount).toBe(3)
+})
+
+it('does not restart an upload already in progress', async () => {
+  rows = [{ ...recording(), syncing: true }]
+  await render()
+  await act(async () => value.syncNow!())
+  expect(mocks.recording.mock.calls.some(([op]) => op === 'syncNow')).toBe(false)
+})
+
+it('does not request a manual upload after the account changes during renewal', async () => {
+  rows = [{ ...recording(), authPaused: false, reason: null, renewInMs: 720_000 }]
+  await render()
+  rows[0] = { ...rows[0], renewInMs: 0 }
+  let resolve!: (result: { token: object; remainingMs: number }) => void
+  mocks.provision.mockImplementation(() => new Promise((r) => { resolve = r }))
+  let sync!: Promise<void>
+  await act(async () => { sync = value.syncNow!() })
+  auth = { ...auth, currentUser: { id: 'next-user' } as AuthContextValue['currentUser'] }
+  await render()
+  await act(async () => {
+    resolve({ token: {}, remainingMs: 720_000 })
+    await sync
+  })
+  expect(mocks.recording.mock.calls.some(([op]) => op === 'syncNow')).toBe(false)
+})
+
 it('serializes foreground/network wake events while provisioning is in flight', async () => {
   rows = [recording()]
   let resolve!: (result: { token: object; remainingMs: number }) => void
