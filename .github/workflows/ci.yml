@@ -16,6 +16,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  version:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run version:check
+      - run: npm test
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: npm run version:check
+
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest

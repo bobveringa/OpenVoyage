@@ -174,6 +174,62 @@ for the popular unnamed app.
 So I built OpenVoyage. To do exactly all the things that I want it to do.
 
 
+## Development and releases
+
+The root `package.json` is the source of the OpenVoyage version, currently
+`0.5.0`. Release tooling and configuration use TypeScript. Install it with
+`npm ci` at the project root, and install frontend dependencies with
+`npm --prefix frontend ci`. Node 22.22.2+, 24.15.0+, or 26+ is required.
+API generation also needs the backend Python environment; it uses the root
+`.venv`, or the Python executable specified by `PYTHON`.
+
+Run releases from a clean, up-to-date `main` branch with all tags fetched:
+
+```bash
+npm run release:preview
+npm run release
+```
+
+These commands recommend the next version from Conventional Commits since the
+previous tag. The first release from the current history is `0.5.0`; use
+`npm run release -- 0.5.0` to select that version explicitly if needed.
+`fix` and `perf` recommend patch releases; `feat` recommends minor releases.
+Breaking changes (`!` or a `BREAKING CHANGE:` footer) recommend minor releases
+before 1.0 and major releases afterward. Moving to 1.0 is an explicit decision.
+Maintenance-only changes do not recommend a release; an explicit version,
+`patch`, or `minor` argument can override the recommendation.
+
+Release-it updates the changelog, synchronizes package versions, regenerates
+API files, and offers to commit, tag, and push. It does not publish to npm.
+GitHub Actions publishes the GitHub Release and APK only after the image and
+Android builds succeed.
+
+If you edit the root version manually, run `npm run version:sync`, then
+`npm --prefix frontend run api:generate`. Synchronization updates the frontend,
+backend, lockfiles, and Android version name, incrementing Android's numeric
+build number once per version change. Prereleases use `alpha.N`, `beta.N`, or
+`rc.N`; Python metadata receives the equivalent PEP 440 version.
+`npm run version:check` detects stale versions, and `npm test` type-checks and
+tests the release tooling. CI also checks that release tags match the version.
+
+The backend runs with its synchronized `app/core/version.py` constant, and Vite
+reads `frontend/package.json` to embed the client version during development
+and builds. Each component can be copied and run independently with its normal
+dependencies; neither needs the root `package.json` or the release tooling.
+Docker packages the backend version constant and the built frontend assets.
+
+PR titles must follow Conventional Commits, for example `feat: add updates`,
+`fix(tracking): correct synchronization`, or `feat(api)!: change authentication`.
+Dependabot generates `chore(deps): ...` / `chore(deps-dev): ...` titles. Rename
+an update to `fix(deps): ...` if it fixes an application bug or vulnerability
+that should trigger a patch release.
+
+In GitHub repository settings, default squash-merge messages to the PR title
+and require the **Validate PR title** check in the `main` branch ruleset after
+the workflow has run once. Use squash merging so the validated title reaches
+the release history. The title workflow activates after merging into the
+default branch and reruns when PRs are opened, renamed, reopened, or updated.
+
 ## 🤖 Use of AI
 
 This project was developed with the assistance of AI tools, which helped with
