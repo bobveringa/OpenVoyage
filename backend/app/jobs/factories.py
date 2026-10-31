@@ -10,7 +10,12 @@ from .handlers import (
     GeoNamesImportJob,
     PlanningArtifactCleanupJob,
     OrphanedMediaCleanupJob,
+    SoftwareUpdateCheckJob,
 )
+
+
+def create_software_update_check_job(db: Session) -> SoftwareUpdateCheckJob:
+    return SoftwareUpdateCheckJob(db)
 
 
 def create_geonames_import_job(db: Session) -> GeoNamesImportJob:

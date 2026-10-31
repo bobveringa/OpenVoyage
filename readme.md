@@ -102,6 +102,27 @@ v3 API key with these required read permissions: `album.read`, `asset.read`,
 `asset.view`, `asset.download`, and `user.read`. The Immich server must be
 reachable from the OpenVoyage backend; browsers never contact it directly.
 
+## Software versions and updates
+
+The user menu shows client and server versions. **Admin → System** highlights
+the server version when an update is available, and provides release notes, check results, and a
+manual **Check now** button.
+
+The server checks GitHub for stable releases every 12 hours and at startup when
+its cached result is missing or stale. Checks run in the background and retain
+the last verified result in `software_release_cache` when GitHub is unavailable.
+Check attempts, errors, and retry timing use the existing job history. Manual checks have a
+five-minute cooldown, with longer waits after failures or GitHub rate limits.
+Configure or disable the **Software update check** schedule in **Admin → Jobs**.
+Disabling its schedule still allows explicit manual checks.
+
+`GET /api/v1/server/version` is public and does not access the database or GitHub.
+`GET /api/v1/admin/updates` and update-job controls require administrator access.
+The browser reads cached results from OpenVoyage; it does not contact GitHub.
+
+This change includes a database migration. Docker applies migrations on startup;
+for a local installation run `python -m alembic upgrade head` from `backend/`.
+
 ## 📱 Android app
 The android app is only needed to track your location in the background. Other
 than that, it is the same interface as the web app. Because it is your choice,
@@ -173,6 +194,62 @@ for the popular unnamed app.
 
 So I built OpenVoyage. To do exactly all the things that I want it to do.
 
+
+## Development and releases
+
+The root `package.json` is the source of the OpenVoyage version, currently
+`0.5.0`. Release tooling and configuration use TypeScript. Install it with
+`npm ci` at the project root, and install frontend dependencies with
+`npm --prefix frontend ci`. Node 22.22.2+, 24.15.0+, or 26+ is required.
+API generation also needs the backend Python environment; it uses the root
+`.venv`, or the Python executable specified by `PYTHON`.
+
+Run releases from a clean, up-to-date `main` branch with all tags fetched:
+
+```bash
+npm run release:preview
+npm run release
+```
+
+These commands recommend the next version from Conventional Commits since the
+previous tag. The first release from the current history is `0.5.0`; use
+`npm run release -- 0.5.0` to select that version explicitly if needed.
+`fix` and `perf` recommend patch releases; `feat` recommends minor releases.
+Breaking changes (`!` or a `BREAKING CHANGE:` footer) recommend minor releases
+before 1.0 and major releases afterward. Moving to 1.0 is an explicit decision.
+Maintenance-only changes do not recommend a release; an explicit version,
+`patch`, or `minor` argument can override the recommendation.
+
+Release-it updates the changelog, synchronizes package versions, regenerates
+API files, and offers to commit, tag, and push. It does not publish to npm.
+GitHub Actions publishes the GitHub Release and APK only after the image and
+Android builds succeed.
+
+If you edit the root version manually, run `npm run version:sync`, then
+`npm --prefix frontend run api:generate`. Synchronization updates the frontend,
+backend, lockfiles, and Android version name, incrementing Android's numeric
+build number once per version change. Prereleases use `alpha.N`, `beta.N`, or
+`rc.N`; Python metadata receives the equivalent PEP 440 version.
+`npm run version:check` detects stale versions, and `npm test` type-checks and
+tests the release tooling. CI also checks that release tags match the version.
+
+The backend runs with its synchronized `app/core/version.py` constant, and Vite
+reads `frontend/package.json` to embed the client version during development
+and builds. Each component can be copied and run independently with its normal
+dependencies; neither needs the root `package.json` or the release tooling.
+Docker packages the backend version constant and the built frontend assets.
+
+PR titles must follow Conventional Commits, for example `feat: add updates`,
+`fix(tracking): correct synchronization`, or `feat(api)!: change authentication`.
+Dependabot generates `chore(deps): ...` / `chore(deps-dev): ...` titles. Rename
+an update to `fix(deps): ...` if it fixes an application bug or vulnerability
+that should trigger a patch release.
+
+In GitHub repository settings, default squash-merge messages to the PR title
+and require the **Validate PR title** check in the `main` branch ruleset after
+the workflow has run once. Use squash merging so the validated title reaches
+the release history. The title workflow activates after merging into the
+default branch and reruns when PRs are opened, renamed, reopened, or updated.
 
 ## 🤖 Use of AI
 

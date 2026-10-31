@@ -1,9 +1,14 @@
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: /frontend
+    directories:
+      - /
+      - /frontend
     schedule:
       interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
     groups:
       minor-and-patch:
         update-types:

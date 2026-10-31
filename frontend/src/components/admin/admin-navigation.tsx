@@ -5,9 +5,10 @@ import {
   Palette,
   Route,
   Users,
+  Server,
   type LucideIcon,
 } from 'lucide-react'
-import { useRef, type KeyboardEvent } from 'react'
+import { useEffect, useRef, type KeyboardEvent } from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -18,6 +19,7 @@ export type AdminSectionId =
   | 'jobs'
   | 'routing'
   | 'users'
+  | 'system'
 
 type AdminNavigationItem = {
   description: string
@@ -68,6 +70,12 @@ const adminNavigationItems: readonly AdminNavigationItem[] = [
     id: 'jobs',
     label: 'Jobs',
   },
+  {
+    description: 'Versions and software updates',
+    icon: Server,
+    id: 'system',
+    label: 'System',
+  },
 ]
 
 export function AdminNavigation({
@@ -75,6 +83,14 @@ export function AdminNavigation({
   onSectionChange,
 }: AdminNavigationProps) {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+
+  useEffect(() => {
+    const tab = tabRefs.current[adminNavigationItems.findIndex((item) => item.id === activeSection)]
+    const list = tab?.parentElement
+    if (tab && list && list.scrollWidth > list.clientWidth) {
+      list.scrollLeft = Math.max(0, tab.offsetLeft - list.offsetLeft - (list.clientWidth - tab.offsetWidth) / 2)
+    }
+  }, [activeSection])
 
   function handleTabKeyDown(
     event: KeyboardEvent<HTMLButtonElement>,

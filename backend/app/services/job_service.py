@@ -44,6 +44,12 @@ class JobRecord:
     schedule_error: str | None
 
 
+class JobCooldownError(RuntimeError):
+    def __init__(self, retry_at: datetime):
+        self.retry_at = retry_at
+        super().__init__('Please wait before checking for updates again')
+
+
 class JobService:
     def __init__(self, db: Session, *, scheduler=None, wake_runner=None) -> None:
         self.db = db
@@ -259,6 +265,13 @@ class JobService:
             self.db.add(skipped)
             self.db.commit()
             return skipped
+        if job_key == 'software_update_check':
+            from services.software_update_service import SoftwareUpdateService
+            retry_at = SoftwareUpdateService(self.db).next_allowed_check()
+            if retry_at and retry_at > utcnow():
+                if automatic:
+                    return None
+                raise JobCooldownError(retry_at)
         execution = JobExecution(
             job_key=job_key,
             trigger=trigger,
@@ -302,6 +315,11 @@ class JobService:
     def enqueue_startup_jobs(self) -> None:
         for definition in JOB_DEFINITIONS:
             job = self.db.get(ScheduledJob, definition.key.value)
+            if job and job.enabled and job.key == 'software_update_check':
+                from services.software_update_service import SoftwareUpdateService
+                if SoftwareUpdateService(self.db).should_check_on_start():
+                    self.enqueue(job.key, trigger=JobExecutionTrigger.STARTUP)
+                continue
             if (
                 not job
                 or not job.enabled

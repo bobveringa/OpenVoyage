@@ -10,6 +10,7 @@ from starlette.staticfiles import StaticFiles
 from api.main import api_router
 from api.routers import health
 from core.config import settings
+from core.version import APP_VERSION
 from core.db import get_engine
 from flight_monitor.runtime import FlightMonitorRuntime
 from jobs.runtime import JobRuntime
@@ -40,7 +41,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title='OpenVoyage API',
-    version='0.4.0',
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 

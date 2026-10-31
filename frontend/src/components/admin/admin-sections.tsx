@@ -34,6 +34,7 @@ import {
 } from '@/api/client'
 import type { AdminSectionId } from '@/components/admin/admin-navigation'
 import { JobsPanel } from '@/components/admin/jobs-panel'
+import { SystemPanel } from '@/components/admin/system-panel'
 import { ThemeEditor } from '@/components/admin/theme-editor'
 import { UsersPanel } from '@/components/admin/users-panel'
 import { Badge } from '@/components/ui/badge'
@@ -183,6 +184,9 @@ export function AdminSections({
   accessToken,
   activeSection,
 }: AdminSectionsProps) {
+  if (activeSection === 'system') {
+    return <SystemPanel accessToken={accessToken} />
+  }
   if (activeSection === 'users') {
     return <UsersPanel accessToken={accessToken} />
   }

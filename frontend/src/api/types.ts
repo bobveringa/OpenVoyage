@@ -180,6 +180,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Software Updates */
+        get: operations["get_software_updates_api_v1_admin_updates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/users": {
         parameters: {
             query?: never;
@@ -348,6 +365,23 @@ export interface paths {
         };
         /** Reverse Geocode Places */
         get: operations["reverse_geocode_places_api_v1_places_reverse_geocode_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Server Version */
+        get: operations["get_server_version_api_v1_server_version_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3004,6 +3038,11 @@ export interface components {
             to_endpoint: components["schemas"]["Endpoint"] | null;
             via_endpoint?: components["schemas"]["Endpoint"] | null;
         };
+        /** ServerVersionResponse */
+        ServerVersionResponse: {
+            /** Version */
+            version: string;
+        };
         /**
          * SettingValueType
          * @enum {string}
@@ -3071,6 +3110,46 @@ export interface components {
             display_name_locked: boolean;
             /** Interactions Enabled */
             interactions_enabled: boolean;
+        };
+        /** SoftwareReleaseResponse */
+        SoftwareReleaseResponse: {
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Url */
+            url: string;
+            /** Version */
+            version: string;
+        };
+        /** SoftwareUpdateResponse */
+        SoftwareUpdateResponse: {
+            /**
+             * Check Status
+             * @enum {string}
+             */
+            check_status: "never_checked" | "checking" | "ok" | "failed" | "disabled";
+            /** Checks Enabled */
+            checks_enabled: boolean;
+            /**
+             * Comparison
+             * @enum {string}
+             */
+            comparison: "update_available" | "up_to_date" | "ahead" | "unknown";
+            /** Error Code */
+            error_code: string | null;
+            /** Installed Version */
+            installed_version: string;
+            /** Is Stale */
+            is_stale: boolean;
+            /** Last Attempt At */
+            last_attempt_at: string | null;
+            /** Last Success At */
+            last_success_at: string | null;
+            latest_release: components["schemas"]["SoftwareReleaseResponse"] | null;
+            /** Next Allowed Check At */
+            next_allowed_check_at: string | null;
         };
         /**
          * SortDirection
@@ -4209,6 +4288,26 @@ export interface operations {
             };
         };
     };
+    get_software_updates_api_v1_admin_updates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SoftwareUpdateResponse"];
+                };
+            };
+        };
+    };
     list_admin_users_api_v1_admin_users_get: {
         parameters: {
             query?: {
@@ -4634,6 +4733,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_server_version_api_v1_server_version_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerVersionResponse"];
                 };
             };
         };

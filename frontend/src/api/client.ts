@@ -58,6 +58,16 @@ export type AuthTokens = components['schemas']['Token']
 export type CurrentUser = components['schemas']['CurrentUserResponse']
 export type SetupCreatePayload = components['schemas']['SetupCreateRequest']
 export type SetupStatus = components['schemas']['SetupStatusResponse']
+export type ServerVersion = components['schemas']['ServerVersionResponse']
+export type SoftwareUpdate = components['schemas']['SoftwareUpdateResponse']
+
+export function getServerVersion(signal?: AbortSignal): Promise<ServerVersion> {
+  return requestJson(`${API_V1_PREFIX}/server/version`, { signal })
+}
+
+export function getSoftwareUpdates(accessToken: string, signal?: AbortSignal): Promise<SoftwareUpdate> {
+  return requestJson(`${API_V1_PREFIX}/admin/updates`, { accessToken, signal })
+}
 export type User = components['schemas']['UserResponse']
 export type Trip = components['schemas']['TripResponse']
 export type TripCreatePayload = components['schemas']['TripCreateRequest']

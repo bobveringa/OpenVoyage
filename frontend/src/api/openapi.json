@@ -4513,6 +4513,19 @@
         "title": "SegmentResponse",
         "type": "object"
       },
+      "ServerVersionResponse": {
+        "properties": {
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "ServerVersionResponse",
+        "type": "object"
+      },
       "SettingValueType": {
         "enum": [
           "enum",
@@ -4673,6 +4686,138 @@
           "interactions_enabled"
         ],
         "title": "ShareLinkProfileResponse",
+        "type": "object"
+      },
+      "SoftwareReleaseResponse": {
+        "properties": {
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "url",
+          "published_at"
+        ],
+        "title": "SoftwareReleaseResponse",
+        "type": "object"
+      },
+      "SoftwareUpdateResponse": {
+        "properties": {
+          "check_status": {
+            "enum": [
+              "never_checked",
+              "checking",
+              "ok",
+              "failed",
+              "disabled"
+            ],
+            "title": "Check Status",
+            "type": "string"
+          },
+          "checks_enabled": {
+            "title": "Checks Enabled",
+            "type": "boolean"
+          },
+          "comparison": {
+            "enum": [
+              "update_available",
+              "up_to_date",
+              "ahead",
+              "unknown"
+            ],
+            "title": "Comparison",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "installed_version": {
+            "title": "Installed Version",
+            "type": "string"
+          },
+          "is_stale": {
+            "title": "Is Stale",
+            "type": "boolean"
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "latest_release": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SoftwareReleaseResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_allowed_check_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Allowed Check At"
+          }
+        },
+        "required": [
+          "installed_version",
+          "latest_release",
+          "comparison",
+          "check_status",
+          "checks_enabled",
+          "last_attempt_at",
+          "last_success_at",
+          "next_allowed_check_at",
+          "error_code",
+          "is_stale"
+        ],
+        "title": "SoftwareUpdateResponse",
         "type": "object"
       },
       "SortDirection": {
@@ -6857,7 +7002,7 @@
   },
   "info": {
     "title": "OpenVoyage API",
-    "version": "0.4.0"
+    "version": "0.5.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -7440,6 +7585,32 @@
         "summary": "Create Setup Admin",
         "tags": [
           "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/updates": {
+      "get": {
+        "operationId": "get_software_updates_api_v1_admin_updates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SoftwareUpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Software Updates",
+        "tags": [
+          "software"
         ]
       }
     },
@@ -8212,6 +8383,27 @@
         "summary": "Reverse Geocode Places",
         "tags": [
           "places"
+        ]
+      }
+    },
+    "/api/v1/server/version": {
+      "get": {
+        "operationId": "get_server_version_api_v1_server_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Server Version",
+        "tags": [
+          "software"
         ]
       }
     },

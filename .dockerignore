@@ -11,4 +11,5 @@ __pycache__
 data
 private
 frontend/node_modules
+node_modules
 frontend/dist
