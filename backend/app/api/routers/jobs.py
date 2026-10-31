@@ -20,8 +20,10 @@ from models.api.jobs import (
     ScheduledJobResponse,
 )
 from models.database.jobs import JobExecution, JobExecutionTrigger
+from models.database.base import utcnow
 from services.job_service import (
     JobConflictError,
+    JobCooldownError,
     JobNotFoundError,
     JobScheduleValidationError,
     JobRecord,
@@ -141,6 +143,11 @@ def run_job(
         )
         assert execution is not None
         return _execution(execution)
+    except JobCooldownError as exc:
+        seconds = max(1, int((exc.retry_at - utcnow()).total_seconds()) + 1)
+        raise HTTPException(
+            status_code=429, detail=str(exc), headers={'Retry-After': str(seconds)},
+        ) from exc
     except JobConflictError as exc:
         existing_execution = _execution(exc.execution)
         assert existing_execution is not None

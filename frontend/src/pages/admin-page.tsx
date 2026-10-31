@@ -69,6 +69,7 @@ export function AdminPage({
 }
 
 const adminSectionIds: readonly AdminSectionId[] = [
+  'system',
   'appearance',
   'routing',
   'media',

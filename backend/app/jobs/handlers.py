@@ -45,6 +45,25 @@ class GeoNamesImportJob(Job):
         return JobResult(summary)
 
 
+class SoftwareUpdateCheckJob(Job):
+    key = JobKey.SOFTWARE_UPDATE_CHECK
+
+    def __init__(self, db):
+        self.db = db
+
+    def run(self) -> JobResult:
+        from jobs.errors import JobFailure
+        from services.software_update_service import SoftwareUpdateService, UpdateCheckError
+        try:
+            checked = SoftwareUpdateService(self.db).check()
+        except UpdateCheckError as exc:
+            raise JobFailure('Software update check failed', {
+                'error_code': exc.code,
+                'retry_at': exc.retry_at.isoformat() if exc.retry_at else None,
+            }) from exc
+        return JobResult({'checked': checked})
+
+
 class PlanningArtifactCleanupJob(Job):
     key = JobKey.PLANNING_ARTIFACT_CLEANUP
 

@@ -13,3 +13,4 @@ APScheduler==3.11.3
 Alembic[tz]==1.18.4
 
 tzdata==2025.3
+semver==3.0.4

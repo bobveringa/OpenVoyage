@@ -16,6 +16,7 @@ class JobKey(str, Enum):
     GEONAMES_IMPORT = 'geonames_import'
     PLANNING_ARTIFACT_CLEANUP = 'planning_artifact_cleanup'
     ORPHANED_MEDIA_CLEANUP = 'orphaned_media_cleanup'
+    SOFTWARE_UPDATE_CHECK = 'software_update_check'
 
 
 @dataclass(frozen=True)
@@ -37,9 +38,19 @@ def _definitions() -> tuple[JobDefinition, ...]:
         create_geonames_import_job,
         create_planning_artifact_cleanup_job,
         create_orphaned_media_cleanup_job,
+        create_software_update_check_job,
     )
 
     return (
+        JobDefinition(
+            key=JobKey.SOFTWARE_UPDATE_CHECK,
+            name='Software update check',
+            description='Check GitHub for a new stable OpenVoyage release.',
+            factory=create_software_update_check_job,
+            default_enabled=True,
+            default_cron='0 */12 * * *',
+            run_on_start_until_first_success=False,
+        ),
         JobDefinition(
             key=JobKey.GEONAMES_IMPORT,
             name='GeoNames places',

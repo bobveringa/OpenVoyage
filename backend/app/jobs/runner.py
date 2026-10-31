@@ -11,6 +11,7 @@ from models.database.base import utcnow
 from models.database.jobs import JobExecution, JobExecutionStatus
 
 from .definitions import JOB_DEFINITIONS_BY_KEY
+from .errors import JobFailure
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ class JobRunner:
                     'duration_seconds': (utcnow() - started).total_seconds(),
                 },
             )
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 'job_failed',
                 extra={'job_key': job_key, 'execution_id': str(execution_id)},
@@ -87,6 +88,7 @@ class JobRunner:
             self._finish(
                 execution_id,
                 JobExecutionStatus.FAILED,
+                summary=exc.summary if isinstance(exc, JobFailure) else None,
                 error_message='Job execution failed',
             )
         return True

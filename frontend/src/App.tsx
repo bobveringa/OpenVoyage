@@ -12,6 +12,7 @@ import { AuthProvider } from '@/auth/auth-provider'
 import { useAuth } from '@/auth/use-auth'
 import { AppBackground } from '@/components/layout/app-background'
 import { AppShell } from '@/components/layout/app-shell'
+import { SoftwareInfoProvider } from '@/software/software-info-provider'
 import { CookieBanner } from '@/components/layout/cookie-banner'
 import { RouteErrorBoundary } from '@/components/layout/route-error-boundary'
 import { ClockFormatProvider } from '@/components/clock-format-provider'
@@ -90,12 +91,14 @@ function App() {
         <ThemeProvider>
           <NativeServerGate>
             <AuthProvider>
-              <UserPreferencesProvider>
-                <TrackingProvider>
-                  <AppRoutes />
-                  <CookieBanner />
-                </TrackingProvider>
-              </UserPreferencesProvider>
+              <SoftwareInfoProvider>
+                <UserPreferencesProvider>
+                  <TrackingProvider>
+                    <AppRoutes />
+                    <CookieBanner />
+                  </TrackingProvider>
+                </UserPreferencesProvider>
+              </SoftwareInfoProvider>
             </AuthProvider>
           </NativeServerGate>
         </ThemeProvider>

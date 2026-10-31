@@ -102,6 +102,27 @@ v3 API key with these required read permissions: `album.read`, `asset.read`,
 `asset.view`, `asset.download`, and `user.read`. The Immich server must be
 reachable from the OpenVoyage backend; browsers never contact it directly.
 
+## Software versions and updates
+
+The user menu shows client and server versions. **Admin → System** highlights
+the server version when an update is available, and provides release notes, check results, and a
+manual **Check now** button.
+
+The server checks GitHub for stable releases every 12 hours and at startup when
+its cached result is missing or stale. Checks run in the background and retain
+the last verified result in `software_release_cache` when GitHub is unavailable.
+Check attempts, errors, and retry timing use the existing job history. Manual checks have a
+five-minute cooldown, with longer waits after failures or GitHub rate limits.
+Configure or disable the **Software update check** schedule in **Admin → Jobs**.
+Disabling its schedule still allows explicit manual checks.
+
+`GET /api/v1/server/version` is public and does not access the database or GitHub.
+`GET /api/v1/admin/updates` and update-job controls require administrator access.
+The browser reads cached results from OpenVoyage; it does not contact GitHub.
+
+This change includes a database migration. Docker applies migrations on startup;
+for a local installation run `python -m alembic upgrade head` from `backend/`.
+
 ## 📱 Android app
 The android app is only needed to track your location in the background. Other
 than that, it is the same interface as the web app. Because it is your choice,

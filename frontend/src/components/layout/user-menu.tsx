@@ -1,6 +1,8 @@
 import {
   ChevronDown,
   LogOut,
+  Monitor,
+  Server,
   Shield,
   UserCog,
   UserRound,
@@ -10,6 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CurrentUser } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { MediaImage } from '@/components/ui/media-image'
+import { CLIENT_VERSION, useSoftwareInfo } from '@/software/software-info-context'
 import {
   getUserDisplayName,
   getUserInitials,
@@ -32,6 +35,7 @@ export function UserMenu({
   const menuRef = useRef<HTMLDivElement>(null)
   const username = getUserUsername(currentUser)
   const displayName = getUserDisplayName(currentUser)
+  const { serverVersion, serverLoading } = useSoftwareInfo()
 
   useEffect(() => {
     if (!open) {
@@ -106,6 +110,26 @@ export function UserMenu({
           ) : null}
 
           <MenuButton icon={LogOut} label="Log out" onClick={onLogout} />
+          <div className="mt-1 border-t border-border px-1 pt-2 pb-1">
+            <dl aria-label="Installed versions" className="divide-y divide-border/60 rounded-xl bg-muted/60 px-3">
+              <div className="flex min-w-0 items-baseline justify-between gap-3 py-2.5">
+                <dt className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                  <Monitor aria-hidden="true" className="size-3" />
+                  Client
+                </dt>
+                <dd className="min-w-0 break-all text-right font-mono text-xs font-semibold leading-5 text-popover-foreground">v{CLIENT_VERSION}</dd>
+              </div>
+              <div className="flex min-w-0 items-baseline justify-between gap-3 py-2.5">
+                <dt className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                  <Server aria-hidden="true" className="size-3" />
+                  Server
+                </dt>
+                <dd className="min-w-0 break-all text-right font-mono text-xs font-semibold leading-5 text-popover-foreground">
+                  {serverVersion ? `v${serverVersion}` : <span className="font-sans font-normal text-muted-foreground">{serverLoading ? 'Loading…' : 'Unavailable'}</span>}
+                </dd>
+              </div>
+            </dl>
+          </div>
         </div>
       ) : null}
     </div>

@@ -10,6 +10,7 @@ from api.routers import (
     places,
     posts,
     settings,
+    software_updates,
     tracking,
     trips,
     users,
@@ -24,6 +25,7 @@ api_router.include_router(admin.router)
 api_router.include_router(jobs.router)
 api_router.include_router(settings.public_router)
 api_router.include_router(settings.admin_router)
+api_router.include_router(software_updates.router)
 api_router.include_router(media.router)
 api_router.include_router(places.router)
 api_router.include_router(trips.router)

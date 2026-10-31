@@ -87,6 +87,28 @@ test('Windows checkout line endings do not cause false version drift', (t) => {
   assert.doesNotThrow(() => syncVersion(project.root, { check: true }))
 })
 
+test('a CRLF backend version file validates and retains its line endings after a bump', (t) => {
+  const project = fixture(t)
+  syncVersion(project.root)
+  project.json('frontend/src/api/openapi.json', { info: { version: '0.5.0' } })
+  const path = 'backend/app/core/version.py'
+  const checkout = project.read(path).replaceAll('\n', '\r\n')
+  project.write(path, checkout)
+
+  assert.doesNotThrow(() => syncVersion(project.root, { check: true }))
+  assert.deepEqual(syncVersion(project.root).changed, [])
+  assert.equal(project.read(path), checkout)
+
+  project.json('package.json', { version: '0.5.1' })
+  assert.throws(() => syncVersion(project.root, { check: true }), /backend\/app\/core\/version.py/)
+  syncVersion(project.root)
+  const bumped = project.read(path)
+  assert.match(bumped, /APP_VERSION: str = "0\.5\.1"\r\n/)
+  assert.ok(!bumped.replaceAll('\r\n', '').includes('\n'))
+  project.json('frontend/src/api/openapi.json', { info: { version: '0.5.1' } })
+  assert.doesNotThrow(() => syncVersion(project.root, { check: true }))
+})
+
 test('prerelease app versions become valid Python package versions', (t) => {
   assert.equal(pythonVersion('0.5.0'), '0.5.0')
   assert.equal(pythonVersion('0.6.0-alpha.0'), '0.6.0a0')
