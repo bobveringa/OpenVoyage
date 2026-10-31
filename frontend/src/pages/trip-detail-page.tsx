@@ -136,6 +136,7 @@ import type {
   UserLookupDraft,
 } from '@/pages/trip-detail/page-types'
 import { EMPTY_TRACKING_GEOMETRY } from '@/pages/trip-detail/models'
+import { retainTravelMedia } from '@/pages/trip-detail/refresh-media'
 import {
   MapWorkspace,
   type MapRouteMode,
@@ -233,6 +234,7 @@ export function TripDetailPage({
   const [planningPreview, setPlanningPreview] = useState<Connection | null>(null)
   const [connections, setConnections] = useState<readonly Connection[]>([])
   const [travelPosts, setTravelPosts] = useState<readonly TravelPost[]>([])
+  const timelineMediaRef = useRef<{ scope: string; posts: readonly TravelPost[] } | null>(null)
   const [trackingGeometry, setTrackingGeometry] = useState<TripTrackingGeometry>(
     EMPTY_TRACKING_GEOMETRY,
   )
@@ -336,15 +338,21 @@ export function TripDetailPage({
       tripId,
     }), getTrackingJourney({ tripId, accessToken, shareToken }).catch(() => undefined)])
 
+    const scope = JSON.stringify([tripId, currentUserId, Boolean(accessToken), shareToken])
+    const posts = retainTravelMedia(
+      timelineMediaRef.current?.scope === scope ? timelineMediaRef.current.posts : [],
+      timeline.entries.map(toTravelTimelinePostViewModel),
+    )
+    timelineMediaRef.current = { scope, posts }
     return {
-      posts: timeline.entries.map(toTravelTimelinePostViewModel),
+      posts,
       trackingGeometry: {
         openingRoute: toTravelPostRouteViewModel(timeline.opening_route),
         flightJourneys: timeline.flight_journeys,
         journey,
       },
     }
-  }, [accessToken, shareToken, tripId])
+  }, [accessToken, currentUserId, shareToken, tripId])
 
   const fetchGpsPostCandidates = useCallback(async () => {
     if (!tripId || !accessToken) {
