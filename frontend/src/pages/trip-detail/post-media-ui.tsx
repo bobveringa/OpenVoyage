@@ -327,7 +327,7 @@ export function MediaLightbox({
       {mountedIndices.map(index => {
         const item = media[index]
         const active = index === activeIndex
-        return <div key={`${index}:${item.src}`} aria-hidden={!active} inert={!active}
+        return <div key={item.media_id ?? item.src} aria-hidden={!active} inert={!active}
           className="absolute inset-0 transition-opacity duration-200 motion-reduce:transition-none"
           style={{ opacity: active ? 1 : 0, pointerEvents: active ? 'auto' : 'none', zIndex: active ? 1 : 0 }}>
           {getMediaType(item) === 'video' ? active && <LightboxVideo media={item} onNavigate={showRelativeMedia} /> :

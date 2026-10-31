@@ -53,13 +53,15 @@ export class RepeatedWorldLayer {
     map.once('unload', this.remove)
   }
 
-  render(renderWorld: RenderWorld) {
-    this.root.clearLayers()
-    this.copies.clear()
+  render(renderWorld: RenderWorld, preserveLayers = false) {
+    if (!preserveLayers) {
+      this.root.clearLayers()
+      this.copies.clear()
+    }
     this.renderWorld = renderWorld
-    const original = L.featureGroup().addTo(this.root)
-    this.copies.set(0, original)
-    renderWorld(original, 0)
+    if (!this.copies.has(0)) this.copies.set(0, L.featureGroup().addTo(this.root))
+    for (const [offset, group] of this.copies) renderWorld(group, offset)
+    const original = this.copies.get(0)!
     this.sourceBounds = original.getBounds()
     this.update()
   }

@@ -1,4 +1,4 @@
-import type { Itinerary, ItineraryConnection, RouteOverview } from '@/api/client'
+import type { Itinerary, ItineraryConnection, PostTimeline, RouteOverview } from '@/api/client'
 import { seedAuthTokens } from './helpers/auth'
 import { expect, test, type Page, type Route } from '@playwright/test'
 
@@ -13,6 +13,120 @@ const transparentPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z7QAAAABJRU5ErkJggg==',
   'base64',
 )
+
+test('automatic refresh keeps loaded photos, gallery and map markers while applying real updates', async ({ page }) => {
+  await seedBrowserAuth(page)
+  const release = await mockTripApi(page); release()
+  await mockTileServers(page)
+  await page.clock.install()
+  let timelineRequests = 0
+  let imageRequests = 0
+  let changed = false
+  let removed = false
+  let outage = false
+  const mediaUrl = (id: string, thumbnail: boolean) => {
+    const payload = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, jti: String(timelineRequests) })).toString('base64url')
+    return `/api/v1/media/${id}/content?media_token=test.${payload}.signature&thumbnail=${thumbnail}`
+  }
+  await page.route('**/api/v1/media/**', route => {
+    imageRequests++
+    return route.fulfill({ body: transparentPng, contentType: 'image/png' })
+  })
+  await page.route(`**/trips/${tripId}/tracking/journey`, route => fulfillJson(route, {
+    server_time: new Date().toISOString(), position: null, target: null, connector: null,
+  }))
+  await page.route(`**/trips/${tripId}/posts/timeline*`, route => {
+    timelineRequests++
+    if (outage) return fulfillJson(route, { detail: 'Temporary outage' }, 503)
+    const timeline = createPostTimeline() as PostTimeline
+    for (const entry of timeline.entries) {
+      for (const media of entry.post.media) {
+        media.urls = { content: mediaUrl(media.id, false), thumbnail: mediaUrl(media.id, true) }
+      }
+    }
+    if (changed) {
+      timeline.entries[0].post.title = 'Edited during refresh'
+      timeline.entries[0].post.social.like_count = 7
+      timeline.entries[0].route_after!.segments[0].geometry.coordinates[1] = [4.93, 52.38]
+    }
+    if (removed) timeline.entries = timeline.entries.slice(1)
+    timeline.flight_journeys = [{ itinerary_connection_id: 'flight-connection', flights: [{
+      id: 'flight', flight_number: 'OV123', airline_name: 'OpenVoyage',
+      departure_airport: { id: 'ams', name: 'Amsterdam', iata_code: 'AMS', latitude: 52.31, longitude: 4.76, timezone: 'Europe/Amsterdam' },
+      arrival_airport: { id: 'lis', name: 'Lisbon', iata_code: 'LIS', latitude: 38.77, longitude: -9.13, timezone: 'Europe/Lisbon' },
+      status: 'IN_FLIGHT', scheduled_departure: '2026-08-05T09:00:00Z', scheduled_arrival: '2026-08-05T12:00:00Z',
+      estimated_departure: null, estimated_arrival: null, actual_departure: '2026-08-05T09:00:00Z', actual_arrival: null,
+      completion_source: null, stop_reason: null, progress: changed ? .4 : .2, estimate_basis: 'SCHEDULED_DURATION',
+      position_source: 'FLIGHT_ESTIMATE', position_at: timestamp, status_updated_at: timestamp, update_state: 'CURRENT', visible_to_members_only: false,
+    }] }]
+    return fulfillJson(route, timeline)
+  })
+  await page.goto(`/trips/${tripId}?tab=travel`)
+  const firstImage = page.locator('.trip-post-media-strip img').first()
+  const markers = page.locator('.trip-map-post-bubble__image')
+  await expect(markers).toHaveCount(2)
+  await expect(firstImage).toBeVisible()
+  await expect.poll(() => firstImage.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+  const image = await firstImage.elementHandle()
+  const marker = await markers.first().elementHandle()
+  const otherMarker = await markers.nth(1).elementHandle()
+  const photoSrc = await firstImage.getAttribute('src')
+  const initialRequests = timelineRequests
+  const initialImages = imageRequests
+  const path = page.locator('.leaflet-overlay-pane svg path').first()
+  const oldGeometry = await path.getAttribute('d')
+  await page.clock.runFor(61_000)
+  await expect.poll(() => timelineRequests).toBeGreaterThan(initialRequests)
+  await expect(firstImage).toHaveAttribute('src', photoSrc!)
+  expect(await image!.evaluate(element => element.isConnected)).toBe(true)
+  expect(await marker!.evaluate(element => element.isConnected)).toBe(true)
+  expect(imageRequests).toBe(initialImages)
+
+  // Opening the gallery adds a content request; refresh must preserve that
+  // image and its zoom too.
+  await firstImage.click()
+  const dialog = page.getByRole('dialog', { name: 'First timeline post media viewer' })
+  await expect(dialog).toBeVisible()
+  const galleryImage = await dialog.locator('img').first().elementHandle()
+  await expect.poll(() => galleryImage!.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+  await dialog.getByRole('button', { name: 'Zoom in', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: 'Reset zoom' })).toHaveText('150%')
+  const galleryRequests = imageRequests
+  await page.clock.runFor(61_000)
+  expect(await galleryImage!.evaluate(element => element.isConnected)).toBe(true)
+  await expect(dialog.getByRole('button', { name: 'Reset zoom' })).toHaveText('150%')
+  expect(imageRequests).toBe(galleryRequests)
+  await dialog.getByRole('button', { name: 'Close media viewer' }).click()
+  await expect(dialog).toHaveCount(0)
+
+  changed = true
+  await page.clock.runFor(61_000)
+  await expect(page.getByRole('heading', { name: 'Edited during refresh' })).toBeVisible()
+  await expect(page.getByRole('progressbar', { name: 'Estimated flight progress' }).first()).toHaveAttribute('aria-valuenow', '40')
+  await expect(path).not.toHaveAttribute('d', oldGeometry!)
+  expect(await marker!.evaluate(element => element.isConnected)).toBe(true)
+  expect(await otherMarker!.evaluate(element => element.isConnected)).toBe(true)
+  expect(await image!.evaluate(element => element.isConnected)).toBe(true)
+  expect(imageRequests).toBe(galleryRequests)
+
+  outage = true
+  await page.clock.runFor(61_000)
+  expect(await marker!.evaluate(element => element.isConnected)).toBe(true)
+  await expect(firstImage).toHaveAttribute('src', photoSrc!)
+  outage = false
+  removed = true
+  await page.clock.runFor(61_000)
+  await expect(markers).toHaveCount(1)
+  expect(await marker!.evaluate(element => element.isConnected)).toBe(false)
+  expect(await otherMarker!.evaluate(element => element.isConnected)).toBe(true)
+
+  await page.getByRole('button', { name: 'Plan', exact: true }).click()
+  await expect(markers).toHaveCount(0)
+  await page.clock.runFor(61_000)
+  await expect(markers).toHaveCount(0)
+  await page.getByRole('button', { name: 'Travel', exact: true }).click()
+  await expect(markers).toHaveCount(1)
+})
 
 test('one-stop departure flight and independent return render, edit, and confirm deletion', async ({ page }) => {
   await seedBrowserAuth(page)
