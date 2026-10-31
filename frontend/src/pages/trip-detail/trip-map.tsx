@@ -259,6 +259,7 @@ export function TripLeafletMap({
   const gpsPostCandidatesRef = useRef(gpsPostCandidates)
   const routeEndpointLayerRef = useRef<RepeatedWorldLayer | null>(null)
   const fittedViewRef = useRef<string | null>(null)
+  const postMarkerKey = JSON.stringify(travelPosts.map(post => [post.id, post.coordinates, createPostBubbleHtml(post, false)]))
   const routeKey = createRouteKey(
     routeMode,
     stops,
@@ -387,16 +388,15 @@ export function TripLeafletMap({
     }
 
     postMarkerLayer.render((layer, offset) => {
-      if (routeMode !== 'travel-timeline') return
       renderPostMarkerLayer(
         layer,
-        travelPostsRef.current,
+        routeMode === 'travel-timeline' ? travelPostsRef.current : [],
         focusedPostId,
         (postId) => latestPostMarkerSelectRef.current?.(postId),
         offset,
       )
-    })
-  }, [focusedPostId, routeMode, routeKey])
+    }, true)
+  }, [focusedPostId, routeMode, postMarkerKey, showZoomControls])
 
   useEffect(() => {
     const candidateLayer = gpsPostCandidateLayerRef.current
@@ -787,6 +787,8 @@ function createGpsPostCandidateHtml() {
   return '<button class="trip-map-gps-post-candidate" aria-label="Create post from GPS point" type="button"><svg aria-hidden="true" viewBox="0 0 12 12"><path d="M6 2v8M2 6h8" /></svg></button>'
 }
 
+const postMarkersByLayer = new WeakMap<L.LayerGroup, Map<string, { marker: L.Marker; html: string }>>()
+
 function renderPostMarkerLayer(
   postMarkerLayer: L.LayerGroup,
   travelPosts: readonly TravelPost[],
@@ -794,6 +796,18 @@ function renderPostMarkerLayer(
   onPostMarkerSelect: (postId: string) => void,
   longitudeOffset = 0,
 ) {
+  let markers = postMarkersByLayer.get(postMarkerLayer)
+  if (!markers) {
+    markers = new Map()
+    postMarkersByLayer.set(postMarkerLayer, markers)
+  }
+  const ids = new Set(travelPosts.map(post => post.id))
+  for (const [id, entry] of markers) {
+    if (!ids.has(id)) {
+      postMarkerLayer.removeLayer(entry.marker)
+      markers.delete(id)
+    }
+  }
   const orderedPosts = [
     ...travelPosts.filter((post) => post.id !== focusedPostId),
     ...travelPosts.filter((post) => post.id === focusedPostId),
@@ -801,18 +815,31 @@ function renderPostMarkerLayer(
 
   for (const post of orderedPosts) {
     const isFocused = post.id === focusedPostId
-
-    const marker = L.marker(shiftWorldCoordinate(post.coordinates, longitudeOffset), {
-      icon: L.divIcon({
-        className: 'trip-map-div-icon',
-        html: createPostBubbleHtml(post, isFocused),
-        iconAnchor: [22, 22],
-        iconSize: [44, 44],
-      }),
+    const html = createPostBubbleHtml(post, isFocused)
+    const coordinates = shiftWorldCoordinate(post.coordinates, longitudeOffset)
+    const existing = markers.get(post.id)
+    const icon = () => L.divIcon({
+      className: 'trip-map-div-icon',
+      html,
+      iconAnchor: [22, 22],
+      iconSize: [44, 44],
+    })
+    if (existing) {
+      if (!existing.marker.getLatLng().equals(coordinates)) existing.marker.setLatLng(coordinates)
+      if (existing.html !== html) {
+        existing.marker.setIcon(icon())
+        existing.html = html
+      }
+      existing.marker.setZIndexOffset(isFocused ? 1000 : 500)
+      continue
+    }
+    const marker = L.marker(coordinates, {
+      icon: icon(),
       zIndexOffset: isFocused ? 1000 : 500,
     }).addTo(postMarkerLayer)
 
     marker.on('click', () => onPostMarkerSelect(post.id))
+    markers.set(post.id, { marker, html })
   }
 }
 
@@ -1147,9 +1174,6 @@ function createRouteKey(
           .map((post) =>
             [
               post.id,
-              post.title,
-              post.excerpt,
-              post.location,
               post.coordinates[0],
               post.coordinates[1],
               post.occurredAt,
@@ -1163,8 +1187,6 @@ function createRouteKey(
                   ].join(','),
                 )
                 .join(';') ?? 'no-route',
-              post.bubbleMediaId,
-              getMapBubbleThumbnailSrc(getMapBubbleMedia(post)),
             ].join(':'),
           )
           .join('|')
@@ -1188,7 +1210,8 @@ function createRouteKey(
     connectionKey,
     postKey,
     openingRouteKey,
-    JSON.stringify(trackingGeometry.journey),
+    // Request timestamps do not change map geometry.
+    JSON.stringify(trackingGeometry.journey ? { ...trackingGeometry.journey, server_time: undefined } : null),
   ].join('::')
 }
 

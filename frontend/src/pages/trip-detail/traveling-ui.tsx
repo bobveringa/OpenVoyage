@@ -911,7 +911,7 @@ export function TravelPostCard({
         <div className="trip-post-media-strip scrollbar-subtle flex min-w-0 max-w-full gap-3 overflow-x-auto overscroll-x-contain px-4 pb-3">
           {post.media.map((media, index) => (
             <MediaStripCard
-              key={media.src}
+              key={media.media_id ?? media.src}
               media={media}
               onOpen={() => setActiveMediaIndex(index)}
             />
@@ -1879,7 +1879,7 @@ function MobilePostMediaGallery({
                 mediaCount >= 4 && index >= 2 && 'border-t',
                 mediaCount === 2 && index === 0 && 'border-r',
               )}
-              key={item.src}
+              key={item.media_id ?? item.src}
               onClick={() => onOpen(index)}
               type="button"
             >
