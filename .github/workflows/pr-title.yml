@@ -35,5 +35,6 @@ jobs:
             ci
             chore
             revert
-          subjectPattern: '\S'
+          # The action requires the pattern to match the entire subject.
+          subjectPattern: '^.*\S.*$'
           subjectPatternError: 'Add a description after the type, for example "fix(tracking): correct GPS synchronization".'
