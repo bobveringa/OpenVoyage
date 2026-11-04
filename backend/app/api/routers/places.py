@@ -1,11 +1,18 @@
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
-from api.deps import PlaceServiceDep
-from models.api.places import PlaceResponse, ReverseGeocodeResponse
+from api.deps import PlaceServiceDep, get_current_user
+from models.api.places import PlaceResponse, ReverseGeocodeResponse, TimezoneResponse
+from services.timezone_service import resolve_timezone
 
-router = APIRouter(prefix='/places', tags=['places'])
+# Place lookups are only used by signed-in editing UIs (posts, planning,
+# flights, GPS privacy zones); viewers and share links never call them.
+router = APIRouter(
+    prefix='/places',
+    tags=['places'],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.get('/geocode', response_model=list[PlaceResponse])
@@ -46,3 +53,12 @@ def reverse_geocode_places(
         )
         for result in results
     ]
+
+
+@router.get('/timezone', response_model=TimezoneResponse)
+def get_timezone(
+    latitude: Annotated[float, Query(ge=-90, le=90)],
+    longitude: Annotated[float, Query(ge=-180, le=180)],
+) -> TimezoneResponse:
+    """Return the IANA time zone at a point (used for the post form hint)."""
+    return TimezoneResponse(timezone=resolve_timezone(latitude, longitude))

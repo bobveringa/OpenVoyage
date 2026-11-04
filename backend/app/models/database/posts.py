@@ -85,6 +85,12 @@ class Post(Base):
         default=utcnow,
         server_default=func.now(),
     )
+    # IANA zone of where the post happened, from the location's coordinates.
+    # No server default on purpose: a write path that forgets it fails loudly.
+    occurred_timezone: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

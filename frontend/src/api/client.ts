@@ -127,6 +127,7 @@ export type SettingVisibility = components['schemas']['SettingVisibility']
 export type Place = components['schemas']['PlaceResponse']
 export type ReverseGeocodeResult =
   components['schemas']['ReverseGeocodeResponse']
+export type PlaceTimezone = components['schemas']['TimezoneResponse']
 export type Post = components['schemas']['PostResponse']
 export type PostCreatePayload = components['schemas']['PostCreateRequest']
 export type PostTimelineEntry =
@@ -688,12 +689,14 @@ export async function resetAdminSetting(options: {
 }
 
 export async function geocodePlaces(options: {
+  accessToken: string | null
   type?: 'AIRPORT'
   countryCode?: string | null
   limit?: number
   query: string
 }): Promise<Place[]> {
   return requestJson<Place[]>(`${API_V1_PREFIX}/places/geocode`, {
+    accessToken: options.accessToken,
     query: {
       type: options.type,
       country_code: options.countryCode,
@@ -704,6 +707,7 @@ export async function geocodePlaces(options: {
 }
 
 export async function reverseGeocodePlaces(options: {
+  accessToken: string | null
   latitude: number
   limit?: number
   longitude: number
@@ -712,6 +716,7 @@ export async function reverseGeocodePlaces(options: {
   return requestJson<ReverseGeocodeResult[]>(
     `${API_V1_PREFIX}/places/reverse-geocode`,
     {
+      accessToken: options.accessToken,
       query: {
         latitude: options.latitude,
         limit: options.limit ?? 1,
@@ -720,6 +725,24 @@ export async function reverseGeocodePlaces(options: {
       },
     },
   )
+}
+
+/** IANA time zone at a point, e.g. `Asia/Tokyo` (the post form's hint). */
+export async function getPlaceTimezone(options: {
+  accessToken: string | null
+  latitude: number
+  longitude: number
+  signal?: AbortSignal
+}): Promise<string> {
+  const response = await requestJson<PlaceTimezone>(
+    `${API_V1_PREFIX}/places/timezone`,
+    {
+      accessToken: options.accessToken,
+      query: { latitude: options.latitude, longitude: options.longitude },
+      signal: options.signal,
+    },
+  )
+  return response.timezone
 }
 
 export async function updateUserProfile(

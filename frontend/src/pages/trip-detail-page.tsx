@@ -76,6 +76,7 @@ import {
   type TripViewer,
 } from '@/api/client'
 import type { AuthStatus } from '@/auth/auth-context'
+import { formatPostTime } from '@/lib/date-time'
 import { isTripOngoing } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import { usePublicSetting } from '@/settings/public-settings'
@@ -1329,7 +1330,11 @@ export function TripDetailPage({
         setDraftStopLocation(draftLocation)
       }
 
-      void createReverseGeocodedDraftMapPointLocation(coordinates, selectedTarget)
+      void createReverseGeocodedDraftMapPointLocation(
+        coordinates,
+        selectedTarget,
+        accessToken,
+      )
         .then((resolvedLocation) => {
           if (selectedTarget === 'post') {
             setDraftPostLocation((currentLocation) =>
@@ -1355,7 +1360,7 @@ export function TripDetailPage({
         })
         .catch(() => undefined)
     },
-    [navigateTripDetailUrlState],
+    [accessToken, navigateTripDetailUrlState],
   )
 
   const handleDraftMapPointSelect = useCallback(
@@ -1827,9 +1832,11 @@ export function TripDetailPage({
 async function createReverseGeocodedDraftMapPointLocation(
   coordinates: L.LatLngTuple,
   target: MapPointTarget,
+  accessToken: string | null,
 ): Promise<DraftPostLocation> {
   const fallbackLocation = createDraftMapPointLocation(coordinates, target)
   const results = await reverseGeocodePlaces({
+    accessToken,
     latitude: coordinates[0],
     limit: 1,
     longitude: coordinates[1],
@@ -1844,6 +1851,7 @@ async function createReverseGeocodedDraftMapPointLocation(
   return {
     coordinates,
     label: `${prefix} ${getPlaceNameLabel(nearestPlace)}`,
+    placeName: getPlaceNameLabel(nearestPlace),
   }
 }
 
@@ -1995,12 +2003,13 @@ function toTravelPostViewModel(
     id: post.id,
     isDraft: post.published_at === null,
     location: post.location.full_name || post.location.name,
+    locationName: post.location.name,
     media,
     occurredAt: post.occurred_at,
     publishedAt: post.published_at,
     revision: post.revision,
     routeAfter,
-    time: formatDateTimeLabel(post.occurred_at),
+    time: formatPostTime(post.occurred_at, post.occurred_timezone),
     title: post.title,
     social: {
       canInteract: post.social.can_interact,

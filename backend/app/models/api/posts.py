@@ -64,6 +64,12 @@ class PostResponse(BaseModel):
     title: str
     body: str
     occurred_at: datetime
+    occurred_timezone: str = Field(
+        description=(
+            'IANA time zone of where the post happened, e.g. "Asia/Tokyo". '
+            'Show occurred_at in this zone for the local clock time.'
+        ),
+    )
     published_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -99,6 +105,7 @@ class PostResponse(BaseModel):
             title=post.title,
             body=post.body,
             occurred_at=post.occurred_at,
+            occurred_timezone=post.occurred_timezone,
             published_at=post.published_at,
             created_at=post.created_at,
             updated_at=post.updated_at,

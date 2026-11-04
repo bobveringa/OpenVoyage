@@ -1113,6 +1113,7 @@ function createPostTimeline() {
         },
       ],
       occurred_at: occurredAt,
+      occurred_timezone: 'Europe/Amsterdam',
       published_at: occurredAt,
       revision: 0,
       social: {

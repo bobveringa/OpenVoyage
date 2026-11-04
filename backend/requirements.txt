@@ -12,5 +12,6 @@ pillow==12.2.0
 APScheduler==3.11.3
 Alembic[tz]==1.18.4
 
-tzdata==2025.3
+tzdata==2026.6
+timezonefinder==9.2.0
 semver==3.0.4

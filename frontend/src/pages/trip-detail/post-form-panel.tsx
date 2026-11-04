@@ -38,6 +38,7 @@ import { DateTimePicker } from '@/components/ui/date-time-picker'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { Textarea } from '@/components/ui/textarea'
+import { formatLocalTimeHint } from '@/lib/date-time'
 import { cn } from '@/lib/utils'
 import {
   formatDateTimeInputValue,
@@ -57,6 +58,7 @@ import {
   LocationOptionCard,
 } from '@/pages/trip-detail/planning-ui'
 import { usePlaceSearch } from '@/hooks/use-place-search'
+import { usePlaceTimezone } from '@/hooks/use-place-timezone'
 import {
   formatCoordinates,
   formatPlaceDetail,
@@ -254,6 +256,21 @@ export function PostFormPanel({
   const occurredAtInFuture = Boolean(
     occurredAtDate && occurredAtDate.getTime() > dateLimit.getTime(),
   )
+  const hintCoordinates = hasLocation ? selectedPostCoordinates : null
+  const hintPlaceName = selectedMapLocation
+    ? selectedMapLocation.placeName
+    : selectedSearchPlace
+      ? getPlaceNameLabel(selectedSearchPlace)
+      : editingPost?.locationName
+  const locationTimezone = usePlaceTimezone(
+    accessToken,
+    hintCoordinates?.[0] ?? null,
+    hintCoordinates?.[1] ?? null,
+  )
+  const localTimeHint =
+    locationTimezone && occurredAtDate && !occurredAtInFuture
+      ? formatLocalTimeHint(occurredAtDate, locationTimezone, hintPlaceName)
+      : null
   const canSubmit =
     hasLocation &&
     title.trim().length > 0 &&
@@ -1012,6 +1029,14 @@ export function PostFormPanel({
           {occurredAtInFuture ? (
             <span className="text-sm text-destructive" role="alert">
               Post date and time cannot be in the future.
+            </span>
+          ) : null}
+          {localTimeHint ? (
+            <span
+              className="text-sm font-normal text-muted-foreground"
+              aria-live="polite"
+            >
+              {localTimeHint}
             </span>
           ) : null}
         </label>

@@ -37,6 +37,8 @@ export type DraftPostMedia = PostMedia & {
 export type DraftPostLocation = {
   coordinates: L.LatLngTuple
   label: string
+  /** Nearest place name without the "At"/"Near" prefix, once resolved. */
+  placeName?: string
 }
 
 export type PostScrollRequest = {

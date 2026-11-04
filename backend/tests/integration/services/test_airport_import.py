@@ -2,7 +2,9 @@ import zipfile
 
 from sqlalchemy import select
 
+from core import security
 from factories.places import create_place
+from factories.users import create_user
 from models.database.places import Place
 from services.place_service import GeoNamesDataset, PlaceService
 
@@ -89,6 +91,9 @@ def test_airport_import_backfills_all_existing_places_without_importing_every_fe
         is None
     )
     # Airport additions must not replace the usual city labels/search results.
+    signed_in = create_user(db_session)
+    tokens = security.create_auth_tokens(subject=signed_in.id, email=signed_in.email)
+    client.headers['Authorization'] = f'Bearer {tokens["access_token"]}'
     assert client.get(
         api_prefix + '/places/geocode', params={'query': 'AMS', 'type': 'AIRPORT'}
     ).json()[0]['id'] == str(airport_id)

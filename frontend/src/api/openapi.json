@@ -3538,6 +3538,11 @@
             "title": "Occurred At",
             "type": "string"
           },
+          "occurred_timezone": {
+            "description": "IANA time zone of where the post happened, e.g. \"Asia/Tokyo\". Show occurred_at in this zone for the local clock time.",
+            "title": "Occurred Timezone",
+            "type": "string"
+          },
           "published_at": {
             "anyOf": [
               {
@@ -3581,6 +3586,7 @@
           "title",
           "body",
           "occurred_at",
+          "occurred_timezone",
           "published_at",
           "created_at",
           "updated_at",
@@ -4856,6 +4862,20 @@
         ],
         "title": "TimeFormat",
         "type": "string"
+      },
+      "TimezoneResponse": {
+        "properties": {
+          "timezone": {
+            "description": "IANA time zone name, e.g. \"Asia/Tokyo\".",
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timezone"
+        ],
+        "title": "TimezoneResponse",
+        "type": "object"
       },
       "Token": {
         "properties": {
@@ -8292,6 +8312,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Geocode Places",
         "tags": [
           "places"
@@ -8380,7 +8405,73 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Reverse Geocode Places",
+        "tags": [
+          "places"
+        ]
+      }
+    },
+    "/api/v1/places/timezone": {
+      "get": {
+        "description": "Return the IANA time zone at a point (used for the post form hint).",
+        "operationId": "get_timezone_api_v1_places_timezone_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "latitude",
+            "required": true,
+            "schema": {
+              "maximum": 90,
+              "minimum": -90,
+              "title": "Latitude",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "longitude",
+            "required": true,
+            "schema": {
+              "maximum": 180,
+              "minimum": -180,
+              "title": "Longitude",
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimezoneResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Timezone",
         "tags": [
           "places"
         ]
