@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { usePlaceSearch } from '@/hooks/use-place-search'
 import { PlaceSearchDropdown } from '@/components/places/place-search-dropdown'
-import { formatDateTime } from '@/lib/date-time'
+import { formatDateTime, supportedTimeZone, zoneLabel } from '@/lib/date-time'
 import { cn } from '@/lib/utils'
 
 export function FlightJourneyCard({ journey, className, mobile = false, accessToken, tripId, onFlightRef, onFlightSelect, activeFlightId }: {
@@ -127,7 +127,7 @@ export function FlightCard({ flight, className, preview = false, compact = false
             {compact && departureDelta !== 0 ? <p className="mt-0.5 text-[11px] text-muted-foreground"><del aria-label={`Scheduled departure ${airportTime(scheduledDepartureAt, departure)}`}>{airportTime(scheduledDepartureAt, departure)}</del></p> : null}
             <p className="mt-0.5 text-lg font-semibold leading-tight tabular-nums">
               {!compact && departureDelta !== 0 ? <del className="mr-1.5 text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled departure ${airportTime(scheduledDepartureAt, departure)}`}>{airportTime(scheduledDepartureAt, departure)}</del> : null}
-              <time dateTime={departureAt.toISOString()}>{airportTime(departureAt, departure)}</time><span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportTimezone(departureAt, departure)}</span>
+              <time dateTime={departureAt.toISOString()}>{airportTime(departureAt, departure)}</time><span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportZoneLabel(departureAt, departure)}</span>
             </p>
           </div>
           <div className="text-right">
@@ -135,7 +135,7 @@ export function FlightCard({ flight, className, preview = false, compact = false
             {compact && arrivalDelta != null && arrivalDelta !== 0 && scheduledArrivalAt && arrival ? <p className="mt-0.5 text-[11px] text-muted-foreground"><del aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del></p> : null}
             <p className="mt-0.5 text-lg font-semibold leading-tight tabular-nums">
               {!compact && arrivalDelta != null && arrivalDelta !== 0 && scheduledArrivalAt && arrival ? <del className="mr-1.5 text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del> : null}
-              {arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}<span className="ml-1 text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}</span>
+              {arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}<span className="ml-1 text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportZoneLabel(arrivalAt, arrival) : ''}</span>
             </p>
             {arrivalDay && arrivalDay !== departureDay ? <p className="mt-0.5 text-[10px] text-muted-foreground">{arrivalDay}</p> : null}
           </div>
@@ -217,7 +217,7 @@ export function FlightCard({ flight, className, preview = false, compact = false
             <span className="block whitespace-nowrap text-sm font-semibold tabular-nums">
               <span className="sr-only">{flight.actual_departure ? 'Departed' : flight.estimated_departure ? 'Estimated departure' : 'Scheduled departure'} </span>
               <time dateTime={departureAt.toISOString()}>{airportTime(departureAt, departure)}</time>
-              <span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportTimezone(departureAt, departure)}</span>
+              <span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportZoneLabel(departureAt, departure)}</span>
             </span>
           </span>
           <span className="grid justify-items-center gap-1 text-primary">
@@ -234,7 +234,7 @@ export function FlightCard({ flight, className, preview = false, compact = false
             <span className="block whitespace-nowrap text-sm font-semibold tabular-nums">
             <span className="sr-only">{flight.actual_arrival ? 'Arrived' : flight.estimated_arrival ? 'Estimated arrival' : 'Scheduled arrival'} </span>
             {arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}
-            <span className="ml-1 text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}</span>
+            <span className="ml-1 text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportZoneLabel(arrivalAt, arrival) : ''}</span>
             </span>
           </span>
         </span>
@@ -254,7 +254,7 @@ export function FlightCard({ flight, className, preview = false, compact = false
             <p className="mt-1 break-words text-xs font-medium">{departure.name}</p>
             <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 text-lg font-semibold tabular-nums">
               {departureDelta !== 0 ? <del className="mr-1.5 text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled departure ${airportTime(scheduledDepartureAt, departure)}`}>{airportTime(scheduledDepartureAt, departure)}</del> : null}
-              <time dateTime={departureAt.toISOString()}>{airportTime(departureAt, departure)}</time><span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportTimezone(departureAt, departure)}</span>
+              <time dateTime={departureAt.toISOString()}>{airportTime(departureAt, departure)}</time><span className="ml-1 text-[10px] font-normal text-muted-foreground">{airportZoneLabel(departureAt, departure)}</span>
             </p>
           </div>
           <div className="min-w-0 border-t border-border/70 pt-3">
@@ -262,7 +262,7 @@ export function FlightCard({ flight, className, preview = false, compact = false
             <p className="mt-1 break-words text-xs font-medium">{arrival?.name ?? 'Landing airport unresolved'}</p>
             <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 text-lg font-semibold tabular-nums">
               {arrivalDelta != null && arrivalDelta !== 0 && scheduledArrivalAt && arrival ? <del className="text-[11px] font-normal text-muted-foreground" aria-label={`Scheduled arrival ${airportTime(scheduledArrivalAt, arrival)}`}>{airportTime(scheduledArrivalAt, arrival)}</del> : null}
-              {arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}<span className="text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportTimezone(arrivalAt, arrival) : ''}</span>
+              {arrivalAt && arrival ? <time dateTime={arrivalAt.toISOString()}>{airportTime(arrivalAt, arrival)}</time> : '—'}<span className="text-[10px] font-normal text-muted-foreground">{arrivalAt && arrival ? airportZoneLabel(arrivalAt, arrival) : ''}</span>
             </p>
           </div>
         </div>
@@ -285,17 +285,22 @@ export function FlightCard({ flight, className, preview = false, compact = false
   )
 }
 
+// An airport zone this browser doesn't know falls back to the viewer's zone
+// for the time, date and label alike.
+function airportZone(airport: Pick<Place, 'timezone'>) {
+  return supportedTimeZone(airport.timezone || 'UTC')
+}
+
 function airportTime(value: Date, airport: Pick<Place, 'timezone'>) {
-  return formatDateTime(value, { hour: '2-digit', minute: '2-digit', timeZone: airport.timezone || 'UTC' })
+  return formatDateTime(value, { hour: '2-digit', minute: '2-digit', timeZone: airportZone(airport) })
 }
 
 function airportDate(value: Date, airport: Pick<Place, 'timezone'>) {
-  return formatDateTime(value, { day: 'numeric', month: 'short', year: 'numeric', timeZone: airport.timezone || 'UTC' })
+  return formatDateTime(value, { day: 'numeric', month: 'short', year: 'numeric', timeZone: airportZone(airport) })
 }
 
-function airportTimezone(value: Date, airport: Pick<Place, 'timezone'>) {
-  return new Intl.DateTimeFormat(undefined, { timeZone: airport.timezone || 'UTC', timeZoneName: 'short' })
-    .formatToParts(value).find((part) => part.type === 'timeZoneName')?.value
+function airportZoneLabel(value: Date, airport: Pick<Place, 'timezone'>) {
+  return zoneLabel(value, airport.timezone || 'UTC')
 }
 
 

@@ -4,7 +4,24 @@ import uuid
 
 import pytest
 
+from core import security
+from factories.users import create_user
 from models.database.places import Place, PlaceFeatureClass
+
+PLACE_LOOKUPS = [
+    ('/places/geocode', {'query': 'Amsterdam'}),
+    ('/places/reverse-geocode', {'latitude': 52.37, 'longitude': 4.89}),
+    ('/places/timezone', {'latitude': 52.37, 'longitude': 4.89}),
+]
+
+
+@pytest.fixture
+def client(client, db_session):
+    """Place lookups are for signed-in users; sign the shared client in."""
+    user = create_user(db_session)
+    tokens = security.create_auth_tokens(subject=user.id, email=user.email)
+    client.headers['Authorization'] = f'Bearer {tokens["access_token"]}'
+    return client
 
 
 def _create_place(
@@ -273,3 +290,67 @@ def test_reverse_geocode_places_honors_max_distance(
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(('path', 'params'), PLACE_LOOKUPS)
+def test_place_lookups_require_sign_in(client, api_prefix, path, params) -> None:
+    client.headers.pop('Authorization')
+
+    response = client.get(f'{api_prefix}{path}', params=params)
+
+    assert response.status_code == 401
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(('path', 'params'), PLACE_LOOKUPS)
+def test_place_lookups_require_a_completed_password_change(
+    client, db_session, api_prefix, path, params
+) -> None:
+    user = create_user(db_session, password_change_required=True)
+    tokens = security.create_auth_tokens(subject=user.id, email=user.email)
+    client.headers['Authorization'] = f'Bearer {tokens["access_token"]}'
+
+    response = client.get(f'{api_prefix}{path}', params=params)
+
+    assert response.status_code == 403
+
+
+@pytest.mark.integration
+def test_timezone_returns_the_zone_at_the_point(client, api_prefix) -> None:
+    response = client.get(
+        f'{api_prefix}/places/timezone',
+        params={'latitude': 35.6762, 'longitude': 139.6503},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {'timezone': 'Asia/Tokyo'}
+
+
+@pytest.mark.integration
+def test_timezone_falls_back_to_the_ocean_zone(client, api_prefix) -> None:
+    response = client.get(
+        f'{api_prefix}/places/timezone', params={'latitude': 30, 'longitude': -40}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {'timezone': 'Etc/GMT+3'}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    'params',
+    [
+        {'latitude': 91, 'longitude': 0},
+        {'latitude': -91, 'longitude': 0},
+        {'latitude': 0, 'longitude': 181},
+        {'latitude': 0, 'longitude': -181},
+        {'latitude': 0},
+        {'longitude': 0},
+        {'latitude': 'north', 'longitude': 0},
+    ],
+)
+def test_timezone_validates_coordinates(client, api_prefix, params) -> None:
+    response = client.get(f'{api_prefix}/places/timezone', params=params)
+
+    assert response.status_code == 422

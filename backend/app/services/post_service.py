@@ -18,6 +18,7 @@ from models.database.trips import TripMember, TripRole
 from models.database.user import User, UserProfile
 from services.location_service import LocationService
 from services.media_readiness import require_ready_media
+from services.timezone_service import resolve_timezone
 from services.trip_access import TripReadAccess, get_trip_read_access, get_membership
 from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
@@ -102,6 +103,7 @@ class PostService:
             title=payload.title,
             body=payload.body,
             occurred_at=occurred_at,
+            occurred_timezone=resolve_timezone(location.latitude, location.longitude),
             bubble_media_id=bubble_media_id,
             published_at=utcnow() if payload.publish else None,
         )
@@ -243,6 +245,11 @@ class PostService:
                 location_input=payload.location,
             )
             post.location_id = location.id
+            # Only a new location moves the post to another zone; changing
+            # occurred_at alone keeps the stored one.
+            post.occurred_timezone = resolve_timezone(
+                location.latitude, location.longitude
+            )
         post.occurred_at = occurred_at
         if payload.media_ids is not None:
             post.bubble_media_id = bubble_media_id

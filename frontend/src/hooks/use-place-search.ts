@@ -1,12 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 
 import { geocodePlaces, getErrorMessage, type Place } from '@/api/client'
+import { AuthContext } from '@/auth/auth-context'
 import type { PlaceSearchStatus } from '@/components/places/place-search-dropdown'
 
 export function usePlaceSearch(query: string, enabled: boolean, type?: 'AIRPORT') {
   const [places, setPlaces] = useState<readonly Place[]>([])
   const [status, setStatus] = useState<PlaceSearchStatus>('idle')
   const [error, setError] = useState<string | null>(null)
+  // Place lookups need a signed-in user; every caller sits behind sign-in.
+  // Kept in a ref so a token refresh doesn't repeat the search.
+  const accessToken = useContext(AuthContext)?.accessToken ?? null
+  const accessTokenRef = useRef(accessToken)
+  useEffect(() => {
+    accessTokenRef.current = accessToken
+  }, [accessToken])
 
   useEffect(() => {
     const trimmedQuery = query.trim()
@@ -22,7 +30,7 @@ export function usePlaceSearch(query: string, enabled: boolean, type?: 'AIRPORT'
     setError(null)
 
     const timeoutId = window.setTimeout(() => {
-      void geocodePlaces({ limit: 8, query: trimmedQuery, type })
+      void geocodePlaces({ accessToken: accessTokenRef.current, limit: 8, query: trimmedQuery, type })
         .then((results) => {
           if (cancelled) {
             return

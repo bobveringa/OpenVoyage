@@ -84,6 +84,7 @@ import {
   getPrimaryPostMedia,
 } from '@/pages/trip-detail/shared-utils'
 import { TripLeafletMap } from '@/pages/trip-detail/trip-map'
+import { PostTime } from '@/pages/trip-detail/post-time'
 import { FlightJourneyCard } from '@/pages/trip-detail/flight-card-prototype'
 import { flightStoryId } from './flight-map-focus'
 import {
@@ -900,10 +901,7 @@ export function TravelPostCard({
             <MapPin className="size-3.5" aria-hidden="true" />
             {post.location}
           </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Clock className="size-3.5" aria-hidden="true" />
-            {post.time}
-          </span>
+          <PostTime labels={post.time} variant="compact" />
         </div>
       </div>
 
@@ -1566,9 +1564,9 @@ function TravelPostPreviewCard({
               <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
               <span className="truncate">{post.location}</span>
             </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Clock className="size-3.5" aria-hidden="true" />
-              {post.time}
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Clock className="size-3.5 shrink-0" aria-hidden="true" />
+              <PostTime labels={post.time} variant="preview" />
             </span>
           </div>
         </div>
@@ -1773,7 +1771,7 @@ function MobilePostDetailCard({
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
             <PostAuthor author={post.author} />
             <span className="inline-flex items-center gap-1.5"><MapPin className="size-3.5" aria-hidden="true" />{post.location}</span>
-            <span className="inline-flex items-center gap-1.5"><Clock className="size-3.5" aria-hidden="true" />{post.time}</span>
+            <span className="inline-flex min-w-0 items-start gap-1.5"><Clock className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /><PostTime labels={post.time} locationName={post.locationName} variant="detail" /></span>
           </div>
         </div>
         <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">

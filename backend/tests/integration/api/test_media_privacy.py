@@ -198,7 +198,8 @@ def test_all_attachment_endpoints_reject_nonready_without_writes(
     trip = create_trip(db_session, owner_id=owner.id)
     location = create_location(db_session, trip_id=trip.id, created_by=owner.id)
     post = Post(trip_id=trip.id, author_user_id=owner.id, location_id=location.id,
-                title='Original', body='Original', published_at=utcnow() if endpoint == 'comment' else None)
+                title='Original', body='Original', occurred_timezone='Asia/Tokyo',
+                published_at=utcnow() if endpoint == 'comment' else None)
     db_session.add(post)
     db_session.commit()
     media = create_media(db_session, storage_path='unused.jpg', created_by=owner.id, status=media_status)

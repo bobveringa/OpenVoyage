@@ -373,6 +373,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/places/timezone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Timezone
+         * @description Return the IANA time zone at a point (used for the post form hint).
+         */
+        get: operations["get_timezone_api_v1_places_timezone_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/server/version": {
         parameters: {
             query?: never;
@@ -2744,6 +2764,11 @@ export interface components {
              * Format: date-time
              */
             occurred_at: string;
+            /**
+             * Occurred Timezone
+             * @description IANA time zone of where the post happened, e.g. "Asia/Tokyo". Show occurred_at in this zone for the local clock time.
+             */
+            occurred_timezone: string;
             /** Published At */
             published_at: string | null;
             /** Revision */
@@ -3174,6 +3199,14 @@ export interface components {
          * @enum {string}
          */
         TimeFormat: "12-hour" | "24-hour";
+        /** TimezoneResponse */
+        TimezoneResponse: {
+            /**
+             * Timezone
+             * @description IANA time zone name, e.g. "Asia/Tokyo".
+             */
+            timezone: string;
+        };
         /** Token */
         Token: {
             /** Access Token */
@@ -4724,6 +4757,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReverseGeocodeResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_timezone_api_v1_places_timezone_get: {
+        parameters: {
+            query: {
+                latitude: number;
+                longitude: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimezoneResponse"];
                 };
             };
             /** @description Validation Error */

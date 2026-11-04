@@ -9,9 +9,10 @@ function url(id: string, expiry = now / 1000 + 3600, nonce = 'first', extra = ''
 }
 function post(nonce: string): TravelPost {
   return {
-    id: 'post', title: 'Before', excerpt: 'Story', location: 'Lisbon', coordinates: [38.72, -9.14],
+    id: 'post', title: 'Before', excerpt: 'Story', location: 'Lisbon', locationName: 'Lisbon', coordinates: [38.72, -9.14],
     bubbleMediaId: 'photo', isDraft: false, revision: 1, routeAfter: null,
-    occurredAt: '2026-10-31T10:00:00Z', publishedAt: '2026-10-31T10:00:00Z', time: '10:00',
+    occurredAt: '2026-10-31T10:00:00Z', publishedAt: '2026-10-31T10:00:00Z',
+    time: { dateTime: '2026-10-31T10:00:00.000Z', local: { date: '31 Oct 2026', weekdayDate: 'Sat 31 Oct', time: '10:00', zone: 'GMT' }, viewer: null },
     social: { canInteract: true, canLike: true, commentCount: 0, likeCount: 0, viewerHasLiked: false },
     author: {
       id: 'author', displayName: 'Author', initials: 'A',

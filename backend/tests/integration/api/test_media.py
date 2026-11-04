@@ -395,6 +395,7 @@ def test_get_public_trip_post_media_requires_published_post(
         title='Published post',
         body='Published post',
         occurred_at=utcnow(),
+        occurred_timezone='Asia/Tokyo',
         bubble_media_id=media.id,
         published_at=utcnow(),
     )
@@ -405,6 +406,7 @@ def test_get_public_trip_post_media_requires_published_post(
         title='Draft post',
         body='Draft post',
         occurred_at=utcnow(),
+        occurred_timezone='Asia/Tokyo',
         bubble_media_id=draft_media.id,
         published_at=None,
     )
@@ -466,6 +468,7 @@ def test_shared_trip_post_media_url_uses_media_token_for_published_posts(
         title='Published post',
         body='Published post',
         occurred_at=utcnow(),
+        occurred_timezone='Asia/Tokyo',
         bubble_media_id=media.id,
         published_at=utcnow(),
     )
@@ -476,6 +479,7 @@ def test_shared_trip_post_media_url_uses_media_token_for_published_posts(
         title='Draft post',
         body='Draft post',
         occurred_at=utcnow(),
+        occurred_timezone='Asia/Tokyo',
         bubble_media_id=draft_media.id,
         published_at=None,
     )

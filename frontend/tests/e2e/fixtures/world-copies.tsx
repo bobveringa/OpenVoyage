@@ -9,6 +9,7 @@ import { TripLeafletMap } from '../../../src/pages/trip-detail/trip-map'
 import { createOuterConnectionDraft } from '../../../src/pages/trip-detail/outer-connection'
 import { EMPTY_TRACKING_GEOMETRY, type Stop, type Connection, type TravelPost } from '../../../src/pages/trip-detail/models'
 import type { GpsPostCandidate, TrackSample } from '../../../src/api/client'
+import { formatPostTime } from '../../../src/lib/date-time'
 import '../../../src/index.css'
 
 let map: L.Map
@@ -37,8 +38,8 @@ const connection: Connection = {
 }
 const post: TravelPost = {
   id: 'hawaii-post', title: 'Hawaii post', coordinates: [25, -150], bubbleMediaId: null, excerpt: '', isDraft: false,
-  location: 'Hawaii', media: [], occurredAt: timestamp, publishedAt: timestamp, revision: 1,
-  routeAfter: { durationSeconds: null, segments: [{ coordinates: [[25, -150], [35, -140]], travelMode: 'WALK', visibleToMembersOnly: true }] }, time: '',
+  location: 'Hawaii', locationName: 'Hawaii', media: [], occurredAt: timestamp, publishedAt: timestamp, revision: 1,
+  routeAfter: { durationSeconds: null, segments: [{ coordinates: [[25, -150], [35, -140]], travelMode: 'WALK', visibleToMembersOnly: true }] }, time: formatPostTime(timestamp, 'Pacific/Honolulu'),
   author: { id: 'owner', displayName: 'Owner', initials: 'O', profilePicture: null },
   social: { canInteract: false, canLike: false, commentCount: 0, likeCount: 0, viewerHasLiked: false },
 }

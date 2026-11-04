@@ -1,7 +1,7 @@
 import uuid
 from typing import Self
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from models.database.places import Place, PlaceFeatureClass
 
@@ -42,3 +42,7 @@ class PlaceResponse(BaseModel):
 class ReverseGeocodeResponse(BaseModel):
     distance_km: float
     place: PlaceResponse
+
+
+class TimezoneResponse(BaseModel):
+    timezone: str = Field(description='IANA time zone name, e.g. "Asia/Tokyo".')

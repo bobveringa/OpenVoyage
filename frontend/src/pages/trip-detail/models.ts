@@ -1,6 +1,7 @@
 import type * as L from 'leaflet'
 
 import type { ItineraryConnection, Media, RouteOverview } from '@/api/client'
+import type { PostTimeLabels } from '@/lib/date-time'
 
 export type TripVisibility = 'PLATFORM_PUBLIC' | 'PRIVATE' | 'PUBLIC'
 export type TripRole = 'MEMBER' | 'OWNER'
@@ -120,13 +121,16 @@ export type TravelPost = {
   excerpt: string
   id: string
   isDraft: boolean
+  /** Full place label for display, e.g. `Kyoto, Kyoto, Japan`. */
   location: string
+  /** Short place name, e.g. `Kyoto` ("local time in Kyoto"). */
+  locationName: string
   media: readonly PostMedia[]
   occurredAt: string
   publishedAt: string | null
   revision: number
   routeAfter: TravelPostRoute | null
-  time: string
+  time: PostTimeLabels
   title: string
   social: {
     canInteract: boolean
