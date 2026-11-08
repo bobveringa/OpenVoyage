@@ -148,6 +148,8 @@ import {
 } from '@/pages/trip-detail/route-geometry'
 import {
   areTripDetailUrlStatesEqual,
+  getDefaultTripMode,
+  hasTripModeInUrl,
   normalizeTripDetailUrlState,
   readTripDetailUrlState,
   writeTripDetailUrlState,
@@ -281,6 +283,10 @@ export function TripDetailPage({
   const shareToken = useMemo(readShareTokenFromUrl, [])
   const currentUserId = currentUser?.id ?? null
   const isTripCurrentlyOngoing = isTripOngoing({
+    end_date: trip.endDate || null,
+    start_date: trip.startDate,
+  })
+  const defaultTripMode = getDefaultTripMode({
     end_date: trip.endDate || null,
     start_date: trip.startDate,
   })
@@ -442,6 +448,17 @@ export function TripDetailPage({
         }
         const progressInitializationKey = `${currentUserId ?? 'visitor'}:${tripId}`
         if (progressInitializedKeyRef.current !== progressInitializationKey) {
+          // The opening tab depends on the trip's dates, so it can only be
+          // settled here. It goes first because restoring the scroll position
+          // below only applies to the travel tab.
+          if (!hasTripModeInUrl()) {
+            const openingMode = loadedCurrentMembership
+              ? getDefaultTripMode(loadedTrip)
+              : 'traveling'
+            urlStateRef.current = { ...urlStateRef.current, mode: openingMode }
+            setMode(openingMode)
+          }
+
           const previousProgress = readTripProgress(progressKey)
           const loadedNewPostIds = getNewPostIds(
             loadedPosts,
@@ -1562,12 +1579,15 @@ export function TripDetailPage({
   useEffect(() => {
     function handlePopState() {
       applyTripDetailUrlState(
-        readTripDetailUrlState({
-          canEditTravelPosts: canMutate,
-          canOpenManagementDialogs: canMutate,
-          canSwitchModes,
-          travelPosts,
-        }),
+        readTripDetailUrlState(
+          {
+            canEditTravelPosts: canMutate,
+            canOpenManagementDialogs: canMutate,
+            canSwitchModes,
+            travelPosts,
+          },
+          defaultTripMode,
+        ),
       )
     }
 
@@ -1577,6 +1597,7 @@ export function TripDetailPage({
     applyTripDetailUrlState,
     canManageTrip,
     canMutate,
+    defaultTripMode,
     canSwitchModes,
     travelPosts,
   ])

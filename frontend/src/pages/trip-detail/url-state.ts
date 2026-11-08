@@ -1,3 +1,6 @@
+import type { Trip } from '@/api/client'
+import { getTripTiming } from '@/lib/dates'
+
 export type TripMode = 'planning' | 'traveling'
 export type PlanningView = 'create-stop' | 'stops'
 export type TravelingView = 'create-post' | 'edit-post' | 'posts'
@@ -22,11 +25,32 @@ type UrlStatePermissions = {
   travelPosts: readonly { id: string }[]
 }
 
+/** The tab a member lands on when the URL doesn't name one. */
+export function getDefaultTripMode(
+  trip: Pick<Trip, 'start_date' | 'end_date'>,
+  today: Date = new Date(),
+): TripMode {
+  return getTripTiming(trip, today).status === 'upcoming'
+    ? 'planning'
+    : 'traveling'
+}
+
+export function hasTripModeInUrl(): boolean {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  const tab = new URLSearchParams(window.location.search).get('tab')
+  return tab === 'travel' || tab === 'plan'
+}
+
 export function readTripDetailUrlState(
   permissions: UrlStatePermissions,
+  defaultMode: TripMode = 'planning',
 ): TripDetailUrlState {
   const defaultState = createDefaultTripDetailUrlState(
     permissions.canSwitchModes,
+    defaultMode,
   )
 
   if (typeof window === 'undefined') {
@@ -69,12 +93,13 @@ export function readTripDetailUrlState(
 
 export function createDefaultTripDetailUrlState(
   canSwitchModes: boolean,
+  defaultMode: TripMode = 'planning',
 ): TripDetailUrlState {
   return {
     activeDialog: null,
     managementSection: 'general',
     editingPostId: null,
-    mode: canSwitchModes ? 'planning' : 'traveling',
+    mode: canSwitchModes ? defaultMode : 'traveling',
     planningView: 'stops',
     travelingView: 'posts',
   }
