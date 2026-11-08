@@ -182,6 +182,91 @@
         "title": "AdminUserDeleteResponse",
         "type": "object"
       },
+      "AdminUserDeletionImpactResponse": {
+        "description": "What deleting a user removes, for confirming the deletion.",
+        "properties": {
+          "comments_on_remaining_posts_count": {
+            "description": "Comments of other people on those posts, deleted only with the posts. Excludes replies already counted in deleted_reply_count.",
+            "minimum": 0.0,
+            "title": "Comments On Remaining Posts Count",
+            "type": "integer"
+          },
+          "deleted_comment_count": {
+            "description": "Comments of the user in trips that stay, deleted in any case.",
+            "minimum": 0.0,
+            "title": "Deleted Comment Count",
+            "type": "integer"
+          },
+          "deleted_reply_count": {
+            "description": "Replies of other people under those comments, deleted with them.",
+            "minimum": 0.0,
+            "title": "Deleted Reply Count",
+            "type": "integer"
+          },
+          "deleted_shared_trip_count": {
+            "description": "Of the deleted trips, those that other members, viewers or holders of an active share link lose.",
+            "minimum": 0.0,
+            "title": "Deleted Shared Trip Count",
+            "type": "integer"
+          },
+          "deleted_trip_count": {
+            "description": "Trips deleted with the user: those without another owner.",
+            "minimum": 0.0,
+            "title": "Deleted Trip Count",
+            "type": "integer"
+          },
+          "likes_on_remaining_posts_count": {
+            "description": "Likes of other people on those posts, deleted only with the posts.",
+            "minimum": 0.0,
+            "title": "Likes On Remaining Posts Count",
+            "type": "integer"
+          },
+          "photos_in_others_posts_count": {
+            "description": "Uploads of the user used in posts of other people that stay.",
+            "minimum": 0.0,
+            "title": "Photos In Others Posts Count",
+            "type": "integer"
+          },
+          "remaining_media_count": {
+            "description": "Photos and videos the user uploaded that are used in trips that stay: in posts, their own or other people\u2019s, or as a trip cover.",
+            "minimum": 0.0,
+            "title": "Remaining Media Count",
+            "type": "integer"
+          },
+          "remaining_post_count": {
+            "description": "Posts of the user in trips that stay.",
+            "minimum": 0.0,
+            "title": "Remaining Post Count",
+            "type": "integer"
+          },
+          "remaining_track_count": {
+            "description": "GPS tracks of the user in trips that stay.",
+            "minimum": 0.0,
+            "title": "Remaining Track Count",
+            "type": "integer"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "deleted_trip_count",
+          "deleted_shared_trip_count",
+          "remaining_post_count",
+          "comments_on_remaining_posts_count",
+          "likes_on_remaining_posts_count",
+          "remaining_track_count",
+          "remaining_media_count",
+          "photos_in_others_posts_count",
+          "deleted_comment_count",
+          "deleted_reply_count"
+        ],
+        "title": "AdminUserDeletionImpactResponse",
+        "type": "object"
+      },
       "AdminUserPasswordSetRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1913,7 +1998,15 @@
             "type": "string"
           },
           "created_by": {
-            "$ref": "#/components/schemas/UserSummaryResponse"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the creator account has been deleted."
           },
           "id": {
             "format": "uuid",
@@ -3495,7 +3588,15 @@
       "PostResponse": {
         "properties": {
           "author": {
-            "$ref": "#/components/schemas/UserDisplaySummaryResponse"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserDisplaySummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the author account has been deleted."
           },
           "body": {
             "title": "Body",
@@ -6499,9 +6600,17 @@
             "type": "string"
           },
           "created_by": {
-            "format": "uuid",
-            "title": "Created By",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the creator account has been deleted.",
+            "title": "Created By"
           },
           "trip_id": {
             "format": "uuid",
@@ -7775,6 +7884,7 @@
     },
     "/api/v1/admin/users/{user_id}": {
       "delete": {
+        "description": "Delete a user together with every trip that has no other owner.",
         "operationId": "delete_admin_user_api_v1_admin_users__user_id__delete",
         "parameters": [
           {
@@ -7785,6 +7895,37 @@
               "format": "uuid",
               "title": "User Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Also delete what the user added to trips that stay: their posts, with the comments and likes of other people on them, GPS tracks and uploads, including photos in posts of other people. Itinerary stops stay.",
+            "in": "query",
+            "name": "delete_content",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Also delete what the user added to trips that stay: their posts, with the comments and likes of other people on them, GPS tracks and uploads, including photos in posts of other people. Itinerary stops stay.",
+              "title": "Delete Content",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The number of trips the admin confirmed would be deleted. If it differs by now, nothing is deleted and the response is a 409.",
+            "in": "query",
+            "name": "expected_deleted_trip_count",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The number of trips the admin confirmed would be deleted. If it differs by now, nothing is deleted and the response is a 409.",
+              "title": "Expected Deleted Trip Count"
             }
           }
         ],
@@ -7918,6 +8059,55 @@
           }
         ],
         "summary": "Update Admin User",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{user_id}/deletion-impact": {
+      "get": {
+        "description": "Summarize what deleting this user removes.",
+        "operationId": "get_admin_user_deletion_impact_api_v1_admin_users__user_id__deletion_impact_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserDeletionImpactResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Admin User Deletion Impact",
         "tags": [
           "admin"
         ]

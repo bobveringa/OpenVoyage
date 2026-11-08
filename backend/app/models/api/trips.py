@@ -121,7 +121,9 @@ class TripViewerCreateRequest(BaseModel):
 class TripViewerResponse(BaseModel):
     trip_id: uuid.UUID
     user_id: uuid.UUID
-    created_by: uuid.UUID
+    created_by: uuid.UUID | None = Field(
+        description='Null when the creator account has been deleted.',
+    )
     created_at: datetime
     user: UserSummaryResponse
 

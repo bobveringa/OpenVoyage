@@ -31,7 +31,12 @@ from services.connection_endpoints import (
 from services.flight_airports import resolve_flight_lookup_airports
 from services.itinerary_routes import ItineraryRouteService
 from services.location_service import LocationService
-from services.trip_access import TripReadAccess, get_membership, get_trip_read_access
+from services.trip_access import (
+    TripReadAccess,
+    get_membership,
+    get_trip_read_access,
+    lock_trip,
+)
 from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
 
@@ -844,9 +849,7 @@ class ItineraryService:
         trip_id: uuid.UUID,
         user_id: uuid.UUID,
     ) -> tuple[Trip, TripMember]:
-        trip = self.db.execute(
-            select(Trip).where(Trip.id == trip_id).with_for_update()
-        ).scalar_one_or_none()
+        trip = lock_trip(self.db, trip_id)
         if trip is None:
             raise TripNotFoundError(f'Trip not found: {trip_id}')
 

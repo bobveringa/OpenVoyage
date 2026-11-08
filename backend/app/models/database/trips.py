@@ -181,12 +181,13 @@ class TripViewer(Base):
         primary_key=True,
         nullable=False,
     )
-    created_by: Mapped[uuid.UUID] = mapped_column(
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(
             'users.id',
+            ondelete='SET NULL',
             name='fk_trip_viewers_created_by',
         ),
-        nullable=False,
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -203,7 +204,7 @@ class TripViewer(Base):
         'User',
         foreign_keys=[user_id],
     )
-    creator: Mapped['User'] = relationship(
+    creator: Mapped['User | None'] = relationship(
         'User',
         foreign_keys=[created_by],
     )
@@ -231,12 +232,13 @@ class TripShareLink(Base):
         unique=True,
         index=True,
     )
-    created_by: Mapped[uuid.UUID] = mapped_column(
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(
             'users.id',
+            ondelete='SET NULL',
             name='fk_trip_share_links_created_by',
         ),
-        nullable=False,
+        nullable=True,
     )
     label: Mapped[str | None] = mapped_column(
         String(255),
@@ -272,7 +274,7 @@ class TripShareLink(Base):
         'Trip',
         back_populates='share_links',
     )
-    creator: Mapped['User'] = relationship(
+    creator: Mapped['User | None'] = relationship(
         'User',
         foreign_keys=[created_by],
     )

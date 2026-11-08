@@ -70,6 +70,13 @@ def get_membership(
     ).scalar_one_or_none()
 
 
+def lock_trip(db: Session, trip_id: uuid.UUID) -> Trip | None:
+    """Lock a trip for writers that must not overlap, and return it if it exists."""
+    return db.execute(
+        select(Trip).where(Trip.id == trip_id).with_for_update()
+    ).scalar_one_or_none()
+
+
 def get_direct_viewer(
     db: Session,
     *,

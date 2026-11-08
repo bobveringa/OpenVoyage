@@ -59,7 +59,9 @@ class PostResponse(BaseModel):
     id: uuid.UUID
     trip_id: uuid.UUID
     revision: int
-    author: UserDisplaySummaryResponse
+    author: UserDisplaySummaryResponse | None = Field(
+        description='Null when the author account has been deleted.',
+    )
     location: LocationResponse
     title: str
     body: str
@@ -90,16 +92,20 @@ class PostResponse(BaseModel):
             id=post.id,
             trip_id=post.trip_id,
             revision=post.revision,
-            author=UserDisplaySummaryResponse.from_model(
-                post.author,
-                media_base_url=media_base_url,
-                media_token=(
-                    media_token_factory(post.author.profile.profile_picture.id)
-                    if media_token_factory
-                    and post.author.profile
-                    and post.author.profile.profile_picture
-                    else None
-                ),
+            author=(
+                UserDisplaySummaryResponse.from_model(
+                    post.author,
+                    media_base_url=media_base_url,
+                    media_token=(
+                        media_token_factory(post.author.profile.profile_picture.id)
+                        if media_token_factory
+                        and post.author.profile
+                        and post.author.profile.profile_picture
+                        else None
+                    ),
+                )
+                if post.author is not None
+                else None
             ),
             location=LocationResponse.from_model(post.location),
             title=post.title,

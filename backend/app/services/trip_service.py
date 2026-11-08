@@ -31,6 +31,7 @@ from services.trip_access import (
     get_membership,
     get_trip_read_access,
     hash_share_token,
+    lock_trip,
 )
 from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
@@ -463,6 +464,7 @@ class TripService:
             user_id=current_user_id,
             permission=TripPermission.MANAGE_MEMBERS,
         )
+        self._lock_trip_for_member_change(trip_id)
 
         target_user = self.db.get(User, target_user_id)
         if target_user is None:
@@ -516,6 +518,7 @@ class TripService:
             user_id=current_user_id,
             permission=TripPermission.MANAGE_MEMBERS,
         )
+        self._lock_trip_for_member_change(trip_id)
         membership = self._get_trip_member_or_raise(
             trip_id=trip_id,
             user_id=target_user_id,
@@ -553,6 +556,7 @@ class TripService:
             user_id=current_user_id,
             permission=TripPermission.MANAGE_MEMBERS,
         )
+        self._lock_trip_for_member_change(trip_id)
         membership = self._get_trip_member_or_raise(
             trip_id=trip_id,
             user_id=target_user_id,
@@ -1002,6 +1006,15 @@ class TripService:
         if not role_has_permission(membership.role, permission):
             raise TripPermissionError('The user does not have enough privileges')
         return membership
+
+    def _lock_trip_for_member_change(self, trip_id: uuid.UUID) -> None:
+        """Wait for any deletion of an owner, which decides by who owns the trip.
+
+        Raises:
+            TripNotFoundError: The trip was deleted while waiting.
+        """
+        if lock_trip(self.db, trip_id) is None:
+            raise TripNotFoundError(f'Trip not found: {trip_id}')
 
     def _raise_if_last_owner(self, trip_id: uuid.UUID) -> None:
         """Raise when a role change/removal would leave a trip without owners.

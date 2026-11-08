@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from sqlalchemy import select
 from starlette import status
 
@@ -10,6 +10,7 @@ from core import security
 from models.api.admin import (
     AdminUserCreateRequest,
     AdminUserDeleteResponse,
+    AdminUserDeletionImpactResponse,
     AdminUserPasswordSetRequest,
     AdminUserResponse,
     AdminUsersListResponse,
@@ -24,6 +25,7 @@ from services.admin_user_service import (
     AdminUserNotFoundError,
     AdminUserProtectedActionError,
 )
+from services.media_cleanup_service import remove_unreferenced_media
 
 router = APIRouter(prefix='/admin', tags=['admin'])
 
@@ -183,14 +185,60 @@ def set_admin_user_password(
         _raise_admin_user_error(exc)
 
 
+@router.get(
+    '/users/{user_id}/deletion-impact',
+    response_model=AdminUserDeletionImpactResponse,
+)
+def get_admin_user_deletion_impact(
+    user_id: uuid.UUID,
+    user_service: AdminUserServiceDep,
+    _admin: CurrentAdmin,
+) -> AdminUserDeletionImpactResponse:
+    """Summarize what deleting this user removes."""
+    try:
+        impact = user_service.get_deletion_impact(user_id)
+    except AdminUserNotFoundError as exc:
+        _raise_admin_user_error(exc)
+    return AdminUserDeletionImpactResponse.model_validate(impact)
+
+
 @router.delete('/users/{user_id}', response_model=AdminUserDeleteResponse)
 def delete_admin_user(
     user_id: uuid.UUID,
     user_service: AdminUserServiceDep,
     admin: CurrentAdmin,
+    background_tasks: BackgroundTasks,
+    delete_content: Annotated[
+        bool,
+        Query(
+            description=(
+                'Also delete what the user added to trips that stay: their posts, '
+                'with the comments and likes of other people on them, GPS tracks '
+                'and uploads, including photos in posts of other people. Itinerary '
+                'stops stay.'
+            ),
+        ),
+    ] = False,
+    expected_deleted_trip_count: Annotated[
+        int | None,
+        Query(
+            ge=0,
+            description=(
+                'The number of trips the admin confirmed would be deleted. If it '
+                'differs by now, nothing is deleted and the response is a 409.'
+            ),
+        ),
+    ] = None,
 ) -> AdminUserDeleteResponse:
+    """Delete a user together with every trip that has no other owner."""
     try:
-        user_service.delete_user(user_id=user_id, actor_id=admin.id)
+        uploaded_media_ids = user_service.delete_user(
+            user_id=user_id,
+            actor_id=admin.id,
+            delete_content=delete_content,
+            expected_deleted_trip_count=expected_deleted_trip_count,
+        )
     except (AdminUserNotFoundError, AdminUserProtectedActionError) as exc:
         _raise_admin_user_error(exc)
+    background_tasks.add_task(remove_unreferenced_media, uploaded_media_ids)
     return AdminUserDeleteResponse(id=user_id)

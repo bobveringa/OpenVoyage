@@ -980,7 +980,7 @@ function PostSocialControls({
   const [isNameModalOpen, setNameModalOpen] = useState(false)
   const [sharedName, setSharedName] = useState('')
   const canAttemptInteraction = Boolean(accessToken || shareToken)
-  const isOwnPost = currentUserId === post.author.id
+  const isOwnPost = Boolean(currentUserId) && currentUserId === post.author.id
   const selfLikeHelpId = `post-${post.id}-self-like-help`
   const commentMediaInputRef = useRef<HTMLInputElement>(null)
   const deletedCommentIdsRef = useRef(new Set<string>())

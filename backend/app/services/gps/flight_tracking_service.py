@@ -33,7 +33,7 @@ from services.flight_providers.flight_provider import FlightUnavailable
 from services.flight_airports import resolve_flight_airport
 from services.gps.flight_geometry import arc, estimate
 from services.gps.flight_polling import FlightPollingPolicy
-from services.trip_access import get_trip_read_access
+from services.trip_access import get_trip_read_access, lock_trip
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class FlightTrackingService:
         self.attempted_requests = 0
 
     def lock(self, trip_id):
-        self.db.execute(select(Trip.id).where(Trip.id == trip_id).with_for_update())
+        lock_trip(self.db, trip_id)
 
     def flights(self, trip_id):
         return list(

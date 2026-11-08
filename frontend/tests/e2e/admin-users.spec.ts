@@ -85,9 +85,205 @@ test('creates and manages users from the admin area', async ({ page }) => {
 
   await expect(page.getByText('henk@example.com')).toHaveCount(0)
   expect(api.deletedUserId).toBe('40000000-0000-4000-8000-000000000002')
+  expect(api.deleteContentParam).toBe('false')
 })
 
-async function mockAdminUsersApi(page: Page) {
+test('warns that comments and replies go with the deleted user', async ({ page }) => {
+  const mayaId = '40000000-0000-4000-8000-000000000001'
+  await mockAdminUsersApi(page, {
+    impacts: {
+      [mayaId]: {
+        comments_on_remaining_posts_count: 0,
+        deleted_comment_count: 4,
+        deleted_reply_count: 2,
+        deleted_shared_trip_count: 0,
+        deleted_trip_count: 0,
+        likes_on_remaining_posts_count: 0,
+        photos_in_others_posts_count: 0,
+        remaining_media_count: 0,
+        remaining_post_count: 0,
+        remaining_track_count: 0,
+        user_id: mayaId,
+      },
+    },
+  })
+
+  await page.goto('/admin#users')
+  await page.getByRole('button', { name: 'Delete maya@example.com' }).click()
+
+  await expect(
+    page.getByRole('dialog').getByText(
+      '4 comments they left in other people’s trips will be deleted, along with 2 replies from other people.',
+    ),
+  ).toBeVisible()
+})
+
+test('can retry when checking what goes with the user fails', async ({ page }) => {
+  const api = await mockAdminUsersApi(page, { impactFailures: 1 })
+
+  await page.goto('/admin#users')
+  await page.getByRole('button', { name: 'Delete maya@example.com' }).click()
+  const dialog = page.getByRole('dialog')
+  const deleteButton = dialog.getByRole('button', { name: 'Delete user' })
+
+  await expect(dialog.getByRole('alert')).toBeVisible()
+  await expect(dialog.getByText('Checking what they added…')).toHaveCount(0)
+  await expect(dialog.getByText('Not available until we know what they added.')).toBeVisible()
+  await expect(deleteButton).toBeDisabled()
+
+  await dialog.getByRole('button', { name: 'Try again' }).click()
+
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await expect(deleteButton).toBeEnabled()
+  await deleteButton.click()
+  await expect(dialog).toBeHidden()
+  expect(api.deletedUserId).toBe('40000000-0000-4000-8000-000000000001')
+})
+
+test('shows what goes by now when it changed since the check', async ({ page }) => {
+  const mayaId = '40000000-0000-4000-8000-000000000001'
+  const impact = {
+    comments_on_remaining_posts_count: 0,
+    deleted_comment_count: 0,
+    deleted_reply_count: 0,
+    deleted_shared_trip_count: 0,
+    deleted_trip_count: 0,
+    likes_on_remaining_posts_count: 0,
+    photos_in_others_posts_count: 0,
+    remaining_media_count: 0,
+    remaining_post_count: 0,
+    remaining_track_count: 0,
+    user_id: mayaId,
+  }
+  const impacts = { [mayaId]: impact }
+  const api = await mockAdminUsersApi(page, { deleteConflicts: 1, impacts })
+
+  await page.goto('/admin#users')
+  await page.getByRole('button', { name: 'Delete maya@example.com' }).click()
+  const dialog = page.getByRole('dialog')
+  const deleteButton = dialog.getByRole('button', { name: 'Delete user' })
+  await expect(deleteButton).toBeEnabled()
+  await expect(dialog.getByText(/will be deleted/)).toHaveCount(0)
+
+  // The trip's other owner leaves while the dialog is open.
+  impacts[mayaId] = { ...impact, deleted_trip_count: 1 }
+  await deleteButton.click()
+
+  await expect(dialog.getByRole('alert')).toHaveText('The trips have changed')
+  await expect(dialog.getByText('Their trip will be deleted.')).toBeVisible()
+  expect(api.deletedUserId).toBeNull()
+  expect(api.expectedDeletedTripCountParam).toBe('0')
+
+  await deleteButton.click()
+
+  await expect(dialog).toBeHidden()
+  expect(api.deletedUserId).toBe(mayaId)
+  expect(api.expectedDeletedTripCountParam).toBe('1')
+})
+
+test('warns which trips go with the deleted user', async ({ page }) => {
+  const mayaId = '40000000-0000-4000-8000-000000000001'
+  const api = await mockAdminUsersApi(page, {
+    impacts: {
+      [mayaId]: {
+        comments_on_remaining_posts_count: 0,
+        deleted_comment_count: 0,
+        deleted_reply_count: 0,
+        deleted_shared_trip_count: 8,
+        deleted_trip_count: 30,
+        likes_on_remaining_posts_count: 0,
+        photos_in_others_posts_count: 0,
+        remaining_media_count: 0,
+        remaining_post_count: 0,
+        remaining_track_count: 0,
+        user_id: mayaId,
+      },
+    },
+  })
+
+  await page.goto('/admin#users')
+  await page.getByRole('button', { name: 'Delete maya@example.com' }).click()
+  const dialog = page.getByRole('dialog')
+
+  await expect(dialog.getByRole('heading', { name: 'Delete Maya Chen?' })).toBeVisible()
+  await expect(
+    dialog.getByText(
+      'Their 30 trips will be deleted, including 8 that are shared with other people.',
+    ),
+  ).toBeVisible()
+  // The option stays in view, so admins know it exists, but has nothing to do.
+  await expect(
+    dialog.getByRole('checkbox', {
+      name: /^Also delete their posts, photos and GPS tracks in other people’s trips/,
+    }),
+  ).toBeDisabled()
+  await expect(
+    dialog.getByText('Not available: they haven’t added posts, photos or GPS tracks to other people’s trips.'),
+  ).toBeVisible()
+  await dialog.getByRole('button', { name: 'Delete user' }).click()
+
+  await expect(dialog).toBeHidden()
+  expect(api.deletedUserId).toBe(mayaId)
+  expect(api.deleteContentParam).toBe('false')
+})
+
+test('can also delete what the user added to other people’s trips', async ({ page }) => {
+  const mayaId = '40000000-0000-4000-8000-000000000001'
+  const api = await mockAdminUsersApi(page, {
+    impacts: {
+      [mayaId]: {
+        comments_on_remaining_posts_count: 20,
+        deleted_comment_count: 0,
+        deleted_reply_count: 0,
+        deleted_shared_trip_count: 0,
+        deleted_trip_count: 0,
+        likes_on_remaining_posts_count: 7,
+        photos_in_others_posts_count: 5,
+        remaining_media_count: 48,
+        remaining_post_count: 12,
+        remaining_track_count: 3,
+        user_id: mayaId,
+      },
+    },
+  })
+
+  await page.goto('/admin#users')
+  await page.getByRole('button', { name: 'Delete maya@example.com' }).click()
+  const dialog = page.getByRole('dialog')
+  const option = dialog.getByRole('checkbox', {
+    name: /^Also delete their posts, photos and GPS tracks in other people’s trips/,
+  })
+
+  await expect(dialog.getByText(/trips will be deleted/)).toHaveCount(0)
+  await expect(
+    dialog.getByText('12 posts, 3 GPS tracks and 48 photos and videos, including 5 in other people’s posts.', {
+      exact: false,
+    }),
+  ).toBeVisible()
+  await expect(
+    dialog.getByText('This also deletes 20 comments and 7 likes from other people on those posts.', {
+      exact: false,
+    }),
+  ).toBeVisible()
+  await expect(option).not.toBeChecked()
+  await option.check()
+  await dialog.getByRole('button', { name: 'Delete user' }).click()
+
+  await expect(dialog).toBeHidden()
+  expect(api.deleteContentParam).toBe('true')
+})
+
+async function mockAdminUsersApi(
+  page: Page,
+  options: {
+    deleteConflicts?: number
+    impactFailures?: number
+    impacts?: Record<string, unknown>
+  } = {},
+) {
+  let deleteConflicts = options.deleteConflicts ?? 0
+  let expectedDeletedTripCountParam: string | null = null
+  let impactFailures = options.impactFailures ?? 0
   const users: AdminUser[] = [
     {
       created_at: '2026-08-11T18:00:00Z',
@@ -101,6 +297,7 @@ async function mockAdminUsersApi(page: Page) {
       username: 'maya-travels',
     },
   ]
+  let deleteContentParam: string | null = null
   let createdUser: Record<string, unknown> | null = null
   let updatedUser: Record<string, unknown> | null = null
   let deletedUserId: string | null = null
@@ -172,6 +369,31 @@ async function mockAdminUsersApi(page: Page) {
       await route.fulfill({ status: 204 })
       return
     }
+    if (request.method() === 'GET' && pathParts.at(-1) === 'deletion-impact') {
+      const impactUserId = pathParts.at(-2) ?? ''
+      if (impactFailures > 0) {
+        impactFailures -= 1
+        await fulfillJson(route, { detail: 'Could not check this user' }, 500)
+        return
+      }
+      await fulfillJson(
+        route,
+        options.impacts?.[impactUserId] ?? {
+          comments_on_remaining_posts_count: 0,
+          deleted_comment_count: 0,
+          deleted_reply_count: 0,
+          deleted_shared_trip_count: 0,
+          deleted_trip_count: 0,
+          likes_on_remaining_posts_count: 0,
+          photos_in_others_posts_count: 0,
+          remaining_media_count: 0,
+          remaining_post_count: 0,
+          remaining_track_count: 0,
+          user_id: impactUserId,
+        },
+      )
+      return
+    }
 
     const userId = pathParts.at(-1) ?? ''
     const index = users.findIndex((user) => user.id === userId)
@@ -190,7 +412,16 @@ async function mockAdminUsersApi(page: Page) {
       return
     }
 
+    const searchParams = new URL(request.url()).searchParams
+    expectedDeletedTripCountParam = searchParams.get('expected_deleted_trip_count')
+    if (deleteConflicts > 0) {
+      deleteConflicts -= 1
+      await fulfillJson(route, { detail: 'The trips have changed' }, 409)
+      return
+    }
+
     deletedUserId = userId
+    deleteContentParam = searchParams.get('delete_content')
     users.splice(index, 1)
     await fulfillJson(route, { deleted: true, id: userId })
   })
@@ -199,8 +430,14 @@ async function mockAdminUsersApi(page: Page) {
     get createdUser() {
       return createdUser
     },
+    get deleteContentParam() {
+      return deleteContentParam
+    },
     get deletedUserId() {
       return deletedUserId
+    },
+    get expectedDeletedTripCountParam() {
+      return expectedDeletedTripCountParam
     },
     get passwordAssignment() {
       return passwordAssignment
