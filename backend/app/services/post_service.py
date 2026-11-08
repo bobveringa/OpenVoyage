@@ -56,6 +56,15 @@ class InvalidPostDateError(Exception):
     """Raised when a post's occurrence time is in the future."""
 
 
+def keep_bubble_media_id(
+    media_ids: list[uuid.UUID], current_bubble_media_id: uuid.UUID | None
+) -> uuid.UUID | None:
+    """Keep the bubble if it is still in the gallery, or else show the first photo."""
+    if current_bubble_media_id in media_ids:
+        return current_bubble_media_id
+    return media_ids[0] if media_ids else None
+
+
 class PostService:
     """Coordinates post lifecycle, media ordering, and post authorization."""
 
@@ -457,9 +466,7 @@ class PostService:
                 )
             return requested_bubble_media_id
 
-        if current_bubble_media_id in media_ids:
-            return current_bubble_media_id
-        return media_ids[0]
+        return keep_bubble_media_id(media_ids, current_bubble_media_id)
 
     def _check_revision(self, post: Post, expected_revision: int | None) -> None:
         if expected_revision is not None and post.revision != expected_revision:

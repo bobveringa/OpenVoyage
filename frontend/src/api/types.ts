@@ -226,12 +226,35 @@ export interface paths {
         get: operations["get_admin_user_api_v1_admin_users__user_id__get"];
         put?: never;
         post?: never;
-        /** Delete Admin User */
+        /**
+         * Delete Admin User
+         * @description Delete a user together with every trip that has no other owner.
+         */
         delete: operations["delete_admin_user_api_v1_admin_users__user_id__delete"];
         options?: never;
         head?: never;
         /** Update Admin User */
         patch: operations["update_admin_user_api_v1_admin_users__user_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}/deletion-impact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Admin User Deletion Impact
+         * @description Summarize what deleting this user removes.
+         */
+        get: operations["get_admin_user_deletion_impact_api_v1_admin_users__user_id__deletion_impact_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/admin/users/{user_id}/password": {
@@ -1589,6 +1612,67 @@ export interface components {
              */
             id: string;
         };
+        /**
+         * AdminUserDeletionImpactResponse
+         * @description What deleting a user removes, for confirming the deletion.
+         */
+        AdminUserDeletionImpactResponse: {
+            /**
+             * Comments On Remaining Posts Count
+             * @description Comments of other people on those posts, deleted only with the posts. Excludes replies already counted in deleted_reply_count.
+             */
+            comments_on_remaining_posts_count: number;
+            /**
+             * Deleted Comment Count
+             * @description Comments of the user in trips that stay, deleted in any case.
+             */
+            deleted_comment_count: number;
+            /**
+             * Deleted Reply Count
+             * @description Replies of other people under those comments, deleted with them.
+             */
+            deleted_reply_count: number;
+            /**
+             * Deleted Shared Trip Count
+             * @description Of the deleted trips, those that other members, viewers or holders of an active share link lose.
+             */
+            deleted_shared_trip_count: number;
+            /**
+             * Deleted Trip Count
+             * @description Trips deleted with the user: those without another owner.
+             */
+            deleted_trip_count: number;
+            /**
+             * Likes On Remaining Posts Count
+             * @description Likes of other people on those posts, deleted only with the posts.
+             */
+            likes_on_remaining_posts_count: number;
+            /**
+             * Photos In Others Posts Count
+             * @description Uploads of the user used in posts of other people that stay.
+             */
+            photos_in_others_posts_count: number;
+            /**
+             * Remaining Media Count
+             * @description Photos and videos the user uploaded that are used in trips that stay: in posts, their own or other people’s, or as a trip cover.
+             */
+            remaining_media_count: number;
+            /**
+             * Remaining Post Count
+             * @description Posts of the user in trips that stay.
+             */
+            remaining_post_count: number;
+            /**
+             * Remaining Track Count
+             * @description GPS tracks of the user in trips that stay.
+             */
+            remaining_track_count: number;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
         /** AdminUserPasswordSetRequest */
         AdminUserPasswordSetRequest: {
             /** Password */
@@ -2208,7 +2292,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            created_by: components["schemas"]["UserSummaryResponse"];
+            /** @description Null when the creator account has been deleted. */
+            created_by: components["schemas"]["UserSummaryResponse"] | null;
             /**
              * Id
              * Format: uuid
@@ -2741,7 +2826,8 @@ export interface components {
         };
         /** PostResponse */
         PostResponse: {
-            author: components["schemas"]["UserDisplaySummaryResponse"];
+            /** @description Null when the author account has been deleted. */
+            author: components["schemas"]["UserDisplaySummaryResponse"] | null;
             /** Body */
             body: string;
             /** Bubble Media Id */
@@ -3771,9 +3857,9 @@ export interface components {
             created_at: string;
             /**
              * Created By
-             * Format: uuid
+             * @description Null when the creator account has been deleted.
              */
-            created_by: string;
+            created_by: string | null;
             /**
              * Trip Id
              * Format: uuid
@@ -4441,7 +4527,12 @@ export interface operations {
     };
     delete_admin_user_api_v1_admin_users__user_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Also delete what the user added to trips that stay: their posts, with the comments and likes of other people on them, GPS tracks and uploads, including photos in posts of other people. Itinerary stops stay. */
+                delete_content?: boolean;
+                /** @description The number of trips the admin confirmed would be deleted. If it differs by now, nothing is deleted and the response is a 409. */
+                expected_deleted_trip_count?: number | null;
+            };
             header?: never;
             path: {
                 user_id: string;
@@ -4492,6 +4583,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminUserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_admin_user_deletion_impact_api_v1_admin_users__user_id__deletion_impact_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserDeletionImpactResponse"];
                 };
             };
             /** @description Validation Error */

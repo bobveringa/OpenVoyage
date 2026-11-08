@@ -138,6 +138,7 @@ import type {
 } from '@/pages/trip-detail/page-types'
 import { EMPTY_TRACKING_GEOMETRY } from '@/pages/trip-detail/models'
 import { retainTravelMedia } from '@/pages/trip-detail/refresh-media'
+import { toPostAuthorViewModel } from '@/pages/trip-detail/post-author'
 import {
   MapWorkspace,
   type MapRouteMode,
@@ -1977,26 +1978,9 @@ function toTravelPostViewModel(
     post.location.longitude,
   ]
   const media = post.media.map(toPostMediaViewModel)
-  const authorName =
-    [post.author.first_name, post.author.last_name]
-      .filter(Boolean)
-      .join(' ') ||
-    post.author.username ||
-    'User'
-  const authorInitials =
-    [post.author.first_name?.[0], post.author.last_name?.[0]]
-      .filter(Boolean)
-      .join('') ||
-    post.author.username?.slice(0, 2) ||
-    'U'
 
   return {
-    author: {
-      displayName: authorName,
-      id: post.author.id,
-      initials: authorInitials.toUpperCase(),
-      profilePicture: post.author.profile_picture,
-    },
+    author: toPostAuthorViewModel(post.author),
     bubbleMediaId: post.bubble_media_id,
     coordinates,
     excerpt: post.body,

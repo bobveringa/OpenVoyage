@@ -115,6 +115,8 @@ export type AdminUserCreatePayload =
   components['schemas']['AdminUserCreateRequest']
 export type AdminUserDeleteResult =
   components['schemas']['AdminUserDeleteResponse']
+export type AdminUserDeletionImpact =
+  components['schemas']['AdminUserDeletionImpactResponse']
 export type AdminUserUpdatePayload =
   components['schemas']['AdminUserUpdateRequest']
 export type AdminUserPasswordSetPayload =
@@ -500,8 +502,20 @@ export async function setAdminUserPassword(options: {
   )
 }
 
+export async function getAdminUserDeletionImpact(options: {
+  accessToken: string
+  userId: string
+}): Promise<AdminUserDeletionImpact> {
+  return requestJson<AdminUserDeletionImpact>(
+    `${API_V1_PREFIX}/admin/users/${encodeURIComponent(options.userId)}/deletion-impact`,
+    { accessToken: options.accessToken },
+  )
+}
+
 export async function deleteAdminUser(options: {
   accessToken: string
+  deleteContent?: boolean
+  expectedDeletedTripCount?: number
   userId: string
 }): Promise<AdminUserDeleteResult> {
   return requestJson<AdminUserDeleteResult>(
@@ -509,6 +523,10 @@ export async function deleteAdminUser(options: {
     {
       method: 'DELETE',
       accessToken: options.accessToken,
+      query: {
+        delete_content: options.deleteContent ?? false,
+        expected_deleted_trip_count: options.expectedDeletedTripCount,
+      },
     },
   )
 }

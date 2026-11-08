@@ -100,12 +100,13 @@ class ItineraryStop(Base):
         Integer,
         nullable=False,
     )
-    created_by: Mapped[uuid.UUID] = mapped_column(
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(
             'users.id',
+            ondelete='SET NULL',
             name='fk_itinerary_stops_created_by',
         ),
-        nullable=False,
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -131,7 +132,7 @@ class ItineraryStop(Base):
         foreign_keys='[ItineraryStop.trip_id, ItineraryStop.location_id]',
         viewonly=True,
     )
-    creator: Mapped['User'] = relationship('User')
+    creator: Mapped['User | None'] = relationship('User')
 
 
 class ItineraryConnection(Base):

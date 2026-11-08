@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +11,8 @@ from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from core.config import settings
+from core.db import get_engine
+from models.database.base import utcnow
 from models.database.media import Media, MediaStatus, MediaStorageBackend
 from utils.media.storage import (
     cleanup_staging, is_active, remove_promoted, remove_staging, staging_directory,
@@ -27,6 +31,12 @@ class MediaCleanupResult:
     failed_media: int = 0
     missing_files: int = 0
     scanned: int = 0
+
+
+def remove_unreferenced_media(media_ids: Iterable[uuid.UUID]) -> None:
+    """Background task for removing media after the request that freed them."""
+    with Session(get_engine()) as db:
+        MediaCleanupService(db).remove_unreferenced(media_ids)
 
 
 class MediaCleanupService:
@@ -63,19 +73,14 @@ class MediaCleanupService:
             for media_id in candidates:
                 scanned = totals.scanned + 1
                 try:
-                    media = self.db.scalar(
-                        select(Media).where(Media.id == media_id).with_for_update()
-                    )
-                    if media is None or not self._is_orphan(media, cutoff):
+                    removed = self._remove_if_orphan(media_id, cutoff)
+                    if removed is None:
                         failed_ids.add(media_id)
-                        self.db.rollback()
                         totals = MediaCleanupResult(
                             **{**totals.__dict__, 'scanned': scanned}
                         )
                         continue
-                    files, missing = self._remove_files(media)
-                    self.db.delete(media)
-                    self.db.commit()
+                    files, missing = removed
                     totals = MediaCleanupResult(
                         deleted_files=totals.deleted_files + files,
                         deleted_media=totals.deleted_media + 1,
@@ -96,6 +101,40 @@ class MediaCleanupService:
                             'scanned': scanned,
                         }
                     )
+
+    def remove_unreferenced(self, media_ids: Iterable[uuid.UUID]) -> None:
+        """Remove these media now, skipping any that are still in use.
+
+        Anything that fails stays an orphan for the regular cleanup job.
+        """
+        cutoff = utcnow()
+        for media_id in media_ids:
+            try:
+                self._remove_if_orphan(media_id, cutoff)
+            except Exception:
+                self.db.rollback()
+                logger.exception(
+                    'media_cleanup_item_failed', extra={'media_id': str(media_id)}
+                )
+
+    def _remove_if_orphan(
+        self, media_id: uuid.UUID, cutoff: datetime
+    ) -> tuple[int, int] | None:
+        """Remove one media and its files, unless it is gone or still in use.
+
+        Returns:
+            The counts of deleted and missing files, or ``None`` if skipped.
+        """
+        media = self.db.scalar(
+            select(Media).where(Media.id == media_id).with_for_update()
+        )
+        if media is None or not self._is_orphan(media, cutoff):
+            self.db.rollback()
+            return None
+        counts = self._remove_files(media)
+        self.db.delete(media)
+        self.db.commit()
+        return counts
 
     def _is_orphan(self, media: Media, cutoff: datetime) -> bool:
         if (media.created_at >= cutoff or is_active(media.id)

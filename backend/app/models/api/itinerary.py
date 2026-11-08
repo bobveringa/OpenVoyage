@@ -206,7 +206,9 @@ class ItineraryStopResponse(BaseModel):
     planned_start_date: date
     planned_nights: int
     visited: bool
-    created_by: UserSummaryResponse
+    created_by: UserSummaryResponse | None = Field(
+        description='Null when the creator account has been deleted.',
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -226,7 +228,11 @@ class ItineraryStopResponse(BaseModel):
                 planned_nights=stop.planned_nights,
                 today=today,
             ),
-            created_by=UserSummaryResponse.from_model(stop.creator),
+            created_by=(
+                UserSummaryResponse.from_model(stop.creator)
+                if stop.creator is not None
+                else None
+            ),
             created_at=stop.created_at,
             updated_at=stop.updated_at,
         )

@@ -55,12 +55,14 @@ class Post(Base):
         ),
         nullable=False,
     )
-    author_user_id: Mapped[uuid.UUID] = mapped_column(
+    # Null once the author's account is deleted; the post stays with the trip.
+    author_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(
             'users.id',
+            ondelete='SET NULL',
             name='fk_posts_author_user_id',
         ),
-        nullable=False,
+        nullable=True,
     )
     location_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey(
@@ -116,7 +118,7 @@ class Post(Base):
     )
 
     trip: Mapped['Trip'] = relationship('Trip')
-    author: Mapped['User'] = relationship('User')
+    author: Mapped['User | None'] = relationship('User')
     location: Mapped['Location'] = relationship('Location')
     media_links: Mapped[list['PostMedia']] = relationship(
         'PostMedia',

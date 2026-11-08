@@ -37,7 +37,7 @@ from services.gps.derived_track import (
 )
 from services.gps.geometry import simplify_line_indices
 from services.gps.privacy_zone_service import GpsPrivacyZoneService
-from services.trip_access import get_membership, get_trip_read_access
+from services.trip_access import get_membership, get_trip_read_access, lock_trip
 from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
 
@@ -328,18 +328,7 @@ class GpsTrackingService:
         if payload.ended_at < existing.started_at:
             raise TrackingValidationError('ended_at must not precede started_at')
 
-        # Include the final buffered fix when closing for the first time.
-        newest_sample = self.db.execute(
-            select(func.max(GpsTrackSample.recorded_at)).where(
-                GpsTrackSample.session_id == session_id
-            )
-        ).scalar_one_or_none()
-        candidates = [
-            value
-            for value in (existing.ended_at, payload.ended_at, newest_sample)
-            if value is not None
-        ]
-        resolved_end = max(candidates) if candidates else None
+        resolved_end = self._end_with_final_sample(session_id, payload.ended_at)
 
         if resolved_end != existing.ended_at:
             self._require_no_overlap(
@@ -363,6 +352,15 @@ class GpsTrackingService:
             session=existing,
             sample_count=self._count_samples(session_id),
         )
+
+    def _end_with_final_sample(self, session_id: uuid.UUID, ended_at):
+        """Move the end of a closing session past its final buffered fix."""
+        newest_sample = self.db.scalar(
+            select(func.max(GpsTrackSample.recorded_at)).where(
+                GpsTrackSample.session_id == session_id
+            )
+        )
+        return max(ended_at, newest_sample) if newest_sample is not None else ended_at
 
     def _require_session_controller(self, session, user_id):
         user = self.db.get(User, user_id)
@@ -546,6 +544,28 @@ class GpsTrackingService:
 
             FlightTrackingService(self.db).stop(session, 'MANUAL')
         self.db.commit()
+
+    def close_open_sessions_of_recorder(self, user_id: uuid.UUID) -> None:
+        """End a departing user's recordings, which nobody else may stop.
+
+        An open session occupies all time from its start, so one left behind
+        would block every later recording in its trip. The caller holds the
+        trip locks and commits.
+        """
+        sessions = self.db.scalars(
+            select(GpsTrackingSession).where(
+                GpsTrackingSession.recorded_by_user_id == user_id,
+                GpsTrackingSession.source == 'MOBILE_GPS',
+                GpsTrackingSession.ended_at.is_(None),
+                GpsTrackingSession.deleted_at.is_(None),
+            )
+        ).all()
+        for session in sessions:
+            session.ended_at = self._end_with_final_sample(
+                session.id, max(utcnow(), session.started_at)
+            )
+            self._refresh_session_derived_track(session)
+        self.db.flush()
 
     # ------------------------------------------------------------------
     # Sample ingestion
@@ -1488,7 +1508,7 @@ class GpsTrackingService:
         return trip
 
     def _lock_trip(self, trip_id: uuid.UUID) -> None:
-        self.db.execute(select(Trip).where(Trip.id == trip_id).with_for_update())
+        lock_trip(self.db, trip_id)
 
     def _require_membership(
         self,

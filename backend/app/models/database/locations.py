@@ -81,13 +81,14 @@ class Location(Base):
         onupdate=utcnow,
         server_default=func.now(),
     )
-    created_by: Mapped[uuid.UUID] = mapped_column(
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(
             'users.id',
+            ondelete='SET NULL',
             name='fk_locations_created_by',
         ),
-        nullable=False,
+        nullable=True,
     )
 
     trip: Mapped['Trip'] = relationship('Trip')
-    creator: Mapped['User'] = relationship('User')
+    creator: Mapped['User | None'] = relationship('User')

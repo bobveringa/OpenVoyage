@@ -19,7 +19,6 @@ import {
 
 import {
   createAdminUser,
-  deleteAdminUser,
   getErrorMessage,
   listAdminUsers,
   setAdminUserPassword,
@@ -27,12 +26,14 @@ import {
   type AdminUser,
   type AdminUserCreatePayload,
 } from '@/api/client'
+import { DeleteUserModal } from '@/components/admin/delete-user-modal'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
 } from '@/components/ui/card'
+import { CheckboxField } from '@/components/ui/checkbox-field'
 import { EmptyState, LoadingState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
@@ -623,94 +624,12 @@ function RequirementCheckbox({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex items-start gap-3 rounded-xl border border-border bg-muted/60 px-4 py-3 text-sm text-foreground">
-      <input
-        checked={checked}
-        className="mt-0.5 size-4 rounded border-input accent-primary"
-        onChange={(event) => onChange(event.target.checked)}
-        type="checkbox"
-      />
-      <span>
-        <span className="block font-medium">Require password change at next sign-in</span>
-        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-          Clear this when assigning a normal password that does not need replacement.
-        </span>
-      </span>
-    </label>
-  )
-}
-
-function DeleteUserModal({
-  accessToken,
-  onClose,
-  onDeleted,
-  user,
-}: {
-  accessToken: string | null
-  onClose: () => void
-  onDeleted: () => Promise<void>
-  user: AdminUser | null
-}) {
-  const [error, setError] = useState<string | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  useEffect(() => {
-    setError(null)
-    setIsDeleting(false)
-  }, [user])
-
-  async function confirmDelete() {
-    if (!accessToken || !user || isDeleting) {
-      return
-    }
-
-    setIsDeleting(true)
-    setError(null)
-    try {
-      await deleteAdminUser({ accessToken, userId: user.id })
-      await onDeleted()
-    } catch (deleteError) {
-      setError(getErrorMessage(deleteError))
-    } finally {
-      setIsDeleting(false)
-    }
-  }
-
-  return (
-    <Modal
-      description="This permanently deletes the account and its profile. This action cannot be undone."
-      onClose={onClose}
-      open={user !== null}
-      title="Delete user?"
-    >
-      <div className="space-y-5 p-1">
-        {user ? (
-          <p className="rounded-xl bg-muted px-4 py-3 text-sm text-foreground">
-            {user.first_name} {user.last_name} ({user.email})
-          </p>
-        ) : null}
-        {error ? (
-          <p className="flex items-start gap-2 text-sm text-destructive" role="alert">
-            <AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-            {error}
-          </p>
-        ) : null}
-        <div className="flex justify-end gap-2">
-          <Button disabled={isDeleting} onClick={onClose} type="button" variant="ghost">
-            Cancel
-          </Button>
-          <Button
-            disabled={isDeleting}
-            onClick={() => void confirmDelete()}
-            type="button"
-            variant="destructive"
-          >
-            <Trash2 aria-hidden="true" className="size-4" />
-            {isDeleting ? 'Deleting…' : 'Delete user'}
-          </Button>
-        </div>
-      </div>
-    </Modal>
+    <CheckboxField
+      checked={checked}
+      description="Clear this when assigning a normal password that does not need replacement."
+      label="Require password change at next sign-in"
+      onChange={onChange}
+    />
   )
 }
 

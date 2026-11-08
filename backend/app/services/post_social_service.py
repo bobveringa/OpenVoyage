@@ -217,7 +217,10 @@ class PostSocialService:
             share_token=share_token,
             creation=True,
         )
-        if context.actor_user_id == post.author_user_id:
+        if (
+            context.actor_user_id is not None
+            and context.actor_user_id == post.author_user_id
+        ):
             raise SocialPermissionError('You cannot like your own post.')
         condition = self._actor_like_condition(context)
         assert condition is not None

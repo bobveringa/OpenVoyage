@@ -139,3 +139,57 @@ class AdminUsersListResponse(BaseModel):
 class AdminUserDeleteResponse(BaseModel):
     id: uuid.UUID
     deleted: bool = True
+
+
+class AdminUserDeletionImpactResponse(BaseModel):
+    """What deleting a user removes, for confirming the deletion."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: uuid.UUID
+    deleted_trip_count: int = Field(
+        ge=0, description='Trips deleted with the user: those without another owner.'
+    )
+    deleted_shared_trip_count: int = Field(
+        ge=0,
+        description=(
+            'Of the deleted trips, those that other members, viewers or holders of '
+            'an active share link lose.'
+        ),
+    )
+    remaining_post_count: int = Field(
+        ge=0, description='Posts of the user in trips that stay.'
+    )
+    comments_on_remaining_posts_count: int = Field(
+        ge=0,
+        description=(
+            'Comments of other people on those posts, deleted only with the posts. '
+            'Excludes replies already counted in deleted_reply_count.'
+        ),
+    )
+    likes_on_remaining_posts_count: int = Field(
+        ge=0,
+        description='Likes of other people on those posts, deleted only with the posts.',
+    )
+    remaining_track_count: int = Field(
+        ge=0, description='GPS tracks of the user in trips that stay.'
+    )
+    remaining_media_count: int = Field(
+        ge=0,
+        description=(
+            'Photos and videos the user uploaded that are used in trips that stay: '
+            'in posts, their own or other people’s, or as a trip cover.'
+        ),
+    )
+    photos_in_others_posts_count: int = Field(
+        ge=0,
+        description='Uploads of the user used in posts of other people that stay.',
+    )
+    deleted_comment_count: int = Field(
+        ge=0,
+        description='Comments of the user in trips that stay, deleted in any case.',
+    )
+    deleted_reply_count: int = Field(
+        ge=0,
+        description='Replies of other people under those comments, deleted with them.',
+    )

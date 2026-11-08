@@ -75,7 +75,8 @@ export type ItineraryLocation = {
 
 export type Stop = {
   created_at: string
-  created_by: UserSummaryViewModel
+  /** Null when the creator's account has been deleted. */
+  created_by: UserSummaryViewModel | null
   id: string
   location: ItineraryLocation
   notes: string
@@ -112,7 +113,8 @@ export type PostMedia = {
 export type TravelPost = {
   author: {
     displayName: string
-    id: string
+    /** Null when the author's account has been deleted. */
+    id: string | null
     initials: string
     profilePicture: Media | null
   }
