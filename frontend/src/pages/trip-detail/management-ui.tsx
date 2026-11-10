@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Send,
   Settings,
+  Share2,
   Trash2,
   UserPlus,
   Users,
@@ -50,7 +51,9 @@ import { Modal } from '@/components/ui/modal'
 import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { copyTextToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
+import { canShareLink, shareLink } from '@/native/share'
 import { InlineNotice } from '@/pages/trip-detail/inline-notice'
 import {
   formatDateTimeLabel,
@@ -567,6 +570,7 @@ function ShareManagementPanel({
   shareLinks,
   showLinks = true,
   showViewers = true,
+  tripName,
   viewers,
 }: {
   accessToken?: string | null
@@ -584,6 +588,7 @@ function ShareManagementPanel({
   shareLinks: readonly ShareLinkViewModel[]
   showLinks?: boolean
   showViewers?: boolean
+  tripName: string
   viewers: readonly TripViewerViewModel[]
 }) {
   const [linkExpiresAt, setLinkExpiresAt] = useState('')
@@ -721,6 +726,7 @@ function ShareManagementPanel({
                 onRevoke={onRevokeLink}
                 onRestore={onRestoreLink}
                 onUpdate={onUpdateLink}
+                tripName={tripName}
               />
             ))}
             {shareLinks.length === 0 ? (
@@ -1186,6 +1192,7 @@ export function TripManagementDialog({
                   shareLinks={shareLinks}
                   showLinks={false}
                   showViewers
+                  tripName={trip.name}
                   viewers={viewers}
                 />
               </div>
@@ -1207,6 +1214,7 @@ export function TripManagementDialog({
                 shareLinks={shareLinks}
                 showLinks
                 showViewers={false}
+                tripName={trip.name}
                 viewers={viewers}
               />
             ) : null}
@@ -1353,6 +1361,7 @@ function ShareLinkRow({
   onRevoke,
   onRestore,
   onUpdate,
+  tripName,
 }: {
   canMutate: boolean
   isSaving: boolean
@@ -1362,6 +1371,7 @@ function ShareLinkRow({
   onRevoke: (link: ShareLinkViewModel, onSuccess: () => void) => void
   onRestore: (link: ShareLinkViewModel, onSuccess: () => void) => void
   onUpdate: (link: ShareLinkViewModel) => void
+  tripName: string
 }) {
   const [copied, setCopied] = useState(false)
   const [confirmation, setConfirmation] = useState<
@@ -1376,6 +1386,10 @@ function ShareLinkRow({
   const rowRef = useRef<HTMLDivElement | null>(null)
   const isRevoked = link.revokedAt !== null
   const shareUrl = link.token ? getShareUrl(link.token, link.tripId) : null
+  const shareContent = shareUrl
+    ? { text: `Follow ${tripName} on OpenVoyage`, title: tripName, url: shareUrl }
+    : null
+  const canShare = shareContent ? canShareLink(shareContent) : false
   const settingsDisabled = !canMutate || isSaving || isRevoked
 
   useEffect(() => {
@@ -1451,17 +1465,31 @@ function ShareLinkRow({
     })
   }
 
-  function handleCopy() {
+  async function handleCopy() {
     if (!shareUrl) {
+      return
+    }
+
+    if (!(await copyTextToClipboard(shareUrl))) {
+      onNotice(`Couldn't copy ${link.label}. Select the link above and copy it manually.`)
       return
     }
 
     setCopied(true)
     onNotice(`${link.label} copied to clipboard.`)
-    void navigator.clipboard
-      ?.writeText(shareUrl)
-      .catch(() => undefined)
     window.setTimeout(() => setCopied(false), 1200)
+  }
+
+  async function handleShare() {
+    if (!shareContent) {
+      return
+    }
+
+    // shareLink must run before any await so the browser still sees the tap.
+    const outcome = await shareLink(shareContent)
+    if (outcome === 'failed' || outcome === 'unsupported') {
+      onNotice(`Couldn't open the share menu for ${link.label}. Copy the link instead.`)
+    }
   }
 
   return (
@@ -1496,7 +1524,12 @@ function ShareLinkRow({
                 {isRevoked ? 'Revoked' : 'Active'}
               </span>
             </div>
-            <p className="mt-1 max-w-full truncate text-xs text-muted-foreground">
+            <p
+              className={cn(
+                'mt-1 max-w-full truncate text-xs text-muted-foreground',
+                shareUrl && !isRevoked && 'select-all',
+              )}
+            >
               {shareUrl && !isRevoked ? shareUrl : 'Token hidden after creation'}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -1511,10 +1544,24 @@ function ShareLinkRow({
           <div className="flex shrink-0 flex-wrap gap-2">
             {!isRevoked ? (
               <>
+                {canShare ? (
+                  <Button
+                    aria-label={`Share ${link.label}`}
+                    className="h-8 px-2.5 text-xs"
+                    disabled={isSaving}
+                    onClick={() => void handleShare()}
+                    size="sm"
+                    type="button"
+                  >
+                    <Share2 className="size-4" aria-hidden="true" />
+                    Share
+                  </Button>
+                ) : null}
                 <Button
+                  aria-label={copied ? `Copied ${link.label}` : `Copy ${link.label}`}
                   className="h-8 px-2.5 text-xs"
                   disabled={!shareUrl || isSaving}
-                  onClick={handleCopy}
+                  onClick={() => void handleCopy()}
                   size="sm"
                   type="button"
                   variant="outline"
