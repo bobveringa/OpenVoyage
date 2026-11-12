@@ -11,15 +11,11 @@ function routingInputs(connection: ItineraryConnection) {
   })
 }
 
-export async function calculateChangedConnectionRoutes(options: {
-  itinerary: Itinerary
-  previousConnections: readonly ItineraryConnection[]
-  accessToken: string
-  onUpdate: (itinerary: Itinerary) => void
-}) {
-  let itinerary = options.itinerary
-  const previous = new Map(options.previousConnections.map(connection => [connection.id, routingInputs(connection)]))
-  const pending = itinerary.connections.filter(connection =>
+/** Connections with a road leg that still needs its route, and whose inputs
+ * changed since ``previousConnections`` (all of them when that is empty). */
+export function connectionsNeedingRoutes(itinerary: Itinerary, previousConnections: readonly ItineraryConnection[]) {
+  const previous = new Map(previousConnections.map(connection => [connection.id, routingInputs(connection)]))
+  return itinerary.connections.filter(connection =>
     previous.get(connection.id) !== routingInputs(connection) &&
     connection.segments.some(segment =>
       ['CAR', 'BIKE', 'WALK'].includes(segment.intent.travel_mode) &&
@@ -27,6 +23,16 @@ export async function calculateChangedConnectionRoutes(options: {
       segment.from_endpoint && segment.to_endpoint,
     ),
   )
+}
+
+export async function calculateChangedConnectionRoutes(options: {
+  itinerary: Itinerary
+  previousConnections: readonly ItineraryConnection[]
+  accessToken: string
+  onUpdate: (itinerary: Itinerary) => void
+}) {
+  let itinerary = options.itinerary
+  const pending = connectionsNeedingRoutes(itinerary, options.previousConnections)
 
   // Each calculation advances the revision, so adjacent routes must be saved in order.
   for (const connection of pending) {

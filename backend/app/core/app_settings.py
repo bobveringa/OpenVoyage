@@ -8,6 +8,7 @@ from typing import Any, Callable, Mapping
 from core.setting_validators.common import (
     validate_http_url,
     validate_http_url_template,
+    validate_service_base_url,
 )
 from core.setting_validators.theme_palette import (
     DEFAULT_THEME_PALETTE,
@@ -85,6 +86,12 @@ IMMICH_ENABLED_KEY = 'immich.enabled'
 IMMICH_ALLOWED_SERVERS_KEY = 'immich.allowed_servers'
 IMMICH_ALLOW_ANY_SERVER_KEY = 'immich.allow_any_server'
 COOKIE_BANNER_ENABLED_KEY = 'site.cookie_banner_enabled'
+PLACES_WIKIPEDIA_PHOTOS_KEY = 'places.wikipedia_photos'
+ADDRESS_SEARCH_PROVIDER_KEY = 'address_search.provider'
+ADDRESS_SEARCH_PHOTON_BASE_URL_KEY = 'address_search.photon_base_url'
+ADDRESS_SEARCH_NOMINATIM_BASE_URL_KEY = 'address_search.nominatim_base_url'
+ADDRESS_SEARCH_GRAPHHOPPER_BASE_URL_KEY = 'address_search.graphhopper_base_url'
+ADDRESS_SEARCH_GRAPHHOPPER_API_KEY = 'address_search.graphhopper_api_key'
 
 SETTING_DEFINITIONS = (
     SettingDefinition(
@@ -198,6 +205,69 @@ SETTING_DEFINITIONS = (
         runtime_safe=False,
         validation={'min_length': 1, 'max_length': 2048},
         description='GraphHopper API key used by route generation.',
+    ),
+    SettingDefinition(
+        key=ADDRESS_SEARCH_PROVIDER_KEY,
+        # Public: the stay form needs to know whether to show the search box,
+        # and Nominatim searches on Enter only. It is just a provider name.
+        value_type=SettingValueType.ENUM,
+        visibility=SettingVisibility.PUBLIC,
+        sensitive=False,
+        default_value='none',
+        runtime_safe=True,
+        validation={'allowed_values': ['none', 'photon', 'nominatim', 'graphhopper']},
+        description='Address and hotel search for stays; none turns it off.',
+    ),
+    SettingDefinition(
+        key=ADDRESS_SEARCH_PHOTON_BASE_URL_KEY,
+        value_type=SettingValueType.STRING,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        default_value='https://photon.komoot.io',
+        runtime_safe=True,
+        validation={'min_length': 1, 'max_length': 2048},
+        validator=validate_service_base_url,
+        description='Photon server used for address search.',
+    ),
+    SettingDefinition(
+        key=ADDRESS_SEARCH_NOMINATIM_BASE_URL_KEY,
+        value_type=SettingValueType.STRING,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        default_value='https://nominatim.openstreetmap.org',
+        runtime_safe=True,
+        validation={'min_length': 1, 'max_length': 2048},
+        validator=validate_service_base_url,
+        description='Nominatim server used for address search.',
+    ),
+    SettingDefinition(
+        key=ADDRESS_SEARCH_GRAPHHOPPER_BASE_URL_KEY,
+        value_type=SettingValueType.STRING,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        default_value='https://graphhopper.com/api/1',
+        runtime_safe=True,
+        validation={'min_length': 1, 'max_length': 2048},
+        validator=validate_service_base_url,
+        description='GraphHopper API base URL used for address search.',
+    ),
+    SettingDefinition(
+        key=ADDRESS_SEARCH_GRAPHHOPPER_API_KEY,
+        value_type=SettingValueType.SECRET,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=True,
+        runtime_safe=True,
+        validation={'min_length': 1, 'max_length': 2048},
+        description='GraphHopper API key for address search, separate from the routing key.',
+    ),
+    SettingDefinition(
+        key=PLACES_WIKIPEDIA_PHOTOS_KEY,
+        value_type=SettingValueType.BOOLEAN,
+        visibility=SettingVisibility.ADMIN,
+        sensitive=False,
+        default_value=True,
+        runtime_safe=True,
+        description='Show the lead photo of the English Wikipedia article in stop cards of larger towns.',
     ),
     SettingDefinition(
         key=MEDIA_MAX_UPLOAD_SIZE_MB_KEY,

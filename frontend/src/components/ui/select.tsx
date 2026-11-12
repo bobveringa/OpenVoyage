@@ -1,4 +1,4 @@
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, type LucideIcon } from 'lucide-react'
 import { cva } from 'class-variance-authority'
 import {
   useEffect,
@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils'
 export type SelectOption<TValue extends string = string> = {
   description?: string
   disabled?: boolean
+  /** Shown before the label, in the menu and on the closed select. */
+  icon?: LucideIcon
   label: string
   selectedDescription?: string
   value: TValue
@@ -36,9 +38,11 @@ type SelectProps<TValue extends string = string> = {
 type SelectMenuPosition = {
   left: number
   maxHeight: number
+  /** The menu is at least as wide as the trigger, and grows to fit long labels. */
+  maxWidth: number
+  minWidth: number
   openAbove: boolean
   top: number
-  width: number
 }
 
 const selectTriggerVariants = cva(
@@ -303,8 +307,12 @@ export function Select<TValue extends string = string>({
       >
         {selectedOption ? (
           <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+            {selectedOption.icon ? (
+              <selectedOption.icon aria-hidden="true" className="size-4 shrink-0 self-center text-primary" />
+            ) : null}
             <span className="min-w-0 flex-1 truncate">{selectedOption.label}</span>
-            {selectedOption.description ? (
+            {/* An empty selectedDescription keeps the closed select to the label alone. */}
+            {(selectedOption.selectedDescription ?? selectedOption.description) ? (
               <>
                 <span aria-hidden="true" className="shrink-0 text-muted-foreground">·</span>
                 <span className="max-w-[45%] shrink-0 truncate text-sm text-muted-foreground">
@@ -339,7 +347,9 @@ export function Select<TValue extends string = string>({
                 transform: menuPosition.openAbove
                   ? 'translateY(-100%)'
                   : undefined,
-                width: menuPosition.width,
+                maxWidth: menuPosition.maxWidth,
+                minWidth: menuPosition.minWidth,
+                width: 'max-content',
               }}
             >
               {searchable ? (
@@ -402,6 +412,9 @@ export function Select<TValue extends string = string>({
                       tabIndex={-1}
                       type="button"
                     >
+                      {option.icon ? (
+                        <option.icon aria-hidden="true" className="size-4 shrink-0 text-primary" />
+                      ) : null}
                       <span className="min-w-0 flex-1">
                         <span className="block truncate">{option.label}</span>
                         {option.description ? (
@@ -465,7 +478,8 @@ function getSelectMenuPosition(
     0,
     aboveBottom - viewportTop - viewportPadding,
   )
-  let openAbove = spaceBelow < 160 && spaceAbove > spaceBelow
+  // Open upwards when the whole menu doesn't fit below but there is more room above.
+  let openAbove = spaceBelow < maxMenuHeight + menuChromeHeight && spaceAbove > spaceBelow
   let availableHeight = openAbove ? spaceAbove : spaceBelow
   let top = openAbove ? aboveBottom : belowTop
 
@@ -475,14 +489,15 @@ function getSelectMenuPosition(
     top = viewportTop + viewportPadding
   }
 
-  const width = Math.min(
+  const minWidth = Math.min(
     triggerBounds.width,
     viewportWidth - viewportPadding * 2,
   )
   const left = Math.min(
     Math.max(viewportLeft + viewportPadding, triggerBounds.left),
-    viewportRight - viewportPadding - width,
+    viewportRight - viewportPadding - minWidth,
   )
+  const maxWidth = Math.max(minWidth, Math.min(320, viewportRight - viewportPadding - left))
 
   return {
     left,
@@ -490,8 +505,9 @@ function getSelectMenuPosition(
       1,
       Math.min(maxMenuHeight, availableHeight - menuChromeHeight),
     ),
+    maxWidth,
+    minWidth,
     openAbove,
     top,
-    width,
   }
 }

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from models.api.itinerary import (
+    StayCreateRequest,
+    StayUpdateRequest,
     ItineraryPlacement,
     ItineraryStopCreateRequest,
     ItineraryStopUpdateRequest,
@@ -14,12 +17,16 @@ from models.api.itinerary import (
 )
 from models.api.planning import ConnectionIntent, PlanningWarning
 from models.database.itinerary import (
+    STAY_TYPES_WITHOUT_BOOKING,
     ItineraryPlanningArtifact,
+    ItineraryStay,
     ItineraryStop,
     ItineraryConnection,
     ItineraryTravelSegment,
 )
 from fastapi import HTTPException
+from models.database.base import utcnow
+from models.database.locations import Location
 from models.database.trips import Trip, TripMember
 from models.database.user import User
 from services.planning_models import ArtifactScope, ConnectionDraft, DraftLocation
@@ -29,6 +36,7 @@ from services.connection_endpoints import (
     location_identity,
 )
 from services.flight_airports import resolve_flight_lookup_airports
+from services.gps.geometry import haversine_meters
 from services.itinerary_routes import ItineraryRouteService
 from services.location_service import LocationService
 from services.trip_access import (
@@ -41,6 +49,17 @@ from services.trip_authorization import TripPermission, role_has_permission
 from services.trip_errors import TripNotFoundError
 
 StopPair = tuple[uuid.UUID | None, uuid.UUID | None]
+
+# Optional stay fields copied as sent; null clears them.
+_STAY_DETAIL_FIELDS = (
+    'address',
+    'check_in_time',
+    'check_out_time',
+    'booking_reference',
+    'booking_url',
+    'contact_phone',
+    'contact_email',
+)
 
 
 class ItineraryPermissionError(Exception):
@@ -63,8 +82,23 @@ class ItineraryPlacementError(Exception):
     """Raised when a stop placement request is invalid."""
 
 
+class ItineraryStayNotFoundError(Exception):
+    """Raised when a stay is missing or belongs to another trip."""
+
+
+class ItineraryStayValidationError(Exception):
+    """Raised when a stay's dates or status don't fit."""
+
+
 class ItineraryConnectionValidationError(Exception):
     """Raised when travel replacement payloads do not match resulting connections."""
+
+
+class ItineraryMarkerError(Exception):
+    """Raised when a marker would move too far from its stop's place."""
+
+
+MARKER_MAX_DISTANCE_METERS = 25_000
 
 
 @dataclass(frozen=True)
@@ -81,6 +115,12 @@ class ItineraryStopDetail:
     incoming_connection: ItineraryConnection | None
     outgoing_connection: ItineraryConnection | None
     itinerary_revision: int
+
+
+@dataclass(frozen=True)
+class StopNotesSave:
+    stop: ItineraryStop
+    replaced_change_by: User | None
 
 
 @dataclass(frozen=True)
@@ -133,6 +173,14 @@ class ItineraryService:
         )
         return self._load_itinerary_snapshot(trip=access.trip)
 
+    def route_privacy(self, trip_id: uuid.UUID) -> list[tuple[float, float, int]]:
+        """Every member's GPS privacy zones."""
+        from services.gps.privacy_zone_service import GpsPrivacyZoneService
+
+        return GpsPrivacyZoneService(self.db).list_trip_member_zone_coordinates(
+            trip_id=trip_id
+        )
+
     def create_stop(
         self,
         trip_id: uuid.UUID,
@@ -153,23 +201,27 @@ class ItineraryService:
             location_input=payload.location,
         )
         stop = ItineraryStop(
+            id=uuid.uuid4(),
             trip_id=trip_id,
             location_id=location.id,
-            planned_start_date=payload.placement.planned_start_date,
-            same_day_position=0,
+            position=len(old_stops),
             title=payload.title,
-            notes=payload.notes,
             planned_nights=payload.planned_nights,
             created_by=membership.user_id,
         )
-        self.db.add(stop)
-        self.db.flush()
-
         new_order = self._ordered_with_inserted_stop(
-            stops=old_stops + [stop],
+            stops=old_stops,
             moving_stop=stop,
             placement=payload.placement,
         )
+        index = new_order.index(stop)
+        stop.planned_start_date = payload.planned_start_date or (
+            self._leave_date(new_order[index - 1]) if index else trip.start_date
+        )
+        self._shift_stops(new_order[index + 1:], stop.planned_nights)
+        self.db.add(stop)
+        self.db.flush()
+
         incoming_pair, outgoing_pair = self._neighbor_pairs_for_stop(
             ordered_stops=new_order,
             stop_id=stop.id,
@@ -202,6 +254,32 @@ class ItineraryService:
         self._increment_revision(trip)
         self._commit_itinerary(trip_id)
         return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
+
+    def get_member_stop(
+        self,
+        trip_id: uuid.UUID,
+        stop_id: uuid.UUID,
+        current_user_id: uuid.UUID | None,
+        share_token: str | None = None,
+    ) -> ItineraryStop:
+        """One stop with its location, for trip members only (the header photo)."""
+        self._get_readable_trip_or_raise(
+            trip_id=trip_id,
+            current_user_id=current_user_id,
+            share_token=share_token,
+        )
+        stop = self.db.execute(
+            select(ItineraryStop)
+            .options(joinedload(ItineraryStop.location))
+            .where(ItineraryStop.trip_id == trip_id, ItineraryStop.id == stop_id)
+        ).scalar_one_or_none()
+        if stop is None:
+            raise ItineraryStopNotFoundError(f'Itinerary stop not found: {stop_id}')
+        return stop
+
+    def require_itinerary_manager(self, trip_id: uuid.UUID, user_id: uuid.UUID) -> None:
+        """Only people who may plan the trip can use its address search."""
+        self._require_manage_trip(trip_id=trip_id, user_id=user_id)
 
     def get_stop_detail(
         self,
@@ -262,20 +340,17 @@ class ItineraryService:
                 'after_stop_id cannot reference the same stop'
             )
 
-        original_date = stop.planned_start_date
-        original_order_ids = [item.id for item in old_stops]
         new_order = old_stops
-        placement_changed = False
         if has_placement:
             new_order = self._ordered_with_inserted_stop(
                 stops=old_stops,
                 moving_stop=stop,
                 placement=payload.placement,
             )
-            placement_changed = (
-                payload.placement.planned_start_date != original_date
-                or [item.id for item in new_order] != original_order_ids
-            )
+        # Only placement changes the order; dates never do.
+        placement_changed = [item.id for item in new_order] != [
+            item.id for item in old_stops
+        ]
 
         if has_travel_replacement and not (
             placement_changed or has_location_replacement
@@ -296,6 +371,12 @@ class ItineraryService:
                 outgoing_connection=payload.outgoing_connection,
             )
 
+        dates_changed = self._apply_stop_dates(
+            old_order=old_stops,
+            new_order=new_order,
+            stop=stop,
+            payload=payload,
+        )
         metadata_changed = self._apply_stop_metadata_updates(stop=stop, payload=payload)
         if has_location_replacement:
             location = self.location_service.create_location_for_trip(
@@ -304,10 +385,20 @@ class ItineraryService:
                 location_input=payload.location,
             )
             stop.location_id = location.id
+            stop.original_location_id = location.id
             self.db.flush()
-            self.db.expire(stop, ['location'])
+            self.db.expire(stop, ['location', 'original_location'])
+        marker_changed = 'marker' in payload.model_fields_set and self._move_marker(
+            stop=stop, marker=payload.marker, current_user_id=current_user_id
+        )
 
-        changed = metadata_changed or placement_changed or has_location_replacement
+        changed = (
+            metadata_changed
+            or dates_changed
+            or placement_changed
+            or has_location_replacement
+            or marker_changed
+        )
         if not changed:
             return self._load_itinerary_snapshot(trip=trip)
 
@@ -334,10 +425,102 @@ class ItineraryService:
                 incoming_pair=incoming_pair,
                 outgoing_pair=outgoing_pair,
             )
+        elif marker_changed:
+            # Travel stays; ground routes that start or end here are drawn again.
+            self._sync_side_routes(
+                connections_by_pair=connections_by_pair,
+                incoming_pair=incoming_pair,
+                outgoing_pair=outgoing_pair,
+            )
 
         self._increment_revision(trip)
         self._commit_itinerary(trip_id)
         return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
+
+    def _move_marker(self, *, stop, marker, current_user_id) -> bool:
+        """Point the stop at a new spot near its original place, or back at it."""
+        original = stop.original_location
+        if marker is None:
+            target_id = stop.original_location_id
+        elif (marker.latitude, marker.longitude) == (original.latitude, original.longitude):
+            target_id = stop.original_location_id
+        else:
+            if (marker.latitude, marker.longitude) == (
+                stop.location.latitude,
+                stop.location.longitude,
+            ):
+                return False
+            distance = haversine_meters(
+                original.latitude, original.longitude, marker.latitude, marker.longitude
+            )
+            if distance > MARKER_MAX_DISTANCE_METERS:
+                raise ItineraryMarkerError(
+                    f'The marker must stay within {MARKER_MAX_DISTANCE_METERS // 1000} km '
+                    f'of {original.name}. Change the stop\'s place instead.'
+                )
+            # A new row: other records may point at the current one.
+            location = Location(
+                trip_id=stop.trip_id,
+                name=original.name,
+                latitude=marker.latitude,
+                longitude=marker.longitude,
+                country_code=original.country_code,
+                region=original.region,
+                full_name=original.full_name,
+                source_place_id=original.source_place_id,
+                created_by=current_user_id,
+            )
+            self.db.add(location)
+            self.db.flush()
+            target_id = location.id
+        if target_id == stop.location_id:
+            return False
+        stop.location_id = target_id
+        self.db.flush()
+        self.db.expire(stop, ['location'])
+        return True
+
+    def save_stop_notes(
+        self,
+        trip_id: uuid.UUID,
+        stop_id: uuid.UUID,
+        notes: str,
+        based_on: datetime | None,
+        current_user_id: uuid.UUID,
+    ) -> StopNotesSave:
+        """Save notes without the itinerary revision; the last save wins.
+
+        Notes never touch dates or routes, so the revision stays the same and
+        a concurrent edit elsewhere in the trip never blocks typing.
+        """
+        self._require_manage_trip_locked_without_revision(
+            trip_id=trip_id, user_id=current_user_id
+        )
+        stop = self.db.execute(
+            select(ItineraryStop)
+            .where(ItineraryStop.trip_id == trip_id, ItineraryStop.id == stop_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+        if stop is None:
+            raise ItineraryStopNotFoundError(f'Itinerary stop not found: {stop_id}')
+        replaced_by = None
+        if (
+            stop.notes != notes
+            and stop.notes_updated_at is not None
+            and stop.notes_updated_at != based_on
+            and stop.notes_updated_by not in (None, current_user_id)
+        ):
+            replaced_by = self.db.execute(
+                select(User)
+                .options(joinedload(User.profile))
+                .where(User.id == stop.notes_updated_by)
+            ).scalar_one_or_none()
+        if stop.notes != notes:
+            stop.notes = notes
+            stop.notes_updated_at = utcnow()
+            stop.notes_updated_by = current_user_id
+        self.db.commit()
+        return StopNotesSave(stop=stop, replaced_change_by=replaced_by)
 
     def delete_stop(
         self,
@@ -357,6 +540,9 @@ class ItineraryService:
         if stop is None:
             raise ItineraryStopNotFoundError(f'Itinerary stop not found: {stop_id}')
 
+        self._shift_stops(
+            old_stops[old_stops.index(stop) + 1:], -stop.planned_nights
+        )
         new_order = [item for item in old_stops if item.id != stop_id]
         self._apply_order(new_order)
         connections_by_pair = self._rebalance_connections(
@@ -373,6 +559,157 @@ class ItineraryService:
         self._increment_revision(trip)
         self._commit_itinerary(trip_id)
         return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
+
+    def create_stay(
+        self,
+        trip_id: uuid.UUID,
+        payload: StayCreateRequest,
+        current_user_id: uuid.UUID,
+        expected_revision: int,
+    ) -> ItinerarySnapshot:
+        trip, _membership = self._require_manage_trip_locked(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            expected_revision=expected_revision,
+        )
+        stop = self._get_stop_or_raise(trip_id, payload.stop_id)
+        self._check_stay_dates(
+            stop, payload.check_in_date, payload.check_out_date, check_in=True, check_out=True
+        )
+        stay = ItineraryStay(
+            trip_id=trip_id,
+            stop_id=stop.id,
+            stay_type=payload.stay_type,
+            status=self._stay_status(payload.stay_type, payload.status, 'status' in payload.model_fields_set),
+            name=payload.name,
+            check_in_date=payload.check_in_date,
+            check_out_date=payload.check_out_date,
+            created_by=current_user_id,
+        )
+        for field_name in _STAY_DETAIL_FIELDS:
+            setattr(stay, field_name, getattr(payload, field_name))
+        if payload.location is not None:
+            stay.location_id = self.location_service.create_location_for_trip(
+                trip_id=trip_id, created_by=current_user_id, location_input=payload.location
+            ).id
+        self.db.add(stay)
+        self._increment_revision(trip)
+        self.db.commit()
+        return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
+
+    def update_stay(
+        self,
+        trip_id: uuid.UUID,
+        stay_id: uuid.UUID,
+        payload: StayUpdateRequest,
+        current_user_id: uuid.UUID,
+        expected_revision: int,
+    ) -> ItinerarySnapshot:
+        """Change only the fields sent. Unchanged dates are never checked, so a
+        booked stay that no longer fits its stop can still be edited."""
+        trip, _membership = self._require_manage_trip_locked(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            expected_revision=expected_revision,
+        )
+        stay = self._get_stay_or_raise(trip_id, stay_id)
+        stop = self._get_stop_or_raise(trip_id, stay.stop_id)
+        fields = payload.model_fields_set
+        check_in = payload.check_in_date if 'check_in_date' in fields else stay.check_in_date
+        check_out = payload.check_out_date if 'check_out_date' in fields else stay.check_out_date
+        self._check_stay_dates(
+            stop,
+            check_in,
+            check_out,
+            check_in=check_in != stay.check_in_date,
+            check_out=check_out != stay.check_out_date,
+        )
+        stay_type = payload.stay_type if 'stay_type' in fields else stay.stay_type
+        status = payload.status if 'status' in fields else stay.status
+        stay.status = self._stay_status(stay_type, status, 'status' in fields)
+        stay.stay_type = stay_type
+        stay.check_in_date, stay.check_out_date = check_in, check_out
+        for field_name in ('name', *_STAY_DETAIL_FIELDS):
+            if field_name in fields:
+                setattr(stay, field_name, getattr(payload, field_name))
+        if 'location' in fields:
+            stay.location_id = (
+                self.location_service.create_location_for_trip(
+                    trip_id=trip_id, created_by=current_user_id, location_input=payload.location
+                ).id
+                if payload.location is not None
+                else None
+            )
+        if not self.db.is_modified(stay):
+            return self._load_itinerary_snapshot(trip=trip)
+        self._increment_revision(trip)
+        self.db.commit()
+        return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
+
+    def delete_stay(
+        self,
+        trip_id: uuid.UUID,
+        stay_id: uuid.UUID,
+        current_user_id: uuid.UUID,
+        expected_revision: int,
+    ) -> ItinerarySnapshot:
+        trip, _membership = self._require_manage_trip_locked(
+            trip_id=trip_id,
+            user_id=current_user_id,
+            expected_revision=expected_revision,
+        )
+        self.db.delete(self._get_stay_or_raise(trip_id, stay_id))
+        self._increment_revision(trip)
+        self.db.commit()
+        return self._load_itinerary_snapshot_by_id(trip_id=trip_id)
+
+    @staticmethod
+    def _stay_status(stay_type: str, status: str | None, status_sent: bool) -> str | None:
+        if stay_type in STAY_TYPES_WITHOUT_BOOKING:
+            if status is not None and status_sent:
+                raise ItineraryStayValidationError(f'{stay_type} stays have no status')
+            return None
+        if status is None and status_sent:
+            raise ItineraryStayValidationError('status must be IDEA or BOOKED')
+        return status or 'IDEA'
+
+    def _check_stay_dates(
+        self,
+        stop: ItineraryStop,
+        check_in_date: date,
+        check_out_date: date,
+        *,
+        check_in: bool,
+        check_out: bool,
+    ) -> None:
+        if check_out_date <= check_in_date:
+            raise ItineraryStayValidationError('check_out_date must be after check_in_date')
+        leave_date = self._leave_date(stop)
+        for changed, value in ((check_in, check_in_date), (check_out, check_out_date)):
+            if changed and not stop.planned_start_date <= value <= leave_date:
+                raise ItineraryStayValidationError(
+                    "A stay's dates must fall within its stop's nights"
+                )
+
+    def _get_stop_or_raise(self, trip_id: uuid.UUID, stop_id: uuid.UUID) -> ItineraryStop:
+        stop = self.db.execute(
+            select(ItineraryStop).where(
+                ItineraryStop.trip_id == trip_id, ItineraryStop.id == stop_id
+            )
+        ).scalar_one_or_none()
+        if stop is None:
+            raise ItineraryStopNotFoundError(f'Itinerary stop not found: {stop_id}')
+        return stop
+
+    def _get_stay_or_raise(self, trip_id: uuid.UUID, stay_id: uuid.UUID) -> ItineraryStay:
+        stay = self.db.execute(
+            select(ItineraryStay).where(
+                ItineraryStay.trip_id == trip_id, ItineraryStay.id == stay_id
+            )
+        ).scalar_one_or_none()
+        if stay is None:
+            raise ItineraryStayNotFoundError(f'Stay not found: {stay_id}')
+        return stay
 
     def get_connection(
         self,
@@ -852,7 +1189,9 @@ class ItineraryService:
         trip = lock_trip(self.db, trip_id)
         if trip is None:
             raise TripNotFoundError(f'Trip not found: {trip_id}')
+        return trip, self._require_manage_trip(trip_id=trip_id, user_id=user_id)
 
+    def _require_manage_trip(self, trip_id: uuid.UUID, user_id: uuid.UUID) -> TripMember:
         membership = self._get_membership(trip_id=trip_id, user_id=user_id)
         if membership is None:
             if (
@@ -869,7 +1208,7 @@ class ItineraryService:
             raise TripNotFoundError(f'Trip not found: {trip_id}')
         if not role_has_permission(membership.role, TripPermission.MANAGE_ITINERARY):
             raise ItineraryPermissionError('The user does not have enough privileges')
-        return trip, membership
+        return membership
 
     def _get_membership(
         self,
@@ -911,14 +1250,12 @@ class ItineraryService:
                 select(ItineraryStop)
                 .options(
                     joinedload(ItineraryStop.location),
+                    joinedload(ItineraryStop.original_location),
                     joinedload(ItineraryStop.creator).joinedload(User.profile),
+                    selectinload(ItineraryStop.stays).joinedload(ItineraryStay.location),
                 )
                 .where(ItineraryStop.trip_id == trip_id)
-                .order_by(
-                    ItineraryStop.planned_start_date.asc(),
-                    ItineraryStop.same_day_position.asc(),
-                    ItineraryStop.id.asc(),
-                )
+                .order_by(ItineraryStop.position.asc(), ItineraryStop.id.asc())
             )
             .scalars()
             .all()
@@ -970,55 +1307,89 @@ class ItineraryService:
         moving_stop: ItineraryStop,
         placement: ItineraryPlacement,
     ) -> list[ItineraryStop]:
+        """Return the stops with ``moving_stop`` placed right after its anchor."""
         source = [stop for stop in stops if stop.id != moving_stop.id]
-        anchor = None
+        index = 0
         if placement.after_stop_id is not None:
-            anchor = next(
-                (stop for stop in source if stop.id == placement.after_stop_id),
+            index = next(
+                (
+                    position + 1
+                    for position, stop in enumerate(source)
+                    if stop.id == placement.after_stop_id
+                ),
                 None,
             )
-            if anchor is None:
+            if index is None:
                 raise ItineraryStopNotFoundError(
                     f'Itinerary stop not found: {placement.after_stop_id}'
                 )
-            if anchor.planned_start_date != placement.planned_start_date:
-                raise ItineraryPlacementError(
-                    'after_stop_id must be on the same planned_start_date'
-                )
-
-        before_date = [
-            stop
-            for stop in source
-            if stop.planned_start_date < placement.planned_start_date
-        ]
-        same_date = [
-            stop
-            for stop in source
-            if stop.planned_start_date == placement.planned_start_date
-        ]
-        after_date = [
-            stop
-            for stop in source
-            if stop.planned_start_date > placement.planned_start_date
-        ]
-
-        insert_index = 0
-        if anchor is not None:
-            insert_index = same_date.index(anchor) + 1
-        moving_stop.planned_start_date = placement.planned_start_date
-        same_date.insert(insert_index, moving_stop)
-        return before_date + same_date + after_date
+        return source[:index] + [moving_stop] + source[index:]
 
     def _apply_order(self, ordered_stops: list[ItineraryStop]) -> None:
-        current_date = None
-        same_day_position = 0
-        for stop in ordered_stops:
-            if stop.planned_start_date != current_date:
-                current_date = stop.planned_start_date
-                same_day_position = 0
-            stop.same_day_position = same_day_position
-            same_day_position += 1
+        for position, stop in enumerate(ordered_stops):
+            stop.position = position
         self.db.flush()
+
+    @staticmethod
+    def _leave_date(stop: ItineraryStop) -> date:
+        return stop.planned_start_date + timedelta(days=stop.planned_nights)
+
+    def _shift_stops(self, stops: list[ItineraryStop], days: int) -> None:
+        for stop in stops:
+            self._shift_stop(stop, days)
+
+    def _shift_stop(self, stop: ItineraryStop, days: int) -> None:
+        """Move a stop and its idea stays. Booked stays, and stays that need
+        no booking, keep their dates: the booking doesn't move with the plan."""
+        if not days:
+            return
+        stop.planned_start_date += timedelta(days=days)
+        for stay in stop.stays:
+            if stay.status == 'IDEA':
+                stay.check_in_date += timedelta(days=days)
+                stay.check_out_date += timedelta(days=days)
+
+    def _apply_stop_dates(
+        self,
+        *,
+        old_order: list[ItineraryStop],
+        new_order: list[ItineraryStop],
+        stop: ItineraryStop,
+        payload: ItineraryStopUpdateRequest,
+    ) -> bool:
+        """Apply a move, then the arrival date, then the nights.
+
+        The gaps between stops never change on their own: every change pushes
+        or pulls the stops after it by the same number of days.
+        """
+        before = {item.id: item.planned_start_date for item in old_order}
+        nights_before = stop.planned_nights
+        index = new_order.index(stop)
+        if new_order != old_order:
+            # A move is a removal followed by an insertion. A stop moved to
+            # the front arrives when the stop it displaces did.
+            self._shift_stops(
+                old_order[old_order.index(stop) + 1:], -stop.planned_nights
+            )
+            arrival = (
+                self._leave_date(new_order[index - 1])
+                if index
+                else new_order[1].planned_start_date
+            )
+            self._shift_stop(stop, (arrival - stop.planned_start_date).days)
+            self._shift_stops(new_order[index + 1:], stop.planned_nights)
+        if 'planned_start_date' in payload.model_fields_set:
+            self._shift_stops(
+                new_order[index:],
+                (payload.planned_start_date - stop.planned_start_date).days,
+            )
+        if 'planned_nights' in payload.model_fields_set:
+            difference = payload.planned_nights - stop.planned_nights
+            stop.planned_nights = payload.planned_nights
+            self._shift_stops(new_order[index + 1:], difference)
+        return stop.planned_nights != nights_before or any(
+            item.planned_start_date != before[item.id] for item in old_order
+        )
 
     @staticmethod
     def _customized(connection):
@@ -1141,15 +1512,6 @@ class ItineraryService:
         changed = False
         if 'title' in payload.model_fields_set and payload.title != stop.title:
             stop.title = payload.title
-            changed = True
-        if 'notes' in payload.model_fields_set and payload.notes != stop.notes:
-            stop.notes = payload.notes
-            changed = True
-        if (
-            'planned_nights' in payload.model_fields_set
-            and payload.planned_nights != stop.planned_nights
-        ):
-            stop.planned_nights = payload.planned_nights
             changed = True
         return changed
 

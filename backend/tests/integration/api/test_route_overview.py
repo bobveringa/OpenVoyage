@@ -64,13 +64,18 @@ def test_route_overview_access_and_private_planning_boundaries(
         json={
             'location': {'place_id': str(place.id)},
             'title': 'Private title QF6842',
-            'notes': 'Private stop note',
             'planned_nights': 3,
-            'placement': {'planned_start_date': '2099-05-10', 'after_stop_id': None},
+            'planned_start_date': '2099-05-10', 'placement': {'after_stop_id': None},
         },
     )
     assert stop_response.status_code == 201
     stop_id = planning_body(stop_response)['stops'][0]['id']
+    notes_response = client.put(
+        f'{root}/stops/{stop_id}/notes',
+        headers=headers,
+        json={'notes': 'Private stop note', 'based_on': None},
+    )
+    assert notes_response.status_code == 200
     connection_response = client.post(
         f'{root}/connections',
         headers={**headers, 'If-Match': '"1"'},
@@ -172,6 +177,13 @@ def test_route_overview_access_and_private_planning_boundaries(
         'created_by',
         'created_at',
         'updated_at',
+        'notes_updated_at',
+        'notes_updated_by',
+        'replaced_change_by',
+        'stays',
+        'stay_type',
+        'booking_reference',
+        'check_in_date',
         'itinerary_revision',
     }
 

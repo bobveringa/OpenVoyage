@@ -2,12 +2,29 @@ import re
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from starlette import status
 
 from models.api.planning import FlightLookupRequest, FlightLookupResponse
 from models.api.route_overview import RouteOverviewResponse
-from api.deps import CurrentUser, ItineraryServiceDep, OptionalCurrentUser, ShareToken
+from api.deps import (
+    AppSettingsServiceDep,
+    CurrentUser,
+    ItineraryServiceDep,
+    OptionalCurrentUser,
+    PlacePhotoServiceDep,
+    ShareToken,
+)
+from core import security
+from models.api.places import AddressResponse, StopPhotoResponse
+from models.api.planning_errors import PlanningErrorResponse
+from services.address_search import (
+    AddressResult,
+    AddressSearchOffError,
+    AddressSearchUnavailableError,
+    address_provider,
+    near_stop_first,
+)
 from models.api.itinerary import (
     ConnectionMutationResponse,
     ItineraryResponse,
@@ -17,7 +34,12 @@ from models.api.itinerary import (
     ItineraryConnectionResponse,
     ItineraryConnectionReplaceRequest,
     PreviewResponse,
+    StayCreateRequest,
+    StayUpdateRequest,
+    StopNotesResponse,
+    StopNotesUpdateRequest,
 )
+from models.api.users import UserSummaryResponse
 from services.itinerary_service import (
     ItineraryPermissionError,
     ItineraryPlacementError,
@@ -25,6 +47,9 @@ from services.itinerary_service import (
     ItineraryStopNotFoundError,
     ItineraryConnectionNotFoundError,
     ItineraryConnectionValidationError,
+    ItineraryStayNotFoundError,
+    ItineraryStayValidationError,
+    ItineraryMarkerError,
 )
 from services.trip_errors import TripNotFoundError
 from services.location_service import LocationNotFoundError
@@ -65,6 +90,7 @@ def _raise_http_error(exc: Exception) -> None:
             TripNotFoundError,
             ItineraryStopNotFoundError,
             ItineraryConnectionNotFoundError,
+            ItineraryStayNotFoundError,
             LocationNotFoundError,
         ),
     ):
@@ -83,7 +109,15 @@ def _raise_http_error(exc: Exception) -> None:
                 ),
             },
         )
-    if isinstance(exc, (ItineraryPlacementError, ItineraryConnectionValidationError)):
+    if isinstance(
+        exc,
+        (
+            ItineraryPlacementError,
+            ItineraryConnectionValidationError,
+            ItineraryStayValidationError,
+            ItineraryMarkerError,
+        ),
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
@@ -108,8 +142,11 @@ def get_route_overview(
     except Exception as exc:
         _raise_http_error(exc)
     response.headers['Cache-Control'] = 'private, no-store'
+    zones = itinerary_service.route_privacy(trip_id)
     return RouteOverviewResponse.from_snapshot(
-        snapshot, itinerary_service.route_service.resolve_route_response,
+        snapshot,
+        itinerary_service.route_service.resolve_route_response,
+        privacy_zones=zones,
     )
 
 
@@ -211,6 +248,142 @@ def get_stop(
     )
 
 
+@router.get('/stops/{stop_id}/photo', response_model=StopPhotoResponse | None)
+def get_stop_photo(
+    trip_id: uuid.UUID,
+    stop_id: uuid.UUID,
+    request: Request,
+    response: Response,
+    itinerary_service: ItineraryServiceDep,
+    photo_service: PlacePhotoServiceDep,
+    user: OptionalCurrentUser,
+    share_token: ShareToken = None,
+) -> StopPhotoResponse | None:
+    """The header photo of the stop's town, or null for the designed header.
+
+    Trip members only. The first card for a town fetches the photo from
+    Wikipedia within 3 seconds; every later card gets our stored copy.
+    """
+    try:
+        stop = itinerary_service.get_member_stop(
+            trip_id=trip_id,
+            stop_id=stop_id,
+            current_user_id=user.id if user else None,
+            share_token=share_token,
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'
+    photo = photo_service.photo_for_location(stop.location)
+    if photo is None:
+        return None
+    file_url = request.url_for('get_place_photo_file', place_id=str(photo.place_id))
+    token = security.create_place_photo_url_token(photo.place_id)
+    return StopPhotoResponse(
+        url=f'{file_url}?token={token}',
+        credit=photo.credit,
+        license=photo.license,
+        source_url=photo.source_url or '',
+    )
+
+
+_ADDRESS_ERRORS = {
+    503: {'model': PlanningErrorResponse, 'description': 'Address search off or unavailable'},
+}
+
+
+def _address_provider(itinerary_service, app_settings, trip_id: uuid.UUID, user_id: uuid.UUID):
+    try:
+        itinerary_service.require_itinerary_manager(trip_id, user_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+    try:
+        return address_provider(app_settings)
+    except (AddressSearchOffError, AddressSearchUnavailableError) as exc:
+        _raise_address_error(exc)
+
+
+def _raise_address_error(exc: Exception):
+    if isinstance(exc, AddressSearchOffError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={'code': 'ADDRESS_SEARCH_OFF', 'message': 'Address search is switched off.'},
+        )
+    retry_soon = getattr(exc, 'retry_soon', False)
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            'code': 'ADDRESS_SEARCH_UNAVAILABLE',
+            'message': str(exc) or 'Address search unavailable.',
+        },
+        headers={'Retry-After': '1'} if retry_soon else None,
+    )
+
+
+def _address_response(result: AddressResult) -> AddressResponse:
+    return AddressResponse(
+        name=result.name,
+        address=result.address,
+        latitude=result.latitude,
+        longitude=result.longitude,
+    )
+
+
+@router.get(
+    '/addresses/geocode',
+    response_model=list[AddressResponse],
+    responses=_ADDRESS_ERRORS,
+)
+def geocode_addresses(
+    trip_id: uuid.UUID,
+    response: Response,
+    itinerary_service: ItineraryServiceDep,
+    app_settings: AppSettingsServiceDep,
+    user: CurrentUser,
+    query: Annotated[str, Query(min_length=1, max_length=255)],
+    near_latitude: Annotated[float | None, Query(ge=-90, le=90)] = None,
+    near_longitude: Annotated[float | None, Query(ge=-180, le=180)] = None,
+    limit: Annotated[int, Query(ge=1, le=10)] = 5,
+) -> list[AddressResponse]:
+    """Address and hotel search for stays, through our server (only people who plan the trip)."""
+    provider = _address_provider(itinerary_service, app_settings, trip_id, user.id)
+    near = (
+        (near_latitude, near_longitude)
+        if near_latitude is not None and near_longitude is not None
+        else None
+    )
+    try:
+        results = near_stop_first(provider.search(query.strip(), near, limit), near)
+    except (AddressSearchOffError, AddressSearchUnavailableError) as exc:
+        _raise_address_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return [_address_response(result) for result in results]
+
+
+@router.get(
+    '/addresses/reverse-geocode',
+    response_model=AddressResponse | None,
+    responses=_ADDRESS_ERRORS,
+)
+def reverse_geocode_address(
+    trip_id: uuid.UUID,
+    response: Response,
+    itinerary_service: ItineraryServiceDep,
+    app_settings: AppSettingsServiceDep,
+    user: CurrentUser,
+    latitude: Annotated[float, Query(ge=-90, le=90)],
+    longitude: Annotated[float, Query(ge=-180, le=180)],
+) -> AddressResponse | None:
+    """The address at a dropped stay pin, or null."""
+    provider = _address_provider(itinerary_service, app_settings, trip_id, user.id)
+    try:
+        result = provider.reverse(latitude, longitude)
+    except (AddressSearchOffError, AddressSearchUnavailableError) as exc:
+        _raise_address_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return _address_response(result) if result else None
+
+
 @router.patch(
     '/stops/{stop_id}',
     response_model=ItineraryResponse,
@@ -247,6 +420,38 @@ def update_stop(
     )
 
 
+@router.put('/stops/{stop_id}/notes', response_model=StopNotesResponse)
+def save_stop_notes(
+    trip_id: uuid.UUID,
+    stop_id: uuid.UUID,
+    payload: StopNotesUpdateRequest,
+    response: Response,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+) -> StopNotesResponse:
+    """Save a stop's notes. No If-Match: notes never change the revision."""
+    try:
+        saved = itinerary_service.save_stop_notes(
+            trip_id=trip_id,
+            stop_id=stop_id,
+            notes=payload.notes,
+            based_on=payload.based_on,
+            current_user_id=user.id,
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return StopNotesResponse(
+        notes=saved.stop.notes,
+        notes_updated_at=saved.stop.notes_updated_at,
+        replaced_change_by=(
+            UserSummaryResponse.from_model(saved.replaced_change_by)
+            if saved.replaced_change_by is not None
+            else None
+        ),
+    )
+
+
 @router.delete(
     '/stops/{stop_id}',
     response_model=ItineraryResponse,
@@ -279,6 +484,88 @@ def delete_stop(
         connections=snapshot.connections,
         route_resolver=itinerary_service.route_service.resolve_route_response,
     )
+
+
+def _itinerary_response(snapshot, response: Response, itinerary_service) -> ItineraryResponse:
+    response.headers['ETag'] = _etag(snapshot.itinerary_revision)
+    return ItineraryResponse.from_parts(
+        trip_id=snapshot.trip_id,
+        itinerary_revision=snapshot.itinerary_revision,
+        stops=snapshot.stops,
+        connections=snapshot.connections,
+        route_resolver=itinerary_service.route_service.resolve_route_response,
+    )
+
+
+@router.post(
+    '/stays',
+    status_code=status.HTTP_201_CREATED,
+    response_model=ItineraryResponse,
+)
+def create_stay(
+    trip_id: uuid.UUID,
+    payload: StayCreateRequest,
+    response: Response,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+) -> ItineraryResponse:
+    """Add a stay to a stop. Its dates must fall within the stop's nights."""
+    try:
+        snapshot = itinerary_service.create_stay(
+            trip_id=trip_id,
+            payload=payload,
+            current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+    return _itinerary_response(snapshot, response, itinerary_service)
+
+
+@router.patch('/stays/{stay_id}', response_model=ItineraryResponse)
+def update_stay(
+    trip_id: uuid.UUID,
+    stay_id: uuid.UUID,
+    payload: StayUpdateRequest,
+    response: Response,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+) -> ItineraryResponse:
+    """Edit a stay. Only changed dates are checked against the stop."""
+    try:
+        snapshot = itinerary_service.update_stay(
+            trip_id=trip_id,
+            stay_id=stay_id,
+            payload=payload,
+            current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+    return _itinerary_response(snapshot, response, itinerary_service)
+
+
+@router.delete('/stays/{stay_id}', response_model=ItineraryResponse)
+def delete_stay(
+    trip_id: uuid.UUID,
+    stay_id: uuid.UUID,
+    response: Response,
+    itinerary_service: ItineraryServiceDep,
+    user: CurrentUser,
+    if_match: Annotated[str | None, Header(alias='If-Match')] = None,
+) -> ItineraryResponse:
+    try:
+        snapshot = itinerary_service.delete_stay(
+            trip_id=trip_id,
+            stay_id=stay_id,
+            current_user_id=user.id,
+            expected_revision=_parse_if_match(if_match),
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+    return _itinerary_response(snapshot, response, itinerary_service)
 
 
 @router.post(

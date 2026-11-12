@@ -4,6 +4,7 @@ import { ConnectionEditDialog } from './connection-editor'
 import { ConnectionLocationPicker } from './connection-location-picker'
 import {
   ArrowLeft,
+  BedDouble,
   Clock,
   Minus,
   Navigation,
@@ -16,30 +17,34 @@ import {
   useContext,
   useEffect,
   useEffectEvent,
+  useMemo,
+  useRef,
   useState,
+  type MouseEvent,
+  type ReactNode,
   type SyntheticEvent,
 } from 'react'
 
-import type { Place } from '@/api/client'
+import type { Place, StopNotes } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DatePicker } from '@/components/ui/date-time-picker'
 import { Input } from '@/components/ui/input'
-import { Modal } from '@/components/ui/modal'
-import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import type { Stop, Connection } from '@/pages/trip-detail/models'
 import type {
   CreateStopDraft,
   DraftPostLocation,
   MapPointTarget,
-  StopEditDraft,
   StopInsertionPoint,
   ConnectionEditDraft,
 } from '@/pages/trip-detail/page-types'
+import { Modal } from '@/components/ui/modal'
+import { StopDetailCard, type StopCardControls, type StopUpdate } from './stop-card'
+import { getStopStayStatus, type StopStayStatus } from './stay-warnings'
+import { StaysSection, WarningLine } from './stop-stays'
 import {
   createFirstStopInsertionPoint,
-  createStopEditDraft,
   createStopInsertionPointAfterStop,
   formatDistance,
   formatDuration,
@@ -50,7 +55,6 @@ import {
   getPlaceNameLabel,
   getPlaceSearchInput,
   getStayLeaveDateValue,
-  getStopPlaceName,
   getStopTitleSuggestion,
   getTravelModeIcon,
 } from '@/pages/trip-detail/planning-utils'
@@ -61,6 +65,15 @@ import { connectionWritePayload } from './planning-utils'
 import { useMediaQuery } from './use-media-query'
 import { PlaceLocationPicker } from './place-location-picker'
 import { ConnectionRemovalDialog } from './connection-removal-dialog'
+import {
+  DragHandle,
+  DropIndicator,
+  SLIM_TRAVEL_LINE,
+  SMALL_ADD_BUTTONS,
+  TimelineGap,
+  TravelLine,
+} from './stop-timeline'
+import { useStopDrag } from './use-stop-drag'
 export { LocationOptionCard } from './place-location-picker'
 
 export function PlanningPanel({
@@ -68,9 +81,20 @@ export function PlanningPanel({
   isMutating,
   onAddStop,
   onRefreshConnectionRoute,
-  onStopChange,
   onStopDelete,
-  onStopSave,
+  onStopUpdate,
+  onStopNotesSaved,
+  openStopId,
+  onOpenStop,
+  onCloseStop,
+  tripEndDate,
+  onMoveTripEnd,
+  onStayCreate,
+  onStayUpdate,
+  onStayDelete,
+  onStayHover,
+  highlightedStopId,
+  onStopHover,
   onConnectionSave,
   onConnectionCreate,
   onConnectionDelete,
@@ -83,9 +107,20 @@ export function PlanningPanel({
   isMutating: boolean
   onAddStop: (insertionPoint: StopInsertionPoint) => void
   onRefreshConnectionRoute: (connectionId: string) => void
-  onStopChange: (stopId: string, updates: Partial<Stop>) => void
   onStopDelete: (stopId: string) => void
-  onStopSave: (stopId: string, draft: StopEditDraft) => void
+  onStopUpdate: (stopId: string, update: StopUpdate) => void
+  onStopNotesSaved: (stopId: string, notes: StopNotes) => void
+  openStopId: string | null
+  onOpenStop: (stopId: string) => void
+  onCloseStop: () => void
+  tripEndDate: StopCardControls['tripEndDate']
+  onMoveTripEnd: StopCardControls['onMoveTripEnd']
+  onStayCreate: StopCardControls['onStayCreate']
+  onStayUpdate: StopCardControls['onStayUpdate']
+  onStayDelete: StopCardControls['onStayDelete']
+  onStayHover: StopCardControls['onStayHover']
+  highlightedStopId: StopCardControls['highlightedStopId']
+  onStopHover: StopCardControls['onStopHover']
   onConnectionSave: (connectionId: string, draft: ConnectionEditDraft) => void
   onConnectionCreate: (payload: import('@/api/client').ItineraryConnectionReplacePayload) => void
   onConnectionDelete: (connectionId: string) => void
@@ -94,9 +129,8 @@ export function PlanningPanel({
   tripStartDate: string
   connections: readonly Connection[]
 }) {
-  const [editingStopId, setEditingStopId] = useState<string | null>(null)
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null)
-  const { airportTransferRequest, connectionMap, saveError } = useContext(PlanningSessionContext)
+  const { airportTransferRequest, connectionMap, saveError, stopCardHost } = useContext(PlanningSessionContext)
   const desktop = useMediaQuery('(min-width: 1024px)')
   const [outerEditor, setOuterEditor] = useState<{
     side: OuterConnectionSide; connection: Connection; creating: boolean; location: ConnectionLocation | null
@@ -118,7 +152,20 @@ export function PlanningPanel({
     setOuterEditor(null)
     connectionMap?.stop()
   }
+  function openStop(stopId: string) {
+    closeConnectionEditor()
+    onOpenStop(stopId)
+  }
+  function closeStop() {
+    const stopId = openStopId
+    onCloseStop()
+    // Put focus back on the row the card came from.
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-stop-row="${stopId}"] [data-stop-open]`)?.focus()
+    })
+  }
   function openOuterEditor(side: OuterConnectionSide) {
+    if (openStopId) onCloseStop()
     const connection = connections.find((item) => item.connection_type === side)
     const endpoint = connection?.[side === 'DEPARTURE' ? 'from' : 'to']
     const location = endpoint?.type === 'LOCATION' ? {
@@ -132,7 +179,7 @@ export function PlanningPanel({
   function editConnection(id: string) {
     const connection = connections.find((item) => item.id === id)
     if (connection?.connection_type === 'DEPARTURE' || connection?.connection_type === 'RETURN') openOuterEditor(connection.connection_type)
-    else { connectionMap?.stop(); setOuterEditor(null); setEditingConnectionId(id) }
+    else { if (openStopId) onCloseStop(); connectionMap?.stop(); setOuterEditor(null); setEditingConnectionId(id) }
   }
   useEffect(() => {
     if (outerEditor && (outerEditor.creating
@@ -150,7 +197,29 @@ export function PlanningPanel({
     }
   }, [airportTransferRequest, canMutate])
   const addStopDisabled = !canMutate || isMutating
-  const editingStop = stops.find((stop) => stop.id === editingStopId) ?? null
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const stopDrag = useStopDrag({
+    disabled: !canMutate || isMutating,
+    listRef,
+    onMove: (stopId, placement) => onStopUpdate(stopId, { placement }),
+    stops,
+  })
+  const compactTimeline = SMALL_ADD_BUTTONS && SLIM_TRAVEL_LINE
+  const openedStop = stops.find((stop) => stop.id === openStopId) ?? null
+  const stayStatuses = useMemo(
+    () => stops.map((_, index) => getStopStayStatus(stops, index, tripEndDate)),
+    [stops, tripEndDate],
+  )
+  const openedStatus = openedStop ? stayStatuses[stops.indexOf(openedStop)] ?? null : null
+  // A stop with booked stays asks before it's deleted, with its stays.
+  const [deletingStopId, setDeletingStopId] = useState<string | null>(null)
+  const deletingStop = stops.find((stop) => stop.id === deletingStopId) ?? null
+  const deletingBooked = deletingStop?.stays.filter((stay) => stay.status === 'BOOKED').length ?? 0
+  function requestStopDelete(stopId: string) {
+    const stop = stops.find((item) => item.id === stopId)
+    if (stop?.stays.some((stay) => stay.status === 'BOOKED')) setDeletingStopId(stopId)
+    else onStopDelete(stopId)
+  }
   const editingConnection = connections.find((connection) => connection.id === editingConnectionId) ?? outerEditor?.connection ?? null
   const editingConnectionFromStop =
     editingConnection
@@ -187,7 +256,7 @@ export function PlanningPanel({
         </p>
       </div>
 
-      <div className="space-y-3">
+      <div className={compactTimeline ? 'space-y-1' : 'space-y-3'} ref={listRef}>
         {stops.length === 0 ? (
           <StopInsertButton
             disabled={addStopDisabled}
@@ -210,17 +279,27 @@ export function PlanningPanel({
               )
             : undefined
 
+          const addLabel = nextStop ? 'Add stop here' : 'Add stop after this stop'
+          const addStop = () => onAddStop(createStopInsertionPointAfterStop(stop))
           return (
             <Fragment key={stop.id}>
-              <StopCard
+              {stopDrag.dropGap === index ? <DropIndicator /> : null}
+              <StopRow
+                active={stop.id === openStopId}
+                dragging={stopDrag.draggingStopId === stop.id}
+                dragHandle={canMutate && stops.length > 1 ? <DragHandle {...stopDrag.handleProps(stop, index)} /> : null}
+                highlighted={stop.id === highlightedStopId}
                 index={index}
                 disabled={!canMutate || isMutating}
-                onChange={onStopChange}
-                onDelete={onStopDelete}
-                onDetails={setEditingStopId}
+                onChange={onStopUpdate}
+                onDelete={requestStopDelete}
+                onHover={onStopHover}
+                onMoveTripEnd={onMoveTripEnd}
+                onOpen={openStop}
+                status={stayStatuses[index]!}
                 stop={stop}
               />
-              {nextStop && connection ? (
+              {!SLIM_TRAVEL_LINE && nextStop && connection ? (
                 <ConnectionCard
                   fromStop={stop}
                   connection={connection}
@@ -229,27 +308,65 @@ export function PlanningPanel({
                   toStop={nextStop}
                 />
               ) : null}
-              <StopInsertButton
-                disabled={addStopDisabled}
-                label={nextStop ? 'Add stop here' : 'Add stop after this stop'}
-                onClick={() => onAddStop(createStopInsertionPointAfterStop(stop))}
-              />
+              {SMALL_ADD_BUTTONS || (SLIM_TRAVEL_LINE && nextStop && connection) ? (
+                <TimelineGap addLabel={addLabel} disabled={addStopDisabled} onAdd={SMALL_ADD_BUTTONS ? addStop : undefined}>
+                  {SLIM_TRAVEL_LINE && nextStop && connection ? (
+                    <TravelLine connection={connection} disabled={!canMutate || isMutating}
+                      fromStop={stop} onEdit={editConnection} toStop={nextStop} />
+                  ) : !nextStop && SMALL_ADD_BUTTONS ? (
+                    <span className="text-xs text-muted-foreground">Add a stop</span>
+                  ) : null}
+                </TimelineGap>
+              ) : null}
+              {!SMALL_ADD_BUTTONS ? (
+                <StopInsertButton disabled={addStopDisabled} label={addLabel} onClick={addStop} />
+              ) : null}
             </Fragment>
           )
         })}
+        {stopDrag.dropGap === stops.length ? <DropIndicator /> : null}
+        <p aria-live="polite" className="sr-only">{stopDrag.announcement}</p>
         {stops.length > 0 ? <OuterConnectionControl side="RETURN" stops={stops} connections={connections}
           disabled={addStopDisabled} canMutate={canMutate} onEdit={() => openOuterEditor('RETURN')} onRemove={requestRemoval} /> : null}
       </div>
 
       <FlightAttribution providers={connections.flatMap((connection) => connection.segments.map((segment) => segment.lookup?.provider))} />
       </>}
-      <StopEditDialog
-        onClose={() => setEditingStopId(null)}
-        onSave={onStopSave}
-        open={Boolean(editingStop)}
-        saving={isMutating}
-        stop={editingStop}
-      />
+      {openedStop ? (
+        <StopDetailCard
+          desktop={desktop}
+          disabled={!canMutate || isMutating}
+          host={stopCardHost ?? null}
+          key={openedStop.id}
+          onClose={closeStop}
+          onNotesSaved={onStopNotesSaved}
+          onUpdate={onStopUpdate}
+          stop={openedStop}
+        >
+          {openedStatus?.showStays ? (
+            <StaysSection
+              actions={{ onCreate: onStayCreate, onUpdate: onStayUpdate, onDelete: onStayDelete, onHover: onStayHover }}
+              disabled={!canMutate || isMutating}
+              status={openedStatus}
+              stop={openedStop}
+            />
+          ) : null}
+        </StopDetailCard>
+      ) : null}
+      <Modal
+        description={deletingStop ? `${deletingStop.title} has ${deletingBooked} booked ${deletingBooked === 1 ? 'stay' : 'stays'}. Delete the stop and its stays?` : undefined}
+        footer={<div className="flex justify-end gap-2">
+          <Button onClick={() => setDeletingStopId(null)} type="button" variant="outline">Cancel</Button>
+          <Button onClick={() => { if (deletingStop) onStopDelete(deletingStop.id); setDeletingStopId(null) }} type="button" variant="destructive">
+            Delete stop
+          </Button>
+        </div>}
+        onClose={() => setDeletingStopId(null)}
+        open={Boolean(deletingStop)}
+        title={deletingStop ? `Delete ${deletingStop.title}?` : 'Delete stop?'}
+      >
+        <p className="text-sm text-muted-foreground">The booking itself isn't cancelled. Only the plan changes.</p>
+      </Modal>
       <ConnectionEditDialog
         fromStop={editingConnectionFromStop}
         connection={editingConnection}
@@ -415,7 +532,6 @@ export function CreateStopPanel({
     onCreateStop({
       afterStopId: insertionPoint.afterStopId,
       coordinates: selectedCoordinates,
-      notes: '',
       placeId:
         locationSource === 'search' && selectedSearchPlace
           ? selectedSearchPlace.id
@@ -579,21 +695,41 @@ export function CreateStopPanel({
 }
 
 
-function StopCard({
+function StopRow({
+  active,
   disabled,
+  dragHandle,
+  dragging,
+  highlighted,
   index,
   onChange,
   onDelete,
-  onDetails,
+  onHover,
+  onMoveTripEnd,
+  onOpen,
+  status,
   stop,
 }: {
+  active: boolean
   disabled: boolean
+  dragHandle: ReactNode
+  dragging: boolean
+  highlighted: boolean
   index: number
-  onChange: (stopId: string, updates: Partial<Stop>) => void
+  onChange: (stopId: string, update: StopUpdate) => void
   onDelete: (stopId: string) => void
-  onDetails: (stopId: string) => void
+  onHover: (stopId: string | null) => void
+  onMoveTripEnd: (endDate: string) => void
+  onOpen: (stopId: string) => void
+  status: StopStayStatus
   stop: Stop
 }) {
+  // The whole row opens the card, except its own buttons and date pickers.
+  function handleRowClick(event: MouseEvent<HTMLElement>) {
+    if ((event.target as HTMLElement).closest('button, input, a, [role="dialog"]')) return
+    onOpen(stop.id)
+  }
+
   function updateNights(nextValue: number) {
     onChange(stop.id, {
       planned_nights: Math.max(0, nextValue),
@@ -614,9 +750,19 @@ function StopCard({
   return (
     <article
       className={cn(
-        'grid w-full grid-cols-[3rem_1fr] gap-3 rounded-[1.5rem] border p-3 text-left',
-        'border-border bg-muted/45 shadow-sm shadow-foreground/5',
+        'grid w-full cursor-pointer grid-cols-[3rem_1fr] gap-3 rounded-[1.5rem] border p-3 text-left transition-colors',
+        active
+          ? 'border-primary bg-primary/5 shadow-sm shadow-foreground/5'
+          : highlighted
+            ? 'border-primary/50 bg-muted/45 shadow-sm shadow-foreground/5'
+            : 'border-border bg-muted/45 shadow-sm shadow-foreground/5 hover:border-primary/40',
+        dragging && 'opacity-60 ring-2 ring-primary/40',
       )}
+      data-highlighted={highlighted}
+      data-stop-row={stop.id}
+      onClick={handleRowClick}
+      onMouseEnter={() => onHover(stop.id)}
+      onMouseLeave={() => onHover(null)}
     >
       <span className="grid size-10 place-items-center rounded-2xl bg-secondary text-sm font-semibold text-primary">
         {index + 1}
@@ -624,23 +770,18 @@ function StopCard({
       <span className="min-w-0 space-y-3">
         <span className="flex min-w-0 items-center justify-between gap-3">
           <span className="min-w-0 flex-1">
-            <span className="block truncate font-semibold text-foreground">
+            <button
+              aria-expanded={active}
+              className="block max-w-full truncate rounded-md text-left font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-stop-open=""
+              onClick={() => onOpen(stop.id)}
+              type="button"
+            >
               {stop.title}
-            </span>
+            </button>
           </span>
           <span className="flex shrink-0 items-center gap-1">
-            <Button
-              aria-label={`Show details for ${stop.title}`}
-              className="size-8 rounded-xl"
-              disabled={disabled}
-              onClick={() => onDetails(stop.id)}
-              size="icon"
-              title={`Show details for ${stop.title}`}
-              type="button"
-              variant="outline"
-            >
-              <PenLine className="size-3.5" aria-hidden="true" />
-            </Button>
+            {dragHandle}
             <Button
               aria-label={`Delete ${stop.title}`}
               className="size-8 rounded-xl text-destructive hover:bg-destructive/10"
@@ -722,6 +863,26 @@ function StopCard({
             </button>
           </div>
         </div>
+        {status.stopWarnings.length > 0 ? (
+          <span className="block space-y-1">
+            {status.stopWarnings.map((warning) => warning.kind === 'NOT_BOOKED' ? (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground" key={warning.kind}>
+                <BedDouble className="size-3.5" aria-hidden="true" />
+                {warning.message}
+              </span>
+            ) : (
+              <span className="block" key={warning.kind + warning.message}>
+                <WarningLine message={warning.message} />
+                {warning.moveTripEndTo ? (
+                  <Button className="mt-1 h-7 rounded-full px-2.5 text-xs" disabled={disabled}
+                    onClick={() => onMoveTripEnd(warning.moveTripEndTo!)} size="sm" type="button" variant="outline">
+                    Move trip end to {formatStopDateLabel(warning.moveTripEndTo)}
+                  </Button>
+                ) : null}
+              </span>
+            ))}
+          </span>
+        ) : null}
       </span>
     </article>
   )
@@ -828,175 +989,5 @@ function ConnectionCard({
         </div>
       </section>
     </div>
-  )
-}
-
-function StopEditDialog({
-  onClose,
-  onSave,
-  open,
-  saving,
-  stop,
-}: {
-  onClose: () => void
-  onSave: (stopId: string, draft: StopEditDraft) => void
-  open: boolean
-  saving: boolean
-  stop: Stop | null
-}) {
-  const [draft, setDraft] = useState<StopEditDraft>(() =>
-    createStopEditDraft(stop),
-  )
-
-  function updateNights(nextValue: number) {
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      plannedNights: Math.max(0, nextValue),
-    }))
-  }
-
-  function updateLeaveDate(leaveDate: string) {
-    setDraft((currentDraft) => ({
-      ...currentDraft,
-      plannedNights: getNightsBetweenDates(
-        currentDraft.plannedStartDate,
-        leaveDate,
-      ),
-    }))
-  }
-
-  useEffect(() => {
-    if (open) {
-      setDraft(createStopEditDraft(stop))
-    }
-  }, [open, stop])
-
-  if (!stop) {
-    return null
-  }
-
-  const leaveDate = getStayLeaveDateValue(
-    draft.plannedStartDate,
-    draft.plannedNights,
-  )
-  const canSave = draft.title.trim().length > 0 && !saving
-
-  return (
-    <Modal
-      description="Edit this itinerary stop."
-      onClose={onClose}
-      open={open}
-      title={`Edit ${stop.title}`}
-    >
-      <div className="grid gap-5">
-        <section className="space-y-3 rounded-[1.5rem] border border-border bg-muted/45 p-4">
-          <div>
-            <h3 className="font-semibold text-foreground">Stop</h3>
-            <p className="text-sm text-muted-foreground">
-              {getStopPlaceName(stop)}
-            </p>
-          </div>
-
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Title
-            <Input
-              disabled={saving}
-              maxLength={255}
-              onChange={(event) =>
-                setDraft((currentDraft) => ({
-                  ...currentDraft,
-                  title: event.target.value,
-                }))
-              }
-              value={draft.title}
-            />
-          </label>
-
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Notes
-            <Textarea
-              className="min-h-32 resize-none"
-              disabled={saving}
-              onChange={(event) =>
-                setDraft((currentDraft) => ({
-                  ...currentDraft,
-                  notes: event.target.value,
-                }))
-              }
-              value={draft.notes}
-            />
-          </label>
-        </section>
-
-        <section className="grid gap-4 rounded-[1.5rem] border border-border bg-card p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_10rem]">
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Arrival date
-            <DatePicker
-              disabled={saving}
-              onValueChange={(planned_start_date) =>
-                setDraft((currentDraft) => ({
-                  ...currentDraft,
-                  plannedStartDate: planned_start_date,
-                }))
-              }
-              value={draft.plannedStartDate}
-            />
-          </label>
-
-          <label className="grid gap-2 text-sm font-medium text-foreground">
-            Leave date
-            <DatePicker
-              disabled={saving}
-              min={draft.plannedStartDate}
-              onValueChange={updateLeaveDate}
-              value={leaveDate}
-            />
-          </label>
-
-          <div className="grid gap-2">
-            <span className="text-sm font-medium text-foreground">Nights</span>
-            <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-              <button
-                className="grid place-items-center border-r border-border text-primary transition-colors hover:bg-muted"
-                disabled={saving}
-                onClick={() => updateNights(draft.plannedNights - 1)}
-                type="button"
-              >
-                <Minus className="size-4" aria-hidden="true" />
-              </button>
-              <input
-                className="h-10 w-full bg-card text-center text-sm font-semibold text-foreground focus-visible:outline-none"
-                disabled={saving}
-                min={0}
-                onChange={(event) => updateNights(Number(event.target.value))}
-                type="number"
-                value={draft.plannedNights}
-              />
-              <button
-                className="grid place-items-center border-l border-border text-primary transition-colors hover:bg-muted"
-                disabled={saving}
-                onClick={() => updateNights(draft.plannedNights + 1)}
-                type="button"
-              >
-                <Plus className="size-4" aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button disabled={saving} onClick={onClose} type="button" variant="outline">
-            Cancel
-          </Button>
-          <Button
-            disabled={!canSave}
-            onClick={() => onSave(stop.id, draft)}
-            type="button"
-          >
-            {saving ? 'Saving' : 'Save stop'}
-          </Button>
-        </div>
-      </div>
-    </Modal>
   )
 }

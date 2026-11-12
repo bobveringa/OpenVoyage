@@ -9,11 +9,13 @@ import {
   shiftWorldCoordinate,
   shiftWorldRoute,
 } from '@/lib/map-world-copies'
-import { Compass } from 'lucide-react'
+import { Compass, MapPin } from 'lucide-react'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { PlanningSessionContext } from './planning-session'
 import { airportTransferLabel, getAirportTransfers, type AirportTransfer } from './airport-transfers'
 import { flightFocusCoordinates } from './flight-map-focus'
+import { stayTypeIconHtml, type StayType } from './stay-types'
+import { sameMarkerPoint } from './stop-marker-utils'
 
 import {
   type GpsPostCandidate,
@@ -77,7 +79,12 @@ type RouteSegment = {
   transfer?: AirportTransfer
   connectionId?: string
   segmentIndex?: number
+  /** A faint dotted join from a route end cut at a privacy zone to its stop pin. */
+  joiner?: boolean
 }
+
+/** Route ends closer than this to their stop pin need no joiner. */
+const JOINER_MIN_METERS = 40
 
 type FocusedPostNeighbor = {
   distanceMeters: number
@@ -121,8 +128,41 @@ const routeOverviewAnimationOptions = {
   easeLinearity: 0.2,
 } satisfies L.ZoomPanOptions
 
+/** A stay on the planning map. Booked pins are filled. */
+export type StayPin = {
+  id: string
+  stopId: string
+  name: string
+  stayType: StayType
+  booked: boolean
+  highlighted: boolean
+  dimmed: boolean
+  latitude: number
+  longitude: number
+}
+
+/** A stay on the map shows its type's icon: the same one as in the card and form. */
+function stayPinIcon(pin: StayPin, stopOrder?: number, stopId?: string, stopHighlighted = false) {
+  const combined = stopOrder !== undefined
+  const number = combined ? `<span class="trip-map-place-marker__number" aria-hidden="true">${stopOrder}</span>` : ''
+  return L.divIcon({
+    className: combined ? 'trip-stay-pin trip-stay-pin--combined' : 'trip-stay-pin',
+    html: `<span data-stay-pin="${escapeHtml(pin.id)}" data-stay-type="${pin.stayType}" data-booked="${pin.booked}" data-highlighted="${pin.highlighted}" data-dimmed="${!combined && pin.dimmed}" data-stop-highlighted="${stopHighlighted}"${stopId ? ` data-stop-pin="${escapeHtml(stopId)}"` : ''}>${number}${stayTypeIconHtml(pin.stayType)}</span>`,
+    iconAnchor: [combined ? 24 : 16, 16],
+    iconSize: [combined ? 48 : 32, 32],
+  })
+}
+
 export function MapWorkspace({
+  focusedStopId = null,
+  highlightedStopId = null,
+  onClearFocusedStop,
+  onStopHover,
+  onStopSelect,
+  stayPins = [],
+  mapPointHint = null,
   onPlanningPanelHostChange,
+  onStopCardHostChange,
   planningPreview = null,
   draftMapLocation,
   focusedPostId,
@@ -138,7 +178,21 @@ export function MapWorkspace({
   connections,
   travelPosts,
 }: {
+  focusedStopId?: string | null
+  /** Planning only: the stop whose pin is highlighted, and the pin's hover and click. */
+  highlightedStopId?: string | null
+  onClearFocusedStop?: () => void
+  onStopHover?: (stopId: string | null) => void
+  onStopSelect?: (stopId: string) => void
+  stayPins?: readonly StayPin[]
+  /** Shown over the map while a click on it places something, with a way out. */
+  mapPointHint?: {
+    label: string
+    onCancel: () => void
+    confirm?: { disabled: boolean; error: string | null; onClick: () => void }
+  } | null
   onPlanningPanelHostChange?: (host: HTMLDivElement | null) => void
+  onStopCardHostChange?: (host: HTMLDivElement | null) => void
   planningPreview?: Connection | null
   draftMapLocation: DraftPostLocation | null
   focusedPostId: string | null
@@ -155,6 +209,7 @@ export function MapWorkspace({
   travelPosts: readonly TravelPost[]
 }) {
   const [resetNonce, setResetNonce] = useState(0)
+  const showTripOverview = Boolean(focusedStopId && onClearFocusedStop && !mapPointHint && !planningPreview)
 
   return (
     <section aria-label={planningPreview ? 'Connection map preview' : 'Trip map'} className="relative min-h-0 min-w-0 overflow-hidden rounded-[2rem] border border-border bg-card shadow-sm lg:h-full">
@@ -162,9 +217,15 @@ export function MapWorkspace({
         fitMode={planningPreview ? 'route-selector' : 'workspace'}
         draftMapLocation={draftMapLocation}
         focusedPostId={focusedPostId}
+        focusedStopId={planningPreview ? null : focusedStopId}
+        highlightedStopId={planningPreview ? null : highlightedStopId}
+        onStopHover={planningPreview ? undefined : onStopHover}
+        onStopSelect={planningPreview ? undefined : onStopSelect}
+        stayPins={planningPreview ? [] : stayPins}
         gpsPostCandidates={gpsPostCandidates}
         isTripOngoing={isTripOngoing}
         mapPointEnabled={mapPointEnabled}
+        selectingStopMarker={Boolean(mapPointHint?.confirm)}
         onDraftMapPointSelect={onDraftMapPointSelect}
         onGpsPostCandidateSelect={onGpsPostCandidateSelect}
         onPostMarkerSelect={onPostMarkerSelect}
@@ -177,15 +238,48 @@ export function MapWorkspace({
       />
 
       <div ref={onPlanningPanelHostChange} className="pointer-events-none absolute inset-y-3 left-3 z-[600] hidden w-[min(22rem,50%)] min-w-64 lg:block [&>*]:pointer-events-auto" />
+      {mapPointHint ? (
+        mapPointHint.confirm ? (
+          <div
+            aria-label="Choose marker location"
+            className="absolute left-4 top-4 z-[620] w-72 max-w-[calc(100%-2rem)] space-y-2.5 rounded-2xl border border-border bg-card p-3 text-sm shadow-soft"
+            onKeyDown={(event) => { if (event.key === 'Escape') mapPointHint.onCancel() }}
+            role="group"
+          >
+            <p className="flex items-center gap-2 font-medium" role="status">
+              <MapPin className="size-4 shrink-0 text-primary" aria-hidden="true" />
+              {mapPointHint.label}
+            </p>
+            {mapPointHint.confirm.error ? <p className="text-xs text-destructive" role="alert">{mapPointHint.confirm.error}</p> : null}
+            <div className="flex justify-end gap-1">
+              <Button autoFocus onClick={mapPointHint.onCancel} size="sm" type="button" variant="ghost">Cancel</Button>
+              <Button disabled={mapPointHint.confirm.disabled} onClick={mapPointHint.confirm.onClick} size="sm" type="button">Move marker here</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="pointer-events-none absolute inset-x-0 top-4 z-[620] flex justify-center px-4 lg:pl-[26rem]">
+            <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border bg-card py-1.5 pl-4 pr-1.5 text-sm text-foreground shadow-soft" role="status">
+              <MapPin className="size-4 shrink-0 text-primary" aria-hidden="true" />
+              <span className="font-medium">{mapPointHint.label}</span>
+              <Button className="h-8 rounded-full px-3" onClick={mapPointHint.onCancel} size="sm" type="button" variant="ghost">Cancel</Button>
+            </div>
+          </div>
+        )
+      ) : null}
+      <div
+        className={'pointer-events-none absolute inset-y-3 left-3 z-[610] hidden w-[min(25rem,calc(100%-1.5rem))] flex-col lg:flex [&>*]:pointer-events-auto' + (mapPointHint?.confirm ? ' invisible' : '')}
+        inert={Boolean(mapPointHint?.confirm)}
+        ref={onStopCardHostChange}
+      />
       <div className="pointer-events-none absolute right-4 top-4 z-[500] lg:right-5">
         <div className="pointer-events-auto flex flex-wrap justify-end gap-2">
           <Button
-            onClick={() => setResetNonce((current) => current + 1)}
+            onClick={showTripOverview ? onClearFocusedStop : () => setResetNonce((current) => current + 1)}
             type="button"
             variant="outline"
           >
             <Compass className="size-4" aria-hidden="true" />
-            Recenter
+            {showTripOverview ? 'Trip overview' : 'Recenter'}
           </Button>
         </div>
       </div>
@@ -197,11 +291,17 @@ export function TripLeafletMap({
   draftMapLocation,
   fitMode = 'workspace',
   focusedPostId = null,
+  focusedStopId = null,
+  highlightedStopId = null,
+  onStopHover,
+  onStopSelect,
+  stayPins = [],
   focusedFlightId = null,
   flightFocusBottomPadding,
   gpsPostCandidates = [],
   isTripOngoing = false,
   mapPointEnabled,
+  selectingStopMarker = false,
   onDraftMapPointSelect,
   onGpsPostCandidateSelect,
   onPostMarkerSelect,
@@ -215,11 +315,18 @@ export function TripLeafletMap({
   draftMapLocation: DraftPostLocation | null
   fitMode?: RouteFitMode
   focusedPostId?: string | null
+  /** A stop whose card is open: keep it visible to the right of the card. */
+  focusedStopId?: string | null
+  highlightedStopId?: string | null
+  onStopHover?: (stopId: string | null) => void
+  onStopSelect?: (stopId: string) => void
+  stayPins?: readonly StayPin[]
   focusedFlightId?: string | null
   flightFocusBottomPadding?: number
   gpsPostCandidates?: readonly GpsPostCandidate[]
   isTripOngoing?: boolean
   mapPointEnabled: boolean
+  selectingStopMarker?: boolean
   onDraftMapPointSelect: (coordinates: L.LatLngTuple) => void
   onGpsPostCandidateSelect?: (candidate: GpsPostCandidate) => void
   onPostMarkerSelect?: (postId: string) => void
@@ -241,16 +348,25 @@ export function TripLeafletMap({
   const latestLocationSelectRef = useRef(onDraftMapPointSelect)
   const latestGpsPostCandidateSelectRef = useRef(onGpsPostCandidateSelect)
   const latestPostMarkerSelectRef = useRef(onPostMarkerSelect)
+  const latestStopEventsRef = useRef({ hover: onStopHover, select: onStopSelect })
+  latestStopEventsRef.current = { hover: onStopHover, select: onStopSelect }
+  const hasStopEvents = Boolean(onStopSelect)
+  const highlightedStopIdRef = useRef(highlightedStopId)
+  highlightedStopIdRef.current = highlightedStopId
   const { onAirportTransferSelect } = useContext(PlanningSessionContext)
   const latestTransferSelectRef = useRef(onAirportTransferSelect)
   latestTransferSelectRef.current = onAirportTransferSelect
   const mapPointEnabledRef = useRef(mapPointEnabled)
+  const mobilePickerStopId = fitMode === 'mobile-picker' ? focusedStopId : null
   const mapRef = useRef<L.Map | null>(null)
   const postMarkerLayerRef = useRef<RepeatedWorldLayer | null>(null)
   const gpsPostCandidateLayerRef = useRef<RepeatedWorldLayer | null>(null)
   const routeLayerRef = useRef<RepeatedWorldLayer | null>(null)
+  const stopLayerRef = useRef<RepeatedWorldLayer | null>(null)
   const tileLayerRef = useRef<L.TileLayer | null>(null)
   const focusedPostIdRef = useRef<string | null>(focusedPostId)
+  const focusedStopIdRef = useRef(focusedStopId)
+  const previousFocusedStopId = useRef(focusedStopId)
   const focusedFlightIdRef = useRef<string | null>(focusedFlightId)
   const travelPostsRef = useRef(travelPosts)
   const stopsRef = useRef(stops)
@@ -272,6 +388,7 @@ export function TripLeafletMap({
     selectedFlight.departure_airport, selectedFlight.arrival_airport] : null)
 
   focusedPostIdRef.current = focusedPostId
+  focusedStopIdRef.current = focusedStopId
   focusedFlightIdRef.current = focusedFlightId
   travelPostsRef.current = travelPosts
   trackingGeometryRef.current = trackingGeometry
@@ -294,11 +411,14 @@ export function TripLeafletMap({
   useEffect(() => {
     mapPointEnabledRef.current = mapPointEnabled
 
-    mapContainerRef.current?.classList.toggle(
-      'trip-leaflet-map--selecting',
-      mapPointEnabled,
-    )
-  }, [mapPointEnabled])
+    // Leaflet owns classes on this element after initialization. Update our
+    // classes individually so React doesn't replace Leaflet's classes.
+    const classes = mapContainerRef.current?.classList
+    classes?.toggle('trip-leaflet-map--selecting', mapPointEnabled)
+    classes?.toggle('trip-leaflet-map--selecting-marker', selectingStopMarker)
+    classes?.toggle('trip-leaflet-map--mobile-marker-picker', Boolean(mobilePickerStopId))
+    classes?.toggle('min-h-0', fitMode === 'route-preview')
+  }, [fitMode, mapPointEnabled, mobilePickerStopId, selectingStopMarker])
 
   const showZoomControls = fitMode !== 'mobile-travel'
   useEffect(() => {
@@ -307,17 +427,18 @@ export function TripLeafletMap({
       return undefined
     }
 
+    const pickerStop = mobilePickerStopId ? stopsRef.current.find((stop) => stop.id === mobilePickerStopId) : null
     const map = L.map(container, {
       attributionControl: true,
-      center: defaultMapCenter,
+      center: pickerStop ? getStopCoordinates(pickerStop) : defaultMapCenter,
       minZoom: 3,
       scrollWheelZoom: true,
-      zoom: defaultMapZoom,
+      zoom: pickerStop ? 14 : defaultMapZoom,
       zoomControl: false,
     })
 
     if (showZoomControls) {
-      L.control.zoom({ position: 'bottomright' }).addTo(map)
+      L.control.zoom({ position: pickerStop ? 'topright' : 'bottomright' }).addTo(map)
     }
 
     function handleMapClick(event: L.LeafletMouseEvent) {
@@ -337,6 +458,7 @@ export function TripLeafletMap({
     fittedViewRef.current = null
 
     routeLayerRef.current = new RepeatedWorldLayer(map)
+    stopLayerRef.current = new RepeatedWorldLayer(map)
     postMarkerLayerRef.current = new RepeatedWorldLayer(map)
     gpsPostCandidateLayerRef.current = new RepeatedWorldLayer(map)
     routeEndpointLayerRef.current = new RepeatedWorldLayer(map)
@@ -360,9 +482,10 @@ export function TripLeafletMap({
       postMarkerLayerRef.current = null
       gpsPostCandidateLayerRef.current = null
       routeLayerRef.current = null
+      stopLayerRef.current = null
       tileLayerRef.current = null
     }
-  }, [showZoomControls])
+  }, [mobilePickerStopId, showZoomControls])
 
   useEffect(() => {
     const map = mapRef.current
@@ -470,7 +593,7 @@ export function TripLeafletMap({
         }),
       )
       const viewKey = `${routeMode}:${fitMode}:${JSON.stringify(outsideAnchors)}:${fitMode === 'route-preview' || fitMode === 'route-selector' ? routeKey : ''}`
-      if (!focusedPostIdRef.current && !focusedFlightIdRef.current && fittedViewRef.current !== viewKey) {
+      if (!focusedStopIdRef.current && !focusedPostIdRef.current && !focusedFlightIdRef.current && fittedViewRef.current !== viewKey) {
         fitRouteBounds(
           map,
           routeMode,
@@ -489,7 +612,91 @@ export function TripLeafletMap({
     })
 
     return () => window.cancelAnimationFrame(animationFrameId)
-  }, [fitMode, isTripOngoing, routeKey, routeMode, themeMode, themePalette, onAirportTransferSelect])
+  }, [fitMode, isTripOngoing, mobilePickerStopId, routeKey, routeMode, themeMode, themePalette, onAirportTransferSelect])
+
+  const stopPinKey = JSON.stringify(stops.map((stop) => [stop.id, stop.title, stop.notes, ...getStopCoordinates(stop)]))
+  const stayPinKey = JSON.stringify(stayPins)
+  useEffect(() => {
+    const map = mapRef.current
+    const stopLayer = stopLayerRef.current
+    if (!map || !stopLayer) return
+
+    let previousCrowdedStays: string | undefined
+    const renderPins = () => {
+      const crowdedStays = getCrowdedStayIds(map, stopsRef.current, stayPins)
+      const key = JSON.stringify([...crowdedStays])
+      if (key === previousCrowdedStays) return
+      previousCrowdedStays = key
+      stopLayer.render((layer, offset) => renderStopAndStayPins(
+        layer,
+        routeMode,
+        stopsRef.current,
+        stayPins,
+        crowdedStays,
+        offset,
+        highlightedStopIdRef.current,
+        hasStopEvents && routeMode === 'itinerary' ? {
+          hover: (stopId) => latestStopEventsRef.current.hover?.(stopId),
+          select: (stopId) => latestStopEventsRef.current.select?.(stopId),
+        } : undefined,
+      ))
+    }
+    renderPins()
+    if (stayPins.length) map.on('zoomend', renderPins)
+    return () => { map.off('zoomend', renderPins) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by pin content
+  }, [hasStopEvents, mobilePickerStopId, routeMode, showZoomControls, stopPinKey, stayPinKey])
+
+  // A hovered stop row highlights its pin, in every world copy.
+  useEffect(() => {
+    const container = mapContainerRef.current
+    if (!container) return
+    for (const pin of container.querySelectorAll<HTMLElement>('[data-stop-pin]')) {
+      const highlighted = String(pin.dataset.stopPin === highlightedStopId)
+      if (pin.dataset.stayPin) pin.dataset.stopHighlighted = highlighted
+      else pin.dataset.highlighted = highlighted
+    }
+  }, [highlightedStopId, hasStopEvents, routeMode, showZoomControls, stopPinKey, stayPinKey])
+
+  const focusedStop = stops.find((stop) => stop.id === focusedStopId)
+  const stopLatitude = focusedStop?.location.latitude
+  const stopLongitude = focusedStop?.location.longitude
+  const stayPinPlaces = JSON.stringify(stayPins
+    .filter((pin) => pin.stopId === focusedStopId)
+    .map((pin) => [pin.latitude, pin.longitude]))
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || stopLatitude === undefined || stopLongitude === undefined || fitMode !== 'workspace') return
+    const stays = JSON.parse(stayPinPlaces) as L.LatLngTuple[]
+    return scheduleStopMapView(map, () => {
+      const center = nearestWorldCoordinate([stopLatitude, stopLongitude], map.getCenter().lng)
+      map.stop()
+      if (selectingStopMarker) {
+        map.setView(center, Math.max(14, map.getZoom()), { animate: false })
+        return
+      }
+      const bounds = L.latLngBounds([center, ...stays.map((stay) => nearestWorldCoordinate(stay, center[1]))])
+      // The card covers the leftmost 400 px of the workspace, plus margins.
+      map.fitBounds(bounds, {
+        animate: false,
+        maxZoom: 14,
+        paddingTopLeft: [Math.min(436, map.getSize().x - 96), 64],
+        paddingBottomRight: [48, 48],
+      })
+    })
+  }, [fitMode, focusedStopId, resetNonce, selectingStopMarker, stayPinPlaces, stopLatitude, stopLongitude])
+
+  useEffect(() => {
+    const cleared = previousFocusedStopId.current && !focusedStopId
+    previousFocusedStopId.current = focusedStopId
+    const map = mapRef.current
+    if (!map || !cleared || fitMode !== 'workspace' || routeMode !== 'itinerary') return
+
+    return scheduleStopMapView(map, () => {
+      fitRouteBounds(map.stop(), routeMode, stopsRef.current, connectionsRef.current,
+        travelPostsRef.current, trackingGeometryRef.current.openingRoute, fitMode)
+    })
+  }, [fitMode, focusedStopId, routeMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -589,18 +796,19 @@ export function TripLeafletMap({
       L.marker(shiftWorldCoordinate(draftMapLocation.coordinates, offset), {
         icon: L.divIcon({
           className: 'trip-map-div-icon',
-          html: createDraftPostMarkerHtml(),
+          html: createDraftPostMarkerHtml(selectingStopMarker),
           iconAnchor: [18, 18],
           iconSize: [36, 36],
         }),
-        zIndexOffset: 700,
+        keyboard: !selectingStopMarker,
+        zIndexOffset: selectingStopMarker ? 2200 : 700,
       }).addTo(layer)
     })
-  }, [draftMapLocation])
+  }, [draftMapLocation, selectingStopMarker])
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || resetNonce === 0) {
+    if (!map || resetNonce === 0 || focusedStopIdRef.current) {
       return
     }
 
@@ -619,7 +827,7 @@ export function TripLeafletMap({
   return (
     <div
       aria-label="Interactive trip route map"
-      className={'trip-leaflet-map absolute inset-0' + (fitMode === 'route-preview' ? ' min-h-0' : '')}
+      className="trip-leaflet-map absolute inset-0"
       ref={mapContainerRef}
     />
   )
@@ -704,21 +912,105 @@ function renderRouteLayer(
       marker.getElement()?.setAttribute('aria-label', journey.position.source === 'FLIGHT_TRACK' ? 'Observed flight position' : 'Estimated flight position')
     }
   }
+}
 
+function scheduleStopMapView(map: L.Map, updateView: () => void) {
+  let frame = window.requestAnimationFrame(applyView)
+  function applyView() {
+    // Leaflet ignores setView during its CSS zoom transition, even with animate off.
+    if (map.getPane('mapPane')?.classList.contains('leaflet-zoom-anim')) {
+      map.once('zoomend', queueView)
+    } else {
+      updateView()
+    }
+  }
+  function queueView() {
+    frame = window.requestAnimationFrame(applyView)
+  }
+  return () => {
+    window.cancelAnimationFrame(frame)
+    map.off('zoomend', queueView)
+  }
+}
+
+function getCrowdedStayIds(map: L.Map, stops: readonly MapStop[], stayPins: readonly StayPin[]) {
+  const crowded = new Set<string>()
+  if (!stayPins.length || !stops.length) return crowded
+
+  const zoom = map.getZoom()
+  const worldWidth = map.getPixelWorldBounds(zoom).getSize().x
+  const stopPoints = stops.map((stop) => map.project(getStopCoordinates(stop), zoom))
+  // Keep the numbered stop visible at trip zoom. Nearby stays appear once
+  // there is room to draw their icons without covering the stop.
+  const clearance = 34
+  for (const pin of stayPins) {
+    const point = map.project([pin.latitude, pin.longitude], zoom)
+    if (stopPoints.some((stop) => {
+      const dx = stop.x - point.x
+      return Math.hypot(dx - worldWidth * Math.round(dx / worldWidth), stop.y - point.y) < clearance
+    })) crowded.add(pin.id)
+  }
+  return crowded
+}
+
+function renderStopAndStayPins(
+  layer: L.LayerGroup,
+  routeMode: MapRouteMode,
+  stops: readonly MapStop[],
+  stayPins: readonly StayPin[],
+  crowdedStays: ReadonlySet<string>,
+  longitudeOffset: number,
+  highlightedStopId: string | null,
+  stopEvents?: { hover: (stopId: string | null) => void; select: (stopId: string) => void },
+) {
   const showStopOrder = routeMode === 'itinerary'
   const stopMarkerSize = showStopOrder ? 22 : 14
+  const staysAtStop = new Map<string, StayPin[]>()
+  const stopsById = new Map(stops.map((stop) => [stop.id, stop]))
+  for (const pin of stayPins) {
+    const stop = stopsById.get(pin.stopId)
+    if (showStopOrder && stop && sameMarkerPoint(stop.location, pin)) {
+      const matches = staysAtStop.get(stop.id)
+      if (matches) matches.push(pin)
+      else staysAtStop.set(stop.id, [pin])
+      continue
+    }
+    const marker = L.marker(shiftWorldCoordinate([pin.latitude, pin.longitude], longitudeOffset), {
+      icon: stayPinIcon(pin),
+      keyboard: false,
+      title: pin.name,
+      zIndexOffset: pin.highlighted ? 2000 : pin.dimmed ? 0 : 1000,
+    }).addTo(layer)
+    if (crowdedStays.has(pin.id)) marker.getElement()?.classList.add('trip-stay-pin--crowded')
+  }
 
   for (const [stopIndex, stop] of stops.entries()) {
-    L.marker(shiftWorldCoordinate(getStopCoordinates(stop), longitudeOffset), {
-      icon: L.divIcon({
+    const matchingStays = staysAtStop.get(stop.id) ?? []
+    const stay = matchingStays.find((pin) => pin.highlighted) ?? matchingStays.find((pin) => pin.booked) ?? matchingStays[0]
+    const interactiveId = stopEvents ? stop.id : undefined
+    const highlighted = stop.id === highlightedStopId
+    const marker = L.marker(shiftWorldCoordinate(getStopCoordinates(stop), longitudeOffset), {
+      icon: stay ? stayPinIcon(stay, stopIndex + 1, interactiveId, highlighted) : L.divIcon({
         className: 'trip-map-div-icon',
-        html: createPlaceMarkerHtml(showStopOrder ? stopIndex + 1 : null),
+        html: createPlaceMarkerHtml(showStopOrder ? stopIndex + 1 : null, interactiveId, highlighted),
         iconAnchor: [stopMarkerSize / 2, stopMarkerSize / 2],
         iconSize: [stopMarkerSize, stopMarkerSize],
       }),
-    })
-      .addTo(routeLayer)
-      .bindPopup(`<strong>${escapeHtml(stop.title)}</strong><br>${escapeHtml(routeMode === 'itinerary' ? stop.notes ?? '' : '')}`)
+      title: stay ? [stop.title, ...matchingStays.map((pin) => pin.name)].join(' · ') : stopEvents ? stop.title : '',
+      zIndexOffset: stay?.highlighted ? 2000 : stay ? 1000 : 0,
+    }).addTo(layer)
+    if (stopEvents) {
+      // Planning links pins and rows: hover highlights, click opens the card.
+      marker.on('mouseover', () => stopEvents.hover(stop.id))
+      marker.on('mouseout', () => stopEvents.hover(null))
+      marker.on('click', () => stopEvents.select(stop.id))
+      marker.on('keydown', (event) => {
+        const key = (event.originalEvent as KeyboardEvent).key
+        if (key === 'Enter' || key === ' ') stopEvents.select(stop.id)
+      })
+    } else {
+      marker.bindPopup(`<strong>${escapeHtml(stop.title)}</strong><br>${escapeHtml(routeMode === 'itinerary' ? stop.notes ?? '' : '')}`)
+    }
   }
 }
 
@@ -901,8 +1193,11 @@ function fitRouteBounds(
 
   const routeBounds = L.latLngBounds(routeCoordinates)
   const routeFitOptions = fitMode === 'route-selector'
-    ? { paddingTopLeft: [Math.min(352, Math.max(256, map.getSize().x / 2)) + 24, 48] as L.PointTuple, paddingBottomRight: [40, 48] as L.PointTuple, maxZoom: 12, animate: false }
-    : getRouteFitOptions(fitMode)
+    // The top padding keeps both ends clear of the Recenter button.
+    ? { paddingTopLeft: [Math.min(352, Math.max(256, map.getSize().x / 2)) + 24, 80] as L.PointTuple, paddingBottomRight: [40, 48] as L.PointTuple, maxZoom: 12, animate: false }
+    : fitMode === 'workspace' && routeMode === 'itinerary'
+      ? { padding: [48, 48] as L.PointTuple, animate: false }
+      : getRouteFitOptions(fitMode)
   if (options.animate) {
     map.flyToBounds(routeBounds, {
       ...routeFitOptions,
@@ -1252,6 +1547,7 @@ function getItineraryRouteSegments(
     const toStop = resolveConnectionEndpoint(connection.to, stops)
     if ((!fromStop || !toStop) && !current) continue
     const flightIndex = current ? journey?.current_flight_segment_index ?? -1 : -1
+    const firstOfConnection = segments.length
     if (connection?.segments?.length) {
       for (const transfer of fromStop && toStop ? getAirportTransfers(connection, fromStop, toStop) : []) {
         if (current && (transfer.side === 'departure' || flightIndex < 0)) continue
@@ -1287,9 +1583,39 @@ function getItineraryRouteSegments(
         })
       }
     }
+    // A route that starts or ends at a stay (or where a privacy buffer cut it)
+    // is joined to its stop pin, so a stop with two stays still reads as one
+    // trip. The live journey line guides the current leg instead.
+    if (!current) segments.push(...stopJoiners(segments.slice(firstOfConnection), connection, fromStop, toStop))
   }
 
   return segments
+}
+
+function lastOf<T>(items: readonly T[]): T | undefined {
+  return items[items.length - 1]
+}
+
+function stopJoiners(
+  drawn: readonly RouteSegment[],
+  connection: MapConnection,
+  fromStop: { location: { latitude: number; longitude: number } } | null,
+  toStop: { location: { latitude: number; longitude: number } } | null,
+): RouteSegment[] {
+  const lines = drawn.filter((segment) => !segment.alternative && segment.coordinates.length > 0)
+  const ends: [L.LatLngTuple | undefined, typeof fromStop, boolean][] = [
+    [lines[0]?.coordinates[0], fromStop, connection.from.type === 'STOP'],
+    [lastOf(lastOf(lines)?.coordinates ?? []), toStop, connection.to.type === 'STOP'],
+  ]
+  return ends.flatMap(([end, stop, isStop]) => {
+    if (!end || !stop || !isStop) return []
+    const pin: L.LatLngTuple = [stop.location.latitude, stop.location.longitude]
+    if (L.latLng(end).distanceTo(pin) < JOINER_MIN_METERS) return []
+    return [{
+      coordinates: [end, pin], kind: 'itinerary' as const, routeType: 'SIMPLE' as const,
+      joiner: true, connectionId: connection.id,
+    }]
+  })
 }
 
 function getTravelTimelineRouteSegments(
@@ -1390,6 +1716,12 @@ function getRouteSegmentPathOptions(
 
   if (segment.alternative) return { color: '#64748b', weight: 4, opacity: 0.5, interactive: false }
 
+  if (segment.joiner) return {
+    className: 'trip-map-stop-joiner',
+    color: getThemeColor('--primary', '#0F766E'),
+    dashArray: '1 7', lineCap: 'round', weight: 3, opacity: 0.55, interactive: false,
+  }
+
   if (routeMode === 'itinerary') {
     return {
       className: segment.transfer ? 'trip-map-airport-transfer' : undefined,
@@ -1482,7 +1814,7 @@ function getPointToPointRouteCoordinates(
 }
 
 
-function createPlaceMarkerHtml(stopOrder: number | null) {
+function createPlaceMarkerHtml(stopOrder: number | null, stopId?: string, highlighted = false) {
   const className =
     stopOrder === null
       ? 'trip-map-place-marker'
@@ -1492,8 +1824,9 @@ function createPlaceMarkerHtml(stopOrder: number | null) {
       ? ''
       : `<span class="trip-map-place-marker__number">${stopOrder}</span>`
 
+  const pin = stopId ? ` data-stop-pin="${escapeHtml(stopId)}" data-highlighted="${highlighted}"` : ''
   return `
-    <div class="${className}">
+    <div class="${className}"${pin}>
       ${labelHtml}
     </div>
   `
@@ -1518,10 +1851,10 @@ function createPostBubbleHtml(post: TravelPost, active: boolean) {
   `
 }
 
-function createDraftPostMarkerHtml() {
+function createDraftPostMarkerHtml(selectingStopMarker: boolean) {
   return `
     <div class="trip-map-draft-post-marker">
-      <span>+</span>
+      ${selectingStopMarker ? stayTypeIconHtml('OTHER') : '<span>+</span>'}
     </div>
   `
 }

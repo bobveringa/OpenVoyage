@@ -4,6 +4,7 @@ import pytest
 
 from core import security
 from core.app_settings import (
+    ADDRESS_SEARCH_PROVIDER_KEY,
     COOKIE_BANNER_ENABLED_KEY,
     DEFAULT_MAP_TILE_PROVIDER_URL,
     DEFAULT_THEME_PALETTE,
@@ -76,6 +77,7 @@ def test_public_settings_returns_only_public_defaults(client, db_session, api_pr
             MAP_TILE_PROVIDER_KEY: DEFAULT_MAP_TILE_PROVIDER_URL,
             IMMICH_ENABLED_KEY: False,
             COOKIE_BANNER_ENABLED_KEY: False,
+            ADDRESS_SEARCH_PROVIDER_KEY: 'none',
         },
         'updated_at': None,
     }
@@ -134,6 +136,12 @@ def test_admin_list_includes_redacted_secret_metadata(
         IMMICH_ALLOWED_SERVERS_KEY,
         IMMICH_ALLOW_ANY_SERVER_KEY,
         COOKIE_BANNER_ENABLED_KEY,
+        'places.wikipedia_photos',
+        'address_search.provider',
+        'address_search.photon_base_url',
+        'address_search.nominatim_base_url',
+        'address_search.graphhopper_base_url',
+        'address_search.graphhopper_api_key',
     }
     assert secret['value'] is None
     assert secret['default_value'] is None

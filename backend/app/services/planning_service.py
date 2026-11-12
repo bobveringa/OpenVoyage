@@ -463,7 +463,12 @@ class PlanningService:
         responses, warnings, coordinates = [], list(warnings), []
         for index, seg in enumerate(segments):
             options_route = seg.result or {}
-            route = select_route(seg.result, seg.intent.route_option, seg.id) or {}
+            option = seg.intent.route_option
+            # A changed neighbour can change this segment's ends, so an older
+            # alternative may no longer exist: show the main route instead.
+            if option and option > len((seg.result or {}).get('alternatives', [])):
+                option = 0
+            route = select_route(seg.result, option, seg.id) or {}
             mode = seg.intent.travel_mode
             supported = mode in ROAD_MODES
             state = route.get(

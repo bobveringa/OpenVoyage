@@ -6,7 +6,7 @@ import type { Stop, Connection } from './models'
 
 const stop = { id: 'stop', title: 'Paris', location: { name: 'Paris', latitude: 48.85, longitude: 2.35 } } as Stop
 const outside = { type: 'LOCATION' as const, location: {
-  id: 'outside', name: 'Amsterdam', latitude: 52.37, longitude: 4.9, country_code: 'NL', region: '', full_name: 'Amsterdam',
+  id: 'outside', name: 'Amsterdam', latitude: 52.37, longitude: 4.9, country_code: 'NL', region: '', full_name: 'Amsterdam', timezone: 'Europe/Amsterdam',
 } }
 
 describe('connection endpoints', () => {

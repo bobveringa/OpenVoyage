@@ -7,16 +7,20 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import copyfileobj
+from urllib.parse import unquote
 from urllib.request import urlopen
 
-from sqlalchemy import String, all_, and_, case, cast, delete, func, or_, select, update
+from sqlalchemy import (
+    String, all_, and_, bindparam, case, cast, delete, func, or_, select, text, update,
+)
 from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy.dialects.postgresql import ARRAY, insert
 from sqlalchemy.orm import Session
 
 from core.config import settings
-from models.database.places import Place, PlaceFeatureClass
+from models.database.places import Place, PlaceFeatureClass, PlacePhoto, PlacePhotoStatus
+from models.search_names import build_search_names, normalize_search_text
 
 
 @lru_cache(maxsize=2048)
@@ -33,6 +37,26 @@ GEONAMES_COLUMNS = 19
 IMPORT_BATCH_SIZE = 1000
 GEONAMES_ADMIN1_CODES_FILE = 'admin1CodesASCII.txt'
 GEONAMES_COUNTRY_INFO_FILE = 'countryInfo.txt'
+GEONAMES_ALTERNATE_NAMES_FILE = 'alternateNamesV2.zip'
+# Alternate-name "languages" that are codes or links, not names people search for.
+_ALTERNATE_NAME_CODES = {
+    'link', 'post', 'iata', 'icao', 'faac', 'tcid', 'unlc', 'wkdt', 'phon', 'piny',
+}
+_WIKIPEDIA_PREFIXES = ('https://en.wikipedia.org/wiki/', 'http://en.wikipedia.org/wiki/')
+# City districts and neighbourhoods: ranked below their city and skipped by
+# map clicks unless nothing else is near.
+NEIGHBOURHOOD_FEATURE_CODES = ('PPLX',)
+# Typo tolerance when nothing matches by name: trigram word similarity of the
+# query to one of the names.
+FUZZY_SIMILARITY = 0.4
+# Among close spellings, a big city beats a hamlet with a slightly closer name.
+FUZZY_POPULATION_WEIGHT = 0.05
+FUZZY_MIN_LENGTH = 4
+# Map clicks pick the most important town whose rough extent holds the point.
+TOWN_EXTENT_KM_PER_SQRT_PERSON = 0.008
+TOWN_EXTENT_MIN_KM = 1.5
+TOWN_EXTENT_MAX_KM = 10.0
+NEAR_PLACE_KM = 10.0
 GEONAMES_FEATURE_CLASSES = {
     'A': PlaceFeatureClass.ADMINISTRATIVE_BOUNDARY,
     'H': PlaceFeatureClass.HYDROGRAPHIC,
@@ -103,6 +127,43 @@ def _distance_km_expression(latitude: float, longitude: float):
         func.radians(latitude)
     ) * func.cos(func.radians(Place.latitude)) * func.pow(func.sin(longitude_delta), 2)
     return earth_radius_km * 2 * func.asin(func.sqrt(haversine))
+
+
+def _near(statement, latitude: float, longitude: float, radius_km: float):
+    """Limit a place query to a box around a point, so it can use the latitude index."""
+    latitude_delta = radius_km / 111.0
+    longitude_delta = radius_km / (111.0 * max(math.cos(math.radians(latitude)), 0.01))
+    return statement.where(
+        Place.latitude.between(latitude - latitude_delta, latitude + latitude_delta),
+        Place.longitude.between(longitude - longitude_delta, longitude + longitude_delta),
+    )
+
+
+def _not_airport():
+    return or_(Place.feature_code.is_(None), Place.feature_code != 'AIRP')
+
+
+def _not_neighbourhood():
+    return or_(
+        Place.feature_code.is_(None),
+        Place.feature_code.not_in(NEIGHBOURHOOD_FEATURE_CODES),
+    )
+
+
+def _is_town():
+    """A populated place that isn't a city district or neighbourhood."""
+    return and_(
+        Place.feature_class == PlaceFeatureClass.POPULATED_PLACE.value,
+        _not_neighbourhood(),
+    )
+
+
+def _wikipedia_title(link: str) -> str | None:
+    for prefix in _WIKIPEDIA_PREFIXES:
+        if link.startswith(prefix):
+            title = unquote(link[len(prefix):]).replace('_', ' ').strip()
+            return title or None
+    return None
 
 
 def _escape_like(value: str) -> str:
@@ -204,6 +265,32 @@ def _iter_geonames_rows(path: Path) -> Iterable[list[str]]:
                 row = line.split('\t')
                 if len(row) >= GEONAMES_COLUMNS:
                     yield row
+
+
+def _iter_alternate_names(path: Path) -> Iterable[tuple[str, str, str, bool, bool]]:
+    """Yield ``(geoname_id, language, name, preferred, short)`` from alternateNamesV2.
+
+    Historic names are skipped here.
+    """
+    with zipfile.ZipFile(path) as archive:
+        member = next(
+            (name for name in archive.namelist() if Path(name).name == 'alternateNamesV2.txt'),
+            None,
+        )
+        if member is None:
+            raise ValueError('GeoNames archive is missing alternateNamesV2.txt')
+        with archive.open(member) as source:
+            for line in source:
+                fields = line.decode('utf-8').rstrip('\n').split('\t')
+                if len(fields) < 8 or fields[7] == '1' or not fields[3].strip():
+                    continue
+                yield (
+                    fields[1].strip(),
+                    fields[2].strip().lower(),
+                    fields[3].strip(),
+                    fields[4] == '1',
+                    fields[5] == '1',
+                )
 
 
 def _load_name_metadata(
@@ -308,7 +395,7 @@ class PlaceService:
         requires ``France`` to match the country, region, or full display name.
         """
         if place_type == 'AIRPORT':
-            text = query.strip().lower()
+            airport_text = query.strip().lower()
             code = query.strip().upper()
             filters = [
                 Place.feature_class == 'S',
@@ -317,7 +404,7 @@ class PlaceService:
                     Place.iata_code == code,
                     Place.icao_code == code,
                     func.lower(Place.full_name).like(
-                        f'%{_escape_like(text)}%', escape='\\'
+                        f'%{_escape_like(airport_text)}%', escape='\\'
                     ),
                 ),
             ]
@@ -342,19 +429,24 @@ class PlaceService:
             return []
 
         query_lower = parsed_query.primary
-        escaped_query = _escape_like(parsed_query.primary)
-        contains_query = f'%{escaped_query}%'
-        starts_with_query = f'{escaped_query}%'
+        search_text = normalize_search_text(parsed_query.primary)
+        if not search_text:
+            return []
+        escaped_search = _escape_like(search_text)
         query_terms = tuple(query_lower.split())
-        lower_name = func.lower(Place.name)
         lower_full_name = func.lower(Place.full_name)
         lower_region = func.lower(Place.region)
         lower_country_code = func.lower(Place.country_code)
+        search_names = Place.search_names
 
-        base_match_filters = [
-            lower_name.like(contains_query, escape='\\'),
-            lower_full_name.like(contains_query, escape='\\'),
-        ]
+        # The | marks let one indexed column answer every kind of name match.
+        exact_name = search_names.like(f'%|{escaped_search}|%', escape='\\')
+        name_prefix = search_names.like(f'%|{escaped_search}%', escape='\\')
+        name_contains = search_names.like(f'%{escaped_search}%', escape='\\')
+        full_name_contains = lower_full_name.like(
+            f'%{_escape_like(query_lower)}%', escape='\\'
+        )
+        base_match_filters = [name_contains, full_name_contains]
         if len(query_terms) > 1:
             base_match_filters.append(
                 and_(
@@ -368,10 +460,7 @@ class PlaceService:
                 )
             )
 
-        filters = [
-            or_(*base_match_filters),
-            or_(Place.feature_code.is_(None), Place.feature_code != 'AIRP'),
-        ]
+        filters = [_not_airport()]
         for qualifier in parsed_query.qualifiers:
             escaped_qualifier = _escape_like(qualifier)
             contains_qualifier = f'%{escaped_qualifier}%'
@@ -387,34 +476,82 @@ class PlaceService:
         if country_code:
             filters.append(Place.country_code == country_code.strip().upper())
 
+        # Exact names first, then names starting with the text, then the rest.
         rank = case(
-            (lower_name == query_lower, 0),
-            (lower_full_name == query_lower, 1),
-            (lower_name.like(starts_with_query, escape='\\'), 2),
-            (lower_full_name.like(starts_with_query, escape='\\'), 3),
-            else_=4,
+            (exact_name, 0),
+            (name_prefix, 1),
+            (name_contains, 2),
+            else_=3,
         )
+        neighbourhood_rank = case((_not_neighbourhood(), 0), else_=1)
         feature_rank = case(
             (Place.feature_class == PlaceFeatureClass.POPULATED_PLACE.value, 0),
             (Place.feature_class == PlaceFeatureClass.ADMINISTRATIVE_BOUNDARY.value, 1),
             (Place.feature_class == PlaceFeatureClass.AREA.value, 2),
             else_=3,
         )
-
-        statement = (
-            select(Place)
-            .where(*filters)
-            .order_by(
-                rank,
-                feature_rank,
-                Place.population.desc(),
-                Place.name.asc(),
-                Place.region.asc(),
-                Place.country_code.asc(),
-            )
-            .limit(limit)
+        tie_breaks = (
+            Place.population.desc(),
+            Place.name.asc(),
+            Place.region.asc(),
+            Place.country_code.asc(),
         )
-        return list(self.db.scalars(statement).all())
+        places = list(
+            self.db.scalars(
+                select(Place)
+                .where(or_(*base_match_filters), *filters)
+                .order_by(rank, neighbourhood_rank, feature_rank, *tie_breaks)
+                .limit(limit)
+            )
+        )
+        if places or len(search_text) < FUZZY_MIN_LENGTH:
+            return places
+
+        # Nothing matches by name: forgive typos with close spellings
+        # ("Barcleona"). A big city beats a hamlet with a slightly closer name.
+        # %> can use the trigram index; its threshold is set for this transaction.
+        self.db.execute(
+            text("SELECT set_config('pg_trgm.word_similarity_threshold', :value, true)"),
+            {'value': str(FUZZY_SIMILARITY)},
+        )
+        closeness = func.word_similarity(search_text, search_names) + (
+            FUZZY_POPULATION_WEIGHT * func.log(Place.population + 1)
+        )
+        return list(
+            self.db.scalars(
+                select(Place)
+                .where(search_names.op('%>')(search_text), *filters)
+                .order_by(neighbourhood_rank, closeness.desc(), *tie_breaks)
+                .limit(limit)
+            )
+        )
+
+    def parent_names(self, places: Iterable[Place]) -> dict[uuid.UUID, str]:
+        """The city each neighbourhood or district belongs to, by place id.
+
+        GeoNames has no parent link, so this takes the town that weighs most
+        nearby: its population divided by the squared distance.
+        """
+        parents: dict[uuid.UUID, str] = {}
+        for place in places:
+            if place.feature_code not in NEIGHBOURHOOD_FEATURE_CODES:
+                continue
+            distance = _distance_km_expression(place.latitude, place.longitude)
+            parent = self.db.scalar(
+                _near(select(Place.name), place.latitude, place.longitude, 25.0)
+                .where(
+                    Place.id != place.id,
+                    Place.country_code == place.country_code,
+                    _is_town(),
+                    Place.population > place.population,
+                    distance <= 25.0,
+                )
+                .order_by((Place.population / func.pow(distance + 1, 2)).desc())
+                .limit(1)
+            )
+            if parent:
+                parents[place.id] = parent
+        return parents
 
     def reverse_geocode(
         self,
@@ -423,28 +560,79 @@ class PlaceService:
         limit: int,
         max_distance_km: float | None = None,
     ) -> list[ReverseGeocodeResult]:
-        """Find the nearest places to a latitude/longitude coordinate."""
-        distance_km = _distance_km_expression(
-            latitude=latitude,
-            longitude=longitude,
-        )
+        """Turn a map point into places: the town the point is in, then the nearest others.
+
+        This one lookup is behind map clicks for stops, posts and stays and
+        behind photo locations, so the rule applies everywhere:
+
+        1. The most important town whose rough extent (growing with its
+           population) holds the point, so a city wins over a hamlet next door.
+        2. Otherwise the nearest place that isn't a neighbourhood, within a few km.
+        3. Otherwise the nearest place of any kind, for example in the countryside.
+        """
+        distance_km = _distance_km_expression(latitude=latitude, longitude=longitude)
+        best = self._containing_town(latitude, longitude, distance_km)
+        if best is None:
+            best = self.db.execute(
+                _near(select(Place, distance_km), latitude, longitude, NEAR_PLACE_KM)
+                .where(_not_airport(), _not_neighbourhood(), distance_km <= NEAR_PLACE_KM)
+                .order_by(distance_km.asc(), Place.name.asc())
+                .limit(1)
+            ).first()
+        if best is not None and max_distance_km is not None and best[1] > max_distance_km:
+            best = None
 
         statement = (
             select(Place, distance_km.label('distance_km'))
-            .where(or_(Place.feature_code.is_(None), Place.feature_code != 'AIRP'))
-            .order_by(
-                distance_km.asc(),
-                Place.name.asc(),
-            )
+            .where(_not_airport())
+            .order_by(distance_km.asc(), Place.name.asc())
         )
         if max_distance_km is not None:
             statement = statement.where(distance_km <= max_distance_km)
-
-        rows = self.db.execute(statement.limit(limit)).all()
+        if best is not None:
+            statement = statement.where(Place.id != best[0].id)
+        nearest = self.db.execute(statement.limit(limit)).all()
+        rows = [*([best] if best is not None else []), *nearest][:limit]
         return [
             ReverseGeocodeResult(place=place, distance_km=float(distance))
             for place, distance in rows
         ]
+
+    def _containing_town(self, latitude: float, longitude: float, distance_km):
+        extent = func.least(
+            TOWN_EXTENT_MAX_KM,
+            func.greatest(
+                TOWN_EXTENT_MIN_KM,
+                TOWN_EXTENT_KM_PER_SQRT_PERSON * func.sqrt(Place.population),
+            ),
+        )
+        return self.db.execute(
+            _near(select(Place, distance_km), latitude, longitude, TOWN_EXTENT_MAX_KM)
+            .where(_is_town(), distance_km <= extent)
+            .order_by(Place.population.desc(), distance_km.asc())
+            .limit(1)
+        ).first()
+
+    def nearest_town(
+        self,
+        latitude: float,
+        longitude: float,
+        *,
+        min_population: int,
+        max_distance_km: float,
+    ) -> Place | None:
+        """The nearest town of at least ``min_population`` people (header photos)."""
+        distance_km = _distance_km_expression(latitude=latitude, longitude=longitude)
+        return self.db.scalar(
+            _near(select(Place), latitude, longitude, max_distance_km)
+            .where(
+                _is_town(),
+                Place.population >= min_population,
+                distance_km <= max_distance_km,
+            )
+            .order_by(distance_km.asc())
+            .limit(1)
+        )
 
     def import_geonames_dataset(
         self,
@@ -467,6 +655,12 @@ class PlaceService:
                 GEONAMES_COUNTRY_INFO_FILE,
             ]:
                 metadata_paths.append(_download_geonames_file(file_name=file_name))
+            # Other-language names and Wikipedia links: a much larger download.
+            alternate_names_path = _download_geonames_url(
+                f'{settings.GEONAMES_DOWNLOAD_BASE_URL.rstrip("/")}/{GEONAMES_ALTERNATE_NAMES_FILE}',
+                '.zip',
+            )
+            metadata_paths.append(alternate_names_path)
 
             name_metadata = _load_name_metadata(
                 admin1_codes_path=metadata_paths[0],
@@ -477,6 +671,7 @@ class PlaceService:
                 dataset=dataset,
                 name_metadata=name_metadata,
                 replace_existing=replace_existing,
+                alternate_names_path=alternate_names_path,
             )
         finally:
             zip_path.unlink(missing_ok=True)
@@ -489,6 +684,7 @@ class PlaceService:
         dataset: GeoNamesDataset,
         name_metadata: GeoNamesNameMetadata | None = None,
         replace_existing: bool = False,
+        alternate_names_path: Path | None = None,
     ) -> PlaceImportResult:
         """Import place rows from a local GeoNames zip file.
 
@@ -496,6 +692,8 @@ class PlaceService:
             path: Path to a GeoNames zip file.
             dataset: Dataset represented by the zip file.
             name_metadata: Optional display-name metadata used to expand country and region codes.
+            alternate_names_path: Optional ``alternateNamesV2.zip``: adds other-language
+                names to ``search_names`` and sets ``wikipedia_title``.
 
         Returns:
             Summary containing the selected dataset and processed row count.
@@ -526,6 +724,8 @@ class PlaceService:
         try:
             if batch:
                 self._upsert_places(batch)
+            if alternate_names_path is not None:
+                self._apply_alternate_names(alternate_names_path)
             if replace_existing:
                 from models.database.itinerary import ItinerarySegmentFlight
                 from models.database.tracked_flights import TrackedFlight
@@ -594,6 +794,7 @@ class PlaceService:
 
         geoname_id = row[0].strip()
         name = row[1].strip()
+        ascii_name = row[2].strip()
         country_code = row[8].strip().upper()
         if not geoname_id or not name or not country_code:
             return None
@@ -629,6 +830,7 @@ class PlaceService:
             'population': _parse_geonames_population(row[14]),
             'feature_code': row[7].strip() or None,
             'timezone': valid_timezone(row[17].strip()) if row[17].strip() else None,
+            'search_names': build_search_names([name, ascii_name]),
         }
 
     def _upsert_places(self, values: list[dict[str, object]]) -> None:
@@ -650,6 +852,7 @@ class PlaceService:
             'population': excluded.population,
             'feature_code': excluded.feature_code,
             'timezone': excluded.timezone,
+            'search_names': excluded.search_names,
             'updated_at': func.now(),
         }
         self.db.execute(
@@ -659,10 +862,63 @@ class PlaceService:
             )
         )
 
+    def _apply_alternate_names(self, path: Path) -> None:
+        """Add GeoNames alternate names to ``search_names`` and set ``wikipedia_title``.
+
+        Takes the English names and the names marked preferred or short, in
+        any language. Historic names are skipped. Runs after the upsert, in
+        the same transaction, so ``search_names`` already holds the main name.
+        """
+        places = {
+            external_id: (place_id, search_names)
+            for external_id, place_id, search_names in self.db.execute(
+                select(Place.external_id, Place.id, Place.search_names).where(
+                    Place.external_source == GEONAMES_SOURCE
+                )
+            )
+        }
+        names: dict[str, list[str]] = {}
+        titles: dict[str, str] = {}
+        for geoname_id, language, value, preferred, short in _iter_alternate_names(path):
+            if geoname_id not in places:
+                continue
+            if language == 'link':
+                title = _wikipedia_title(value)
+                if title and geoname_id not in titles:
+                    titles[geoname_id] = title
+            elif language not in _ALTERNATE_NAME_CODES and (
+                language == 'en' or preferred or short
+            ):
+                names.setdefault(geoname_id, []).append(value)
+
+        self.db.execute(
+            update(Place)
+            .where(Place.external_source == GEONAMES_SOURCE, Place.wikipedia_title.is_not(None))
+            .values(wikipedia_title=None)
+        )
+        changes = []
+        for geoname_id in names.keys() | titles.keys():
+            place_id, search_names = places[geoname_id]
+            changes.append({
+                'place_id': place_id,
+                'new_search_names': build_search_names(
+                    [*search_names.strip('|').split('|'), *names.get(geoname_id, [])]
+                ),
+                'new_title': titles.get(geoname_id),
+            })
+        statement = (
+            update(Place.__table__)
+            .where(Place.id == bindparam('place_id'))
+            .values(search_names=bindparam('new_search_names'), wikipedia_title=bindparam('new_title'))
+        )
+        for start in range(0, len(changes), IMPORT_BATCH_SIZE):
+            self.db.connection().execute(statement, changes[start:start + IMPORT_BATCH_SIZE])
+        # "No photo" was remembered against the old titles (often: no title
+        # yet). With new titles, those places may be asked once more.
+        self.db.execute(delete(PlacePhoto).where(PlacePhoto.status == PlacePhotoStatus.NONE.value))
+
     def import_airport_reference_data(self, *, dump_path=None, aliases_path=None):
         """Import only airports and backfill zones on existing GeoNames rows, preserving IDs."""
-        from sqlalchemy import bindparam
-
         owned_paths = []
         if dump_path is None:
             dump_path = _download_geonames_zip(GeoNamesDataset.ALL_COUNTRIES)

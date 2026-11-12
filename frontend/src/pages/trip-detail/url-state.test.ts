@@ -121,6 +121,7 @@ describe('trip detail dialog URL state', () => {
         editingPostId: null,
         managementSection: 'gps',
         mode: 'traveling',
+        openStopId: null,
         planningView: 'stops',
         travelingView: 'posts',
       },

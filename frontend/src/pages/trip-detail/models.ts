@@ -1,6 +1,6 @@
 import type * as L from 'leaflet'
 
-import type { ItineraryConnection, Media, RouteOverview } from '@/api/client'
+import type { ItineraryConnection, Media, RouteOverview, Stay } from '@/api/client'
 import type { PostTimeLabels } from '@/lib/date-time'
 
 export type TripVisibility = 'PLATFORM_PUBLIC' | 'PRIVATE' | 'PUBLIC'
@@ -71,6 +71,7 @@ export type ItineraryLocation = {
   longitude: number
   name: string
   region: string
+  timezone: string
 }
 
 export type Stop = {
@@ -78,11 +79,16 @@ export type Stop = {
   /** Null when the creator's account has been deleted. */
   created_by: UserSummaryViewModel | null
   id: string
+  /** Where the marker is shown. */
   location: ItineraryLocation
+  /** The place the stop was made for. Same id as location until the marker moves. */
+  original_location: ItineraryLocation
   notes: string
+  notes_updated_at: string | null
   planned_nights: number
   planned_start_date: string
-  same_day_position: number
+  /** Trip members only. Sorted by check-in date, then name. */
+  stays: Stay[]
   title: string
   trip_id: string
   updated_at: string
