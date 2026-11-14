@@ -24,9 +24,10 @@ const stops: Stop[] = [
   { name: 'Honolulu', latitude: 21.3099, longitude: -157.8581 },
 ].map((place, index) => ({
   id: 'stop-' + index, trip_id: 'trip', title: place.name, planned_start_date: '2026-10-20', planned_nights: 2,
-  notes: '', same_day_position: 0, visited: false, created_at: timestamp, updated_at: timestamp,
+  notes: '', notes_updated_at: null, stays: [], visited: false, created_at: timestamp, updated_at: timestamp,
   created_by: { id: 'owner', first_name: null, last_name: null, username: null },
   location: { ...place, id: 'place-' + index, full_name: place.name, region: '', country_code: '' },
+  original_location: { ...place, id: 'place-' + index, full_name: place.name, region: '', country_code: '' },
 }))
 const geometry = { type: 'LineString' as const, coordinates: [[26.1025, 44.4268], [-157.8581, 21.3099]] }
 const connection: Connection = {

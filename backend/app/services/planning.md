@@ -54,6 +54,12 @@ metadata-only edits do not trigger calculation.
 The public map overview continues to expose only its explicit allowlist;
 structured warnings, notes, schedules, and other planning details stay private.
 
+## Stays
+
+Stay details are planning data for members only. Adding or editing a stay
+leaves the stop marker and its routes in place. Members can move the stop
+marker separately, including to a stay location.
+
 ## Schema and generated clients
 
 Migration `f2a4c6e8b013` renames the existing connection table and foreign-key

@@ -1,5 +1,5 @@
 import { connectionWritePayload } from './trip-detail/planning-utils'
-import { calculateChangedConnectionRoutes } from './trip-detail/stop-routes'
+import { calculateChangedConnectionRoutes, connectionsNeedingRoutes } from './trip-detail/stop-routes'
 import { ConnectionDeletionDialog } from './trip-detail/connection-deletion-dialog'
 import { PlanningSessionContext } from '@/pages/trip-detail/planning-session'
 import type { AirportTransferRequest, AirportTransferSide } from '@/pages/trip-detail/airport-transfers'
@@ -60,6 +60,12 @@ import {
   type ConnectionDeletionSummary,
   type ItineraryStopCreatePayload,
   type ItineraryStopUpdatePayload,
+  type StayCreatePayload,
+  type StayUpdatePayload,
+  type StopNotes,
+  createStay,
+  deleteStay,
+  updateStay,
   type ItineraryConnectionReplacePayload,
   type Post,
   type PostSocialSummary,
@@ -111,6 +117,9 @@ import {
   updateLastViewedPost,
   writeTripProgress,
 } from '@/pages/trip-detail/trip-progress-storage'
+import type { StopUpdate } from '@/pages/trip-detail/stop-card'
+import type { StayPin } from '@/pages/trip-detail/trip-map'
+import { markerRangeError, sameMarkerPoint } from '@/pages/trip-detail/stop-marker-utils'
 import type {
   ShareLinkViewModel,
   TripViewModel,
@@ -131,7 +140,6 @@ import type {
   PostScrollRequest,
   PostSubmitDraft,
   ShareLinkCreateDraft,
-  StopEditDraft,
   ConnectionEditDraft,
   TripSettingsDraft,
   UserLookupDraft,
@@ -199,6 +207,7 @@ export function TripDetailPage({
   const [planningView, setPlanningView] = useState<PlanningView>(
     initialUrlState.planningView,
   )
+  const [openStopId, setOpenStopId] = useState<string | null>(initialUrlState.openStopId)
   const [trip, setTrip] = useState<TripViewModel>(() => createLoadingTrip(tripId))
   const [loadState, setLoadState] = useState<TripDetailLoadState>(
     { error: null, status: 'loading' },
@@ -206,6 +215,7 @@ export function TripDetailPage({
   const [itineraryRevision, setItineraryRevision] = useState(0)
   const [routeOverview, setRouteOverview] = useState<RouteOverview>({ trip_id: tripId ?? '', stops: [], connections: [] })
   const [planningLoadKey, setPlanningLoadKey] = useState<string | null>(null)
+  const loadedItineraryRef = useRef<Itinerary | null>(null)
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [connectionDeletionConnections, setConnectionDeletionSummarys] = useState<ConnectionDeletionSummary[] | null>(null)
   const connectionDeletionResolver = useRef<((confirmed: boolean) => void) | null>(null)
@@ -230,6 +240,7 @@ export function TripDetailPage({
     useState<readonly ShareLinkViewModel[]>([])
   const [plannedStops, setPlannedStops] = useState<readonly Stop[]>([])
   const [planningPanelHost, setPlanningPanelHost] = useState<HTMLDivElement | null>(null)
+  const [stopCardHost, setStopCardHost] = useState<HTMLDivElement | null>(null)
   const [planningPanelOpen, setPlanningPanelOpen] = useState(false)
   const [airportTransferRequest, setAirportTransferRequest] = useState<AirportTransferRequest | null>(null)
   const handleAirportTransferSelect = useCallback((connectionId: string, side: AirportTransferSide) => {
@@ -273,6 +284,11 @@ export function TripDetailPage({
     useState<DraftPostLocation | null>(null)
   const [draftStopLocation, setDraftStopLocation] =
     useState<DraftPostLocation | null>(null)
+  const [draftStayLocation, setDraftStayLocation] = useState<DraftPostLocation | null>(null)
+  const [draftStopMarkerLocation, setDraftStopMarkerLocation] = useState<DraftPostLocation | null>(null)
+  const [stayPinName, setStayPinName] = useState<string | null>(null)
+  const [hoveredStayId, setHoveredStayId] = useState<string | null>(null)
+  const [hoveredStopId, setHoveredStopId] = useState<string | null>(null)
   const [draftConnectionLocation, setDraftConnectionLocation] =
     useState<DraftPostLocation | null>(null)
   const urlStateRef = useRef<TripDetailUrlState>(initialUrlState)
@@ -280,7 +296,7 @@ export function TripDetailPage({
   // already on screen can keep showing it instead of blanking out.
   const loadedTripIdRef = useRef<string | null>(null)
   const progressInitializedKeyRef = useRef<string | null>(null)
-  const shareToken = useMemo(readShareTokenFromUrl, [])
+  const shareToken = useMemo(() => readShareTokenFromUrl(), [])
   const currentUserId = currentUser?.id ?? null
   const isTripCurrentlyOngoing = isTripOngoing({
     end_date: trip.endDate || null,
@@ -563,6 +579,7 @@ export function TripDetailPage({
     void getItinerary({ tripId, accessToken }).then((itinerary) => {
       if (!current) return
       applyItinerary(itinerary)
+      loadedItineraryRef.current = itinerary
       setPlanningLoadKey(key)
     }).catch((error) => {
       if (current) setMutationError(getErrorMessage(error))
@@ -603,11 +620,24 @@ export function TripDetailPage({
     [pendingAction],
   )
 
+  // Road legs left without a route (for example after a stay or a route rule
+  // moved their ends) are calculated once when planning opens, as after an edit.
+  useEffect(() => {
+    const itinerary = loadedItineraryRef.current
+    if (!itinerary || !accessToken || pendingAction) return
+    loadedItineraryRef.current = null
+    if (connectionsNeedingRoutes(itinerary, []).length === 0) return
+    void runMutation('Calculating routes', () => calculateChangedConnectionRoutes({
+      itinerary, previousConnections: [], accessToken, onUpdate: applyItinerary,
+    }))
+  }, [planningLoadKey, accessToken, pendingAction, runMutation, applyItinerary])
+
   const applyTripDetailUrlState = useCallback(
     (nextState: TripDetailUrlState) => {
       urlStateRef.current = nextState
       setMode(nextState.mode)
       setPlanningView(nextState.planningView)
+      setOpenStopId(nextState.openStopId)
       setTravelingView(nextState.travelingView)
       setEditingPostId(nextState.editingPostId)
       setActiveDialog(nextState.activeDialog)
@@ -943,24 +973,6 @@ export function TripDetailPage({
     })
   }
 
-  function handleStopChange(stopId: string, updates: Partial<Stop>) {
-    const stop = plannedStops.find((item) => item.id === stopId)
-    if (!stop || !accessToken) {
-      return
-    }
-
-    const nextStop = {
-      ...stop,
-      ...updates,
-    }
-    handleStopSave(stopId, {
-      notes: nextStop.notes,
-      plannedNights: nextStop.planned_nights,
-      plannedStartDate: nextStop.planned_start_date,
-      title: nextStop.title,
-    })
-  }
-
   async function applyStopMutation(itinerary: Itinerary, action: string) {
     applyItinerary(itinerary)
     if (!accessToken) return
@@ -972,27 +984,34 @@ export function TripDetailPage({
     }
   }
 
-  function handleStopSave(stopId: string, draft: StopEditDraft) {
+  function handleStopUpdate(stopId: string, update: StopUpdate) {
     if (!tripId || !accessToken) {
       setMutationError('Sign in to update itinerary stops.')
       return
     }
 
-    void runMutation('Saving stop', async () => {
-      const payload: ItineraryStopUpdatePayload = {
-        notes: draft.notes,
-        planned_nights: draft.plannedNights,
-        placement: {
-          after_stop_id: getPreviousSameDateStopId(
-            plannedStops,
-            stopId,
-            draft.plannedStartDate,
-          ),
-          planned_start_date: draft.plannedStartDate,
-        },
-        title: draft.title,
+    const stop = plannedStops.find((item) => item.id === stopId)
+    if (!stop) return
+    // Send only what changed: each date field moves the later stops along.
+    const payload: ItineraryStopUpdatePayload = {}
+    if (update.title !== undefined && update.title !== stop.title) payload.title = update.title
+    if (update.planned_start_date !== undefined && update.planned_start_date !== stop.planned_start_date) {
+      payload.planned_start_date = update.planned_start_date
+    }
+    if (update.planned_nights !== undefined && update.planned_nights !== stop.planned_nights) {
+      payload.planned_nights = Math.max(0, update.planned_nights)
+    }
+    if (update.placement !== undefined) {
+      const index = plannedStops.indexOf(stop)
+      const currentAfter = index > 0 ? plannedStops[index - 1]!.id : null
+      if (update.placement.after_stop_id !== currentAfter && update.placement.after_stop_id !== stopId) {
+        payload.placement = update.placement
       }
+    }
+    if (update.marker !== undefined) payload.marker = update.marker
+    if (Object.keys(payload).length === 0) return
 
+    void runMutation('Saving stop', async () => {
       const itinerary = await updateItineraryStop({
         onConfirmConnectionDeletion: confirmConnectionDeletion,
         accessToken,
@@ -1004,6 +1023,55 @@ export function TripDetailPage({
       await applyStopMutation(itinerary, 'Stop saved')
     })
   }
+
+  // The open stop is part of the address: opening adds a history entry, so
+  // Back closes the card; switching stops or closing replaces it.
+  const handleOpenStop = useCallback((stopId: string) => {
+    navigateTripDetailUrlState({ openStopId: stopId }, urlStateRef.current.openStopId ? 'replace' : 'push')
+  }, [navigateTripDetailUrlState])
+  const handleCloseStop = useCallback(() => {
+    navigateTripDetailUrlState({ openStopId: null }, 'replace')
+  }, [navigateTripDetailUrlState])
+  useEffect(() => {
+    if (openStopId && planningLoadKey === `${tripId}:${currentUserId}` && !plannedStops.some((stop) => stop.id === openStopId)) {
+      handleCloseStop()
+    }
+  }, [openStopId, plannedStops, planningLoadKey, tripId, currentUserId, handleCloseStop])
+
+  // Stays work like stops: each change needs the revision and returns the
+  // whole itinerary. A booked stay can move a route's end, so the routes it
+  // touches are recalculated like after a stop change.
+  function runStayMutation(label: string, call: (token: string, id: string) => Promise<Itinerary>) {
+    if (!tripId || !accessToken) {
+      setMutationError('Sign in to plan stays.')
+      return
+    }
+    const [token, id] = [accessToken, tripId]
+    void runMutation(label, async () => applyStopMutation(await call(token, id), 'Stay saved'))
+  }
+  function handleStayCreate(payload: StayCreatePayload) {
+    runStayMutation('Adding stay', (token, id) => createStay({ accessToken: token, itineraryRevision, payload, tripId: id }))
+  }
+  function handleStayUpdate(stayId: string, payload: StayUpdatePayload) {
+    runStayMutation('Saving stay', (token, id) => updateStay({ accessToken: token, itineraryRevision, payload, stayId, tripId: id }))
+  }
+  function handleStayDelete(stayId: string) {
+    runStayMutation('Removing stay', (token, id) => deleteStay({ accessToken: token, itineraryRevision, stayId, tripId: id }))
+  }
+  function handleMoveTripEnd(endDate: string) {
+    if (!tripId || !accessToken) return
+    const [token, id] = [accessToken, tripId]
+    void runMutation('Moving trip end', async () => {
+      setTrip(toTripViewModel(await updateTrip({ accessToken: token, payload: { end_date: endDate }, tripId: id })))
+    })
+  }
+
+  // Notes save on their own route and never change the itinerary revision.
+  const handleStopNotesSaved = useCallback((stopId: string, notes: StopNotes) => {
+    setPlannedStops((stops) => stops.map((stop) => stop.id === stopId
+      ? { ...stop, notes: notes.notes, notes_updated_at: notes.notes_updated_at }
+      : stop))
+  }, [])
 
   function handleConnectionCreate(payload: ItineraryConnectionReplacePayload) {
     if (!tripId || !accessToken) return
@@ -1095,7 +1163,7 @@ export function TripDetailPage({
         onConfirmConnectionDeletion: confirmConnectionDeletion,
         accessToken,
         itineraryRevision,
-        payload: toCreateStopPayload(draft, plannedStops),
+        payload: toCreateStopPayload(draft),
         tripId,
       })
       setDraftStopLocation(null)
@@ -1344,6 +1412,13 @@ export function TripDetailPage({
         setMapPointTarget(selectedTarget)
       } else if (target === 'connection') {
         setDraftConnectionLocation(draftLocation)
+      } else if (target === 'stop-marker') {
+        setDraftStopMarkerLocation(draftLocation)
+        return
+      } else if (target === 'stay') {
+        // A stay's pin needs no place name: its stop already has one.
+        setDraftStayLocation(draftLocation)
+        return
       } else {
         setDraftStopLocation(draftLocation)
       }
@@ -1407,6 +1482,25 @@ export function TripDetailPage({
     },
     [shouldUseMobileMapPicker],
   )
+
+  useEffect(() => {
+    if (!openStopId && (mapPointTarget === 'stay' || mapPointTarget === 'stop-marker')) {
+      handleMapPointTargetChange(null)
+    }
+  }, [openStopId, mapPointTarget, handleMapPointTargetChange])
+
+  const markerStop = mapPointTarget === 'stop-marker' ? plannedStops.find((stop) => stop.id === openStopId) : null
+
+  function validateStopMarkerPoint([latitude, longitude]: L.LatLngTuple) {
+    return markerStop ? markerRangeError(markerStop, { latitude, longitude }) : null
+  }
+
+  function confirmStopMarkerPoint(coordinates: L.LatLngTuple) {
+    if (!markerStop || pendingAction || validateStopMarkerPoint(coordinates)) return
+    const marker = { latitude: coordinates[0], longitude: coordinates[1] }
+    handleMapPointTargetChange(null)
+    if (!sameMarkerPoint(marker, markerStop.location)) handleStopUpdate(markerStop.id, { marker })
+  }
 
   const handleGpsPostCandidateSelect = useCallback(
     (candidate: GpsPostCandidate) => {
@@ -1545,6 +1639,7 @@ export function TripDetailPage({
       managementSection,
       editingPostId,
       mode,
+      openStopId,
       planningView,
       travelingView,
     }
@@ -1571,6 +1666,7 @@ export function TripDetailPage({
     editingPostId,
     mode,
     managementSection,
+    openStopId,
     planningView,
     travelingView,
     travelPosts,
@@ -1602,24 +1698,24 @@ export function TripDetailPage({
     travelPosts,
   ])
 
-  const activeDraftMapLocation =
-    mapPointTarget === 'post'
-      ? draftPostLocation
-      : mapPointTarget === 'stop'
-        ? draftStopLocation
-        : mapPointTarget === 'connection' ? draftConnectionLocation : null
-  const mobileMapPickerLocation =
-    mobileMapPickerTarget === 'post'
-      ? draftPostLocation
-      : mobileMapPickerTarget === 'stop'
-        ? draftStopLocation
-        : mobileMapPickerTarget === 'connection' ? draftConnectionLocation : null
+  const draftMapLocations = {
+    post: draftPostLocation,
+    stop: draftStopLocation,
+    connection: draftConnectionLocation,
+    stay: draftStayLocation,
+    'stop-marker': draftStopMarkerLocation,
+  }
+  const activeDraftMapLocation = mapPointTarget ? draftMapLocations[mapPointTarget] : null
+  const mobileMapPickerLocation = mobileMapPickerTarget ? draftMapLocations[mobileMapPickerTarget] : null
   const visibleMode: TripMode = canSwitchModes ? mode : 'traveling'
   const upcomingStops = getUpcomingStops(routeOverview.stops)
   const mapRouteMode: MapRouteMode =
     visibleMode === 'traveling' ? 'travel-timeline' : 'itinerary'
   const visibleStops =
     visibleMode === 'traveling' ? upcomingStops : plannedStops
+  const planningStayPins = visibleMode === 'planning' ? getStayPins(plannedStops, openStopId, hoveredStayId) : []
+  const markerPointError = markerStop && draftStopMarkerLocation
+    ? validateStopMarkerPoint(draftStopMarkerLocation.coordinates) : null
   const mobileMapPickerStops =
     mobileMapPickerTarget === 'post' ? upcomingStops : plannedStops
   const mobileMapPickerRouteMode: MapRouteMode =
@@ -1628,8 +1724,10 @@ export function TripDetailPage({
   useEffect(() => {
     if (!shouldUseMobileMapPicker) {
       setMobileMapPickerTarget(null)
+    } else if (mapPointTarget === 'stop-marker') {
+      setMobileMapPickerTarget('stop-marker')
     }
-  }, [shouldUseMobileMapPicker])
+  }, [mapPointTarget, shouldUseMobileMapPicker])
 
   useEffect(() => {
     if (visibleMode !== 'traveling') {
@@ -1657,14 +1755,23 @@ export function TripDetailPage({
   }
 
   return (
-    <PlanningSessionContext value={{ accessToken, itineraryRevision, onPreview: setPlanningPreview, saveError: mutationError, panelHost: planningPanelHost, onPanelOpenChange: setPlanningPanelOpen, airportTransferRequest, onAirportTransferSelect: canMutate ? handleAirportTransferSelect : undefined,
+    <PlanningSessionContext value={{ accessToken, itineraryRevision, onPreview: setPlanningPreview, saveError: mutationError, panelHost: planningPanelHost, stopCardHost, onPanelOpenChange: setPlanningPanelOpen, airportTransferRequest, onAirportTransferSelect: canMutate ? handleAirportTransferSelect : undefined,
       connectionMap: {
         location: draftConnectionLocation, active: mapPointTarget === 'connection',
         start: (initial) => { setDraftConnectionLocation(initial); handleMapPointTargetChange('connection') },
         stop: () => handleMapPointTargetChange(null),
       },
+      stayMap: {
+        location: draftStayLocation, active: mapPointTarget === 'stay',
+        start: (initial, name) => { setDraftStayLocation(initial); setStayPinName(name || null); handleMapPointTargetChange('stay') },
+        stop: () => { if (mapPointTarget === 'stay') handleMapPointTargetChange(null) },
+      },
+      stopMarkerMap: {
+        active: mapPointTarget === 'stop-marker',
+        start: () => { setDraftStopMarkerLocation(null); handleMapPointTargetChange('stop-marker') },
+      },
     }}>
-    <div className="relative z-0 -mx-4 min-h-[calc(100dvh-4rem-1px)] w-[calc(100%+2rem)] overflow-x-hidden sm:-mx-6 sm:w-[calc(100%+3rem)] lg:mx-0 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-hidden lg:px-6 lg:py-3">
+    <div className="relative z-0 -mx-4 min-h-[calc(100dvh-4rem-1px)] w-[calc(100%+2rem)] overflow-x-clip sm:-mx-6 sm:w-[calc(100%+3rem)] lg:mx-0 lg:left-1/2 lg:h-[calc(100dvh-4rem-1px)] lg:w-screen lg:-translate-x-1/2 lg:overflow-clip lg:px-6 lg:py-3">
       <div className="min-h-0 w-full lg:h-full">
         <div
           className={cn(
@@ -1717,8 +1824,21 @@ export function TripDetailPage({
               postConflict={postConflict}
               onPlanningViewChange={handlePlanningViewChange}
               onRefreshConnectionRoute={handleConnectionRouteRefresh}
-              onStopSave={handleStopSave}
-              onStopChange={handleStopChange}
+              stopCard={{
+                openStopId,
+                onOpenStop: handleOpenStop,
+                onCloseStop: handleCloseStop,
+                onStopUpdate: handleStopUpdate,
+                onStopNotesSaved: handleStopNotesSaved,
+                tripEndDate: trip.endDate || null,
+                onMoveTripEnd: handleMoveTripEnd,
+                onStayCreate: handleStayCreate,
+                onStayUpdate: handleStayUpdate,
+                onStayDelete: handleStayDelete,
+                onStayHover: setHoveredStayId,
+                highlightedStopId: hoveredStopId,
+                onStopHover: setHoveredStopId,
+              }}
               onStopDelete={handleStopDelete}
               onConnectionSave={handleConnectionSave}
               onConnectionCreate={handleConnectionCreate}
@@ -1745,6 +1865,27 @@ export function TripDetailPage({
           {!shouldUseMobileMapPicker ? (
             <MapWorkspace
               onPlanningPanelHostChange={setPlanningPanelHost}
+              onStopCardHostChange={setStopCardHost}
+              focusedStopId={visibleMode === 'planning' ? openStopId : null}
+              onClearFocusedStop={visibleMode === 'planning' ? handleCloseStop : undefined}
+              stayPins={planningStayPins}
+              mapPointHint={mapPointTarget === 'stay' ? {
+                label: `Click the map to place ${stayPinName ?? 'the stay'}`,
+                onCancel: () => handleMapPointTargetChange(null),
+              } : markerStop ? {
+                label: draftStopMarkerLocation ? 'Marker location selected' : 'Click the map to choose a location',
+                onCancel: () => handleMapPointTargetChange(null),
+                confirm: {
+                  disabled: !draftStopMarkerLocation || Boolean(pendingAction) || Boolean(markerPointError),
+                  error: markerPointError,
+                  onClick: () => {
+                    if (draftStopMarkerLocation) confirmStopMarkerPoint(draftStopMarkerLocation.coordinates)
+                  },
+                },
+              } : null}
+              highlightedStopId={visibleMode === 'planning' ? hoveredStopId ?? openStopId : null}
+              onStopHover={visibleMode === 'planning' ? setHoveredStopId : undefined}
+              onStopSelect={visibleMode === 'planning' ? handleOpenStop : undefined}
               planningPreview={planningPanelOpen ? planningPreview : null}
               draftMapLocation={activeDraftMapLocation}
               mapPointEnabled={mapPointTarget !== null}
@@ -1817,15 +1958,20 @@ export function TripDetailPage({
       <ConnectionDeletionDialog connections={connectionDeletionConnections}
         onCancel={cancelConnectionDeletion} onConfirm={() => finishConnectionDeletion(true)} />
       <MobileMapPointPicker
+        focusedStopId={markerStop?.id}
         initialLocation={mobileMapPickerLocation}
         isTripOngoing={isTripCurrentlyOngoing}
         onCancel={() => {
           setMobileMapPickerTarget(null)
-          if (!mobileMapPickerLocation) {
+          if (!mobileMapPickerLocation || mobileMapPickerTarget === 'stop-marker') {
             setMapPointTarget(null)
           }
         }}
         onConfirm={(coordinates) => {
+          if (mobileMapPickerTarget === 'stop-marker') {
+            confirmStopMarkerPoint(coordinates)
+            return
+          }
           if (mobileMapPickerTarget) {
             applyDraftMapPointLocation(mobileMapPickerTarget, coordinates)
             setMapPointTarget(mobileMapPickerTarget)
@@ -1834,11 +1980,13 @@ export function TripDetailPage({
         }}
         open={Boolean(mobileMapPickerTarget && shouldUseMobileMapPicker)}
         routeMode={mobileMapPickerRouteMode}
+        stayPins={markerStop ? planningStayPins : undefined}
         stops={mobileMapPickerStops}
         target={mobileMapPickerTarget}
         connections={mobileMapPickerTarget === 'post' ? routeOverview.connections : connections}
         trackingGeometry={trackingGeometry}
         travelPosts={travelPosts}
+        validatePoint={markerStop ? validateStopMarkerPoint : undefined}
       />
       {canSwitchModes ? (
         <MobileModeSwitch
@@ -2068,24 +2216,29 @@ function toPostMediaViewModel(media: Post['media'][number]): PostMedia {
   }
 }
 
-function toCreateStopPayload(
-  draft: CreateStopDraft,
-  stops: readonly Stop[],
-): ItineraryStopCreatePayload {
-  const afterStop = stops.find((stop) => stop.id === draft.afterStopId) ?? null
+/** Bed pins for the open stop's stays. Members only: viewers never get stays. */
+/** Bed pins for every stay with a pin. With a card open, the other stops' stays are dimmed. */
+function getStayPins(stops: readonly Stop[], openStopId: string | null, hoveredStayId: string | null): StayPin[] {
+  return stops.flatMap((stop) => (stop.stays ?? []).flatMap((stay) => stay.location ? [{
+    id: stay.id,
+    stopId: stop.id,
+    name: stay.name,
+    stayType: stay.stay_type,
+    booked: stay.status !== 'IDEA',
+    highlighted: stay.id === hoveredStayId,
+    dimmed: openStopId !== null && stop.id !== openStopId,
+    latitude: stay.location.latitude,
+    longitude: stay.location.longitude,
+  }] : []))
+}
 
+function toCreateStopPayload(draft: CreateStopDraft): ItineraryStopCreatePayload {
   return {
     incoming_connection: null,
     location: toLocationInput(draft.placeId, draft.coordinates),
-    notes: draft.notes,
     outgoing_connection: null,
-    placement: {
-      after_stop_id:
-        afterStop?.planned_start_date === draft.plannedStartDate
-          ? afterStop.id
-          : null,
-      planned_start_date: draft.plannedStartDate,
-    },
+    placement: { after_stop_id: draft.afterStopId },
+    planned_start_date: draft.plannedStartDate,
     planned_nights: draft.plannedNights,
     title: draft.title,
   }
@@ -2140,20 +2293,4 @@ function getPostDraftMediaIds(media: readonly PostMedia[]) {
   return media
     .map((item) => item.media_id ?? null)
     .filter((mediaId): mediaId is string => Boolean(mediaId))
-}
-
-function getPreviousSameDateStopId(
-  stops: readonly Stop[],
-  stopId: string,
-  plannedStartDate: string,
-) {
-  const sameDateStops = stops.filter(
-    (stop) => stop.planned_start_date === plannedStartDate,
-  )
-  const stopIndex = sameDateStops.findIndex((stop) => stop.id === stopId)
-  if (stopIndex <= 0) {
-    return null
-  }
-
-  return sameDateStops[stopIndex - 1]?.id ?? null
 }

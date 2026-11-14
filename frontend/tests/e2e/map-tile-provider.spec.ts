@@ -1049,8 +1049,8 @@ function createItinerary() {
       },
     ],
     stops: [
-      createStop(firstStopId, firstLocation, creator, '2027-05-10', 0),
-      createStop(secondStopId, secondLocation, creator, '2027-05-11', 0),
+      createStop(firstStopId, firstLocation, creator, '2027-05-10'),
+      createStop(secondStopId, secondLocation, creator, '2027-05-11'),
     ],
     trip_id: tripId,
   }
@@ -1184,17 +1184,18 @@ function createStop(
   location: ReturnType<typeof createLocation>,
   createdBy: Record<string, string>,
   plannedStartDate: string,
-  sameDayPosition: number,
 ) {
   return {
     created_at: timestamp,
     created_by: createdBy,
     id,
     location,
+    original_location: location,
     notes: '',
+    notes_updated_at: null,
+    stays: [],
     planned_nights: 1,
     planned_start_date: plannedStartDate,
-    same_day_position: sameDayPosition,
     title: location.name,
     trip_id: tripId,
     updated_at: timestamp,
@@ -1257,8 +1258,8 @@ test('planning: keyless flight draft remains saveable without automatic flight l
   await editor.getByRole('radio', { name: 'Flight', exact: true }).click()
   await editor.getByLabel('Flight number', { exact: true }).fill('QF6842')
   await editor.getByRole('button', { name: 'Departure date', exact: true }).click()
-  for (let month = 0; month < 6; month += 1) await editor.getByRole('dialog').getByRole('button', { name: 'Previous month', exact: true }).click()
-  await editor.getByRole('dialog').getByRole('button', { name: '18', exact: true }).click()
+  for (let month = 0; month < 6; month += 1) await page.getByRole('dialog', { name: 'Calendar' }).getByRole('button', { name: 'Previous month', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Calendar' }).getByRole('button', { name: '18', exact: true }).click()
   await editor.getByRole('button', { name: 'Look up flight', exact: true }).click()
   await expect(editor.getByText(/still save this flight/)).toBeVisible()
   await editor.getByRole('button', { name: 'Select this route' }).click()
@@ -1667,8 +1668,8 @@ for (const width of [390, 1024, 1440]) {
     }
     await editor.getByLabel('Flight number', { exact: true }).fill('QF6842')
     await editor.getByRole('button', { name: 'Departure date', exact: true }).click()
-    for (let month = 0; month < 6; month += 1) await editor.getByRole('dialog').getByRole('button', { name: 'Previous month', exact: true }).click()
-    await editor.getByRole('dialog').getByRole('button', { name: '18', exact: true }).click()
+    for (let month = 0; month < 6; month += 1) await page.getByRole('dialog', { name: 'Calendar' }).getByRole('button', { name: 'Previous month', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Calendar' }).getByRole('button', { name: '18', exact: true }).click()
     await editor.getByRole('button', { name: 'Look up flight', exact: true }).click()
     const match = editor.getByRole('button', { name: /AMS → CPT/ })
     await expect(match).toBeVisible()

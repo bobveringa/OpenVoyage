@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   Check,
+  MapPin,
   MousePointer2,
   Navigation,
   PenLine,
@@ -39,7 +40,6 @@ import type {
   MapPointTarget,
   PostScrollRequest,
   PostSubmitDraft,
-  StopEditDraft,
   StopInsertionPoint,
   ConnectionEditDraft,
 } from '@/pages/trip-detail/page-types'
@@ -47,6 +47,7 @@ import {
   CreateStopPanel,
   PlanningPanel,
 } from '@/pages/trip-detail/planning-ui'
+import type { StopCardControls } from '@/pages/trip-detail/stop-card'
 import {
   createDraftMapPointLocation,
   createFirstStopInsertionPoint,
@@ -54,7 +55,7 @@ import {
 } from '@/pages/trip-detail/planning-utils'
 import { PostFormPanel } from '@/pages/trip-detail/post-form-panel'
 import { TravelingPanel } from '@/pages/trip-detail/traveling-ui'
-import { TripLeafletMap, type MapRouteMode } from '@/pages/trip-detail/trip-map'
+import { TripLeafletMap, type MapRouteMode, type StayPin } from '@/pages/trip-detail/trip-map'
 import type {
   PlanningView,
   TravelingView,
@@ -63,29 +64,35 @@ import type {
 } from '@/pages/trip-detail/url-state'
 
 export function MobileMapPointPicker({
+  focusedStopId,
   initialLocation,
   isTripOngoing,
   onCancel,
   onConfirm,
   open,
   routeMode,
+  stayPins,
   stops,
   target,
   trackingGeometry,
   connections,
   travelPosts,
+  validatePoint,
 }: {
+  focusedStopId?: string
   initialLocation: DraftPostLocation | null
   isTripOngoing: boolean
   onCancel: () => void
   onConfirm: (coordinates: L.LatLngTuple) => void
   open: boolean
   routeMode: MapRouteMode
+  stayPins?: readonly StayPin[]
   stops: readonly MapStop[]
   target: MapPointTarget | null
   trackingGeometry: TripTrackingGeometry
   connections: readonly MapConnection[]
   travelPosts: readonly TravelPost[]
+  validatePoint?: (coordinates: L.LatLngTuple) => string | null
 }) {
   const [pendingLocation, setPendingLocation] =
     useState<DraftPostLocation | null>(initialLocation)
@@ -99,24 +106,30 @@ export function MobileMapPointPicker({
   if (!open || !target || typeof document === 'undefined') {
     return null
   }
+  const isStopMarker = target === 'stop-marker'
+  const pointError = pendingLocation && validatePoint?.(pendingLocation.coordinates)
 
   return createPortal(
     <div
       aria-modal="true"
       aria-label="Choose a map location"
       className="trip-mobile-travel-map fixed inset-0 z-[70] overflow-hidden bg-card"
+      onKeyDown={isStopMarker ? (event) => { if (event.key === 'Escape') onCancel() } : undefined}
       role="dialog"
     >
       <TripLeafletMap
         draftMapLocation={pendingLocation}
         fitMode="mobile-picker"
+        focusedStopId={focusedStopId}
         isTripOngoing={isTripOngoing}
         mapPointEnabled
+        selectingStopMarker={isStopMarker}
         onDraftMapPointSelect={(coordinates) =>
           setPendingLocation(createDraftMapPointLocation(coordinates, target))
         }
         resetNonce={0}
         routeMode={routeMode}
+        stayPins={stayPins}
         stops={stops}
         connections={connections}
         trackingGeometry={trackingGeometry}
@@ -125,43 +138,51 @@ export function MobileMapPointPicker({
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] bg-gradient-to-b from-background/95 via-background/70 to-transparent px-3 pb-8 pt-[max(0.75rem,var(--app-safe-area-inset-top))]">
         <div className="pointer-events-auto flex items-center justify-between gap-3">
-          <Button onClick={onCancel} type="button" variant="outline">
+          <Button autoFocus={isStopMarker} onClick={onCancel} type="button" variant="outline">
             <ArrowLeft className="size-4" aria-hidden="true" />
             Back
           </Button>
           <Badge variant="secondary">
-            {target === 'stop' ? 'Planning stop' : target === 'connection' ? 'Connection location' : 'Post location'}
+            {isStopMarker ? 'Move marker' : target === 'stop' ? 'Planning stop' : target === 'connection' ? 'Connection location' : target === 'stay' ? 'Pin location' : 'Post location'}
           </Badge>
         </div>
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[500] bg-gradient-to-t from-background via-background/95 to-transparent p-3 pb-[max(0.75rem,var(--app-safe-area-inset-bottom))] pt-10">
         <div className="pointer-events-auto space-y-3 rounded-[1.5rem] border border-border bg-card p-4 shadow-xl shadow-foreground/10">
-          <div className="flex items-start gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-muted text-primary">
-              <MousePointer2 className="size-5" aria-hidden="true" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase text-muted-foreground">
-                Map point
-              </p>
-              <h2 className="mt-0.5 truncate text-lg font-semibold text-foreground">
-                {pendingLocation?.label ?? 'No point selected'}
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {pendingLocation
-                  ? formatCoordinates(pendingLocation.coordinates)
-                  : 'Tap a point on the map.'}
-              </p>
+          {isStopMarker ? (
+            <p className="flex items-center gap-2 text-sm font-semibold" role="status">
+              <MapPin className="size-4 shrink-0 text-primary" aria-hidden="true" />
+              {pendingLocation ? 'Marker location selected' : 'Tap the map to choose a location'}
+            </p>
+          ) : (
+            <div className="flex items-start gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-muted text-primary">
+                <MousePointer2 className="size-5" aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">
+                  Map point
+                </p>
+                <h2 className="mt-0.5 truncate text-lg font-semibold text-foreground">
+                  {pendingLocation?.label ?? 'No point selected'}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {pendingLocation
+                    ? formatCoordinates(pendingLocation.coordinates)
+                    : target === 'stay' ? 'Tap to place the pin.' : 'Tap a point on the map.'}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          {pointError ? <p className="text-sm text-destructive" role="alert">{pointError}</p> : null}
+          <div className={isStopMarker ? 'flex flex-wrap justify-end gap-2' : 'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end'}>
             <Button onClick={onCancel} type="button" variant="outline">
               Cancel
             </Button>
             <Button
-              disabled={!pendingLocation}
+              disabled={!pendingLocation || Boolean(pointError)}
               onClick={() => {
                 if (pendingLocation) {
                   onConfirm(pendingLocation.coordinates)
@@ -170,7 +191,7 @@ export function MobileMapPointPicker({
               type="button"
             >
               <Check className="size-4" aria-hidden="true" />
-              Use location
+              {isStopMarker ? 'Move marker here' : 'Use location'}
             </Button>
           </div>
         </div>
@@ -214,8 +235,7 @@ export function TripSidebar({
   onPostSubmit,
   onPlanningViewChange,
   onRefreshConnectionRoute,
-  onStopSave,
-  onStopChange,
+  stopCard,
   onStopDelete,
   onConnectionSave,
   onConnectionCreate,
@@ -270,8 +290,7 @@ export function TripSidebar({
   onPostSubmit: (postId: string | null, draft: PostSubmitDraft) => void
   onPlanningViewChange: (view: PlanningView) => void
   onRefreshConnectionRoute: (connectionId: string) => void
-  onStopSave: (stopId: string, draft: StopEditDraft) => void
-  onStopChange: (stopId: string, updates: Partial<Stop>) => void
+  stopCard: StopCardControls
   onStopDelete: (stopId: string) => void
   onConnectionSave: (connectionId: string, draft: ConnectionEditDraft) => void
   onConnectionCreate: (payload: import('@/api/client').ItineraryConnectionReplacePayload) => void
@@ -389,9 +408,8 @@ export function TripSidebar({
             canMutate={canMutate}
             isMutating={isMutating}
             onRefreshConnectionRoute={onRefreshConnectionRoute}
-            onStopChange={onStopChange}
+            {...stopCard}
             onStopDelete={onStopDelete}
-            onStopSave={onStopSave}
             onConnectionSave={onConnectionSave}
             onConnectionCreate={onConnectionCreate}
             onConnectionDelete={onConnectionDelete}

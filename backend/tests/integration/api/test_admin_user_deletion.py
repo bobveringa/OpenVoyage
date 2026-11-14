@@ -755,9 +755,8 @@ def test_content_in_shared_trips_survives_as_a_deleted_user(
         json={
             'location': {'place_id': str(place.id)},
             'title': 'Stop by target',
-            'notes': '',
             'planned_nights': 0,
-            'placement': {'planned_start_date': '2026-08-14', 'after_stop_id': None},
+            'planned_start_date': '2026-08-14', 'placement': {'after_stop_id': None},
             'incoming_connection': None,
             'outgoing_connection': None,
         },
@@ -870,9 +869,8 @@ def test_delete_content_removes_what_the_user_added_to_trips_that_stay(
         json={
             'location': {'place_id': str(create_place(db_session).id)},
             'title': 'Stop by target',
-            'notes': '',
             'planned_nights': 0,
-            'placement': {'planned_start_date': '2026-08-14', 'after_stop_id': None},
+            'planned_start_date': '2026-08-14', 'placement': {'after_stop_id': None},
             'incoming_connection': None,
             'outgoing_connection': None,
         },

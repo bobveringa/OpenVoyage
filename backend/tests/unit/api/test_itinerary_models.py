@@ -82,6 +82,7 @@ def test_connection_response_stop_endpoints_are_compact():
         'country_code': 'NL',
         'region': '',
         'full_name': 'Outside',
+        'timezone': 'Europe/Amsterdam',
     }
     assert (
         adapter.validate_python(

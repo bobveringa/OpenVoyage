@@ -121,7 +121,8 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     await chooser.getByRole('button', { name: 'Select this route' }).click()
 
     if (providerBackedRoutes) {
-      await expect(page.getByText('Route ready').first()).toBeVisible({
+      // A ready route shows its distance and time on the travel line.
+      await expect(page.getByRole('button', { name: /E2E Coimbra to E2E Porto, .* km/ })).toBeVisible({
         timeout: 12000,
       })
     } else {

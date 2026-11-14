@@ -9,9 +9,23 @@ export const PlanningSessionContext = createContext<{
   onAirportTransferSelect?: (connectionId: string, side: AirportTransferSide) => void
   saveError?: string | null
   panelHost: HTMLDivElement | null
+  /** Where the stop card goes over the map on a computer. */
+  stopCardHost?: HTMLDivElement | null
   onPanelOpenChange: (open: boolean) => void
   itineraryRevision: number
   onPreview: (connection: Connection | null) => void
+  stopMarkerMap?: {
+    active: boolean
+    start: () => void
+  }
+  /** Placing a stay's pin works like placing a connection end. */
+  stayMap?: {
+    location: DraftPostLocation | null
+    active: boolean
+    /** ``name`` is the stay's name so far, for the hint over the map. */
+    start: (initial: DraftPostLocation | null, name?: string | null) => void
+    stop: () => void
+  }
   connectionMap?: {
     location: DraftPostLocation | null
     active: boolean

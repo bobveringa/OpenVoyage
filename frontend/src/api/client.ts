@@ -95,6 +95,10 @@ export type ItineraryStopCreatePayload =
   components['schemas']['ItineraryStopCreateRequest']
 export type ItineraryStopUpdatePayload =
   components['schemas']['ItineraryStopUpdateRequest']
+export type StopNotes = components['schemas']['StopNotesResponse']
+export type Stay = components['schemas']['StayResponse']
+export type StayCreatePayload = components['schemas']['StayCreateRequest']
+export type StayUpdatePayload = components['schemas']['StayUpdateRequest']
 export type ItineraryConnectionReplacePayload =
   components['schemas']['ItineraryConnectionReplaceRequest']
 export type Media = components['schemas']['MediaResponse']
@@ -225,6 +229,8 @@ type ApiRequestOptions = {
   formData?: FormData
   urlEncoded?: URLSearchParams
   timeoutMs?: number
+  /** Let the request outlive the page, for saves sent while the tab closes. */
+  keepalive?: boolean
 }
 
 type AuthTokenRefreshHandler = (options: {
@@ -1275,6 +1281,111 @@ export async function updateItineraryStop(options: {
   )
 }
 
+/** Save a stop's notes. No revision: notes never clash with other edits. */
+export async function saveStopNotes(options: {
+  tripId: string
+  stopId: string
+  accessToken: string
+  notes: string
+  basedOn: string | null
+  keepalive?: boolean
+}): Promise<StopNotes> {
+  return requestJson<StopNotes>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/stops/${encodeURIComponent(options.stopId)}/notes`,
+    {
+      method: 'PUT',
+      accessToken: options.accessToken,
+      json: { notes: options.notes, based_on: options.basedOn },
+      keepalive: options.keepalive,
+    },
+  )
+}
+
+export type StopPhoto = components['schemas']['StopPhotoResponse']
+export type AddressResult = components['schemas']['AddressResponse']
+
+/** The stop card's header photo, or null for the designed header. */
+export async function getStopPhoto(options: {
+  tripId: string
+  stopId: string
+  accessToken: string | null
+  signal?: AbortSignal
+}): Promise<StopPhoto | null> {
+  return requestJson<StopPhoto | null>(
+    `${API_V1_PREFIX}/trips/${encodeURIComponent(options.tripId)}/itinerary/stops/${encodeURIComponent(options.stopId)}/photo`,
+    { accessToken: options.accessToken, signal: options.signal },
+  )
+}
+
+function addressUrl(tripId: string, kind: 'geocode' | 'reverse-geocode') {
+  return `${API_V1_PREFIX}/trips/${encodeURIComponent(tripId)}/itinerary/addresses/${kind}`
+}
+
+/** Hotel and address search for stays, through our server. */
+export async function geocodeAddresses(options: {
+  tripId: string
+  accessToken: string | null
+  query: string
+  near?: { latitude: number; longitude: number } | null
+  limit?: number
+  signal?: AbortSignal
+}): Promise<AddressResult[]> {
+  return requestJson<AddressResult[]>(addressUrl(options.tripId, 'geocode'), {
+    accessToken: options.accessToken,
+    signal: options.signal,
+    query: {
+      query: options.query,
+      near_latitude: options.near?.latitude,
+      near_longitude: options.near?.longitude,
+      limit: options.limit ?? 5,
+    },
+  })
+}
+
+/** The address at a dropped stay pin, or null. */
+export async function reverseGeocodeAddress(options: {
+  tripId: string
+  accessToken: string | null
+  latitude: number
+  longitude: number
+  signal?: AbortSignal
+}): Promise<AddressResult | null> {
+  return requestJson<AddressResult | null>(addressUrl(options.tripId, 'reverse-geocode'), {
+    accessToken: options.accessToken,
+    signal: options.signal,
+    query: { latitude: options.latitude, longitude: options.longitude },
+  })
+}
+
+function stayUrl(tripId: string, stayId?: string) {
+  return `${API_V1_PREFIX}/trips/${encodeURIComponent(tripId)}/itinerary/stays${stayId ? '/' + encodeURIComponent(stayId) : ''}`
+}
+
+/** Stays work like stops: members only, with the itinerary revision. */
+export async function createStay(options: {
+  tripId: string; payload: StayCreatePayload; accessToken: string; itineraryRevision: number
+}): Promise<Itinerary> {
+  return requestItineraryMutation(stayUrl(options.tripId), {
+    method: 'POST', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision, json: options.payload,
+  })
+}
+
+export async function updateStay(options: {
+  tripId: string; stayId: string; payload: StayUpdatePayload; accessToken: string; itineraryRevision: number
+}): Promise<Itinerary> {
+  return requestItineraryMutation(stayUrl(options.tripId, options.stayId), {
+    method: 'PATCH', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision, json: options.payload,
+  })
+}
+
+export async function deleteStay(options: {
+  tripId: string; stayId: string; accessToken: string; itineraryRevision: number
+}): Promise<Itinerary> {
+  return requestItineraryMutation(stayUrl(options.tripId, options.stayId), {
+    method: 'DELETE', accessToken: options.accessToken, ifMatchRevision: options.itineraryRevision,
+  })
+}
+
 export async function deleteItineraryStop(options: {
   tripId: string
   stopId: string
@@ -2020,6 +2131,7 @@ async function sendApiRequest(
       method: options.method ?? 'GET',
       headers,
       body,
+      keepalive: options.keepalive,
       signal: controller.signal,
     })
   } catch (error) {

@@ -57,7 +57,7 @@ def current_journey(db, trip_id, user_id, share_token=None):
         db.scalars(
             select(ItineraryStop)
             .where(ItineraryStop.trip_id == trip_id)
-            .order_by(ItineraryStop.planned_start_date, ItineraryStop.same_day_position)
+            .order_by(ItineraryStop.position, ItineraryStop.id)
         )
     )
     stop = next(

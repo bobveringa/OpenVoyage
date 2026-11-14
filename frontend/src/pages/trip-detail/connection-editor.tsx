@@ -169,7 +169,7 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
   const currentConnection = useMemo<Connection | null>(() => {
     if (preview) return connectionWithOptions(preview.connection, draft)
     if (!connection || !dirty) return connection
-    const outside = outsideLocation ? { type: 'LOCATION' as const, location: { ...outsideLocation.anchor.location, id: 'draft-location', full_name: outsideLocation.anchor.title, country_code: '', region: '' } } : null
+    const outside = outsideLocation ? { type: 'LOCATION' as const, location: { ...outsideLocation.anchor.location, id: 'draft-location', full_name: outsideLocation.anchor.title, country_code: '', region: '', timezone: '' } } : null
     const endpointsUnchanged = JSON.stringify([draft.from, draft.to]) === JSON.stringify([connectionEndpointInput(connection.from), connectionEndpointInput(connection.to)])
     const from = outside && connection.connection_type === 'DEPARTURE' ? outside : connection.from
     const to = outside && connection.connection_type === 'RETURN' ? outside : connection.to
@@ -410,9 +410,15 @@ export function ConnectionEditDialog({ fromStop, connection, onClose, onSave, op
               </div>
           return (
             <section key={segment.id || index} className="grid min-w-0 grid-cols-1 gap-3" aria-label={'Travel segment ' + (index + 1)}>
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">{draft.segments.length > 1 ? 'Segment ' + (index + 1) : 'How will you get there?'}</h3>
-                <div className="flex">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold">{draft.segments.length > 1 ? 'Segment ' + (index + 1) : 'How will you get there?'}</h3>
+                  {/* Which leg this is, so "Car" is not mistaken for the whole trip. */}
+                  {draft.segments.length > 1 && estimate?.from_endpoint?.name && estimate.to_endpoint?.name ? (
+                    <p className="truncate text-xs text-muted-foreground">{estimate.from_endpoint.name} → {estimate.to_endpoint.name}</p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0">
                   <Button disabled={disabled || index === 0} size="icon" variant="ghost" type="button" aria-label={'Move segment ' + (index + 1) + ' up'} onClick={() => move(index, -1)}><ArrowUp className="size-4" /></Button>
                   <Button disabled={disabled || index === draft.segments.length - 1} size="icon" variant="ghost" type="button" aria-label={'Move segment ' + (index + 1) + ' down'} onClick={() => move(index, 1)}><ArrowDown className="size-4" /></Button>
                   <Button disabled={disabled || draft.segments.length === 1} size="icon" variant="ghost" type="button" aria-label={'Remove segment ' + (index + 1)} onClick={() => {

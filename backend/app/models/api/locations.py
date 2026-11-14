@@ -4,6 +4,7 @@ from typing import Self, TypeAlias
 from pydantic import BaseModel, ConfigDict, Field
 
 from models.database.locations import Location
+from services.timezone_service import resolve_timezone
 
 
 class LocationPlaceInput(BaseModel):
@@ -30,6 +31,9 @@ class LocationResponse(BaseModel):
     country_code: str
     region: str
     full_name: str
+    timezone: str = Field(
+        description='IANA time zone at the coordinates, worked out per response.',
+    )
 
     @classmethod
     def from_model(cls, location: Location) -> Self:
@@ -41,4 +45,5 @@ class LocationResponse(BaseModel):
             country_code=location.country_code,
             region=location.region,
             full_name=location.full_name,
+            timezone=resolve_timezone(location.latitude, location.longitude),
         )

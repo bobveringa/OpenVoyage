@@ -87,7 +87,7 @@ describe('automatic routes after creating a stop', () => {
   it('includes a return connection reanchored to an appended stop', async () => {
     const returning = makeConnection('return', 'new', 'outside')
     returning.to = { type: 'LOCATION', location: {
-      id: 'outside', name: 'Home', full_name: 'Home', region: '', country_code: 'NL', latitude: 52, longitude: 5,
+      id: 'outside', name: 'Home', full_name: 'Home', region: '', country_code: 'NL', timezone: 'Europe/Amsterdam', latitude: 52, longitude: 5,
     } }
     respond({ ...returning, segments: [{ ...returning.segments[0], route_state: 'READY' }] }, 4)
     await calculate(snapshot([returning]))
