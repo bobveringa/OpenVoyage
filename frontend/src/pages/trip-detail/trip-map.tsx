@@ -79,7 +79,7 @@ type RouteSegment = {
   transfer?: AirportTransfer
   connectionId?: string
   segmentIndex?: number
-  /** A faint dotted join from a route end cut at a privacy zone to its stop pin. */
+  /** A faint dotted join from a route endpoint to its stop pin. */
   joiner?: boolean
 }
 
@@ -1583,9 +1583,7 @@ function getItineraryRouteSegments(
         })
       }
     }
-    // A route that starts or ends at a stay (or where a privacy buffer cut it)
-    // is joined to its stop pin, so a stop with two stays still reads as one
-    // trip. The live journey line guides the current leg instead.
+    // Join route endpoints to their stop pins. The live journey line guides the current leg.
     if (!current) segments.push(...stopJoiners(segments.slice(firstOfConnection), connection, fromStop, toStop))
   }
 

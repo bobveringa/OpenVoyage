@@ -132,7 +132,7 @@ export function StopDetailCard({
         <StopDatesBar disabled={disabled} onUpdate={(update) => onUpdate(stop.id, update)} stop={stop} />
         <StopNotesEditor disabled={disabled} key={stop.id} onSaved={onNotesSaved} stop={stop} />
         {children}
-        <StopMarker disabled={disabled} key={stop.id} onUpdate={(update) => onUpdate(stop.id, update)} stop={stop} />
+        <StopMarker disabled={disabled} key={`${stop.id}:marker`}onUpdate={(update) => onUpdate(stop.id, update)} stop={stop} />
       </div>
     </section>
   )

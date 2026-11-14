@@ -259,6 +259,9 @@ def test_viewers_and_share_links_can_never_read_or_change_stays(
     client, db_session, api_prefix, visibility
 ):
     plan = Plan(client, db_session, api_prefix, visibility=visibility)
+    before_stay = client.get(plan.base + '/overview', headers=auth(plan.owner))
+    assert before_stay.status_code == 200, before_stay.text
+    assert planning_body(before_stay)['connections']
     plan.add_stay(
         name='Secret Hotel QZ77',
         status='BOOKED',
@@ -281,8 +284,6 @@ def test_viewers_and_share_links_can_never_read_or_change_stays(
     readers = {'viewer': auth(viewer), 'share': share, 'outsider': auth(outsider), 'anonymous': {}}
 
     secrets = ['Secret Hotel', 'QZ77', 'Secret street', '41.4041', '2.1755', '600 000', 'stays']
-    # Overview routes may end at the stay's pin (section 4); its details never show.
-    details = [secret for secret in secrets if not secret[0].isdigit()]
     for name, headers in readers.items():
         for path in ('', f'/stops/{stop_id}'):
             response = client.get(plan.base + path, headers=headers)
@@ -290,7 +291,7 @@ def test_viewers_and_share_links_can_never_read_or_change_stays(
             assert not any(secret in response.text for secret in secrets)
         overview = client.get(plan.base + '/overview', headers=headers)
         if overview.status_code == 200:
-            assert not any(secret in overview.text for secret in details), name
+            assert not any(secret in overview.text for secret in secrets), name
         writes = [
             client.post(plan.base + '/stays', headers=headers | {'If-Match': f'"{plan.revision}"'},
                         json={'stop_id': stop_id, 'stay_type': 'HOTEL', 'name': 'X',
@@ -300,7 +301,7 @@ def test_viewers_and_share_links_can_never_read_or_change_stays(
             client.delete(f'{plan.base}/stays/{stay_id}', headers=headers | {'If-Match': f'"{plan.revision}"'}),
         ]
         assert all(write.status_code in (401, 403, 404) for write in writes), name
-    # The owner's overview never carries stays either.
     owner_overview = client.get(plan.base + '/overview', headers=auth(plan.owner))
-    assert not any(secret in owner_overview.text for secret in details)
+    assert owner_overview.status_code == 200, owner_overview.text
+    assert planning_body(owner_overview) == planning_body(before_stay)
     assert plan.stays() == [('Secret Hotel QZ77', 'BOOKED', '2026-10-03', '2026-10-05')]

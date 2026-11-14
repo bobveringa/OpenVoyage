@@ -54,14 +54,11 @@ metadata-only edits do not trigger calculation.
 The public map overview continues to expose only its explicit allowlist;
 structured warnings, notes, schedules, and other planning details stay private.
 
-## Stays and route privacy
+## Stays
 
-Stays are planning data for members only. Routes always start and end at the
-stop's town, and stays never reach the public overview.
-
-The overview trims each line's first and last point out of every member's GPS
-privacy zone (`route_privacy.py`). A line that only passes through a zone stays
-whole; a line entirely inside one zone is left out.
+Stay details are planning data for members only. Adding or editing a stay
+leaves the stop marker and its routes in place. Members can move the stop
+marker separately, including to a stay location.
 
 ## Schema and generated clients
 

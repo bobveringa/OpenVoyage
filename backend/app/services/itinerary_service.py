@@ -173,14 +173,6 @@ class ItineraryService:
         )
         return self._load_itinerary_snapshot(trip=access.trip)
 
-    def route_privacy(self, trip_id: uuid.UUID) -> list[tuple[float, float, int]]:
-        """Every member's GPS privacy zones."""
-        from services.gps.privacy_zone_service import GpsPrivacyZoneService
-
-        return GpsPrivacyZoneService(self.db).list_trip_member_zone_coordinates(
-            trip_id=trip_id
-        )
-
     def create_stop(
         self,
         trip_id: uuid.UUID,

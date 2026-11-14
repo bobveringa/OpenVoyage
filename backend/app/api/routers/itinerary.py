@@ -142,11 +142,8 @@ def get_route_overview(
     except Exception as exc:
         _raise_http_error(exc)
     response.headers['Cache-Control'] = 'private, no-store'
-    zones = itinerary_service.route_privacy(trip_id)
     return RouteOverviewResponse.from_snapshot(
-        snapshot,
-        itinerary_service.route_service.resolve_route_response,
-        privacy_zones=zones,
+        snapshot, itinerary_service.route_service.resolve_route_response,
     )
 
 
