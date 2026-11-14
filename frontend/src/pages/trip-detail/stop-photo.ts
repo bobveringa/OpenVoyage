@@ -8,9 +8,8 @@ import { PlanningSessionContext } from './planning-session'
 const CACHE_MS = 60 * 60 * 1000
 const cache = new Map<string, { photo: StopPhoto | null; at: number }>()
 
-function cacheKey(stop: Pick<Stop, 'id' | 'location'>) {
-  // A new location means a new town, so a new photo.
-  return `${stop.id}:${stop.location.id}`
+function cacheKey(stop: Pick<Stop, 'id' | 'original_location'>) {
+  return `${stop.id}:${stop.original_location.id}`
 }
 
 /** For tests. */
@@ -28,7 +27,7 @@ export function formatPhotoCredit(photo: Pick<StopPhoto, 'credit' | 'license'>) 
  * The header photo for a stop, or null while it loads and when the stop gets
  * the designed header. Never blocks the card: failures just keep the pattern.
  */
-export function useStopPhoto(stop: Pick<Stop, 'id' | 'location' | 'trip_id'>): StopPhoto | null {
+export function useStopPhoto(stop: Pick<Stop, 'id' | 'original_location' | 'trip_id'>): StopPhoto | null {
   const { accessToken } = useContext(PlanningSessionContext)
   const key = cacheKey(stop)
   const [result, setResult] = useState<{ key: string; photo: StopPhoto | null } | null>(null)

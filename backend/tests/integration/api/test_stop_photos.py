@@ -152,6 +152,44 @@ def test_a_map_click_stop_uses_the_nearest_big_town_within_10_km(plan, wikipedia
     assert plan.photo(far).json() is None
 
 
+def test_a_map_click_in_a_city_district_uses_the_city_photo(plan, wikipedia, db_session):
+    district = create_place(
+        db_session, name='Eindhoven district', latitude=51.45, longitude=5.48,
+        country_code='NL', population=50_000,
+    )
+    # Some districts are imported as populated places, just like their city.
+    district.feature_code = 'PPL'
+    district.wikipedia_title = 'Eindhoven district'
+    db_session.commit()
+
+    stop = plan.add_stop({'latitude': district.latitude, 'longitude': district.longitude})
+
+    assert stop['location']['name'] == 'Eindhoven'
+    assert f'/places/{plan.town.id}/photo?' in plan.photo(stop).json()['url']
+    assert [title for action, title in wikipedia.calls if action == 'lead'] == ['Eindhoven']
+
+
+def test_moving_a_map_click_stop_to_another_town_keeps_the_original_photo(plan, wikipedia, db_session):
+    neighbour = create_place(
+        db_session, name='Veldhoven', latitude=51.418, longitude=5.404,
+        country_code='NL', population=45_000,
+    )
+    neighbour.wikipedia_title = 'Veldhoven'
+    db_session.commit()
+    stop = plan.add_stop({'latitude': EINDHOVEN[0], 'longitude': EINDHOVEN[1]})
+
+    response = plan.client.patch(
+        f'{plan.base}/stops/{stop["id"]}', headers=auth(plan.owner, plan.revision),
+        json={'marker': {'latitude': neighbour.latitude, 'longitude': neighbour.longitude}},
+    )
+
+    assert response.status_code == 200, response.text
+    [moved_stop] = planning_body(response)['stops']
+    assert moved_stop['location']['id'] != moved_stop['original_location']['id']
+    assert f'/places/{plan.town.id}/photo?' in plan.photo(moved_stop).json()['url']
+    assert [title for action, title in wikipedia.calls if action == 'lead'] == ['Eindhoven']
+
+
 def test_small_places_get_the_designed_header_without_asking_wikipedia(plan, wikipedia, db_session):
     village = create_place(db_session, name='Liempde', latitude=51.57, longitude=5.37, population=4_000)
     village.wikipedia_title = 'Liempde'

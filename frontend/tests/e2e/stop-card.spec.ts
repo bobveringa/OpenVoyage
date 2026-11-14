@@ -286,6 +286,7 @@ test('the marker moves to the only stay and back without touching travel', async
   await expect(marker.getByText('At the centre of Barcelona')).toBeVisible()
   await expect(sharedPin).toHaveCount(0)
   expect(calls.patches).toEqual([{ marker: { latitude: 41.3866, longitude: 2.1963 } }, { marker: null }])
+  expect(calls.photos.filter((path) => path.endsWith('/stops/b/photo'))).toHaveLength(1)
 })
 
 for (const mobile of [false, true]) {

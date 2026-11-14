@@ -613,7 +613,7 @@ class PlaceService:
             .limit(1)
         ).first()
 
-    def nearest_town(
+    def town_for_photo(
         self,
         latitude: float,
         longitude: float,
@@ -621,8 +621,14 @@ class PlaceService:
         min_population: int,
         max_distance_km: float,
     ) -> Place | None:
-        """The nearest town of at least ``min_population`` people (header photos)."""
+        """Prefer the same containing town as reverse geocoding, then look nearby."""
         distance_km = _distance_km_expression(latitude=latitude, longitude=longitude)
+        containing = self._containing_town(latitude, longitude, distance_km)
+        if containing is not None:
+            town, distance = containing
+            if town.population >= min_population and distance <= max_distance_km:
+                return town
+
         return self.db.scalar(
             _near(select(Place), latitude, longitude, max_distance_km)
             .where(

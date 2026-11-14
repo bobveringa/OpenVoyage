@@ -274,7 +274,7 @@ def get_stop_photo(
     except Exception as exc:
         _raise_http_error(exc)
     response.headers['Cache-Control'] = 'private, no-store'
-    photo = photo_service.photo_for_location(stop.location)
+    photo = photo_service.photo_for_location(stop.original_location)
     if photo is None:
         return None
     file_url = request.url_for('get_place_photo_file', place_id=str(photo.place_id))

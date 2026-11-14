@@ -192,7 +192,7 @@ class PlacePhotoService:
         return self._fetch(town)
 
     def town_for(self, location: Location) -> Place | None:
-        """The place picked in search, or the nearest big town to a map click.
+        """The place picked in search, or a nearby city for a map click.
 
         Locations are never changed for this: a stored town would make a hotel
         pin and its town look like the same point to the route checks.
@@ -202,7 +202,7 @@ class PlacePhotoService:
             if place is None or place.population < PHOTO_MIN_POPULATION:
                 return None
             return place
-        return self.place_service.nearest_town(
+        return self.place_service.town_for_photo(
             location.latitude,
             location.longitude,
             min_population=PHOTO_MIN_POPULATION,
