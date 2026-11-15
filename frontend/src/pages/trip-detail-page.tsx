@@ -1059,7 +1059,7 @@ export function TripDetailPage({
     runStayMutation('Removing stay', (token, id) => deleteStay({ accessToken: token, itineraryRevision, stayId, tripId: id }))
   }
   function handleMoveTripEnd(endDate: string) {
-    if (!tripId || !accessToken) return
+    if (!canManageTrip || !tripId || !accessToken) return
     const [token, id] = [accessToken, tripId]
     void runMutation('Moving trip end', async () => {
       setTrip(toTripViewModel(await updateTrip({ accessToken: token, payload: { end_date: endDate }, tripId: id })))
@@ -1831,7 +1831,7 @@ export function TripDetailPage({
                 onStopUpdate: handleStopUpdate,
                 onStopNotesSaved: handleStopNotesSaved,
                 tripEndDate: trip.endDate || null,
-                onMoveTripEnd: handleMoveTripEnd,
+                onMoveTripEnd: canManageTrip ? handleMoveTripEnd : undefined,
                 onStayCreate: handleStayCreate,
                 onStayUpdate: handleStayUpdate,
                 onStayDelete: handleStayDelete,

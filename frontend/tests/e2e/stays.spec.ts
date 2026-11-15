@@ -38,7 +38,7 @@ type Calls = {
 type AddressAnswer = { status: number; body: unknown; delayMs?: number }
 const HOTEL_ARTS = { name: 'Hotel Arts Barcelona', address: 'Carrer de la Marina 19-21, 08005 Barcelona, Spain', latitude: 41.3866, longitude: 2.1963 }
 
-async function openTrip(page: Page, { endDate = '2026-10-20', mobile = false, addressProvider = 'none', addressAnswer = (query: string): AddressAnswer => ({ status: 200, body: query.includes('arts') ? [HOTEL_ARTS] : [] }) } = {}) {
+async function openTrip(page: Page, { endDate = '2026-10-20', mobile = false, tripRole = 'OWNER', addressProvider = 'none', addressAnswer = (query: string): AddressAnswer => ({ status: 200, body: query.includes('arts') ? [HOTEL_ARTS] : [] }) } = {}) {
   await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 960 })
   const token = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url')
   await seedAuthTokens(page, { access_token: `test.${token}.sig`, id_token: 'id', refresh_token: 'refresh', token_type: 'bearer' })
@@ -77,7 +77,7 @@ async function openTrip(page: Page, { endDate = '2026-10-20', mobile = false, ad
       }
       return json(trip)
     }
-    if (path.endsWith('/members')) return json([{ role: 'OWNER', user_id: 'owner', user: creator, trip_id: 'trip' }])
+    if (path.endsWith('/members')) return json([{ role: tripRole, user_id: 'owner', user: creator, trip_id: 'trip' }])
     if (path.endsWith('/posts/timeline')) return json({ entries: [], opening_route: null })
     if (path.endsWith('/viewers') || path.endsWith('/share-links')) return json([])
     if (path.endsWith('/itinerary') || path.endsWith('/itinerary/overview')) return json(itinerary)
@@ -213,6 +213,13 @@ test('a booked stay that no longer fits is flagged, and the trip end can follow 
   await page.locator('[data-stop-row="b"]').getByRole('button', { name: /Move trip end to/ }).click()
   await expect.poll(() => calls.trip).toEqual([{ end_date: '2026-10-07' }])
   await expect(page.locator('[data-stop-row="b"]')).not.toContainText('Ends after the trip')
+})
+
+test('members see the trip-end warning without the owner action', async ({ page }) => {
+  await openTrip(page, { endDate: '2026-10-05', tripRole: 'MEMBER' })
+  const lastStop = page.locator('[data-stop-row="b"]')
+  await expect(lastStop).toContainText('Ends after the trip')
+  await expect(lastStop.getByRole('button', { name: /Move trip end to/ })).toHaveCount(0)
 })
 
 test('deleting a stop with a booked stay asks first', async ({ page }) => {

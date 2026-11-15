@@ -50,9 +50,10 @@ export function createNotesAutosave(options: {
 }) {
   const delayMs = options.delayMs ?? 1000
   let savedNotes = options.notes
+  let draftNotes = options.notes
   let basedOn = options.basedOn
-  let pending: string | null = null
   let saving = false
+  let keepaliveRequested = false
   let timer: ReturnType<typeof setTimeout> | null = null
   let state: NotesAutosaveState = { status: 'idle', replacedBy: null }
 
@@ -66,21 +67,24 @@ export function createNotesAutosave(options: {
     timer = null
   }
 
-  async function send(keepalive: boolean) {
-    const notes = pending
-    if (notes === null) return
+  async function send() {
+    if (saving || draftNotes === savedNotes) return
+    const notes = draftNotes
+    const keepalive = keepaliveRequested
+    keepaliveRequested = false
     saving = true
     setState({ status: 'saving' })
     try {
       const result = await options.save(notes, basedOn, keepalive)
       savedNotes = result.notes
       basedOn = result.notes_updated_at
-      if (pending === notes) pending = null
       saving = false
+      const hasPendingDraft = draftNotes !== savedNotes
+      if (!hasPendingDraft) keepaliveRequested = false
       // The notice stays until the card closes, so it isn't missed.
-      setState({ status: pending === null ? 'saved' : 'saving', replacedBy: state.replacedBy ?? result.replaced_change_by })
+      setState({ status: hasPendingDraft ? 'saving' : 'saved', replacedBy: state.replacedBy ?? result.replaced_change_by })
       options.onSaved(result)
-      if (pending !== null) void send(false)
+      if (hasPendingDraft) void send()
     } catch {
       saving = false
       setState({ status: 'failed' })
@@ -90,36 +94,39 @@ export function createNotesAutosave(options: {
   return {
     change(notes: string) {
       clearTimer()
-      pending = notes === savedNotes ? null : notes
-      if (pending === null) {
+      draftNotes = notes
+      if (saving || draftNotes === savedNotes) {
         if (!saving && state.status === 'failed') setState({ status: 'saved' })
         return
       }
       timer = setTimeout(() => {
         timer = null
-        if (!saving) void send(false)
+        void send()
       }, delayMs)
     },
     /** Save now, for example when the card closes. */
     flush(keepalive = false) {
       clearTimer()
-      if (pending === null) return
-      // At tab close the earlier request may not survive; send again.
-      if (!saving || keepalive) void send(keepalive)
+      if (!saving && draftNotes === savedNotes) return
+      // A close can request keepalive for the next save, while the current
+      // request finishes before another write goes out.
+      keepaliveRequested ||= keepalive
+      void send()
     },
     retry() {
       clearTimer()
-      if (!saving) void send(false)
+      void send()
     },
     /** Adopt notes from a reload, unless there are unsaved changes. */
     sync(notes: string, notesUpdatedAt: string | null) {
-      if (pending !== null || saving) return false
+      if (saving || draftNotes !== savedNotes) return false
       savedNotes = notes
+      draftNotes = notes
       basedOn = notesUpdatedAt
       return true
     },
     get hasUnsavedChanges() {
-      return pending !== null
+      return saving || draftNotes !== savedNotes
     },
   }
 }

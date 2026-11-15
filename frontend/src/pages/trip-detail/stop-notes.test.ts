@@ -65,6 +65,37 @@ describe('createNotesAutosave', () => {
     expect(save).not.toHaveBeenCalled()
   })
 
+  it('saves a return to the previous text after an in-flight edit succeeds', async () => {
+    const { autosave, save, states } = setup()
+    autosave.change('first edit')
+    autosave.flush()
+    autosave.change('start')
+
+    expect(autosave.hasUnsavedChanges).toBe(true)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(save).toHaveBeenNthCalledWith(2, 'start', 't-first edit', false)
+    expect(autosave.hasUnsavedChanges).toBe(false)
+    expect(last(states)?.status).toBe('saved')
+  })
+
+  it('waits for the in-flight write before flushing the newest draft with keepalive', async () => {
+    const { autosave, save, saved } = setup()
+    autosave.change('first edit')
+    autosave.flush()
+    autosave.change('latest edit')
+    autosave.flush(true)
+    autosave.flush(true)
+
+    expect(save).toHaveBeenCalledExactlyOnceWith('first edit', 't0', false)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenNthCalledWith(2, 'latest edit', 't-first edit', true)
+    expect(last(saved)?.notes).toBe('latest edit')
+    expect(autosave.hasUnsavedChanges).toBe(false)
+  })
+
   it('flushes immediately with keepalive when the tab closes', async () => {
     const { autosave, save } = setup()
     autosave.change('last words')

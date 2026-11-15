@@ -53,7 +53,7 @@ export type StopCardControls = {
   onStopUpdate: (stopId: string, update: StopUpdate) => void
   onStopNotesSaved: (stopId: string, notes: StopNotes) => void
   tripEndDate: string | null
-  onMoveTripEnd: (endDate: string) => void
+  onMoveTripEnd?: (endDate: string) => void
   onStayCreate: (payload: StayCreatePayload) => void
   onStayUpdate: (stayId: string, payload: StayUpdatePayload) => void
   onStayDelete: (stayId: string) => void

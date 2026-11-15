@@ -114,7 +114,7 @@ export function PlanningPanel({
   onOpenStop: (stopId: string) => void
   onCloseStop: () => void
   tripEndDate: StopCardControls['tripEndDate']
-  onMoveTripEnd: StopCardControls['onMoveTripEnd']
+  onMoveTripEnd?: StopCardControls['onMoveTripEnd']
   onStayCreate: StopCardControls['onStayCreate']
   onStayUpdate: StopCardControls['onStayUpdate']
   onStayDelete: StopCardControls['onStayDelete']
@@ -719,7 +719,7 @@ function StopRow({
   onChange: (stopId: string, update: StopUpdate) => void
   onDelete: (stopId: string) => void
   onHover: (stopId: string | null) => void
-  onMoveTripEnd: (endDate: string) => void
+  onMoveTripEnd?: (endDate: string) => void
   onOpen: (stopId: string) => void
   status: StopStayStatus
   stop: Stop
@@ -873,7 +873,7 @@ function StopRow({
             ) : (
               <span className="block" key={warning.kind + warning.message}>
                 <WarningLine message={warning.message} />
-                {warning.moveTripEndTo ? (
+                {warning.moveTripEndTo && onMoveTripEnd ? (
                   <Button className="mt-1 h-7 rounded-full px-2.5 text-xs" disabled={disabled}
                     onClick={() => onMoveTripEnd(warning.moveTripEndTo!)} size="sm" type="button" variant="outline">
                     Move trip end to {formatStopDateLabel(warning.moveTripEndTo)}
