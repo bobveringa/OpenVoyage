@@ -1,17 +1,14 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
-import { existsSync, readFileSync } from 'node:fs'
 import type { Itinerary, ItineraryStop } from '../../src/api/client'
 import { seedAuthTokens } from './helpers/auth'
 
 const timestamp = '2026-10-20T12:00:00Z'
 const creator = { id: 'owner', first_name: 'Route', last_name: 'Tester', username: 'tester' }
 const artifacts = '../private/artifacts/stop-card'
-// The screenshot uses a real example photo when it's around (it's git-ignored);
-// otherwise a 1×1 PNG keeps the test working.
-const examplePhoto = '../private/artifacts/stop-header-examples/eindhoven-wp.jpg'
-const photoBody = existsSync(examplePhoto)
-  ? { body: readFileSync(examplePhoto), contentType: 'image/jpeg' }
-  : { body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'), contentType: 'image/png' }
+const photoBody = {
+  body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'),
+  contentType: 'image/png',
+}
 
 function stop(id: string, name: string, start: string, nights: number, latitude: number, longitude: number, region: string, country: string): ItineraryStop {
   return {
@@ -214,22 +211,36 @@ test('mobile stop card is a full-screen page with a back button', async ({ page 
 
 test('a big town fades its Wikipedia photo in over the designed header, with the credit', async ({ page }) => {
   const { calls } = await openTrip(page)
+  let releasePhoto!: () => void
+  const allowPhoto = new Promise<void>((resolve) => { releasePhoto = resolve })
+  await page.route(/\/places\/eindhoven\/photo\?/, async (route) => {
+    await allowPhoto
+    await route.fallback()
+  })
   await page.locator('[data-stop-row="a"] [data-stop-open]').click()
   const eindhoven = page.getByRole('region', { name: 'Eindhoven, stop details' })
   const header = eindhoven.locator('header')
-  // The designed header shows straight away; the photo lands on top of it.
-  await expect(eindhoven.getByTestId('stop-header-pattern')).toBeVisible()
   const photo = eindhoven.getByTestId('stop-header-photo')
-  await expect(photo).toBeVisible()
-  await expect(photo.locator('xpath=..')).toHaveClass(/opacity-100/)
-  // Wait for the fade to finish.
-  await expect.poll(() => photo.locator('xpath=..').evaluate((element) => getComputedStyle(element).opacity)).toBe('1')
+  const photoLayer = photo.locator('xpath=..')
+  try {
+    await expect(eindhoven.getByTestId('stop-header-pattern')).toBeVisible()
+    await expect(photoLayer).toHaveCSS('opacity', '0')
+  } finally {
+    releasePhoto()
+  }
+  await expect(photo).toHaveJSProperty('naturalWidth', 1)
+  await expect(photoLayer).toHaveCSS('opacity', '1')
+  const photoRequests = () => calls.photos.filter((path) => path.endsWith('/stops/a/photo')).length
+  const requestsOnOpen = photoRequests()
+  expect(requestsOnOpen).toBeGreaterThan(0)
+
   expect((await header.boundingBox())!.height).toBeCloseTo(216, 0)
   const credit = eindhoven.getByRole('link', { name: 'Photo: Example Photographer · CC BY-SA 4.0' })
   await expect(credit).toHaveAttribute('href', 'https://commons.wikimedia.org/wiki/File:Eindhoven.jpg')
   await expect(credit).toHaveAttribute('target', '_blank')
   // The credit sits bottom right, below the name, which keeps its full width.
   const name = eindhoven.getByRole('button', { name: 'Eindhoven, rename stop' })
+  await page.evaluate(() => document.fonts.ready.then(() => undefined))
   const [nameBox, creditBox, headerBox] = await Promise.all([name.boundingBox(), credit.boundingBox(), header.boundingBox()])
   expect(creditBox!.y).toBeGreaterThanOrEqual(nameBox!.y + nameBox!.height - 1)
   expect(headerBox!.x + headerBox!.width - (creditBox!.x + creditBox!.width)).toBeLessThan(24)
@@ -245,8 +256,8 @@ test('a big town fades its Wikipedia photo in over the designed header, with the
 
   // Coming back uses the answer it already has.
   await page.locator('[data-stop-row="a"] [data-stop-open]').click()
-  await expect(eindhoven.getByTestId('stop-header-photo')).toBeVisible()
-  expect(calls.photos.filter((path) => path.endsWith('/stops/a/photo'))).toHaveLength(1)
+  await expect(photoLayer).toHaveCSS('opacity', '1')
+  expect(photoRequests()).toBe(requestsOnOpen)
 })
 
 test('the marker moves to the only stay and back without touching travel', async ({ page }) => {

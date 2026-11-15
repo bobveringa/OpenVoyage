@@ -7,11 +7,6 @@ import { getTravelModeLabel } from '@/pages/trip-detail/shared-utils'
 import { clockChangeHint, travelLineSummary } from './stop-timeline-utils'
 import type { useStopDrag } from './use-stop-drag'
 
-// Both are being tried (spec section 6). Set either to false to go back to
-// the wide "Add stop here" buttons or the full connection card.
-export const SMALL_ADD_BUTTONS = true
-export const SLIM_TRAVEL_LINE = true
-
 /** The space between two stops: the timeline, a small + and the travel line. */
 export function TimelineGap({
   addLabel,
@@ -22,24 +17,22 @@ export function TimelineGap({
   addLabel: string
   children?: React.ReactNode
   disabled: boolean
-  onAdd?: () => void
+  onAdd: () => void
 }) {
   return (
     <div className="grid grid-cols-[3.25rem_1fr] items-center gap-3 px-1">
       <div className="flex flex-col items-center">
         <span className="h-2 w-px bg-border" />
-        {onAdd ? (
-          <button
-            aria-label={addLabel}
-            className="grid size-6 place-items-center rounded-full border border-border bg-card text-primary shadow-sm transition-colors hover:border-primary hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={disabled}
-            onClick={onAdd}
-            title={addLabel}
-            type="button"
-          >
-            <Plus className="size-3.5" aria-hidden="true" />
-          </button>
-        ) : <span className="h-2 w-px bg-border" />}
+        <button
+          aria-label={addLabel}
+          className="grid size-6 place-items-center rounded-full border border-border bg-card text-primary shadow-sm transition-colors hover:border-primary hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={disabled}
+          onClick={onAdd}
+          title={addLabel}
+          type="button"
+        >
+          <Plus className="size-3.5" aria-hidden="true" />
+        </button>
         <span className="h-2 w-px bg-border" />
       </div>
       <div className="min-w-0">{children}</div>

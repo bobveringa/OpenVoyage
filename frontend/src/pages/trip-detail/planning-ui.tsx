@@ -68,8 +68,6 @@ import { ConnectionRemovalDialog } from './connection-removal-dialog'
 import {
   DragHandle,
   DropIndicator,
-  SLIM_TRAVEL_LINE,
-  SMALL_ADD_BUTTONS,
   TimelineGap,
   TravelLine,
 } from './stop-timeline'
@@ -204,7 +202,6 @@ export function PlanningPanel({
     onMove: (stopId, placement) => onStopUpdate(stopId, { placement }),
     stops,
   })
-  const compactTimeline = SMALL_ADD_BUTTONS && SLIM_TRAVEL_LINE
   const openedStop = stops.find((stop) => stop.id === openStopId) ?? null
   const stayStatuses = useMemo(
     () => stops.map((_, index) => getStopStayStatus(stops, index, tripEndDate)),
@@ -256,7 +253,7 @@ export function PlanningPanel({
         </p>
       </div>
 
-      <div className={compactTimeline ? 'space-y-1' : 'space-y-3'} ref={listRef}>
+      <div className="space-y-1" ref={listRef}>
         {stops.length === 0 ? (
           <StopInsertButton
             disabled={addStopDisabled}
@@ -299,28 +296,14 @@ export function PlanningPanel({
                 status={stayStatuses[index]!}
                 stop={stop}
               />
-              {!SLIM_TRAVEL_LINE && nextStop && connection ? (
-                <ConnectionCard
-                  fromStop={stop}
-                  connection={connection}
-                  disabled={!canMutate || isMutating}
-                  onEdit={editConnection}
-                  toStop={nextStop}
-                />
-              ) : null}
-              {SMALL_ADD_BUTTONS || (SLIM_TRAVEL_LINE && nextStop && connection) ? (
-                <TimelineGap addLabel={addLabel} disabled={addStopDisabled} onAdd={SMALL_ADD_BUTTONS ? addStop : undefined}>
-                  {SLIM_TRAVEL_LINE && nextStop && connection ? (
-                    <TravelLine connection={connection} disabled={!canMutate || isMutating}
-                      fromStop={stop} onEdit={editConnection} toStop={nextStop} />
-                  ) : !nextStop && SMALL_ADD_BUTTONS ? (
-                    <span className="text-xs text-muted-foreground">Add a stop</span>
-                  ) : null}
-                </TimelineGap>
-              ) : null}
-              {!SMALL_ADD_BUTTONS ? (
-                <StopInsertButton disabled={addStopDisabled} label={addLabel} onClick={addStop} />
-              ) : null}
+              <TimelineGap addLabel={addLabel} disabled={addStopDisabled} onAdd={addStop}>
+                {nextStop && connection ? (
+                  <TravelLine connection={connection} disabled={!canMutate || isMutating}
+                    fromStop={stop} onEdit={editConnection} toStop={nextStop} />
+                ) : !nextStop ? (
+                  <span className="text-xs text-muted-foreground">Add a stop</span>
+                ) : null}
+              </TimelineGap>
             </Fragment>
           )
         })}

@@ -1,5 +1,6 @@
 """Effective anchors shared by planning, reconciliation and response construction."""
 
+
 def endpoint_location(connection, side):
     stop = getattr(connection, f'{side}_stop', None)
     return stop.location if stop is not None else getattr(connection, f'{side}_location')

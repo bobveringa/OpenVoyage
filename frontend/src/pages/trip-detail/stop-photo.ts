@@ -12,11 +12,6 @@ function cacheKey(stop: Pick<Stop, 'id' | 'original_location'>) {
   return `${stop.id}:${stop.original_location.id}`
 }
 
-/** For tests. */
-export function clearStopPhotoCache() {
-  cache.clear()
-}
-
 /** "Photo: Diego Delso · CC BY-SA 3.0" */
 export function formatPhotoCredit(photo: Pick<StopPhoto, 'credit' | 'license'>) {
   const parts = [photo.credit, photo.license].filter(Boolean)
