@@ -13,9 +13,10 @@ const api = vi.hoisted(() => ({ previewConnection: vi.fn(), lookupFlight: vi.fn(
 vi.mock('@/api/client', async (original) => ({ ...await original<typeof import('@/api/client')>(), ...api }))
 const stop: Stop = {
   id: 'first', trip_id: 'trip', title: 'Amsterdam', planned_start_date: '2026-11-18', planned_nights: 2,
-  notes: '', same_day_position: 0, visited: false, created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z',
+  notes: '', notes_updated_at: null, stays: [], visited: false, created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z',
   created_by: { id: 'owner', first_name: null, last_name: null, username: null },
-  location: { id: 'amsterdam', latitude: 52.37, longitude: 4.9, name: 'Amsterdam', full_name: 'Amsterdam', region: '', country_code: 'NL' },
+  location: { id: 'amsterdam', latitude: 52.37, longitude: 4.9, name: 'Amsterdam', full_name: 'Amsterdam', region: '', country_code: 'NL', timezone: 'Europe/Amsterdam' },
+  original_location: { id: 'amsterdam', latitude: 52.37, longitude: 4.9, name: 'Amsterdam', full_name: 'Amsterdam', region: '', country_code: 'NL', timezone: 'Europe/Amsterdam' },
 }
 let container: HTMLDivElement
 let panelHost: HTMLDivElement
@@ -45,7 +46,9 @@ function Harness({ connections = [], canMutate = true, saving = false, saveError
   } }, createElement(ClockFormatContext.Provider, { value: { preference: '24-hour', setPreference: noop } },
     createElement(PlanningPanel, {
       canMutate, isMutating: saving, stops: [stop], tripStartDate: '2026-11-18', connections: connections, pendingAction: null,
-      onAddStop: noop, onRefreshConnectionRoute: noop, onStopChange: noop, onStopDelete: noop, onStopSave: noop,
+      onAddStop: noop, onRefreshConnectionRoute: noop, onStopDelete: noop, onStopUpdate: noop, onStopNotesSaved: noop,
+      openStopId: null, onOpenStop: noop, onCloseStop: noop, tripEndDate: null, onMoveTripEnd: noop,
+      onStayCreate: noop, onStayUpdate: noop, onStayDelete: noop, onStayHover: noop, highlightedStopId: null, onStopHover: noop,
       onConnectionSave: save, onConnectionCreate: create, onConnectionDelete: remove,
     })))
 }

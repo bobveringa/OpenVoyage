@@ -32,6 +32,7 @@ from services.gps.tracking_service import GpsTrackingService
 from services.job_service import JobService
 from services.itinerary_routes import ItineraryRouteService
 from services.app_settings_service import AppSettingsService
+from services.place_photo_service import PlacePhotoService, WikipediaClient
 from services.route_providers import RouteProviderBase, RouteProviderFactory
 from services.location_service import LocationService
 from services.media_service import MediaService
@@ -367,6 +368,23 @@ def get_itinerary_service(
     )
 
 
+def get_wikipedia_client() -> WikipediaClient:
+    return WikipediaClient()
+
+
+def get_place_photo_service(
+    session: SessionDep,
+    app_settings_service: AppSettingsServiceDep,
+    client: Annotated[WikipediaClient, Depends(get_wikipedia_client)],
+) -> PlacePhotoService:
+    return PlacePhotoService(
+        db=session,
+        place_service=PlaceService(db=session),
+        app_settings=app_settings_service,
+        client=client,
+    )
+
+
 def get_user_service(session: SessionDep):
     return UserService(db=session)
 
@@ -392,6 +410,7 @@ ItineraryRouteServiceDep = Annotated[
     ItineraryRouteService, Depends(get_itinerary_route_service)
 ]
 ItineraryServiceDep = Annotated[ItineraryService, Depends(get_itinerary_service)]
+PlacePhotoServiceDep = Annotated[PlacePhotoService, Depends(get_place_photo_service)]
 PlaceServiceDep = Annotated[PlaceService, Depends(get_place_service)]
 PostServiceDep = Annotated[PostService, Depends(get_post_service)]
 PostTimelineServiceDep = Annotated[

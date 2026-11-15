@@ -1,22 +1,10 @@
 """Validation for administrator-controlled flight API destinations."""
 
-from urllib.parse import urlsplit
-
-from core.setting_validators.common import validate_http_url
+from core.setting_validators.common import validate_service_base_url
 
 
 def validate_flight_base_url(value: str) -> str:
-    validate_http_url(value)
-    parsed = urlsplit(value)
-    if (
-        parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-        or any(character.isspace() for character in value)
-    ):
-        raise ValueError('Base URL must not include credentials, query, or fragment')
-    return value
+    return validate_service_base_url(value)
 
 
 def validate_flight_interval(value: int) -> int:

@@ -52,7 +52,7 @@ def setup(db_session):
         trip_id=trip.id,
         location_id=location.id,
         planned_start_date=START.date(),
-        same_day_position=0,
+        position=0,
         title='Destination',
         planned_nights=1,
         created_by=owner.id,

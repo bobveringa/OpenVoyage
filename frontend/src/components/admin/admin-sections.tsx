@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Route,
   Save,
+  Search,
   Server,
   ShieldCheck,
   Trash2,
@@ -91,7 +92,20 @@ const SETTING_KEYS = {
   immichEnabled: 'immich.enabled',
   immichAllowedServers: 'immich.allowed_servers',
   immichAllowAnyServer: 'immich.allow_any_server',
+  wikipediaPhotos: 'places.wikipedia_photos',
+  addressSearchProvider: 'address_search.provider',
+  photonBaseUrl: 'address_search.photon_base_url',
+  nominatimBaseUrl: 'address_search.nominatim_base_url',
+  addressGraphHopperBaseUrl: 'address_search.graphhopper_base_url',
+  addressGraphHopperApiKey: 'address_search.graphhopper_api_key',
 } as const
+
+/** Each address search provider has its own URL (and GraphHopper its own key). */
+const ADDRESS_PROVIDER_SETTINGS: Record<string, string[]> = {
+  graphhopper: [SETTING_KEYS.addressGraphHopperBaseUrl, SETTING_KEYS.addressGraphHopperApiKey],
+  nominatim: [SETTING_KEYS.nominatimBaseUrl],
+  photon: [SETTING_KEYS.photonBaseUrl],
+}
 
 const settingPresentations: Record<string, SettingPresentation> = {
   [SETTING_KEYS.flightCheckInterval]: {
@@ -156,7 +170,7 @@ const settingPresentations: Record<string, SettingPresentation> = {
     placeholder: '1',
   },
   [SETTING_KEYS.geonamesDataset]: {
-    help: 'The next GeoNames job execution downloads this supported dataset.',
+    help: 'The next GeoNames job execution downloads this supported dataset, plus the GeoNames alternate names file for other-language names and Wikipedia links. That makes the import a much larger download than the dataset alone.',
     label: 'GeoNames dataset',
     optionLabels: {
       cities500: 'Cities with 500+ people',
@@ -165,6 +179,43 @@ const settingPresentations: Record<string, SettingPresentation> = {
       cities15000: 'Cities with 15,000+ people or capitals',
       allCountries: 'All countries',
     },
+  },
+  [SETTING_KEYS.wikipediaPhotos]: {
+    help: 'Stop cards of towns with about 15,000 people or more show the lead photo of their English Wikipedia article, with its credit. The server fetches each photo once and keeps its own copy, so viewing a trip never contacts Wikipedia. Off gives every stop the designed header.',
+    label: 'Wikipedia header photos',
+  },
+  [SETTING_KEYS.addressSearchProvider]: {
+    help: "Lets trip members search hotels and addresses for their stays. Searches go through this server, so the provider sees the server, not the traveller. It receives the search text and the stop's rough area, or the exact point when someone drops a pin.",
+    label: 'Address search provider',
+    optionLabels: {
+      graphhopper: 'GraphHopper',
+      nominatim: 'Nominatim (searches on Enter)',
+      none: 'Address search off',
+      photon: 'Photon',
+    },
+  },
+  [SETTING_KEYS.photonBaseUrl]: {
+    help: 'Address searches are sent to this Photon server.',
+    inputType: 'url',
+    label: 'Photon base URL',
+    placeholder: 'https://photon.komoot.io',
+  },
+  [SETTING_KEYS.nominatimBaseUrl]: {
+    help: 'Address searches are sent to this Nominatim server. The public server gets at most one request a second, as its usage rules require.',
+    inputType: 'url',
+    label: 'Nominatim base URL',
+    placeholder: 'https://nominatim.openstreetmap.org',
+  },
+  [SETTING_KEYS.addressGraphHopperBaseUrl]: {
+    help: 'Address searches and the key below are sent to this endpoint. A self-hosted GraphHopper for routing usually has no address search.',
+    inputType: 'url',
+    label: 'GraphHopper base URL',
+    placeholder: 'https://graphhopper.com/api/1',
+  },
+  [SETTING_KEYS.addressGraphHopperApiKey]: {
+    help: 'Write-only key for GraphHopper address search, separate from the routing key.',
+    label: 'GraphHopper API key',
+    placeholder: 'Enter a new API key',
   },
   [SETTING_KEYS.immichEnabled]: {
     help: 'Show Immich connections, trip albums, and the post-editor media source.',
@@ -288,6 +339,16 @@ function SettingsAdminSections({
           settings={pickSettings(settingsByKey, [SETTING_KEYS.geonamesDataset])}
           title="GeoNames import"
         />
+        {settingsByKey.has(SETTING_KEYS.wikipediaPhotos) ? (
+          <SettingsGroup
+            description="Choose whether stop cards show a photo of the town."
+            icon={Image}
+            onReset={handleReset}
+            onSave={handleSave}
+            settings={pickSettings(settingsByKey, [SETTING_KEYS.wikipediaPhotos])}
+            title="Header photos"
+          />
+        ) : null}
         <Card>
           <CardContent className="p-5 sm:p-6">
             <p className="text-sm leading-6 text-muted-foreground">
@@ -389,6 +450,7 @@ function SettingsAdminSections({
 
   if (activeSection === 'routing') {
     const routingProvider = settingsByKey.get(SETTING_KEYS.routingProvider)
+    const addressServerSettings = ADDRESS_PROVIDER_SETTINGS[String(settingsByKey.get(SETTING_KEYS.addressSearchProvider)?.value)]
 
     return (
       <section {...panelProps} className="space-y-6">
@@ -434,6 +496,26 @@ function SettingsAdminSections({
             onSave={handleSave}
             settings={pickSettings(settingsByKey, [SETTING_KEYS.flightAwareBaseUrl, SETTING_KEYS.flightAwareApiKey])}
             title="FlightAware AeroAPI"
+          />
+        ) : null}
+        {settingsByKey.has(SETTING_KEYS.addressSearchProvider) ? (
+          <SettingsGroup
+            description="Optional hotel and address search for stays. When it's off, people place a stay by dropping a pin and type the address themselves."
+            icon={Search}
+            onReset={handleReset}
+            onSave={handleSave}
+            settings={pickSettings(settingsByKey, [SETTING_KEYS.addressSearchProvider])}
+            title="Address search"
+          />
+        ) : null}
+        {addressServerSettings ? (
+          <SettingsGroup
+            description="Configure where address searches are sent."
+            icon={Server}
+            onReset={handleReset}
+            onSave={handleSave}
+            settings={pickSettings(settingsByKey, addressServerSettings)}
+            title="Address search server"
           />
         ) : null}
       </section>

@@ -34,12 +34,9 @@ def _stop_payload(
     return {
         'location': _place_location(place),
         'title': title,
-        'notes': '',
         'planned_nights': planned_nights,
-        'placement': {
-            'planned_start_date': planned_start_date,
-            'after_stop_id': after_stop_id,
-        },
+        'planned_start_date': planned_start_date,
+        'placement': {'after_stop_id': after_stop_id},
         'incoming_connection': incoming_connection,
         'outgoing_connection': outgoing_connection,
     }
@@ -74,6 +71,7 @@ def test_itinerary_stop_visited_is_derived_from_departure_date(
             next_place,
             title='Next stop',
             planned_start_date=(today + timedelta(days=1)).isoformat(),
+            after_stop_id=planning_body(current_response)['stops'][0]['id'],
         ),
     )
 

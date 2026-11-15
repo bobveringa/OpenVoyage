@@ -12,6 +12,8 @@ export type TripDetailUrlState = {
   managementSection: TripManagementSection
   editingPostId: string | null
   mode: TripMode
+  /** The stop whose card is open, in Plan mode on the stop list. */
+  openStopId: string | null
   planningView: PlanningView
   travelingView: TravelingView
 }
@@ -61,6 +63,7 @@ export function readTripDetailUrlState(
   const tab = searchParams.get('tab')
   const panel = searchParams.get('panel')
   const postId = searchParams.get('post')
+  const stopId = searchParams.get('stop')
   const dialog = searchParams.get('dialog')
   const section = searchParams.get('section')
   const managementSection = isTripManagementSection(section)
@@ -79,6 +82,7 @@ export function readTripDetailUrlState(
       managementSection,
       editingPostId: panel === 'edit-post' ? postId : null,
       mode,
+      openStopId: stopId || null,
       planningView: panel === 'new-stop' ? 'create-stop' : 'stops',
       travelingView:
         panel === 'new-post'
@@ -100,6 +104,7 @@ export function createDefaultTripDetailUrlState(
     managementSection: 'general',
     editingPostId: null,
     mode: canSwitchModes ? defaultMode : 'traveling',
+    openStopId: null,
     planningView: 'stops',
     travelingView: 'posts',
   }
@@ -135,6 +140,7 @@ export function normalizeTripDetailUrlState(
     managementSection: state.managementSection,
     editingPostId,
     mode,
+    openStopId: mode === 'planning' && planningView === 'stops' ? state.openStopId : null,
     planningView,
     travelingView,
   }
@@ -167,11 +173,15 @@ export function writeTripDetailUrlState(
   url.searchParams.delete('post')
   url.searchParams.delete('dialog')
   url.searchParams.delete('section')
+  url.searchParams.delete('stop')
 
   url.searchParams.set('tab', state.mode === 'planning' ? 'plan' : 'travel')
 
   if (state.mode === 'planning' && state.planningView === 'create-stop') {
     url.searchParams.set('panel', 'new-stop')
+  }
+  if (state.mode === 'planning' && state.planningView === 'stops' && state.openStopId) {
+    url.searchParams.set('stop', state.openStopId)
   }
   if (state.mode === 'traveling' && state.travelingView === 'create-post') {
     url.searchParams.set('panel', 'new-post')
@@ -212,6 +222,7 @@ export function areTripDetailUrlStatesEqual(
     leftState.managementSection === rightState.managementSection &&
     leftState.editingPostId === rightState.editingPostId &&
     leftState.mode === rightState.mode &&
+    leftState.openStopId === rightState.openStopId &&
     leftState.planningView === rightState.planningView &&
     leftState.travelingView === rightState.travelingView
   )

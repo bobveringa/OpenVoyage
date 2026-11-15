@@ -491,8 +491,8 @@ test('shows the cookie banner when enabled and remembers dismissal', async ({ pa
   expect(await page.evaluate(() => localStorage.getItem('openvoyage.cookie-banner.dismissed.v1'))).toBe('true')
 })
 
-async function mockAdminApi(page: Page) {
-  const settings = initialSettings.map((setting) => ({ ...setting }))
+async function mockAdminApi(page: Page, extraSettings: MockSetting[] = []) {
+  const settings = [...initialSettings, ...extraSettings].map((setting) => ({ ...setting }))
   const updates: Array<{ key: string; value: unknown }> = []
   const resets: string[] = []
   const tokenPayload = Buffer.from(
@@ -730,4 +730,48 @@ test('configures flight endpoints and disables lookup independently of routing',
   await expect(endpoint).toHaveCount(0)
   expect(api.updates).toContainEqual({ key: 'flights.provider', value: 'none' })
   await expect(page.getByLabel('GraphHopper base URL')).toBeVisible()
+})
+
+const addressSearchSettings: MockSetting[] = [
+  {
+    default_value: 'none',
+    description: 'Address and hotel search for stays; none turns it off.',
+    is_configured: false,
+    key: 'address_search.provider',
+    runtime_safe: true,
+    updated_at: null,
+    validation: { allowed_values: ['none', 'photon', 'nominatim', 'graphhopper'] },
+    value: 'none',
+    value_type: 'enum',
+    visibility: 'public',
+  },
+  {
+    default_value: 'https://photon.komoot.io',
+    description: 'Photon server used for address search.',
+    is_configured: false,
+    key: 'address_search.photon_base_url',
+    runtime_safe: true,
+    updated_at: null,
+    validation: { max_length: 2048, min_length: 1 },
+    value: 'https://photon.komoot.io',
+    value_type: 'string',
+    visibility: 'admin',
+  },
+]
+
+test('address search explains what is sent and shows the selected provider’s server', async ({ page }) => {
+  const api = await mockAdminApi(page, addressSearchSettings)
+  await page.goto('/admin#routing')
+  const selection = page.getByLabel('Address search provider', { exact: true })
+  await expect(selection).toHaveText('Address search off')
+  await expect(page.getByText(/It receives the search text and the stop's rough area/)).toBeVisible()
+  await expect(page.getByLabel('Photon base URL', { exact: true })).toHaveCount(0)
+
+  const form = page.locator('form').filter({ has: selection })
+  await selection.click()
+  await page.getByRole('option', { name: 'Photon', exact: true }).click()
+  await form.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByLabel('Photon base URL', { exact: true })).toHaveValue('https://photon.komoot.io')
+  expect(api.updates).toContainEqual({ key: 'address_search.provider', value: 'photon' })
+  await page.screenshot({ path: '../private/artifacts/stage-3/admin-address-search.png', fullPage: true })
 })

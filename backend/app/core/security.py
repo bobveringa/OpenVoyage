@@ -20,6 +20,7 @@ TOKEN_TYPE_ACCESS = 'access'
 TOKEN_TYPE_TRACKING_UPLOAD = 'tracking_upload'
 TOKEN_TYPE_ID = 'id'
 TOKEN_TYPE_MEDIA = 'media'
+TOKEN_TYPE_PLACE_PHOTO = 'place_photo'
 TOKEN_TYPE_REFRESH = 'refresh'
 
 
@@ -106,6 +107,23 @@ def create_media_url_token(media_id: str | uuid.UUID) -> str:
 
 def decode_media_url_token(token: str) -> uuid.UUID:
     payload = decode_token(token, expected_type=TOKEN_TYPE_MEDIA)
+    return uuid.UUID(str(payload['sub']))
+
+
+def create_place_photo_url_token(place_id: str | uuid.UUID) -> str:
+    """A 24-hour link token for a place's header photo, made like media tokens.
+
+    Its own token type, so a media token never opens a place photo or back.
+    """
+    return create_token(
+        subject=place_id,
+        token_type=TOKEN_TYPE_PLACE_PHOTO,
+        expires_delta=timedelta(minutes=settings.MEDIA_URL_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+def decode_place_photo_url_token(token: str) -> uuid.UUID:
+    payload = decode_token(token, expected_type=TOKEN_TYPE_PLACE_PHOTO)
     return uuid.UUID(str(payload['sub']))
 
 

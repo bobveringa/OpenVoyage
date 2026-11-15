@@ -108,6 +108,62 @@
     cursor: crosshair;
   }
 
+  .trip-leaflet-map--selecting-marker .leaflet-interactive {
+    pointer-events: none !important;
+  }
+
+  /* Stay pins: booked filled, ideas outlined. */
+  .trip-stay-pin > span {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border: 2px solid var(--primary);
+    border-radius: 9999px;
+    background: var(--card);
+    color: var(--primary);
+    box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--foreground) 45%, transparent);
+    transition: transform 150ms ease;
+  }
+
+  .trip-stay-pin > span[data-booked="true"] {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  .trip-stay-pin > span[data-dimmed="true"] {
+    opacity: 0.45;
+  }
+
+  .trip-stay-pin > span[data-highlighted="true"] {
+    transform: scale(1.25);
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+
+  .trip-stay-pin--crowded {
+    visibility: hidden;
+  }
+
+  .trip-stay-pin--combined > span {
+    display: flex;
+    width: 48px;
+    justify-content: center;
+    gap: 4px;
+    border-color: var(--card);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 40%, transparent),
+      0 4px 12px -4px color-mix(in srgb, var(--foreground) 45%, transparent);
+  }
+
+  .trip-stay-pin--combined .trip-map-place-marker__number {
+    font-size: 11px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .trip-stay-pin--combined > span[data-stop-highlighted="true"] {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 35%, transparent);
+  }
+
   .trip-mobile-travel-map .trip-leaflet-map {
     min-height: 0;
   }
@@ -170,6 +226,18 @@
   .trip-map-place-marker--numbered {
     width: 1.375rem;
     height: 1.375rem;
+  }
+
+  .trip-map-place-marker[data-stop-pin] {
+    cursor: pointer;
+    transition: transform 120ms ease, box-shadow 120ms ease;
+  }
+
+  .trip-map-place-marker[data-highlighted='true'] {
+    transform: scale(1.3);
+    box-shadow:
+      0 12px 28px -16px color-mix(in srgb, var(--foreground) 72%, transparent),
+      0 0 0 4px color-mix(in srgb, var(--primary) 35%, transparent);
   }
 
   .trip-map-place-marker__number {
@@ -418,6 +486,10 @@ body .trip-leaflet-map .leaflet-control-zoom.leaflet-bar {
   border-radius: 0.75rem;
   background: var(--card);
   box-shadow: 0 1px 2px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+
+.trip-leaflet-map--mobile-marker-picker .leaflet-top.leaflet-right {
+  top: max(3.5rem, calc(var(--app-safe-area-inset-top) + 3rem));
 }
 
 body .trip-leaflet-map .leaflet-tooltip.trip-map-gps-post-tooltip {

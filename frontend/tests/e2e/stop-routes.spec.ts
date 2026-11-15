@@ -7,10 +7,11 @@ const creator = { id: 'owner', first_name: 'Route', last_name: 'Tester', usernam
 
 function stop(id: string, name: string, latitude: number, longitude: number): ItineraryStop {
   return {
-    id, title: name, trip_id: 'trip', notes: '', planned_nights: 0,
-    planned_start_date: '2027-05-10', same_day_position: 0, visited: false,
+    id, title: name, trip_id: 'trip', notes: '', notes_updated_at: null, stays: [], planned_nights: 0,
+    planned_start_date: '2027-05-10', visited: false,
     created_at: timestamp, updated_at: timestamp, created_by: creator,
     location: { id, name, full_name: name, latitude, longitude, region: '', country_code: 'NL' },
+    original_location: { id, name, full_name: name, latitude, longitude, region: '', country_code: 'NL' },
   }
 }
 
@@ -74,7 +75,7 @@ for (const mobile of [false, true]) {
     await page.goto('/trips/trip?tab=plan')
     await page.getByRole('button', { name: 'Delete Utrecht', exact: true }).click()
     await expect.poll(() => calculations).toEqual(['a-c'])
-    const bridge = page.getByRole('button', { name: mobile ? /^Car 10 min/ : /Car Amsterdam to Eindhoven/ })
+    const bridge = page.getByRole('button', { name: /Car Amsterdam to Eindhoven/ })
     await expect(bridge).toBeVisible()
     await expect(page.getByRole('button', { name: 'Delete Utrecht', exact: true })).toHaveCount(0)
     await page.reload()

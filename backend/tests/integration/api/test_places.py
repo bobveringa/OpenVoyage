@@ -98,6 +98,7 @@ def test_geocode_places_returns_matching_places(client, db_session, api_prefix) 
             'feature_class': 'POPULATED_PLACE',
             'population': 741636,
             'feature_code': None, 'iata_code': None, 'icao_code': None, 'timezone': None,
+            'part_of': None,
         }
     ]
 

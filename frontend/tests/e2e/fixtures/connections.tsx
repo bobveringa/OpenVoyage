@@ -20,9 +20,10 @@ const stops: Stop[] = [
   { id: 'last', title: 'Utrecht', latitude: 52.09, longitude: 5.12 },
 ].map((place) => ({
   id: place.id, trip_id: 'trip', title: place.title, planned_start_date: '2026-11-18', planned_nights: 2,
-  notes: '', same_day_position: 0, visited: false, created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z',
+  notes: '', notes_updated_at: null, stays: [], visited: false, created_at: '2026-10-20T12:00:00Z', updated_at: '2026-10-20T12:00:00Z',
   created_by: { id: 'owner', first_name: null, last_name: null, username: null },
   location: { id: place.id, latitude: place.latitude, longitude: place.longitude, name: place.title, full_name: place.title, region: '', country_code: 'NL' },
+  original_location: { id: place.id, latitude: place.latitude, longitude: place.longitude, name: place.title, full_name: place.title, region: '', country_code: 'NL' },
 }))
 const interior: Connection = {
   ...createOuterConnectionDraft('DEPARTURE', stops[0]), id: 'interior', connection_type: 'BETWEEN_STOPS',

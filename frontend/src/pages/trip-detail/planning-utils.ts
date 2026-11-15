@@ -24,7 +24,6 @@ import type { Stop, Connection, TravelMode } from '@/pages/trip-detail/models'
 import type {
   DraftPostLocation,
   MapPointTarget,
-  StopEditDraft,
   StopInsertionPoint,
   ConnectionEditDraft,
 } from '@/pages/trip-detail/page-types'
@@ -35,7 +34,10 @@ export function createDraftMapPointLocation(
 ): DraftPostLocation {
   return {
     coordinates,
-    label: target === 'stop' ? 'Selected stop location' : target === 'connection' ? 'Selected connection location' : 'Selected post location',
+    label: target === 'stop-marker' ? 'Selected marker location'
+      : target === 'stop' ? 'Selected stop location'
+      : target === 'connection' ? 'Selected connection location'
+      : target === 'stay' ? 'Selected stay location' : 'Selected post location',
   }
 }
 
@@ -140,22 +142,27 @@ export function getPlaceSearchInput(place: Place) {
 }
 
 export function formatPlaceDetail(place: Place) {
-  const regionLabel = [place.region, place.country_code].filter(Boolean).join(', ')
+  // Districts say which city they belong to: "Neighbourhood in Budapest".
+  const regionLabel = [
+    place.part_of ? `Neighbourhood in ${place.part_of}` : null,
+    [place.region, place.country_code].filter(Boolean).join(', '),
+  ].filter(Boolean).join(' · ')
   const coordinates = formatCoordinates(getPlaceCoordinates(place))
   return regionLabel ? `${regionLabel} · ${coordinates}` : coordinates
 }
 
-export function getStopTitleSuggestion(locationLabel: string) {
-  return locationLabel.replace(/^(At|Near)\s+/i, '')
+/** The English name of a country, from its ISO code. */
+export function getCountryName(countryCode: string) {
+  if (!countryCode) return ''
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(countryCode.toUpperCase()) ?? countryCode
+  } catch {
+    return countryCode
+  }
 }
 
-export function createStopEditDraft(stop: Stop | null): StopEditDraft {
-  return {
-    notes: stop?.notes ?? '',
-    plannedNights: stop?.planned_nights ?? 1,
-    plannedStartDate: stop?.planned_start_date ?? formatDateInputValue(new Date()),
-    title: stop?.title ?? '',
-  }
+export function getStopTitleSuggestion(locationLabel: string) {
+  return locationLabel.replace(/^(At|Near)\s+/i, '')
 }
 
 export function createConnectionEditDraft(

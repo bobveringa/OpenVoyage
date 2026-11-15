@@ -9,12 +9,60 @@ from factories.places import create_place
 from factories.trips import add_trip_member, add_trip_viewer, create_trip
 from factories.users import create_user
 from models.database.base import utcnow
+from models.database.gps_privacy_zones import GpsPrivacyZone
 from models.database.trips import TripVisibility
 
 
 def auth(user):
     tokens = security.create_auth_tokens(subject=user.id, email=user.email)
     return {'Authorization': f'Bearer {tokens["access_token"]}'}
+
+
+@pytest.mark.integration
+def test_route_overview_keeps_planned_route_inside_gps_privacy_zone(
+    client, db_session, api_prefix
+):
+    owner = create_user(db_session)
+    trip = create_trip(db_session, owner_id=owner.id, visibility=TripVisibility.PUBLIC)
+    root = f'{api_prefix}/trips/{trip.id}/itinerary'
+    headers = auth(owner)
+    departure = {'latitude': 52.0, 'longitude': 5.0}
+    destination = {'latitude': 52.001, 'longitude': 5.001}
+    stop = client.post(
+        f'{root}/stops',
+        headers={**headers, 'If-Match': '"0"'},
+        json={
+            'location': destination,
+            'title': 'Destination',
+            'planned_nights': 1,
+            'placement': {'after_stop_id': None},
+        },
+    )
+    assert stop.status_code == 201, stop.text
+    connection = client.post(
+        f'{root}/connections',
+        headers={**headers, 'If-Match': stop.headers['etag']},
+        json={
+            'from': {'type': 'LOCATION', 'location': departure},
+            'to': {'type': 'STOP', 'stop_id': planning_body(stop)['stops'][0]['id']},
+            'segments': [{'travel_mode': 'CAR'}],
+        },
+    )
+    assert connection.status_code == 201, connection.text
+    before = client.get(f'{root}/overview')
+    assert before.status_code == 200, before.text
+    assert planning_body(before)['connections'][0]['route']['geometry']['coordinates'] == [
+        [5.0, 52.0], [5.001, 52.001],
+    ]
+
+    db_session.add(
+        GpsPrivacyZone(user_id=owner.id, name='Home', radius_meters=1000, **departure)
+    )
+    db_session.commit()
+
+    after = client.get(f'{root}/overview')
+    assert after.status_code == 200, after.text
+    assert planning_body(after) == planning_body(before)
 
 
 @pytest.mark.integration
@@ -64,13 +112,18 @@ def test_route_overview_access_and_private_planning_boundaries(
         json={
             'location': {'place_id': str(place.id)},
             'title': 'Private title QF6842',
-            'notes': 'Private stop note',
             'planned_nights': 3,
-            'placement': {'planned_start_date': '2099-05-10', 'after_stop_id': None},
+            'planned_start_date': '2099-05-10', 'placement': {'after_stop_id': None},
         },
     )
     assert stop_response.status_code == 201
     stop_id = planning_body(stop_response)['stops'][0]['id']
+    notes_response = client.put(
+        f'{root}/stops/{stop_id}/notes',
+        headers=headers,
+        json={'notes': 'Private stop note', 'based_on': None},
+    )
+    assert notes_response.status_code == 200
     connection_response = client.post(
         f'{root}/connections',
         headers={**headers, 'If-Match': '"1"'},
@@ -172,6 +225,13 @@ def test_route_overview_access_and_private_planning_boundaries(
         'created_by',
         'created_at',
         'updated_at',
+        'notes_updated_at',
+        'notes_updated_by',
+        'replaced_change_by',
+        'stays',
+        'stay_type',
+        'booking_reference',
+        'check_in_date',
         'itinerary_revision',
     }
 

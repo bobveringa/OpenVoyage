@@ -102,15 +102,14 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
       ? refreshedConnection.route.type === 'PROVIDER_BACKED'
       : env.E2E_EXPECT_PROVIDER_ROUTES.toLowerCase() === 'true'
 
+    const connection = page.getByRole('button', { name: /E2E Coimbra to E2E Porto/ })
     if (!providerBackedRoutes) {
-      // Automatic planning falls back to Other when routing is not configured.
-      const connection = page.getByRole('button', { name: /Other E2E Coimbra to E2E Porto/ })
-      await expect(connection).toContainText('Approximate connection')
+      // Without a provider the travel line shows the straight-line distance.
+      expect(refreshedConnection.route.type).toBe('SIMPLE')
+      await expect(connection).toHaveAccessibleName(/^Other E2E Coimbra to E2E Porto, [\d,]+ km$/)
     }
 
-    await page
-      .getByRole('button', { name: /E2E Coimbra to E2E Porto/ })
-      .click()
+    await connection.click()
     const chooser = page.getByRole('region', { name: 'Select your route', exact: true })
     if (!providerBackedRoutes) {
       await expect(chooser.getByRole('radio', { name: 'Other', exact: true })).toBeChecked()
@@ -121,11 +120,12 @@ test('creates itinerary stops, refreshes route geometry, and publishes a post', 
     await chooser.getByRole('button', { name: 'Select this route' }).click()
 
     if (providerBackedRoutes) {
-      await expect(page.getByText('Route ready').first()).toBeVisible({
+      // A ready route shows its distance and time on the travel line.
+      await expect(page.getByRole('button', { name: /E2E Coimbra to E2E Porto, .* km/ })).toBeVisible({
         timeout: 12000,
       })
     } else {
-      await expect(page.getByText('Route unavailable').first()).toBeVisible()
+      await expect(connection).toHaveText('Route unavailable')
     }
 
     await page.getByRole('button', { name: 'Travel' }).click()

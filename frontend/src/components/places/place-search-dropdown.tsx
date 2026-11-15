@@ -80,7 +80,11 @@ function getPlaceNameLabel(place: Place) {
 }
 
 function formatPlaceDetail(place: Place) {
-  const regionLabel = [place.region, place.country_code].filter(Boolean).join(', ')
+  // Districts say which city they belong to: "Neighbourhood in Budapest".
+  const regionLabel = [
+    place.part_of ? `Neighbourhood in ${place.part_of}` : null,
+    [place.region, place.country_code].filter(Boolean).join(', '),
+  ].filter(Boolean).join(' · ')
   const coordinates = `${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}`
   return regionLabel ? `${regionLabel} · ${coordinates}` : coordinates
 }

@@ -5,6 +5,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import update
 
 from factories.locations import create_location
 from factories.places import create_place
@@ -86,7 +87,7 @@ def journey(setup, monkeypatch):
         title='Porto',
         planned_start_date=START.date() + timedelta(days=2),
         planned_nights=2,
-        same_day_position=0,
+        position=1,
         created_by=s.owner.id,
     )
     s.db.add(porto_stop)
@@ -282,13 +283,19 @@ def test_staying_in_sevilla_does_not_target_tomorrows_airport(journey):
         latitude=37.39,
         longitude=-5.98,
     )
+    # Sevilla goes first, before the stops already planned.
+    s.db.execute(
+        update(ItineraryStop)
+        .where(ItineraryStop.trip_id == s.trip.id)
+        .values(position=ItineraryStop.position + 1)
+    )
     stop = ItineraryStop(
         trip_id=s.trip.id,
         location_id=sevilla.id,
         title='Sevilla',
         planned_start_date=START.date() - timedelta(days=2),
         planned_nights=3,
-        same_day_position=0,
+        position=0,
         created_by=s.owner.id,
     )
     s.db.add(stop)

@@ -5,7 +5,8 @@ import {
   ChevronRight,
   Clock,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { createPortal } from 'react-dom'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -70,6 +71,9 @@ function DateTimePickerBase({
 }: DatePickerProps & { mode: PickerMode }) {
   const { preference } = useClockFormat()
   const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState<PopoverPosition | null>(null)
   const selectedDate = parseDateValue(value)
   const selectedDateIso = selectedDate ? formatDateValue(selectedDate) : null
   const minDate = parseDateValue(min ?? '')
@@ -93,14 +97,47 @@ function DateTimePickerBase({
     }
 
     function handlePointerDown(event: MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
         setOpen(false)
       }
     }
+    // Escape closes the calendar only, not the card or modal around it.
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      setOpen(false)
+      triggerRef.current?.focus()
+    }
 
     document.addEventListener('mousedown', handlePointerDown)
-    return () => document.removeEventListener('mousedown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown, true)
+    }
   }, [open])
+
+  // The calendar floats above everything (a portal with fixed positioning),
+  // so a scrolling card or modal never clips it or changes its own layout.
+  useLayoutEffect(() => {
+    if (!open) return undefined
+    function update() {
+      if (triggerRef.current) {
+        setPosition(getPopoverPosition(triggerRef.current, popoverRef.current, popoverAlign))
+      }
+    }
+    update()
+    const frame = window.requestAnimationFrame(update)
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [open, popoverAlign, mode])
 
   function handleTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     if (event.key === 'Escape' && open) {
@@ -153,6 +190,7 @@ function DateTimePickerBase({
         id={id}
         onClick={openPicker}
         onKeyDown={handleTriggerKeyDown}
+        ref={triggerRef}
         type="button"
       >
         <span
@@ -170,13 +208,17 @@ function DateTimePickerBase({
         )}
       </button>
 
-      {open ? (
+      {open && typeof document !== 'undefined' ? createPortal(
         <div
-          className={cn(
-            'absolute z-40 mt-2 w-[17rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[1.35rem] border border-border bg-card p-2.5 shadow-xl shadow-foreground/10',
-            popoverAlign === 'end' ? 'right-0' : 'left-0',
-          )}
+          className="fixed z-[100] w-[17rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[1.35rem] border border-border bg-card p-2.5 text-card-foreground shadow-xl shadow-foreground/10"
+          aria-label="Calendar"
+          ref={popoverRef}
           role="dialog"
+          style={{
+            left: position?.left ?? 0,
+            top: position?.top ?? 0,
+            visibility: position ? 'visible' : 'hidden',
+          }}
         >
           <div className="flex items-center justify-between gap-3">
             <Button
@@ -254,10 +296,36 @@ function DateTimePickerBase({
               <Check className="size-4 text-primary" aria-hidden="true" />
             ) : null}
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   )
+}
+
+type PopoverPosition = { left: number; top: number }
+
+/** Below the trigger when it fits, otherwise above; always inside the viewport. */
+function getPopoverPosition(
+  trigger: HTMLElement,
+  popover: HTMLElement | null,
+  align: 'start' | 'end',
+): PopoverPosition {
+  const gap = 8
+  const padding = 8
+  const bounds = trigger.getBoundingClientRect()
+  const width = popover?.offsetWidth || 272
+  const height = popover?.offsetHeight || 360
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+  const spaceBelow = viewportHeight - bounds.bottom - gap - padding
+  const spaceAbove = bounds.top - gap - padding
+  const top = spaceBelow >= height || spaceBelow >= spaceAbove
+    ? Math.min(bounds.bottom + gap, Math.max(padding, viewportHeight - padding - height))
+    : Math.max(padding, bounds.top - gap - height)
+  const preferredLeft = align === 'end' ? bounds.right - width : bounds.left
+  const left = Math.min(Math.max(padding, preferredLeft), viewportWidth - padding - width)
+  return { left, top }
 }
 
 function TimeControls({

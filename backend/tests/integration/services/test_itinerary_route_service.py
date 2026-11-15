@@ -52,10 +52,8 @@ def plan(client, db_session, api_prefix):
                 'title': place.name,
                 'location': {'place_id': str(place.id)},
                 'planned_nights': 0,
-                'placement': {
-                    'planned_start_date': '2026-11-18',
-                    'after_stop_id': None,
-                },
+                'planned_start_date': '2026-11-18',
+                'placement': {'after_stop_id': None},
             },
         )
         assert response.status_code == 201, response.text
@@ -788,10 +786,8 @@ def test_stop_insertion_cancel_is_atomic_and_confirmation_creates_fresh_connecti
         'title': 'New middle stop',
         'planned_nights': 0,
         'location': {'latitude': 52.2, 'longitude': 5},
-        'placement': {
-            'planned_start_date': '2026-11-18',
-            'after_stop_id': data['stops'][0]['id'],
-        },
+        'planned_start_date': '2026-11-18',
+        'placement': {'after_stop_id': data['stops'][0]['id']},
     }
     blocked = client.post(
         base + '/stops', headers=headers(user, saved.headers['etag']), json=payload
@@ -846,6 +842,7 @@ def test_new_connection_uses_an_already_available_matching_car_estimate(
     )
     assert saved.status_code == 200, saved.text
     revision = saved.headers['etag']
+    last_stop_id = data['stops'][-1]['id']
     for day, stop in zip(('2026-11-19', '2026-11-20'), data['stops'], strict=True):
         response = client.post(
             base + '/stops',
@@ -857,11 +854,13 @@ def test_new_connection_uses_an_already_available_matching_car_estimate(
                     'latitude': stop['location']['latitude'],
                     'longitude': stop['location']['longitude'],
                 },
-                'placement': {'planned_start_date': day, 'after_stop_id': None},
+                'planned_start_date': day,
+                'placement': {'after_stop_id': last_stop_id},
             },
         )
         assert response.status_code == 201, response.text
         revision = response.headers['etag']
+        last_stop_id = planning_body(response)['stops'][-1]['id']
     assert (
         planning_body(response)['connections'][-1]['segments'][0]['intent']['travel_mode'] == 'FLIGHT'
     )

@@ -391,9 +391,9 @@ def test_reanchor_is_atomic_preserves_id_and_outside_and_clears_artifacts(
         'title': 'New edge',
         'location': {'latitude': 52, 'longitude': 5},
         'planned_nights': 0,
+        'planned_start_date': '2026-11-17' if side == 'DEPARTURE' else '2026-11-19',
         'placement': {
-            'planned_start_date': '2026-11-17' if side == 'DEPARTURE' else '2026-11-19',
-            'after_stop_id': None,
+            'after_stop_id': None if side == 'DEPARTURE' else data['stops'][-1]['id']
         },
     }
     rejected = client.post(

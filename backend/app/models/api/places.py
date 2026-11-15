@@ -20,9 +20,13 @@ class PlaceResponse(BaseModel):
     icao_code: str | None = None
     timezone: str | None = None
     population: int
+    part_of: str | None = Field(
+        default=None,
+        description='The city a neighbourhood or city district belongs to, otherwise null.',
+    )
 
     @classmethod
-    def from_model(cls, place: Place) -> Self:
+    def from_model(cls, place: Place, part_of: str | None = None) -> Self:
         feature_class = PlaceFeatureClass(place.feature_class)
         return cls(
             id=place.id,
@@ -36,6 +40,7 @@ class PlaceResponse(BaseModel):
             population=place.population,
             feature_code=place.feature_code, iata_code=place.iata_code,
             icao_code=place.icao_code, timezone=place.timezone,
+            part_of=part_of,
         )
 
 
@@ -46,3 +51,21 @@ class ReverseGeocodeResponse(BaseModel):
 
 class TimezoneResponse(BaseModel):
     timezone: str = Field(description='IANA time zone name, e.g. "Asia/Tokyo".')
+
+
+class StopPhotoResponse(BaseModel):
+    """A stop card's header photo: our stored copy and its Wikimedia credit."""
+
+    url: str = Field(description='The stored photo, with a 24-hour token in the link.')
+    credit: str | None = Field(description='The photographer, as plain text.')
+    license: str | None = Field(description='For example "CC BY-SA 3.0".')
+    source_url: str = Field(description="The photo's page on Wikimedia Commons.")
+
+
+class AddressResponse(BaseModel):
+    """An address search result for a stay."""
+
+    name: str
+    address: str | None
+    latitude: float
+    longitude: float

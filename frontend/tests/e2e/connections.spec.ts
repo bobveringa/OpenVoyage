@@ -83,7 +83,7 @@ for (const mobile of [false, true]) {
       const departureDate = chooser.getByRole('button', { name: 'Departure date', exact: true })
       await expect(departureDate).toBeEnabled()
       await departureDate.click()
-      const calendar = chooser.getByRole('dialog')
+      const calendar = page.getByRole('dialog', { name: 'Calendar' })
       await expect(calendar.getByRole('button', { name: side === 'departure' ? '18' : '20', exact: true })).toHaveClass(/bg-primary/)
       if (mobile && side === 'departure') {
         await calendar.scrollIntoViewIfNeeded()
@@ -151,7 +151,7 @@ for (const side of ['departure', 'return']) {
     await expect(chooser.getByLabel('Flight number', { exact: true })).toBeVisible()
     const departureDate = chooser.getByRole('button', { name: 'Departure date', exact: true })
     await departureDate.click()
-    const calendar = chooser.getByRole('dialog')
+    const calendar = page.getByRole('dialog', { name: 'Calendar' })
     await expect(calendar.getByRole('button', { name: side === 'departure' ? '18' : '20', exact: true })).toHaveClass(/bg-primary/)
     await calendar.getByRole('button', { name: '17', exact: true }).click()
     await expect(departureDate).toContainText(/17.*2026/)

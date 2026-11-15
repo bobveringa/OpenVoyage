@@ -7,7 +7,7 @@ import type {
   TripVisibility,
 } from './models'
 
-export type MapPointTarget = 'post' | 'stop' | 'connection'
+export type MapPointTarget = 'post' | 'stop' | 'connection' | 'stay' | 'stop-marker'
 
 export type DraftMediaUploadStatus =
   | 'existing'
@@ -49,7 +49,6 @@ export type PostScrollRequest = {
 export type CreateStopDraft = {
   afterStopId: string | null
   coordinates: L.LatLngTuple
-  notes: string
   placeId: string | null
   plannedNights: number
   plannedStartDate: string
@@ -59,13 +58,6 @@ export type CreateStopDraft = {
 export type StopInsertionPoint = {
   afterStopId: string | null
   plannedStartDate: string
-}
-
-export type StopEditDraft = {
-  notes: string
-  plannedNights: number
-  plannedStartDate: string
-  title: string
 }
 
 export type ConnectionEditDraft = Omit<import('@/api/client').ItineraryConnectionReplacePayload, 'segments' | 'from' | 'to'> & {

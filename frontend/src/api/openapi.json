@@ -1,6 +1,42 @@
 {
   "components": {
     "schemas": {
+      "AddressResponse": {
+        "description": "An address search result for a stay.",
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "address",
+          "latitude",
+          "longitude"
+        ],
+        "title": "AddressResponse",
+        "type": "object"
+      },
       "AdminSettingResponse": {
         "properties": {
           "default_value": {
@@ -1824,6 +1860,7 @@
       },
       "ItineraryPlacement": {
         "additionalProperties": false,
+        "description": "Where a stop goes in the trip's list of stops.",
         "properties": {
           "after_stop_id": {
             "anyOf": [
@@ -1835,16 +1872,11 @@
                 "type": "null"
               }
             ],
+            "description": "The stop right before it in the trip. Null puts it first.",
             "title": "After Stop Id"
-          },
-          "planned_start_date": {
-            "format": "date",
-            "title": "Planned Start Date",
-            "type": "string"
           }
         },
         "required": [
-          "planned_start_date",
           "after_stop_id"
         ],
         "title": "ItineraryPlacement",
@@ -1917,11 +1949,6 @@
             ],
             "title": "Location"
           },
-          "notes": {
-            "default": "",
-            "title": "Notes",
-            "type": "string"
-          },
           "outgoing_connection": {
             "anyOf": [
               {
@@ -1939,6 +1966,19 @@
             "minimum": 0.0,
             "title": "Planned Nights",
             "type": "integer"
+          },
+          "planned_start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to the leave date of the stop before it, or the trip's start date.",
+            "title": "Planned Start Date"
           },
           "title": {
             "maxLength": 255,
@@ -2014,11 +2054,28 @@
             "type": "string"
           },
           "location": {
-            "$ref": "#/components/schemas/LocationResponse"
+            "$ref": "#/components/schemas/LocationResponse",
+            "description": "Where the marker is shown."
           },
           "notes": {
             "title": "Notes",
             "type": "string"
+          },
+          "notes_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes Updated At"
+          },
+          "original_location": {
+            "$ref": "#/components/schemas/LocationResponse",
+            "description": "The place the stop was made for. Same id as location until moved."
           },
           "planned_nights": {
             "title": "Planned Nights",
@@ -2029,9 +2086,13 @@
             "title": "Planned Start Date",
             "type": "string"
           },
-          "same_day_position": {
-            "title": "Same Day Position",
-            "type": "integer"
+          "stays": {
+            "description": "Sorted by check-in date, then name. Trip members only.",
+            "items": {
+              "$ref": "#/components/schemas/StayResponse"
+            },
+            "title": "Stays",
+            "type": "array"
           },
           "title": {
             "title": "Title",
@@ -2055,13 +2116,15 @@
         "required": [
           "id",
           "trip_id",
-          "same_day_position",
           "location",
+          "original_location",
           "title",
           "notes",
+          "notes_updated_at",
           "planned_start_date",
           "planned_nights",
           "visited",
+          "stays",
           "created_by",
           "created_at",
           "updated_at"
@@ -2096,16 +2159,16 @@
             ],
             "title": "Location"
           },
-          "notes": {
+          "marker": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/LocationCoordinatesInput"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Notes"
+            "description": "Moves the marker within 25 km of the original location, keeping travel. Null puts it back on the original location."
           },
           "outgoing_connection": {
             "anyOf": [
@@ -2125,7 +2188,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Moves the stop. Applied before planned_start_date and planned_nights."
           },
           "planned_nights": {
             "anyOf": [
@@ -2138,6 +2202,18 @@
               }
             ],
             "title": "Planned Nights"
+          },
+          "planned_start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned Start Date"
           },
           "title": {
             "anyOf": [
@@ -2766,6 +2842,11 @@
           "region": {
             "title": "Region",
             "type": "string"
+          },
+          "timezone": {
+            "description": "IANA time zone at the coordinates, worked out per response.",
+            "title": "Timezone",
+            "type": "string"
           }
         },
         "required": [
@@ -2775,7 +2856,8 @@
           "longitude",
           "country_code",
           "region",
-          "full_name"
+          "full_name",
+          "timezone"
         ],
         "title": "LocationResponse",
         "type": "object"
@@ -3139,6 +3221,18 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "part_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The city a neighbourhood or city district belongs to, otherwise null.",
+            "title": "Part Of"
           },
           "population": {
             "title": "Population",
@@ -4935,6 +5029,509 @@
         "title": "SortDirection",
         "type": "string"
       },
+      "StayCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "booking_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Url"
+          },
+          "check_in_date": {
+            "format": "date",
+            "title": "Check In Date",
+            "type": "string"
+          },
+          "check_in_time": {
+            "anyOf": [
+              {
+                "format": "time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check In Time"
+          },
+          "check_out_date": {
+            "description": "The morning you leave.",
+            "format": "date",
+            "title": "Check Out Date",
+            "type": "string"
+          },
+          "check_out_time": {
+            "anyOf": [
+              {
+                "format": "time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check Out Time"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationPlaceInput"
+              },
+              {
+                "$ref": "#/components/schemas/LocationCoordinatesInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "IDEA",
+                  "BOOKED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for FRIENDS and OVERNIGHT_TRAVEL, which need no booking. Defaults to IDEA for the other types.",
+            "title": "Status"
+          },
+          "stay_type": {
+            "enum": [
+              "HOTEL",
+              "RENTAL",
+              "HOSTEL",
+              "CAMPING",
+              "FRIENDS",
+              "OVERNIGHT_TRAVEL",
+              "OTHER"
+            ],
+            "title": "Stay Type",
+            "type": "string"
+          },
+          "stop_id": {
+            "format": "uuid",
+            "title": "Stop Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stop_id",
+          "stay_type",
+          "name",
+          "check_in_date",
+          "check_out_date"
+        ],
+        "title": "StayCreateRequest",
+        "type": "object"
+      },
+      "StayResponse": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "booking_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Url"
+          },
+          "check_in_date": {
+            "format": "date",
+            "title": "Check In Date",
+            "type": "string"
+          },
+          "check_in_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Local clock time at the stay, HH:MM.",
+            "title": "Check In Time"
+          },
+          "check_out_date": {
+            "format": "date",
+            "title": "Check Out Date",
+            "type": "string"
+          },
+          "check_out_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Local clock time at the stay, HH:MM.",
+            "title": "Check Out Time"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "IDEA",
+                  "BOOKED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "stay_type": {
+            "enum": [
+              "HOTEL",
+              "RENTAL",
+              "HOSTEL",
+              "CAMPING",
+              "FRIENDS",
+              "OVERNIGHT_TRAVEL",
+              "OTHER"
+            ],
+            "title": "Stay Type",
+            "type": "string"
+          },
+          "stop_id": {
+            "format": "uuid",
+            "title": "Stop Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "stop_id",
+          "stay_type",
+          "status",
+          "name",
+          "address",
+          "location",
+          "check_in_date",
+          "check_out_date",
+          "check_in_time",
+          "check_out_time",
+          "booking_reference",
+          "booking_url",
+          "contact_phone",
+          "contact_email"
+        ],
+        "title": "StayResponse",
+        "type": "object"
+      },
+      "StayUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Send only what changes. Null clears an optional field.",
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "booking_reference": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Reference"
+          },
+          "booking_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Url"
+          },
+          "check_in_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check In Date"
+          },
+          "check_in_time": {
+            "anyOf": [
+              {
+                "format": "time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check In Time"
+          },
+          "check_out_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check Out Date"
+          },
+          "check_out_time": {
+            "anyOf": [
+              {
+                "format": "time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check Out Time"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationPlaceInput"
+              },
+              {
+                "$ref": "#/components/schemas/LocationCoordinatesInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "IDEA",
+                  "BOOKED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "stay_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "HOTEL",
+                  "RENTAL",
+                  "HOSTEL",
+                  "CAMPING",
+                  "FRIENDS",
+                  "OVERNIGHT_TRAVEL",
+                  "OTHER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stay Type"
+          }
+        },
+        "title": "StayUpdateRequest",
+        "type": "object"
+      },
       "StopConnectionEndpoint": {
         "additionalProperties": false,
         "properties": {
@@ -4954,6 +5551,120 @@
           "stop_id"
         ],
         "title": "StopConnectionEndpoint",
+        "type": "object"
+      },
+      "StopNotesResponse": {
+        "properties": {
+          "notes": {
+            "title": "Notes",
+            "type": "string"
+          },
+          "notes_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes Updated At"
+          },
+          "replaced_change_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when this save replaced a change another user saved after based_on. Never set for your own earlier saves."
+          }
+        },
+        "required": [
+          "notes",
+          "notes_updated_at",
+          "replaced_change_by"
+        ],
+        "title": "StopNotesResponse",
+        "type": "object"
+      },
+      "StopNotesUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "based_on": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The notes_updated_at the editor last saw, or null when the notes were never saved.",
+            "title": "Based On"
+          },
+          "notes": {
+            "maxLength": 20000,
+            "title": "Notes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "notes",
+          "based_on"
+        ],
+        "title": "StopNotesUpdateRequest",
+        "type": "object"
+      },
+      "StopPhotoResponse": {
+        "description": "A stop card's header photo: our stored copy and its Wikimedia credit.",
+        "properties": {
+          "credit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The photographer, as plain text.",
+            "title": "Credit"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For example \"CC BY-SA 3.0\".",
+            "title": "License"
+          },
+          "source_url": {
+            "description": "The photo's page on Wikimedia Commons.",
+            "title": "Source Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "The stored photo, with a 24-hour token in the link.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "credit",
+          "license",
+          "source_url"
+        ],
+        "title": "StopPhotoResponse",
         "type": "object"
       },
       "TimeFormat": {
@@ -8667,6 +9378,65 @@
         ]
       }
     },
+    "/api/v1/places/{place_id}/photo": {
+      "get": {
+        "description": "A place's stored header photo. A missing, wrong or expired token gets 404.",
+        "operationId": "get_place_photo_file_api_v1_places__place_id__photo_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "place_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Place Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/webp": {}
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Place Photo File",
+        "tags": [
+          "places"
+        ]
+      }
+    },
     "/api/v1/server/version": {
       "get": {
         "operationId": "get_server_version_api_v1_server_version_get",
@@ -9588,6 +10358,357 @@
           }
         ],
         "summary": "Get Itinerary",
+        "tags": [
+          "itinerary"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/itinerary/addresses/geocode": {
+      "get": {
+        "description": "Address and hotel search for stays, through our server (only people who plan the trip).",
+        "operationId": "geocode_addresses_api_v1_trips__trip_id__itinerary_addresses_geocode_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Query",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "near_latitude",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 90,
+                  "minimum": -90,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Near Latitude"
+            }
+          },
+          {
+            "in": "query",
+            "name": "near_longitude",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 180,
+                  "minimum": -180,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Near Longitude"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 10,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AddressResponse"
+                  },
+                  "title": "Response Geocode Addresses Api V1 Trips  Trip Id  Itinerary Addresses Geocode Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Address search off or unavailable"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Geocode Addresses",
+        "tags": [
+          "itinerary"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/itinerary/addresses/reverse-geocode": {
+      "get": {
+        "description": "The address at a dropped stay pin, or null.",
+        "operationId": "reverse_geocode_address_api_v1_trips__trip_id__itinerary_addresses_reverse_geocode_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "latitude",
+            "required": true,
+            "schema": {
+              "maximum": 90,
+              "minimum": -90,
+              "title": "Latitude",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "longitude",
+            "required": true,
+            "schema": {
+              "maximum": 180,
+              "minimum": -180,
+              "title": "Longitude",
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/AddressResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Reverse Geocode Address Api V1 Trips  Trip Id  Itinerary Addresses Reverse Geocode Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Address search off or unavailable"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Reverse Geocode Address",
         "tags": [
           "itinerary"
         ]
@@ -11079,6 +12200,448 @@
         ]
       }
     },
+    "/api/v1/trips/{trip_id}/itinerary/stays": {
+      "post": {
+        "description": "Add a stay to a stop. Its dates must fall within the stop's nights.",
+        "operationId": "create_stay_api_v1_trips__trip_id__itinerary_stays_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StayCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItineraryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Stay",
+        "tags": [
+          "itinerary"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/itinerary/stays/{stay_id}": {
+      "delete": {
+        "operationId": "delete_stay_api_v1_trips__trip_id__itinerary_stays__stay_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stay_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Stay Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItineraryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Delete Stay",
+        "tags": [
+          "itinerary"
+        ]
+      },
+      "patch": {
+        "description": "Edit a stay. Only changed dates are checked against the stop.",
+        "operationId": "update_stay_api_v1_trips__trip_id__itinerary_stays__stay_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stay_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Stay Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StayUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItineraryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Update Stay",
+        "tags": [
+          "itinerary"
+        ]
+      }
+    },
     "/api/v1/trips/{trip_id}/itinerary/stops": {
       "post": {
         "operationId": "create_stop_api_v1_trips__trip_id__itinerary_stops_post",
@@ -11686,6 +13249,298 @@
           }
         ],
         "summary": "Update Stop",
+        "tags": [
+          "itinerary"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/itinerary/stops/{stop_id}/notes": {
+      "put": {
+        "description": "Save a stop's notes. No If-Match: notes never change the revision.",
+        "operationId": "save_stop_notes_api_v1_trips__trip_id__itinerary_stops__stop_id__notes_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stop_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Stop Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StopNotesUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopNotesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Save Stop Notes",
+        "tags": [
+          "itinerary"
+        ]
+      }
+    },
+    "/api/v1/trips/{trip_id}/itinerary/stops/{stop_id}/photo": {
+      "get": {
+        "description": "The header photo of the stop's town, or null for the designed header.\n\nTrip members only. The first card for a town fetches the photo from\nWikipedia within 3 seconds; every later card gets our stored copy.",
+        "operationId": "get_stop_photo_api_v1_trips__trip_id__itinerary_stops__stop_id__photo_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trip_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Trip Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stop_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Stop Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Trip-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Trip-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/StopPhotoResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Stop Photo Api V1 Trips  Trip Id  Itinerary Stops  Stop Id  Photo Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Planning conflict"
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Itinerary changed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "428": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Revision required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningErrorResponse"
+                }
+              }
+            },
+            "description": "Calculation limit reached"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Stop Photo",
         "tags": [
           "itinerary"
         ]

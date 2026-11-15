@@ -56,10 +56,7 @@ def test_reorder_confirms_the_complete_graph_and_keeps_outer_ids(
     other = data['stops'][1 - moving_index]
     url = base + '/stops/' + moving['id']
     payload = {
-        'placement': {
-            'planned_start_date': moving['planned_start_date'],
-            'after_stop_id': other['id'] if moving_index == 0 else None,
-        }
+        'placement': {'after_stop_id': other['id'] if moving_index == 0 else None}
     }
     blocked = client.patch(url, headers=headers(user, revision), json=payload)
     assert blocked.status_code == 409, blocked.text
