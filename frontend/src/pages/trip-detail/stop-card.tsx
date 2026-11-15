@@ -225,12 +225,11 @@ function StopCardHeader({
             {stop.title}
           </button>
         )}
-        {/* The region, with the photo credit on the same line, bottom right. */}
-        <div className="flex min-w-0 items-end justify-between gap-3">
-          <p className="min-w-0 truncate text-sm text-white/85">{stop.location.region}</p>
+        <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-1">
+          <p className="min-w-0 max-w-full truncate text-sm text-white/85">{stop.location.region}</p>
           {photo ? (
             <a
-              className="mb-px max-w-[65%] shrink-0 truncate rounded text-[11px] leading-4 text-white/85 drop-shadow-sm hover:text-white hover:underline focus-visible:outline-2 focus-visible:outline-white/80"
+              className="mb-px ml-auto line-clamp-2 min-w-0 max-w-full rounded text-right text-[11px] leading-4 wrap-anywhere text-white/85 drop-shadow-sm hover:text-white hover:underline focus-visible:outline-2 focus-visible:outline-white/80"
               href={photo.source_url}
               rel="noopener noreferrer"
               target="_blank"

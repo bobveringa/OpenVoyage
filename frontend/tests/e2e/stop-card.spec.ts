@@ -5,6 +5,7 @@ import { seedAuthTokens } from './helpers/auth'
 const timestamp = '2026-10-20T12:00:00Z'
 const creator = { id: 'owner', first_name: 'Route', last_name: 'Tester', username: 'tester' }
 const artifacts = '../private/artifacts/stop-card'
+const photoCredit = 'Eindhoven City Archive / Example Photographer'
 const photoBody = {
   body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'),
   contentType: 'image/png',
@@ -50,7 +51,7 @@ async function openTrip(page: Page, { mobile = false, replacedBy = false, loadMa
       calls.photos.push(path)
       return json(path.endsWith('/stops/a/photo') ? {
         url: '/api/v1/places/eindhoven/photo?token=signed',
-        credit: 'Example Photographer',
+        credit: photoCredit,
         license: 'CC BY-SA 4.0',
         source_url: 'https://commons.wikimedia.org/wiki/File:Eindhoven.jpg',
       } : null)
@@ -235,7 +236,7 @@ test('a big town fades its Wikipedia photo in over the designed header, with the
   expect(requestsOnOpen).toBeGreaterThan(0)
 
   expect((await header.boundingBox())!.height).toBeCloseTo(216, 0)
-  const credit = eindhoven.getByRole('link', { name: 'Photo: Example Photographer · CC BY-SA 4.0' })
+  const credit = eindhoven.getByRole('link', { name: `Photo: ${photoCredit} · CC BY-SA 4.0` })
   await expect(credit).toHaveAttribute('href', 'https://commons.wikimedia.org/wiki/File:Eindhoven.jpg')
   await expect(credit).toHaveAttribute('target', '_blank')
   // The credit sits bottom right, below the name, which keeps its full width.
@@ -245,7 +246,11 @@ test('a big town fades its Wikipedia photo in over the designed header, with the
   expect(creditBox!.y).toBeGreaterThanOrEqual(nameBox!.y + nameBox!.height - 1)
   expect(headerBox!.x + headerBox!.width - (creditBox!.x + creditBox!.width)).toBeLessThan(24)
   expect(await name.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
-  expect(await credit.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  const creditOverflow = await credit.evaluate((element) => ({
+    horizontal: element.scrollWidth - element.clientWidth,
+    vertical: element.scrollHeight - element.clientHeight,
+  }))
+  expect(creditOverflow).toEqual({ horizontal: 0, vertical: 0 })
   await page.screenshot({ path: `${artifacts}/desktop-card-photo.png` })
 
   // Switching to a stop without a photo keeps the same height and no credit.
