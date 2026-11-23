@@ -11,6 +11,7 @@
     "start": "npm run dev",
     "lint": "eslint .",
     "preview": "vite preview",
+    "preview:readme": "playwright test --config playwright.readme.config.ts",
     "test:e2e": "playwright test",
     "test:unit": "vitest run",
     "cap:sync": "npm run build && npx cap sync android",
