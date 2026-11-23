@@ -2,7 +2,15 @@
 An open source self-hosted travel planner and travel blog, for you and the people
 **you** choose to share it with.
 
-![OpenVoyage showing a trip from Lisbon to Paris: a scrollable feed of travel posts beside a map of the route, on desktop and on a phone.](images/openvoyage-example.webp)
+<p align="center">
+  <a href="images/openvoyage-example.webp"><img src="images/openvoyage-example.webp" width="100%" alt="OpenVoyage on desktop and mobile, with travel photos beside the Lisbon-to-Paris route." /></a>
+</p>
+
+<p align="center">
+  <a href="#plan-the-whole-journey">Plan your trip</a> ·
+  <a href="#take-your-stories-with-you">Explore on mobile</a> ·
+  <a href="#-quick-start">Self-host OpenVoyage</a>
+</p>
 
 OpenVoyage is a part of your whole trip, from planning to traveling. Before you
 leave, you create an itinerary of the places you intend to visit and how long
@@ -33,6 +41,27 @@ You are in control. Your trip, your photos, your GPS, your choice.
 | 🧳 **Travelling together**    | Add trip members who can update the itinerary and write their own posts in the shared timeline.                                                                          |
 | 🗺️ **Map and timeline**      | Explore planned stops, recorded tracks, travel routes, and posts on one map or in chronological order.                                                                   |
 | 🏠 **Your server, your data** | Self-host OpenVoyage and keep control of your accounts, media, trip details, and GPS data.                                                                               |
+
+### Plan the whole journey
+
+Build your itinerary on desktop or mobile, with stops, dates, and travel
+between places together in one view.
+
+<p>
+  <a href="images/openvoyage-planning.webp">
+    <img src="images/openvoyage-planning.webp" width="100%" alt="OpenVoyage's desktop and mobile planning views with stops from Lisbon to Paris, dates, and connecting routes on the map." />
+  </a>
+</p>
+### Take your stories with you
+
+Follow the route, open a post to read the story and browse its photos, and
+switch between light and dark appearances.
+
+<p>
+  <a href="images/openvoyage-mobile.webp">
+    <img src="images/openvoyage-mobile.webp" width="100%" alt="Three mobile views of OpenVoyage showing the trip map, a travel story with photos, and the dark appearance." />
+  </a>
+</p>
 
 ## 🚀 Quick start
 The quickest way to run OpenVoyage is Docker Compose.
@@ -203,6 +232,8 @@ The root `package.json` is the source of the OpenVoyage version, currently
 `npm --prefix frontend ci`. Node 22.22.2+, 24.15.0+, or 26+ is required.
 API generation also needs the backend Python environment; it uses the root
 `.venv`, or the Python executable specified by `PYTHON`.
+
+### Releasing
 
 Run releases from a clean, up-to-date `main` branch with all tags fetched:
 
